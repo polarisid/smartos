@@ -1,0 +1,221 @@
+
+"use client";
+
+import { useState, useEffect } from "react";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Wrench, Users, Tag, Tv, WashingMachine, ShieldCheck, ListTree, ClipboardCheck } from "lucide-react";
+import { serviceOrders, type ServiceOrder, technicians as initialTechnicians, type Technician } from "@/lib/data";
+import { startOfWeek, startOfMonth, isAfter, startOfYear, isToday } from 'date-fns';
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { db } from "@/lib/firebase";
+import { collection, getDocs } from "firebase/firestore";
+
+export default function DashboardPage() {
+    const [filterPeriod, setFilterPeriod] = useState<'today' | 'this_week' | 'this_month' | 'this_year' | 'all_time'>('this_month');
+    const [technicians, setTechnicians] = useState<Technician[]>(initialTechnicians);
+
+    useEffect(() => {
+        const fetchTechnicians = async () => {
+            try {
+                const querySnapshot = await getDocs(collection(db, "technicians"));
+                if (!querySnapshot.empty) {
+                    const techs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
+                    setTechnicians(techs);
+                }
+            } catch (error) {
+                console.error("Error fetching technicians:", error);
+            }
+        };
+        fetchTechnicians();
+    }, []);
+
+    const now = new Date();
+
+    const filterLabels: Record<typeof filterPeriod, string> = {
+        today: "Hoje",
+        this_week: "Semana",
+        this_month: "Mês",
+        this_year: "Ano",
+        all_time: "Total"
+    };
+
+    const filteredServiceOrders = serviceOrders.filter(os => {
+        if (filterPeriod === 'all_time') return true;
+        
+        const osDate = os.date;
+        if (filterPeriod === 'today') {
+            return isToday(osDate);
+        }
+        if (filterPeriod === 'this_week') {
+            // Considera que a semana começa na Segunda-feira
+            return isAfter(osDate, startOfWeek(now, { weekStartsOn: 1 }));
+        }
+        if (filterPeriod === 'this_month') {
+            return isAfter(osDate, startOfMonth(now));
+        }
+        if (filterPeriod === 'this_year') {
+            return isAfter(osDate, startOfYear(now));
+        }
+        return true;
+    });
+
+    const totalOsFiltered = filteredServiceOrders.length;
+    const totalBonusFiltered = (totalOsFiltered * 25.50).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+    const performanceData = technicians.map(tech => {
+        const techOrders = filteredServiceOrders.filter(os => os.technicianId === tech.id);
+        return {
+          technician: tech,
+          osCount: techOrders.length
+        };
+    });
+
+    const osByEquipmentType = filteredServiceOrders.reduce((acc, os) => {
+        if (!acc[os.equipmentType]) {
+        acc[os.equipmentType] = 0;
+        }
+        acc[os.equipmentType]++;
+        return acc;
+    }, {} as Record<ServiceOrder['equipmentType'], number>);
+
+    const osByServiceType = filteredServiceOrders.reduce((acc, os) => {
+        if (!acc[os.serviceType]) {
+        acc[os.serviceType] = 0;
+        }
+        acc[os.serviceType]++;
+        return acc;
+    }, {} as Record<ServiceOrder['serviceType'], number>);
+
+    const serviceTypeConfig: Record<ServiceOrder['serviceType'], { label: string; icon: React.ElementType }> = {
+        reparo_samsung: { label: "Reparo Samsung", icon: Wrench },
+        visita_orcamento_samsung: { label: "Visita Orçamento Samsung", icon: ClipboardCheck },
+        visita_assurant: { label: "Visita Assurant", icon: ShieldCheck }
+    };
+
+  return (
+    <div className="flex flex-col gap-6 p-4 sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <h1 className="text-2xl font-bold">Dashboard</h1>
+             <Tabs defaultValue="this_month" onValueChange={(value) => setFilterPeriod(value as any)} className="w-full sm:w-auto">
+                <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5">
+                    <TabsTrigger value="today">Hoje</TabsTrigger>
+                    <TabsTrigger value="this_week">Semana</TabsTrigger>
+                    <TabsTrigger value="this_month">Mês</TabsTrigger>
+                    <TabsTrigger value="this_year">Ano</TabsTrigger>
+                    <TabsTrigger value="all_time">Total</TabsTrigger>
+                </TabsList>
+            </Tabs>
+        </div>
+
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Ordens de Serviço ({filterLabels[filterPeriod]})</CardTitle>
+            <Wrench className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalOsFiltered}</div>
+            <p className="text-xs text-muted-foreground">Total de OS no período selecionado</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Técnicos Ativos</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{technicians.length}</div>
+            <p className="text-xs text-muted-foreground">Todos os técnicos operando</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Faturamento ({filterLabels[filterPeriod]})</CardTitle>
+            <Tag className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalBonusFiltered}</div>
+            <p className="text-xs text-muted-foreground">Valor estimado no período</p>
+          </CardContent>
+        </Card>
+      </div>
+       <Card>
+          <CardHeader>
+            <CardTitle>Desempenho por Técnico</CardTitle>
+            <CardDescription>Contagem de Ordens de Serviço no período.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Técnico</TableHead>
+                  <TableHead className="text-right">OS no Período</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {performanceData.map((data) => (
+                  <TableRow key={data.technician.id}>
+                    <TableCell className="font-medium">{data.technician.name}</TableCell>
+                    <TableCell className="text-right">{data.osCount}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <div className="grid gap-6 md:grid-cols-2">
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                    <ListTree className="h-5 w-5" />
+                    <span>OS por Equipamento</span>
+                    </CardTitle>
+                    <CardDescription>Distribuição das ordens de serviço no período.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                            <Tv className="h-4 w-4" />
+                            <span>TV/AV</span>
+                        </div>
+                        <span className="font-bold">{osByEquipmentType['TV/AV'] || 0}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                            <WashingMachine className="h-4 w-4" />
+                            <span>Linha Branca (DA)</span>
+                        </div>
+                        <span className="font-bold">{osByEquipmentType['DA'] || 0}</span>
+                    </div>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <ListTree className="h-5 w-5" />
+                        <span>OS por Atendimento</span>
+                    </CardTitle>
+                    <CardDescription>Distribuição das ordens de serviço no período.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4">
+                    {Object.entries(serviceTypeConfig).map(([type, config]) => {
+                        const Icon = config.icon;
+                        const count = osByServiceType[type as keyof typeof osByServiceType] || 0;
+                        return (
+                            <div key={type} className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-muted-foreground">
+                                    <Icon className="h-4 w-4" />
+                                    <span>{config.label}</span>
+                                </div>
+                                <span className="font-bold">{count}</span>
+                            </div>
+                        )
+                    })}
+                </CardContent>
+            </Card>
+        </div>
+    </div>
+  );
+}

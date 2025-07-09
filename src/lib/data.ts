@@ -1,0 +1,80 @@
+
+export type Technician = {
+  id: string;
+  name: string;
+  goal?: number;
+};
+
+export const technicians: Technician[] = [
+  { id: '1', name: 'João Silva', goal: 5000 },
+  { id: '2', name: 'Maria Oliveira', goal: 5500 },
+  { id: '3', name: 'Carlos Pereira', goal: 4800 },
+  { id: '4', name: 'Ana Costa', goal: 5200 },
+];
+
+export type ServiceOrder = {
+  id: string;
+  technicianId: string;
+  date: Date;
+  equipmentType: 'TV/AV' | 'DA';
+  serviceType: 'reparo_samsung' | 'visita_orcamento_samsung' | 'visita_assurant';
+  samsungBudgetApproved?: boolean;
+  samsungBudgetValue?: number;
+};
+
+const today = new Date();
+export const serviceOrders: ServiceOrder[] = [
+  // João Silva (id: '1')
+  { id: 'os01', technicianId: '1', date: new Date(), equipmentType: 'TV/AV', serviceType: 'reparo_samsung' },
+  { id: 'os02', technicianId: '1', date: new Date(new Date().setDate(today.getDate() - 3)), equipmentType: 'DA', serviceType: 'visita_assurant' },
+  { id: 'os03', technicianId: '1', date: new Date(new Date().setDate(today.getDate() - 10)), equipmentType: 'TV/AV', serviceType: 'visita_orcamento_samsung', samsungBudgetApproved: true, samsungBudgetValue: 250.00 },
+  { id: 'os04', technicianId: '1', date: new Date(new Date().setMonth(today.getMonth() - 1)), equipmentType: 'DA', serviceType: 'reparo_samsung' },
+
+  // Maria Oliveira (id: '2')
+  { id: 'os05', technicianId: '2', date: new Date(new Date().setDate(today.getDate() - 1)), equipmentType: 'DA', serviceType: 'reparo_samsung' },
+  { id: 'os06', technicianId: '2', date: new Date(new Date().setDate(today.getDate() - 15)), equipmentType: 'TV/AV', serviceType: 'visita_assurant' },
+  { id: 'os07', technicianId: '2', date: new Date(new Date().setMonth(today.getMonth() - 2)), equipmentType: 'TV/AV', serviceType: 'reparo_samsung' },
+  { id: 'os12', technicianId: '2', date: new Date(), equipmentType: 'TV/AV', serviceType: 'visita_orcamento_samsung', samsungBudgetApproved: true, samsungBudgetValue: 480.50 },
+
+
+  // Carlos Pereira (id: '3')
+  { id: 'os08', technicianId: '3', date: new Date(new Date().setDate(today.getDate() - 5)), equipmentType: 'TV/AV', serviceType: 'reparo_samsung' },
+  { id: 'os09', technicianId: '3', date: new Date(new Date().setDate(today.getDate() - 6)), equipmentType: 'DA', serviceType: 'visita_assurant' },
+
+  // Ana Costa (id: '4')
+  { id: 'os10', technicianId: '4', date: new Date(new Date().setFullYear(today.getFullYear() - 1)), equipmentType: 'TV/AV', serviceType: 'reparo_samsung' },
+  { id: 'os11', technicianId: '4', date: new Date(new Date().setDate(today.getDate() - 20)), equipmentType: 'DA', serviceType: 'visita_orcamento_samsung', samsungBudgetApproved: false },
+];
+
+
+export const symptomCodes = {
+  'TV/AV': [
+    { code: 'S01', description: 'Não liga' },
+    { code: 'S02', description: 'Imagem com listras' },
+    { code: 'S03', description: 'Sem som' },
+    { code: 'S04', description: 'Reiniciando' },
+  ],
+  'DA': [
+    { code: 'D01', description: 'Não gela (Refrigerador)' },
+    { code: 'D02', description: 'Não aquece (Microondas)' },
+    { code: 'D03', description: 'Não centrifuga (Lavadora)' },
+    { code: 'D04', description: 'Vazamento de água' },
+  ]
+};
+
+export const repairCodes = {
+  'TV/AV': [
+    { code: 'R01', description: 'Troca da fonte de alimentação' },
+    { code: 'R02', description: 'Reparo na placa principal' },
+    { code: 'R03', description: 'Troca dos alto-falantes' },
+    { code: 'R04', description: 'Atualização de software' },
+  ],
+  'DA': [
+    { code: 'R01', description: 'Carga de gás refrigerante' },
+    { code: 'R02', description: 'Troca do magnetron' },
+    { code: 'R03', description: 'Troca da placa de potência' },
+    { code: 'R04', description: 'Troca da bomba de drenagem' },
+  ]
+};
+
+    
