@@ -295,8 +295,8 @@ function SearchableSelect({
 export default function ServiceOrderPage() {
   const [generatedText, setGeneratedText] = useState("");
   const { toast } = useToast();
-  const [symptomCodes, setSymptomCodes] = useState<CodeCategory>(initialSymptomCodes);
-  const [repairCodes, setRepairCodes] = useState<CodeCategory>(initialRepairCodes);
+  const [symptomCodes, setSymptomCodes] = useState<CodeCategory>({ "TV/AV": [], "DA": [] });
+  const [repairCodes, setRepairCodes] = useState<CodeCategory>({ "TV/AV": [], "DA": [] });
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
 
@@ -306,10 +306,14 @@ export default function ServiceOrderPage() {
       technician: "",
       serviceOrderNumber: "",
       serviceType: "",
+      samsungRepairType: "",
+      samsungBudgetApproved: false,
+      samsungBudgetValue: "",
       equipmentType: "",
       symptomCode: "",
       repairCode: "",
-      samsungBudgetApproved: false,
+      replacedPart: "",
+      observations: "",
       defectFound: "",
       partsRequested: "",
     },
@@ -370,15 +374,15 @@ export default function ServiceOrderPage() {
                 const techs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
                 setTechnicians(techs);
             } else {
-                 setTechnicians(initialTechnicians); // Fallback
+                 setTechnicians([]); 
             }
         } catch (error) {
             console.error("Error fetching technicians:", error);
-            setTechnicians(initialTechnicians); // Use static data as fallback
+            setTechnicians([]); 
             toast({
                 variant: "destructive",
                 title: "Erro ao carregar técnicos",
-                description: "Não foi possível buscar os dados mais recentes. Usando dados padrão.",
+                description: "Não foi possível buscar os dados mais recentes.",
             });
         }
     };
@@ -393,7 +397,7 @@ export default function ServiceOrderPage() {
     if (savedTechnician) {
       form.setValue("technician", savedTechnician);
     }
-  }, [form]);
+  }, [form, technicians]);
 
   useEffect(() => {
     if (watchedTechnician) {
@@ -438,12 +442,12 @@ export default function ServiceOrderPage() {
         if (data.defectFound) serviceSpecificParts.push(`- **Defeito Constatado:** ${data.defectFound}`);
         if (data.partsRequested) serviceSpecificParts.push(`- **Peças Solicitadas:** ${data.partsRequested}`);
     } else {
-        const symptomDescription = data.symptomCode && data.equipmentType
+        const symptomDescription = data.symptomCode && data.equipmentType && symptomCodes[data.equipmentType as keyof typeof symptomCodes]
             ? `${data.symptomCode} - ${symptomCodes[data.equipmentType as keyof typeof symptomCodes]?.find(s => s.code === data.symptomCode)?.description}`
             : '';
         if (symptomDescription) serviceSpecificParts.push(`- **Sintoma:** ${symptomDescription}`);
 
-        const repairDescription = data.repairCode && data.equipmentType
+        const repairDescription = data.repairCode && data.equipmentType && repairCodes[data.equipmentType as keyof typeof repairCodes]
             ? `${data.repairCode} - ${repairCodes[data.equipmentType as keyof typeof repairCodes]?.find(r => r.code === data.repairCode)?.description}`
             : '';
         if (repairDescription) serviceSpecificParts.push(`- **Reparo:** ${repairDescription}`);
@@ -500,7 +504,6 @@ export default function ServiceOrderPage() {
             defectFound: "",
             partsRequested: "",
         });
-        setGeneratedText("");
 
     } catch (error) {
         console.error("Error adding service order: ", error);
