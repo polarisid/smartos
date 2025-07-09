@@ -125,11 +125,21 @@ function PerformanceDashboard({ technicians, serviceOrders }: { technicians: Tec
         );
 
         const osCount = techOrdersThisMonth.length;
-        const budgetValue = techOrdersThisMonth
-            .filter(os => os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved && os.samsungBudgetValue)
-            .reduce((total, os) => total + (os.samsungBudgetValue || 0), 0);
+
+        // Separate approved budget orders to calculate their value differently
+        const approvedBudgetOrders = techOrdersThisMonth.filter(os =>
+            os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved
+        );
+
+        // All other orders will be counted by the standard OS_VALUE
+        const otherOrders = techOrdersThisMonth.filter(os =>
+            os.serviceType !== 'visita_orcamento_samsung' || !os.samsungBudgetApproved
+        );
+
+        const budgetValue = approvedBudgetOrders.reduce((total, os) => total + (os.samsungBudgetValue || 0), 0);
         
-        const revenue = (osCount * OS_VALUE) + budgetValue;
+        const revenue = (otherOrders.length * OS_VALUE) + budgetValue;
+        
         const goal = tech.goal || 0;
         const progress = goal > 0 ? Math.min((revenue / goal) * 100, 100) : 0;
 
@@ -489,8 +499,10 @@ export default function ServiceOrderPage() {
 
         fetchServiceOrders(); // Refetch data for dashboard
 
+        const technicianBeforeReset = form.getValues("technician");
+
         form.reset({
-            technician: data.technician, // Keep technician selected
+            technician: technicianBeforeReset, // Keep technician selected
             serviceOrderNumber: "",
             serviceType: "",
             samsungRepairType: "",
@@ -675,7 +687,7 @@ export default function ServiceOrderPage() {
                                                                     <FormLabel>Código de Sintoma</FormLabel>
                                                                      <FormControl>
                                                                         <SearchableSelect
-                                                                            value={field.value}
+                                                                            value={field.value || ""}
                                                                             onChange={field.onChange}
                                                                             placeholder="Selecione o sintoma"
                                                                             options={symptomCodes[watchedEquipmentType as keyof typeof symptomCodes]?.map(s => ({ value: s.code, label: `${s.code} - ${s.description}` })) || []}
@@ -689,7 +701,7 @@ export default function ServiceOrderPage() {
                                                                     <FormLabel>Código de Reparo {watchedServiceType === 'visita_orcamento_samsung' && '(Opcional)'}</FormLabel>
                                                                      <FormControl>
                                                                         <SearchableSelect
-                                                                            value={field.value}
+                                                                            value={field.value || ""}
                                                                             onChange={field.onChange}
                                                                             placeholder="Selecione o reparo"
                                                                             options={repairCodes[watchedEquipmentType as keyof typeof repairCodes]?.map(r => ({ value: r.code, label: `${r.code} - ${r.description}` })) || []}
