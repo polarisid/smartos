@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Wrench, Users, Tag, Tv, WashingMachine, ShieldCheck, ListTree, ClipboardCheck } from "lucide-react";
-import { serviceOrders, type ServiceOrder, technicians as initialTechnicians, type Technician } from "@/lib/data";
+import { type ServiceOrder, type Technician } from "@/lib/data";
 import { startOfWeek, startOfMonth, isAfter, startOfYear, isToday } from 'date-fns';
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/lib/firebase";
@@ -13,21 +13,39 @@ import { collection, getDocs } from "firebase/firestore";
 
 export default function DashboardPage() {
     const [filterPeriod, setFilterPeriod] = useState<'today' | 'this_week' | 'this_month' | 'this_year' | 'all_time'>('this_month');
-    const [technicians, setTechnicians] = useState<Technician[]>(initialTechnicians);
+    const [technicians, setTechnicians] = useState<Technician[]>([]);
+    const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
 
     useEffect(() => {
         const fetchTechnicians = async () => {
             try {
                 const querySnapshot = await getDocs(collection(db, "technicians"));
-                if (!querySnapshot.empty) {
-                    const techs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
-                    setTechnicians(techs);
-                }
+                const techs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
+                setTechnicians(techs);
             } catch (error) {
                 console.error("Error fetching technicians:", error);
             }
         };
+        
+        const fetchServiceOrders = async () => {
+            try {
+                const querySnapshot = await getDocs(collection(db, "serviceOrders"));
+                const orders = querySnapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return {
+                        id: doc.id,
+                        ...data,
+                        date: data.date.toDate(), // Convert Firestore Timestamp to JS Date
+                    } as ServiceOrder;
+                });
+                setServiceOrders(orders);
+            } catch (error) {
+                console.error("Error fetching service orders:", error);
+            }
+        };
+
         fetchTechnicians();
+        fetchServiceOrders();
     }, []);
 
     const now = new Date();

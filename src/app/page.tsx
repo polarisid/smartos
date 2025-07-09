@@ -10,7 +10,6 @@ import {
   technicians as initialTechnicians,
   symptomCodes as initialSymptomCodes,
   repairCodes as initialRepairCodes,
-  serviceOrders as allServiceOrders,
   type Technician,
   type ServiceOrder,
 } from "@/lib/data";
@@ -45,7 +44,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
-import { collection, doc, getDoc, getDocs } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, addDoc } from "firebase/firestore";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -111,12 +110,12 @@ function Header() {
     );
 }
 
-function PerformanceDashboard({ technicians }: { technicians: Technician[] }) {
+function PerformanceDashboard({ technicians, serviceOrders }: { technicians: Technician[], serviceOrders: ServiceOrder[] }) {
     const now = new Date();
     const startOfCurrentMonth = startOfMonth(now);
     const OS_VALUE = 25.50;
 
-    const serviceOrdersThisMonth = allServiceOrders.filter(os =>
+    const serviceOrdersThisMonth = serviceOrders.filter(os =>
         isAfter(os.date, startOfCurrentMonth)
     );
 
@@ -299,6 +298,7 @@ export default function ServiceOrderPage() {
   const [symptomCodes, setSymptomCodes] = useState<CodeCategory>(initialSymptomCodes);
   const [repairCodes, setRepairCodes] = useState<CodeCategory>(initialRepairCodes);
   const [technicians, setTechnicians] = useState<Technician[]>([]);
+  const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -318,6 +318,29 @@ export default function ServiceOrderPage() {
   const watchedServiceType = form.watch("serviceType");
   const watchedEquipmentType = form.watch("equipmentType");
   const watchedTechnician = form.watch("technician");
+
+  const fetchServiceOrders = async () => {
+    try {
+        const querySnapshot = await getDocs(collection(db, "serviceOrders"));
+        const orders = querySnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                ...data,
+                date: data.date.toDate(), // Convert Firestore Timestamp to Date
+            } as ServiceOrder;
+        });
+        setServiceOrders(orders);
+    } catch (error) {
+        console.error("Error fetching service orders:", error);
+        toast({
+            variant: "destructive",
+            title: "Erro ao buscar OS",
+            description: "Não foi possível carregar os dados das Ordens de Serviço.",
+        });
+        setServiceOrders([]);
+    }
+  };
 
   useEffect(() => {
     const fetchCodes = async () => {
@@ -362,6 +385,7 @@ export default function ServiceOrderPage() {
 
     fetchCodes();
     fetchTechnicians();
+    fetchServiceOrders();
   }, [toast]);
 
   useEffect(() => {
@@ -382,7 +406,8 @@ export default function ServiceOrderPage() {
     form.resetField("repairCode");
   }, [watchedEquipmentType, form]);
 
-  const onSubmit = (data: FormValues) => {
+  const onSubmit = async (data: FormValues) => {
+    // Generate text first
     const technicianName = technicians.find(t => t.id === data.technician)?.name;
     const today = format(new Date(), "dd/MM/yyyy");
 
@@ -430,8 +455,61 @@ export default function ServiceOrderPage() {
     ].filter(Boolean);
 
     const text = [...baseTextParts, ...serviceSpecificParts, ...optionalParts].filter(Boolean).join('\n');
-
     setGeneratedText(text);
+
+    // Save to Firestore
+    try {
+        const newServiceOrder = {
+            technicianId: data.technician,
+            serviceOrderNumber: data.serviceOrderNumber,
+            serviceType: data.serviceType,
+            equipmentType: data.equipmentType,
+            date: new Date(),
+            samsungRepairType: data.samsungRepairType || '',
+            samsungBudgetApproved: data.samsungBudgetApproved || false,
+            samsungBudgetValue: data.samsungBudgetValue ? parseFloat(data.samsungBudgetValue) : 0,
+            symptomCode: data.symptomCode || '',
+            repairCode: data.repairCode || '',
+            replacedPart: data.replacedPart || '',
+            observations: data.observations || '',
+            defectFound: data.defectFound || '',
+            partsRequested: data.partsRequested || '',
+        };
+
+        await addDoc(collection(db, "serviceOrders"), newServiceOrder);
+        
+        toast({
+            title: "OS Lançada com Sucesso!",
+            description: `A ordem de serviço ${data.serviceOrderNumber} foi salva.`,
+        });
+
+        fetchServiceOrders(); // Refetch data for dashboard
+
+        form.reset({
+            technician: data.technician, // Keep technician selected
+            serviceOrderNumber: "",
+            serviceType: "",
+            samsungRepairType: "",
+            samsungBudgetApproved: false,
+            samsungBudgetValue: "",
+            equipmentType: "",
+            symptomCode: "",
+            repairCode: "",
+            replacedPart: "",
+            observations: "",
+            defectFound: "",
+            partsRequested: "",
+        });
+        setGeneratedText("");
+
+    } catch (error) {
+        console.error("Error adding service order: ", error);
+        toast({
+            variant: "destructive",
+            title: "Erro ao Salvar OS",
+            description: "Não foi possível salvar a ordem de serviço no banco de dados.",
+        });
+    }
   };
 
   const handleCopy = () => {
@@ -653,7 +731,7 @@ export default function ServiceOrderPage() {
                                                     <FormMessage />
                                                 </FormItem>
                                             )}/>
-                                            <Button type="submit" className="w-full">Gerar Texto da OS</Button>
+                                            <Button type="submit" className="w-full">Gerar Texto e Salvar OS</Button>
                                         </form>
                                     </Form>
                                 </CardContent>
@@ -684,7 +762,7 @@ export default function ServiceOrderPage() {
                         </div>
                     </TabsContent>
                     <TabsContent value="dashboard">
-                        <PerformanceDashboard technicians={technicians} />
+                        <PerformanceDashboard technicians={technicians} serviceOrders={serviceOrders} />
                     </TabsContent>
                 </Tabs>
             </div>

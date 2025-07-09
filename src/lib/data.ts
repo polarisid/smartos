@@ -15,35 +15,48 @@ export const technicians: Technician[] = [
 export type ServiceOrder = {
   id: string;
   technicianId: string;
+  serviceOrderNumber: string;
   date: Date;
   equipmentType: 'TV/AV' | 'DA';
   serviceType: 'reparo_samsung' | 'visita_orcamento_samsung' | 'visita_assurant';
+  
+  samsungRepairType?: string;
   samsungBudgetApproved?: boolean;
   samsungBudgetValue?: number;
+
+  symptomCode?: string;
+  repairCode?: string;
+  
+  defectFound?: string;
+  partsRequested?: string;
+
+  replacedPart?: string;
+  observations?: string;
 };
+
 
 const today = new Date();
 export const serviceOrders: ServiceOrder[] = [
   // João Silva (id: '1')
-  { id: 'os01', technicianId: '1', date: new Date(), equipmentType: 'TV/AV', serviceType: 'reparo_samsung' },
-  { id: 'os02', technicianId: '1', date: new Date(new Date().setDate(today.getDate() - 3)), equipmentType: 'DA', serviceType: 'visita_assurant' },
-  { id: 'os03', technicianId: '1', date: new Date(new Date().setDate(today.getDate() - 10)), equipmentType: 'TV/AV', serviceType: 'visita_orcamento_samsung', samsungBudgetApproved: true, samsungBudgetValue: 250.00 },
-  { id: 'os04', technicianId: '1', date: new Date(new Date().setMonth(today.getMonth() - 1)), equipmentType: 'DA', serviceType: 'reparo_samsung' },
+  { id: 'os01', technicianId: '1', serviceOrderNumber: 'OS-001', date: new Date(), equipmentType: 'TV/AV', serviceType: 'reparo_samsung', samsungRepairType: 'LP' },
+  { id: 'os02', technicianId: '1', serviceOrderNumber: 'OS-002', date: new Date(new Date().setDate(today.getDate() - 3)), equipmentType: 'DA', serviceType: 'visita_assurant', defectFound: 'Compressor não liga', partsRequested: '1x Compressor Modelo Z' },
+  { id: 'os03', technicianId: '1', serviceOrderNumber: 'OS-003', date: new Date(new Date().setDate(today.getDate() - 10)), equipmentType: 'TV/AV', serviceType: 'visita_orcamento_samsung', samsungBudgetApproved: true, samsungBudgetValue: 250.00 },
+  { id: 'os04', technicianId: '1', serviceOrderNumber: 'OS-004', date: new Date(new Date().setMonth(today.getMonth() - 1)), equipmentType: 'DA', serviceType: 'reparo_samsung' },
 
   // Maria Oliveira (id: '2')
-  { id: 'os05', technicianId: '2', date: new Date(new Date().setDate(today.getDate() - 1)), equipmentType: 'DA', serviceType: 'reparo_samsung' },
-  { id: 'os06', technicianId: '2', date: new Date(new Date().setDate(today.getDate() - 15)), equipmentType: 'TV/AV', serviceType: 'visita_assurant' },
-  { id: 'os07', technicianId: '2', date: new Date(new Date().setMonth(today.getMonth() - 2)), equipmentType: 'TV/AV', serviceType: 'reparo_samsung' },
-  { id: 'os12', technicianId: '2', date: new Date(), equipmentType: 'TV/AV', serviceType: 'visita_orcamento_samsung', samsungBudgetApproved: true, samsungBudgetValue: 480.50 },
+  { id: 'os05', technicianId: '2', serviceOrderNumber: 'OS-005', date: new Date(new Date().setDate(today.getDate() - 1)), equipmentType: 'DA', serviceType: 'reparo_samsung' },
+  { id: 'os06', technicianId: '2', serviceOrderNumber: 'OS-006', date: new Date(new Date().setDate(today.getDate() - 15)), equipmentType: 'TV/AV', serviceType: 'visita_assurant', defectFound: 'Tela com manchas', partsRequested: 'N/A' },
+  { id: 'os07', technicianId: '2', serviceOrderNumber: 'OS-007', date: new Date(new Date().setMonth(today.getMonth() - 2)), equipmentType: 'TV/AV', serviceType: 'reparo_samsung' },
+  { id: 'os12', technicianId: '2', serviceOrderNumber: 'OS-012', date: new Date(), equipmentType: 'TV/AV', serviceType: 'visita_orcamento_samsung', samsungBudgetApproved: true, samsungBudgetValue: 480.50 },
 
 
   // Carlos Pereira (id: '3')
-  { id: 'os08', technicianId: '3', date: new Date(new Date().setDate(today.getDate() - 5)), equipmentType: 'TV/AV', serviceType: 'reparo_samsung' },
-  { id: 'os09', technicianId: '3', date: new Date(new Date().setDate(today.getDate() - 6)), equipmentType: 'DA', serviceType: 'visita_assurant' },
+  { id: 'os08', technicianId: '3', serviceOrderNumber: 'OS-008', date: new Date(new Date().setDate(today.getDate() - 5)), equipmentType: 'TV/AV', serviceType: 'reparo_samsung' },
+  { id: 'os09', technicianId: '3', serviceOrderNumber: 'OS-009', date: new Date(new Date().setDate(today.getDate() - 6)), equipmentType: 'DA', serviceType: 'visita_assurant', defectFound: 'Vazamento de água', partsRequested: '1x Mangueira de Drenagem' },
 
   // Ana Costa (id: '4')
-  { id: 'os10', technicianId: '4', date: new Date(new Date().setFullYear(today.getFullYear() - 1)), equipmentType: 'TV/AV', serviceType: 'reparo_samsung' },
-  { id: 'os11', technicianId: '4', date: new Date(new Date().setDate(today.getDate() - 20)), equipmentType: 'DA', serviceType: 'visita_orcamento_samsung', samsungBudgetApproved: false },
+  { id: 'os10', technicianId: '4', serviceOrderNumber: 'OS-010', date: new Date(new Date().setFullYear(today.getFullYear() - 1)), equipmentType: 'TV/AV', serviceType: 'reparo_samsung' },
+  { id: 'os11', technicianId: '4', serviceOrderNumber: 'OS-011', date: new Date(new Date().setDate(today.getDate() - 20)), equipmentType: 'DA', serviceType: 'visita_orcamento_samsung', samsungBudgetApproved: false },
 ];
 
 
@@ -76,5 +89,3 @@ export const repairCodes = {
     { code: 'R04', description: 'Troca da bomba de drenagem' },
   ]
 };
-
-    

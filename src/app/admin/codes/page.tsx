@@ -36,7 +36,6 @@ import {
     SelectTrigger, 
     SelectValue 
 } from "@/components/ui/select";
-import { symptomCodes as initialSymptomCodes, repairCodes as initialRepairCodes } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, doc, getDoc, setDoc } from "firebase/firestore";
@@ -182,8 +181,8 @@ function FirestoreConnectionTest() {
 
 export default function CodesPage() {
     const { toast } = useToast();
-    const [symptoms, setSymptoms] = useState<CodeCategory>(initialSymptomCodes);
-    const [repairs, setRepairs] = useState<CodeCategory>(initialRepairCodes);
+    const [symptoms, setSymptoms] = useState<CodeCategory>({ "TV/AV": [], "DA": [] });
+    const [repairs, setRepairs] = useState<CodeCategory>({ "TV/AV": [], "DA": [] });
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     

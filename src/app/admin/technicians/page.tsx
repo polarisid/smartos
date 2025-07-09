@@ -19,7 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PlusCircle, Edit, Divide, Trash2 } from "lucide-react";
-import { technicians as initialTechnicians, type Technician } from "@/lib/data";
+import { type Technician } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, doc, setDoc, addDoc, deleteDoc } from "firebase/firestore";
@@ -44,33 +44,22 @@ export default function TechniciansPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    const fetchAndSeedTechnicians = async () => {
+    const fetchTechnicians = async () => {
         setIsLoading(true);
         try {
             const techniciansCol = collection(db, "technicians");
             const snapshot = await getDocs(techniciansCol);
-            
-            let techs: Technician[];
-            if (snapshot.empty) {
-                // Seed the database if it's empty
-                const seedPromises = initialTechnicians.map(tech => 
-                    setDoc(doc(db, "technicians", tech.id), { name: tech.name, goal: tech.goal || 0 })
-                );
-                await Promise.all(seedPromises);
-                techs = initialTechnicians; // Set initial state
-            } else {
-                techs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
-            }
+            const techs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
             setTechnicians(techs);
         } catch (error) {
-            console.error("Error fetching or seeding technicians:", error);
+            console.error("Error fetching technicians:", error);
             toast({ variant: "destructive", title: "Erro ao carregar dados", description: "Não foi possível buscar os técnicos do banco de dados." });
         } finally {
             setIsLoading(false);
         }
     };
 
-    fetchAndSeedTechnicians();
+    fetchTechnicians();
   }, [toast]);
 
   const handleOpenGoalDialog = (tech: Technician) => {
