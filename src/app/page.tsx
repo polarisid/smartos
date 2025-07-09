@@ -113,7 +113,6 @@ function Header() {
 function PerformanceDashboard({ technicians, serviceOrders }: { technicians: Technician[], serviceOrders: ServiceOrder[] }) {
     const now = new Date();
     const startOfCurrentMonth = startOfMonth(now);
-    const OS_VALUE = 25.50;
 
     const serviceOrdersThisMonth = serviceOrders.filter(os =>
         isAfter(os.date, startOfCurrentMonth)
@@ -125,21 +124,14 @@ function PerformanceDashboard({ technicians, serviceOrders }: { technicians: Tec
         );
 
         const osCount = techOrdersThisMonth.length;
-
-        // Separate approved budget orders to calculate their value differently
-        const approvedBudgetOrders = techOrdersThisMonth.filter(os =>
-            os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved
-        );
-
-        // All other orders will be counted by the standard OS_VALUE
-        const otherOrders = techOrdersThisMonth.filter(os =>
-            os.serviceType !== 'visita_orcamento_samsung' || !os.samsungBudgetApproved
-        );
-
-        const budgetValue = approvedBudgetOrders.reduce((total, os) => total + (os.samsungBudgetValue || 0), 0);
         
-        const revenue = (otherOrders.length * OS_VALUE) + budgetValue;
-        
+        const revenue = techOrdersThisMonth.reduce((total, os) => {
+            if (os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved && os.samsungBudgetValue) {
+                return total + os.samsungBudgetValue;
+            }
+            return total;
+        }, 0);
+
         const goal = tech.goal || 0;
         const progress = goal > 0 ? Math.min((revenue / goal) * 100, 100) : 0;
 
@@ -716,14 +708,14 @@ export default function ServiceOrderPage() {
                                                             <FormField control={form.control} name="defectFound" render={({ field }) => (
                                                                 <FormItem>
                                                                     <FormLabel>Defeito constatado</FormLabel>
-                                                                    <FormControl><Input placeholder="Descreva o defeito constatado" {...field} /></FormControl>
+                                                                    <FormControl><Input placeholder="Descreva o defeito constatado" {...field} value={field.value || ''} /></FormControl>
                                                                     <FormMessage />
                                                                 </FormItem>
                                                             )}/>
                                                             <FormField control={form.control} name="partsRequested" render={({ field }) => (
                                                                 <FormItem>
                                                                     <FormLabel>Peças solicitadas</FormLabel>
-                                                                    <FormControl><Input placeholder="Liste as peças solicitadas" {...field} /></FormControl>
+                                                                    <FormControl><Input placeholder="Liste as peças solicitadas" {...field} value={field.value || ''} /></FormControl>
                                                                     <FormMessage />
                                                                 </FormItem>
                                                             )}/>
@@ -735,14 +727,14 @@ export default function ServiceOrderPage() {
                                             <FormField control={form.control} name="replacedPart" render={({ field }) => (
                                                 <FormItem>
                                                     <FormLabel>Peça Trocada (Opcional)</FormLabel>
-                                                    <FormControl><Input placeholder="Ex: Placa principal BN94-12345A" {...field} /></FormControl>
+                                                    <FormControl><Input placeholder="Ex: Placa principal BN94-12345A" {...field} value={field.value || ''} /></FormControl>
                                                     <FormMessage />
                                                 </FormItem>
                                             )}/>
                                             <FormField control={form.control} name="observations" render={({ field }) => (
                                                 <FormItem>
                                                     <FormLabel>Observações (Opcional)</FormLabel>
-                                                    <FormControl><Textarea placeholder="Descreva observações adicionais aqui..." {...field} /></FormControl>
+                                                    <FormControl><Textarea placeholder="Descreva observações adicionais aqui..." {...field} value={field.value || ''} /></FormControl>
                                                     <FormMessage />
                                                 </FormItem>
                                             )}/>

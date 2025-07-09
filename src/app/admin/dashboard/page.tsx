@@ -79,7 +79,15 @@ export default function DashboardPage() {
     });
 
     const totalOsFiltered = filteredServiceOrders.length;
-    const totalBonusFiltered = (totalOsFiltered * 25.50).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    
+    const totalRevenueFiltered = filteredServiceOrders.reduce((total, os) => {
+        if (os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved && os.samsungBudgetValue) {
+            return total + os.samsungBudgetValue;
+        }
+        return total;
+    }, 0);
+    const totalBonusFiltered = totalRevenueFiltered.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
 
     const performanceData = technicians.map(tech => {
         const techOrders = filteredServiceOrders.filter(os => os.technicianId === tech.id);
