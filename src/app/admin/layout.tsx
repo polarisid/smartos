@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -17,11 +18,11 @@ import {
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Wrench, LayoutGrid, Users, Tag, LogOut, Settings } from "lucide-react"
+import { Wrench, LayoutGrid, Users, Tag, LogOut, ClipboardCheck, Bookmark } from "lucide-react"
 
 function AdminSidebar({children}: {children: React.ReactNode}) {
     const pathname = usePathname()
-    const isActive = (path: string) => pathname === path
+    const isActive = (path: string) => pathname.startsWith(path) && (pathname === path || pathname.charAt(path.length) === '/')
 
     return (
         <SidebarProvider>
@@ -41,6 +42,11 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
                                 <Link href="/admin/dashboard"><LayoutGrid /> <span>Dashboard</span></Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
+                         <SidebarMenuItem>
+                            <SidebarMenuButton asChild isActive={isActive('/admin/service-orders')} tooltip="Ordens de Serviço">
+                                <Link href="/admin/service-orders"><ClipboardCheck /> <span>Ordens de Serviço</span></Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
                         <SidebarMenuItem>
                             <SidebarMenuButton asChild isActive={isActive('/admin/technicians')} tooltip="Técnicos">
                                 <Link href="/admin/technicians"><Users /> <span>Técnicos</span></Link>
@@ -49,6 +55,11 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
                         <SidebarMenuItem>
                             <SidebarMenuButton asChild isActive={isActive('/admin/codes')} tooltip="Códigos">
                                 <Link href="/admin/codes"><Tag /> <span>Códigos</span></Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                            <SidebarMenuButton asChild isActive={isActive('/admin/presets')} tooltip="Presets">
+                                <Link href="/admin/presets"><Bookmark /> <span>Presets</span></Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                     </SidebarMenu>

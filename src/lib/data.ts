@@ -1,4 +1,5 @@
 
+
 export type Technician = {
   id: string;
   name: string;
@@ -88,4 +89,14 @@ export const repairCodes = {
     { code: 'R03', description: 'Troca da placa de potência' },
     { code: 'R04', description: 'Troca da bomba de drenagem' },
   ]
+};
+
+export type Preset = {
+  id: string;
+  name: string;
+  equipmentType: 'TV/AV' | 'DA';
+  symptomCode: string;
+  repairCode: string;
+  replacedPart?: string;
+  observations?: string;
 };

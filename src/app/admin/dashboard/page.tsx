@@ -4,6 +4,7 @@
 import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Progress } from "@/components/ui/progress";
 import { Wrench, Users, Tag, Tv, WashingMachine, ShieldCheck, ListTree, ClipboardCheck } from "lucide-react";
 import { type ServiceOrder, type Technician } from "@/lib/data";
 import { startOfWeek, startOfMonth, isAfter, startOfYear, isToday } from 'date-fns';
@@ -15,37 +16,34 @@ export default function DashboardPage() {
     const [filterPeriod, setFilterPeriod] = useState<'today' | 'this_week' | 'this_month' | 'this_year' | 'all_time'>('this_month');
     const [technicians, setTechnicians] = useState<Technician[]>([]);
     const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const fetchTechnicians = async () => {
+        const fetchData = async () => {
+            setIsLoading(true);
             try {
-                const querySnapshot = await getDocs(collection(db, "technicians"));
-                const techs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
+                const techSnapshot = await getDocs(collection(db, "technicians"));
+                const techs = techSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
                 setTechnicians(techs);
-            } catch (error) {
-                console.error("Error fetching technicians:", error);
-            }
-        };
-        
-        const fetchServiceOrders = async () => {
-            try {
-                const querySnapshot = await getDocs(collection(db, "serviceOrders"));
-                const orders = querySnapshot.docs.map(doc => {
+
+                const orderSnapshot = await getDocs(collection(db, "serviceOrders"));
+                const orders = orderSnapshot.docs.map(doc => {
                     const data = doc.data();
                     return {
                         id: doc.id,
                         ...data,
-                        date: data.date.toDate(), // Convert Firestore Timestamp to JS Date
+                        date: data.date.toDate(),
                     } as ServiceOrder;
                 });
                 setServiceOrders(orders);
             } catch (error) {
-                console.error("Error fetching service orders:", error);
+                console.error("Error fetching dashboard data:", error);
+            } finally {
+                setIsLoading(false);
             }
         };
 
-        fetchTechnicians();
-        fetchServiceOrders();
+        fetchData();
     }, []);
 
     const now = new Date();
@@ -62,19 +60,10 @@ export default function DashboardPage() {
         if (filterPeriod === 'all_time') return true;
         
         const osDate = os.date;
-        if (filterPeriod === 'today') {
-            return isToday(osDate);
-        }
-        if (filterPeriod === 'this_week') {
-            // Considera que a semana começa na Segunda-feira
-            return isAfter(osDate, startOfWeek(now, { weekStartsOn: 1 }));
-        }
-        if (filterPeriod === 'this_month') {
-            return isAfter(osDate, startOfMonth(now));
-        }
-        if (filterPeriod === 'this_year') {
-            return isAfter(osDate, startOfYear(now));
-        }
+        if (filterPeriod === 'today') return isToday(osDate);
+        if (filterPeriod === 'this_week') return isAfter(osDate, startOfWeek(now, { weekStartsOn: 1 }));
+        if (filterPeriod === 'this_month') return isAfter(osDate, startOfMonth(now));
+        if (filterPeriod === 'this_year') return isAfter(osDate, startOfYear(now));
         return true;
     });
 
@@ -91,11 +80,23 @@ export default function DashboardPage() {
 
     const performanceData = technicians.map(tech => {
         const techOrders = filteredServiceOrders.filter(os => os.technicianId === tech.id);
+        const revenue = techOrders.reduce((total, os) => {
+            if (os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved && os.samsungBudgetValue) {
+                return total + os.samsungBudgetValue;
+            }
+            return total;
+        }, 0);
+        const goal = tech.goal || 0;
+        const progress = goal > 0 ? Math.min((revenue / goal) * 100, 100) : 0;
+        
         return {
           technician: tech,
-          osCount: techOrders.length
+          osCount: techOrders.length,
+          revenue,
+          goal,
+          progress,
         };
-    });
+    }).sort((a, b) => b.revenue - a.revenue);
 
     const osByEquipmentType = filteredServiceOrders.reduce((acc, os) => {
         if (!acc[os.equipmentType]) {
@@ -118,6 +119,10 @@ export default function DashboardPage() {
         visita_orcamento_samsung: { label: "Visita Orçamento Samsung", icon: ClipboardCheck },
         visita_assurant: { label: "Visita Assurant", icon: ShieldCheck }
     };
+
+    if (isLoading) {
+        return <div className="p-6 text-center">Carregando dashboard...</div>;
+    }
 
   return (
     <div className="flex flex-col gap-6 p-4 sm:p-6">
@@ -169,21 +174,32 @@ export default function DashboardPage() {
        <Card>
           <CardHeader>
             <CardTitle>Desempenho por Técnico</CardTitle>
-            <CardDescription>Contagem de Ordens de Serviço no período.</CardDescription>
+            <CardDescription>Contagem de OS e acompanhamento de metas no período.</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Técnico</TableHead>
-                  <TableHead className="text-right">OS no Período</TableHead>
+                  <TableHead className="text-center">OS no Período</TableHead>
+                  <TableHead className="text-right">Faturamento</TableHead>
+                  <TableHead className="w-[250px] text-right">Progresso da Meta</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {performanceData.map((data) => (
                   <TableRow key={data.technician.id}>
                     <TableCell className="font-medium">{data.technician.name}</TableCell>
-                    <TableCell className="text-right">{data.osCount}</TableCell>
+                    <TableCell className="text-center">{data.osCount}</TableCell>
+                    <TableCell className="text-right">{data.revenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</TableCell>
+                    <TableCell className="text-right">
+                        <div className="flex flex-col items-end gap-1">
+                            <Progress value={data.progress} className="h-2"/>
+                            <span className="text-xs text-muted-foreground">
+                                Meta: {data.goal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </span>
+                        </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -244,4 +260,3 @@ export default function DashboardPage() {
         </div>
     </div>
   );
-}

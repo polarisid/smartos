@@ -6,13 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format, isAfter, startOfMonth } from "date-fns";
-import {
-  technicians as initialTechnicians,
-  symptomCodes as initialSymptomCodes,
-  repairCodes as initialRepairCodes,
-  type Technician,
-  type ServiceOrder,
-} from "@/lib/data";
+import { type Technician, type ServiceOrder, type Preset } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -42,7 +36,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck } from "lucide-react";
+import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc } from "firebase/firestore";
@@ -63,6 +57,7 @@ const formSchema = z.object({
   samsungBudgetApproved: z.boolean().optional(),
   samsungBudgetValue: z.string().optional(),
   equipmentType: z.string().min(1, "Selecione o tipo de aparelho."),
+  presetId: z.string().optional(),
   symptomCode: z.string().optional(),
   repairCode: z.string().optional(),
   replacedPart: z.string().optional(),
@@ -302,6 +297,7 @@ export default function ServiceOrderPage() {
   const [repairCodes, setRepairCodes] = useState<CodeCategory>({ "TV/AV": [], "DA": [] });
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
+  const [presets, setPresets] = useState<Preset[]>([]);
   const [assistantName, setAssistantName] = useState("");
 
   const form = useForm<FormValues>({
@@ -314,6 +310,7 @@ export default function ServiceOrderPage() {
       samsungBudgetApproved: false,
       samsungBudgetValue: "",
       equipmentType: "",
+      presetId: "",
       symptomCode: "",
       repairCode: "",
       replacedPart: "",
@@ -326,6 +323,7 @@ export default function ServiceOrderPage() {
   const watchedServiceType = form.watch("serviceType");
   const watchedEquipmentType = form.watch("equipmentType");
   const watchedTechnician = form.watch("technician");
+  const watchedPreset = form.watch("presetId");
 
   const fetchServiceOrders = async () => {
     try {
@@ -351,48 +349,36 @@ export default function ServiceOrderPage() {
   };
 
   useEffect(() => {
-    const fetchCodes = async () => {
+    const fetchInitialData = async () => {
         try {
-            const symptomsDoc = await getDoc(doc(db, "codes", "symptoms"));
-            if (symptomsDoc.exists()) {
-                setSymptomCodes(symptomsDoc.data() as CodeCategory);
+            const [symptomsDoc, repairsDoc, techsSnapshot, presetsSnapshot] = await Promise.all([
+                getDoc(doc(db, "codes", "symptoms")),
+                getDoc(doc(db, "codes", "repairs")),
+                getDocs(collection(db, "technicians")),
+                getDocs(collection(db, "presets"))
+            ]);
+
+            if (symptomsDoc.exists()) setSymptomCodes(symptomsDoc.data() as CodeCategory);
+            if (repairsDoc.exists()) setRepairCodes(repairsDoc.data() as CodeCategory);
+            if (!techsSnapshot.empty) {
+                const techs = techsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
+                setTechnicians(techs);
             }
-            const repairsDoc = await getDoc(doc(db, "codes", "repairs"));
-            if (repairsDoc.exists()) {
-                setRepairCodes(repairsDoc.data() as CodeCategory);
+            if (!presetsSnapshot.empty) {
+                const presetsData = presetsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Preset));
+                setPresets(presetsData);
             }
         } catch (error) {
-            console.error("Error fetching codes for service order form:", error);
+            console.error("Error fetching initial data:", error);
             toast({
                 variant: "destructive",
-                title: "Erro ao carregar códigos",
-                description: "Não foi possível buscar os dados mais recentes. Usando dados padrão.",
+                title: "Erro ao carregar dados",
+                description: "Não foi possível buscar alguns dados. A página pode não funcionar corretamente.",
             });
         }
     };
     
-    const fetchTechnicians = async () => {
-        try {
-            const querySnapshot = await getDocs(collection(db, "technicians"));
-            if (!querySnapshot.empty) {
-                const techs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
-                setTechnicians(techs);
-            } else {
-                 setTechnicians([]); 
-            }
-        } catch (error) {
-            console.error("Error fetching technicians:", error);
-            setTechnicians([]); 
-            toast({
-                variant: "destructive",
-                title: "Erro ao carregar técnicos",
-                description: "Não foi possível buscar os dados mais recentes.",
-            });
-        }
-    };
-
-    fetchCodes();
-    fetchTechnicians();
+    fetchInitialData();
     fetchServiceOrders();
   }, [toast]);
 
@@ -405,7 +391,7 @@ export default function ServiceOrderPage() {
     if (savedAssistant) {
       setAssistantName(savedAssistant);
     }
-  }, [form, technicians]);
+  }, [form]);
 
   useEffect(() => {
     if (watchedTechnician) {
@@ -420,7 +406,26 @@ export default function ServiceOrderPage() {
   useEffect(() => {
     form.resetField("symptomCode");
     form.resetField("repairCode");
+    form.resetField("presetId");
+    form.resetField("replacedPart");
+    form.resetField("observations");
   }, [watchedEquipmentType, form]);
+
+  useEffect(() => {
+    const selectedPreset = presets.find(p => p.id === watchedPreset);
+    if (selectedPreset) {
+      form.setValue("symptomCode", selectedPreset.symptomCode);
+      form.setValue("repairCode", selectedPreset.repairCode);
+      form.setValue("replacedPart", selectedPreset.replacedPart || "");
+      form.setValue("observations", selectedPreset.observations || "");
+    } else if (watchedPreset === "none") {
+      form.setValue("symptomCode", "");
+      form.setValue("repairCode", "");
+      form.setValue("replacedPart", "");
+      form.setValue("observations", "");
+    }
+  }, [watchedPreset, presets, form]);
+
 
   const onSubmit = async (data: FormValues) => {
     // Generate text first
@@ -444,11 +449,10 @@ export default function ServiceOrderPage() {
     }
 
     const baseTextParts = [
-      `**Data: ${today}**`,
+      `**Data: ${today} - ${data.equipmentType}**`,
       `**Ordem de Serviço: ${data.serviceOrderNumber}**`,
       `- **Técnico:** ${technicianName}`,
       `- **Atendimento:** ${serviceDetails}`,
-      `- **Tipo de Aparelho:** ${data.equipmentType}`,
     ];
 
     let serviceSpecificParts: string[] = [];
@@ -505,7 +509,8 @@ export default function ServiceOrderPage() {
         fetchServiceOrders(); // Refetch data for dashboard
 
         const technicianBeforeReset = form.getValues("technician");
-
+        const equipmentTypeBeforeReset = form.getValues("equipmentType");
+        
         form.reset({
             technician: technicianBeforeReset, // Keep technician selected
             serviceOrderNumber: "",
@@ -513,7 +518,8 @@ export default function ServiceOrderPage() {
             samsungRepairType: "",
             samsungBudgetApproved: false,
             samsungBudgetValue: "",
-            equipmentType: "",
+            equipmentType: equipmentTypeBeforeReset, // Keep equipment type selected
+            presetId: "none",
             symptomCode: "",
             repairCode: "",
             replacedPart: "",
@@ -550,6 +556,8 @@ export default function ServiceOrderPage() {
       });
   };
 
+  const filteredPresets = presets.filter(p => p.equipmentType === watchedEquipmentType);
+
   return (
     <div className="min-h-screen flex flex-col">
         <Header />
@@ -572,6 +580,46 @@ export default function ServiceOrderPage() {
                                 <CardContent>
                                     <Form {...form}>
                                         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                                            <FormField control={form.control} name="equipmentType" render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Tipo de Aparelho</FormLabel>
+                                                    <Select onValueChange={field.onChange} value={field.value}>
+                                                        <FormControl><SelectTrigger><SelectValue placeholder="Selecione o tipo de aparelho" /></SelectTrigger></FormControl>
+                                                        <SelectContent>
+                                                            <SelectItem value="TV/AV">TV/AV</SelectItem>
+                                                            <SelectItem value="DA">DA (Linha Branca)</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}/>
+                                            
+                                            <FormField
+                                                control={form.control}
+                                                name="presetId"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="flex items-center gap-2"><Bookmark className="h-4 w-4" />Preset de Códigos (Opcional)</FormLabel>
+                                                        <Select onValueChange={field.onChange} value={field.value} disabled={!watchedEquipmentType}>
+                                                            <FormControl>
+                                                                <SelectTrigger>
+                                                                    <SelectValue placeholder={!watchedEquipmentType ? "Selecione um tipo de aparelho primeiro" : "Selecione um preset para preencher os códigos"} />
+                                                                </SelectTrigger>
+                                                            </FormControl>
+                                                            <SelectContent>
+                                                                <SelectItem value="none">Nenhum</SelectItem>
+                                                                {filteredPresets.map((preset) => (
+                                                                    <SelectItem key={preset.id} value={preset.id}>
+                                                                        {preset.name}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+
                                             <FormField
                                                 control={form.control}
                                                 name="technician"
@@ -679,74 +727,56 @@ export default function ServiceOrderPage() {
                                                 </div>
                                             )}
                                             
-                                            <FormField control={form.control} name="equipmentType" render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Tipo de Aparelho</FormLabel>
-                                                    <Select onValueChange={field.onChange} value={field.value}>
-                                                        <FormControl><SelectTrigger><SelectValue placeholder="Selecione o tipo de aparelho" /></SelectTrigger></FormControl>
-                                                        <SelectContent>
-                                                            <SelectItem value="TV/AV">TV/AV</SelectItem>
-                                                            <SelectItem value="DA">DA (Linha Branca)</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}/>
-                                            
-                                            {watchedEquipmentType && (
+                                            {watchedServiceType !== 'visita_assurant' ? (
                                                 <>
-                                                    {watchedServiceType !== 'visita_assurant' ? (
-                                                        <>
-                                                            <FormField control={form.control} name="symptomCode" render={({ field }) => (
-                                                                <FormItem>
-                                                                    <FormLabel>Código de Sintoma</FormLabel>
-                                                                     <FormControl>
-                                                                        <SearchableSelect
-                                                                            value={field.value || ""}
-                                                                            onChange={field.onChange}
-                                                                            placeholder="Selecione o sintoma"
-                                                                            options={symptomCodes[watchedEquipmentType as keyof typeof symptomCodes]?.map(s => ({ value: s.code, label: `${s.code} - ${s.description}` })) || []}
-                                                                        />
-                                                                    </FormControl>
-                                                                    <FormMessage />
-                                                                </FormItem>
-                                                            )}/>
-                                                            <FormField control={form.control} name="repairCode" render={({ field }) => (
-                                                                <FormItem>
-                                                                    <FormLabel>Código de Reparo {watchedServiceType === 'visita_orcamento_samsung' && '(Opcional)'}</FormLabel>
-                                                                     <FormControl>
-                                                                        <SearchableSelect
-                                                                            value={field.value || ""}
-                                                                            onChange={field.onChange}
-                                                                            placeholder="Selecione o reparo"
-                                                                            options={repairCodes[watchedEquipmentType as keyof typeof repairCodes]?.map(r => ({ value: r.code, label: `${r.code} - ${r.description}` })) || []}
-                                                                        />
-                                                                    </FormControl>
-                                                                    <FormMessage />
-                                                                </FormItem>
-                                                            )}/>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <FormField control={form.control} name="defectFound" render={({ field }) => (
-                                                                <FormItem>
-                                                                    <FormLabel>Defeito constatado</FormLabel>
-                                                                    <FormControl><Input placeholder="Descreva o defeito constatado" {...field} value={field.value || ''} /></FormControl>
-                                                                    <FormMessage />
-                                                                </FormItem>
-                                                            )}/>
-                                                            <FormField control={form.control} name="partsRequested" render={({ field }) => (
-                                                                <FormItem>
-                                                                    <FormLabel>Peças solicitadas</FormLabel>
-                                                                    <FormControl><Input placeholder="Liste as peças solicitadas" {...field} value={field.value || ''} /></FormControl>
-                                                                    <FormMessage />
-                                                                </FormItem>
-                                                            )}/>
-                                                        </>
-                                                    )}
+                                                    <FormField control={form.control} name="symptomCode" render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel>Código de Sintoma</FormLabel>
+                                                                <FormControl>
+                                                                <SearchableSelect
+                                                                    value={field.value || ""}
+                                                                    onChange={field.onChange}
+                                                                    placeholder="Selecione o sintoma"
+                                                                    options={symptomCodes[watchedEquipmentType as keyof typeof symptomCodes]?.map(s => ({ value: s.code, label: `${s.code} - ${s.description}` })) || []}
+                                                                />
+                                                            </FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}/>
+                                                    <FormField control={form.control} name="repairCode" render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel>Código de Reparo {watchedServiceType === 'visita_orcamento_samsung' && '(Opcional)'}</FormLabel>
+                                                                <FormControl>
+                                                                <SearchableSelect
+                                                                    value={field.value || ""}
+                                                                    onChange={field.onChange}
+                                                                    placeholder="Selecione o reparo"
+                                                                    options={repairCodes[watchedEquipmentType as keyof typeof repairCodes]?.map(r => ({ value: r.code, label: `${r.code} - ${r.description}` })) || []}
+                                                                />
+                                                            </FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}/>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <FormField control={form.control} name="defectFound" render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel>Defeito constatado</FormLabel>
+                                                            <FormControl><Input placeholder="Descreva o defeito constatado" {...field} value={field.value || ''} /></FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}/>
+                                                    <FormField control={form.control} name="partsRequested" render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel>Peças solicitadas</FormLabel>
+                                                            <FormControl><Input placeholder="Liste as peças solicitadas" {...field} value={field.value || ''} /></FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}/>
                                                 </>
                                             )}
-
+                                            
                                             <FormField control={form.control} name="replacedPart" render={({ field }) => (
                                                 <FormItem>
                                                     <FormLabel>Peça Trocada (Opcional)</FormLabel>
@@ -761,6 +791,7 @@ export default function ServiceOrderPage() {
                                                     <FormMessage />
                                                 </FormItem>
                                             )}/>
+
                                             <Button type="submit" className="w-full">Gerar Texto e Salvar OS</Button>
                                         </form>
                                     </Form>
