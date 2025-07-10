@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
@@ -301,6 +302,7 @@ export default function ServiceOrderPage() {
   const [repairCodes, setRepairCodes] = useState<CodeCategory>({ "TV/AV": [], "DA": [] });
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
+  const [assistantName, setAssistantName] = useState("");
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -399,6 +401,10 @@ export default function ServiceOrderPage() {
     if (savedTechnician) {
       form.setValue("technician", savedTechnician);
     }
+    const savedAssistant = localStorage.getItem("assistantName");
+    if (savedAssistant) {
+      setAssistantName(savedAssistant);
+    }
   }, [form, technicians]);
 
   useEffect(() => {
@@ -408,13 +414,20 @@ export default function ServiceOrderPage() {
   }, [watchedTechnician]);
 
   useEffect(() => {
+    localStorage.setItem("assistantName", assistantName);
+  }, [assistantName]);
+
+  useEffect(() => {
     form.resetField("symptomCode");
     form.resetField("repairCode");
   }, [watchedEquipmentType, form]);
 
   const onSubmit = async (data: FormValues) => {
     // Generate text first
-    const technicianName = technicians.find(t => t.id === data.technician)?.name;
+    let technicianName = technicians.find(t => t.id === data.technician)?.name || '';
+    if (assistantName) {
+      technicianName = `${technicianName} / ${assistantName}`;
+    }
     const today = format(new Date(), "dd/MM/yyyy");
 
     let serviceDetails = '';
@@ -583,6 +596,16 @@ export default function ServiceOrderPage() {
                                                     </FormItem>
                                                 )}
                                             />
+                                            
+                                            <div className="space-y-2">
+                                                <Label htmlFor="assistant">Auxiliar (Opcional)</Label>
+                                                <Input
+                                                    id="assistant"
+                                                    placeholder="Digite o nome do auxiliar"
+                                                    value={assistantName}
+                                                    onChange={(e) => setAssistantName(e.target.value)}
+                                                />
+                                            </div>
 
                                             <FormField
                                                 control={form.control}
