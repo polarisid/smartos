@@ -19,7 +19,7 @@ export type ServiceOrder = {
   serviceOrderNumber: string;
   date: Date;
   equipmentType: 'TV/AV' | 'DA';
-  serviceType: 'reparo_samsung' | 'visita_orcamento_samsung' | 'visita_assurant';
+  serviceType: 'reparo_samsung' | 'visita_orcamento_samsung' | 'visita_assurant' | 'coleta_eco_rma' | 'instalacao_inicial';
   
   samsungRepairType?: string;
   samsungBudgetApproved?: boolean;
@@ -30,6 +30,8 @@ export type ServiceOrder = {
   
   defectFound?: string;
   partsRequested?: string;
+
+  productCollectedOrInstalled?: string;
 
   replacedPart?: string;
   observations?: string;

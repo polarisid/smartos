@@ -36,7 +36,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark } from "lucide-react";
+import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc } from "firebase/firestore";
@@ -64,9 +64,11 @@ const formSchema = z.object({
   observations: z.string().optional(),
   defectFound: z.string().optional(),
   partsRequested: z.string().optional(),
+  productCollectedOrInstalled: z.string().optional(),
 }).superRefine((data, ctx) => {
-  if (data.serviceType !== 'visita_assurant') {
-    // Symptom is required for all non-assurant types
+  const serviceRequiresCodes = !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(data.serviceType);
+  
+  if (serviceRequiresCodes) {
     if (!data.symptomCode || data.symptomCode.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -75,7 +77,6 @@ const formSchema = z.object({
       });
     }
 
-    // Repair is required for all non-assurant and non-budget types
     if (data.serviceType !== 'visita_orcamento_samsung') {
       if (!data.repairCode || data.repairCode.length === 0) {
         ctx.addIssue({
@@ -84,6 +85,16 @@ const formSchema = z.object({
           path: ["repairCode"],
         });
       }
+    }
+  }
+
+  if (['coleta_eco_rma', 'instalacao_inicial'].includes(data.serviceType)) {
+    if (!data.productCollectedOrInstalled || data.productCollectedOrInstalled.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Este campo é obrigatório para este tipo de atendimento.",
+        path: ["productCollectedOrInstalled"],
+      });
     }
   }
 });
@@ -148,10 +159,12 @@ function PerformanceDashboard({ technicians, serviceOrders }: { technicians: Tec
         return acc;
     }, {} as Record<ServiceOrder['serviceType'], number>);
 
-    const serviceTypeConfig: Record<ServiceOrder['serviceType'], { label: string; icon: React.ElementType }> = {
+    const serviceTypeConfig: Record<string, { label: string; icon: React.ElementType }> = {
         reparo_samsung: { label: "Reparo Samsung", icon: Wrench },
         visita_orcamento_samsung: { label: "Visita Orçamento Samsung", icon: ClipboardCheck },
-        visita_assurant: { label: "Visita Assurant", icon: ShieldCheck }
+        visita_assurant: { label: "Visita Assurant", icon: ShieldCheck },
+        coleta_eco_rma: { label: "Coleta Eco /RMA", icon: Package },
+        instalacao_inicial: { label: "Instalação Inicial", icon: PackageOpen },
     };
 
     return (
@@ -200,8 +213,9 @@ function PerformanceDashboard({ technicians, serviceOrders }: { technicians: Tec
                 </CardHeader>
                 <CardContent className="grid gap-4">
                     {Object.entries(serviceTypeConfig).map(([type, config]) => {
-                        const Icon = config.icon;
                         const count = osByServiceType[type as keyof typeof osByServiceType] || 0;
+                        if (!config) return null; // Safeguard if a type is in data but not config
+                        const Icon = config.icon;
                         return (
                             <div key={type} className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 text-muted-foreground">
@@ -310,13 +324,14 @@ export default function ServiceOrderPage() {
       samsungBudgetApproved: false,
       samsungBudgetValue: "",
       equipmentType: "",
-      presetId: "",
+      presetId: "none",
       symptomCode: "",
       repairCode: "",
       replacedPart: "",
       observations: "",
       defectFound: "",
       partsRequested: "",
+      productCollectedOrInstalled: "",
     },
   });
 
@@ -406,7 +421,7 @@ export default function ServiceOrderPage() {
   useEffect(() => {
     form.resetField("symptomCode");
     form.resetField("repairCode");
-    form.resetField("presetId");
+    form.resetField("presetId", { defaultValue: "none" });
     form.resetField("replacedPart");
     form.resetField("observations");
   }, [watchedEquipmentType, form]);
@@ -436,17 +451,14 @@ export default function ServiceOrderPage() {
     const today = format(new Date(), "dd/MM/yyyy");
 
     let serviceDetails = '';
-    switch(data.serviceType) {
-        case 'reparo_samsung':
-            serviceDetails = `Reparo Samsung - ${data.samsungRepairType || ''}`;
-            break;
-        case 'visita_orcamento_samsung':
-            serviceDetails = `Visita orçamento Samsung - Aprovado: ${data.samsungBudgetApproved ? 'Sim' : 'Não'}${data.samsungBudgetApproved && data.samsungBudgetValue ? `, Valor: R$ ${data.samsungBudgetValue}` : ''}`;
-            break;
-        case 'visita_assurant':
-            serviceDetails = 'Visita Assurant';
-            break;
-    }
+    const serviceTypeLabels: Record<string, string> = {
+        reparo_samsung: `Reparo Samsung - ${data.samsungRepairType || ''}`,
+        visita_orcamento_samsung: `Visita orçamento Samsung - Aprovado: ${data.samsungBudgetApproved ? 'Sim' : 'Não'}${data.samsungBudgetApproved && data.samsungBudgetValue ? `, Valor: R$ ${data.samsungBudgetValue}` : ''}`,
+        visita_assurant: 'Visita Assurant',
+        coleta_eco_rma: 'Coleta Eco /RMA',
+        instalacao_inicial: 'Instalação Inicial',
+    };
+    serviceDetails = serviceTypeLabels[data.serviceType] || data.serviceType;
 
     const baseTextParts = [
       `**Data: ${today} - ${data.equipmentType}**`,
@@ -457,10 +469,12 @@ export default function ServiceOrderPage() {
 
     let serviceSpecificParts: string[] = [];
 
+    const serviceNeedsCodes = !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(data.serviceType);
+
     if (data.serviceType === 'visita_assurant') {
         if (data.defectFound) serviceSpecificParts.push(`- **Defeito Constatado:** ${data.defectFound}`);
         if (data.partsRequested) serviceSpecificParts.push(`- **Peças Solicitadas:** ${data.partsRequested}`);
-    } else {
+    } else if (serviceNeedsCodes) {
         const symptomDescription = data.symptomCode && data.equipmentType && symptomCodes[data.equipmentType as keyof typeof symptomCodes]
             ? `${data.symptomCode} - ${symptomCodes[data.equipmentType as keyof typeof symptomCodes]?.find(s => s.code === data.symptomCode)?.description}`
             : '';
@@ -470,6 +484,8 @@ export default function ServiceOrderPage() {
             ? `${data.repairCode} - ${repairCodes[data.equipmentType as keyof typeof repairCodes]?.find(r => r.code === data.repairCode)?.description}`
             : '';
         if (repairDescription) serviceSpecificParts.push(`- **Reparo:** ${repairDescription}`);
+    } else if (['coleta_eco_rma', 'instalacao_inicial'].includes(data.serviceType)) {
+        if(data.productCollectedOrInstalled) serviceSpecificParts.push(`- **Produto Coletado/Instalado:** ${data.productCollectedOrInstalled}`);
     }
 
     const optionalParts = [
@@ -497,6 +513,7 @@ export default function ServiceOrderPage() {
             observations: data.observations || '',
             defectFound: data.defectFound || '',
             partsRequested: data.partsRequested || '',
+            productCollectedOrInstalled: data.productCollectedOrInstalled || '',
         };
 
         await addDoc(collection(db, "serviceOrders"), newServiceOrder);
@@ -509,7 +526,6 @@ export default function ServiceOrderPage() {
         fetchServiceOrders(); // Refetch data for dashboard
 
         const technicianBeforeReset = form.getValues("technician");
-        const equipmentTypeBeforeReset = form.getValues("equipmentType");
         
         form.reset({
             technician: technicianBeforeReset, // Keep technician selected
@@ -518,7 +534,7 @@ export default function ServiceOrderPage() {
             samsungRepairType: "",
             samsungBudgetApproved: false,
             samsungBudgetValue: "",
-            equipmentType: equipmentTypeBeforeReset, // Keep equipment type selected
+            equipmentType: "", // Reset equipment type
             presetId: "none",
             symptomCode: "",
             repairCode: "",
@@ -526,6 +542,7 @@ export default function ServiceOrderPage() {
             observations: "",
             defectFound: "",
             partsRequested: "",
+            productCollectedOrInstalled: "",
         });
 
     } catch (error) {
@@ -557,6 +574,8 @@ export default function ServiceOrderPage() {
   };
 
   const filteredPresets = presets.filter(p => p.equipmentType === watchedEquipmentType);
+  const serviceRequiresCodes = !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType);
+  const showReplacedPart = !['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -600,10 +619,14 @@ export default function ServiceOrderPage() {
                                                 render={({ field }) => (
                                                     <FormItem>
                                                         <FormLabel className="flex items-center gap-2"><Bookmark className="h-4 w-4" />Preset de Códigos (Opcional)</FormLabel>
-                                                        <Select onValueChange={field.onChange} value={field.value} disabled={!watchedEquipmentType}>
+                                                        <Select onValueChange={field.onChange} value={field.value || 'none'} disabled={!watchedEquipmentType || !serviceRequiresCodes}>
                                                             <FormControl>
                                                                 <SelectTrigger>
-                                                                    <SelectValue placeholder={!watchedEquipmentType ? "Selecione um tipo de aparelho primeiro" : "Selecione um preset para preencher os códigos"} />
+                                                                    <SelectValue placeholder={
+                                                                        !watchedEquipmentType ? "Selecione um tipo de aparelho primeiro" 
+                                                                        : !serviceRequiresCodes ? "Não aplicável para este atendimento"
+                                                                        : "Selecione um preset para preencher os códigos"
+                                                                    } />
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SelectContent>
@@ -683,6 +706,8 @@ export default function ServiceOrderPage() {
                                                                 <SelectItem value="reparo_samsung">Reparo Samsung</SelectItem>
                                                                 <SelectItem value="visita_orcamento_samsung">Visita Orçamento Samsung</SelectItem>
                                                                 <SelectItem value="visita_assurant">Visita Assurant</SelectItem>
+                                                                <SelectItem value="coleta_eco_rma">Coleta Eco /RMA</SelectItem>
+                                                                <SelectItem value="instalacao_inicial">Instalação Inicial</SelectItem>
                                                             </SelectContent>
                                                         </Select>
                                                         <FormMessage />
@@ -727,7 +752,7 @@ export default function ServiceOrderPage() {
                                                 </div>
                                             )}
                                             
-                                            {watchedServiceType !== 'visita_assurant' ? (
+                                            {serviceRequiresCodes ? (
                                                 <>
                                                     <FormField control={form.control} name="symptomCode" render={({ field }) => (
                                                         <FormItem>
@@ -758,7 +783,7 @@ export default function ServiceOrderPage() {
                                                         </FormItem>
                                                     )}/>
                                                 </>
-                                            ) : (
+                                            ) : watchedServiceType === 'visita_assurant' ? (
                                                 <>
                                                     <FormField control={form.control} name="defectFound" render={({ field }) => (
                                                         <FormItem>
@@ -775,15 +800,26 @@ export default function ServiceOrderPage() {
                                                         </FormItem>
                                                     )}/>
                                                 </>
-                                            )}
+                                            ) : ['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType) ? (
+                                                <FormField control={form.control} name="productCollectedOrInstalled" render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Produto Coletado/Instalado</FormLabel>
+                                                        <FormControl><Input placeholder="Descreva o produto" {...field} value={field.value || ''} /></FormControl>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}/>
+                                            ) : null}
                                             
-                                            <FormField control={form.control} name="replacedPart" render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Peça Trocada (Opcional)</FormLabel>
-                                                    <FormControl><Input placeholder="Ex: Placa principal BN94-12345A" {...field} value={field.value || ''} /></FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}/>
+                                            {showReplacedPart && (
+                                                <FormField control={form.control} name="replacedPart" render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Peça Trocada (Opcional)</FormLabel>
+                                                        <FormControl><Input placeholder="Ex: Placa principal BN94-12345A" {...field} value={field.value || ''} /></FormControl>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}/>
+                                            )}
+
                                             <FormField control={form.control} name="observations" render={({ field }) => (
                                                 <FormItem>
                                                     <FormLabel>Observações (Opcional)</FormLabel>

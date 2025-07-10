@@ -51,6 +51,7 @@ const formSchema = z.object({
   observations: z.string().optional(),
   defectFound: z.string().optional(),
   partsRequested: z.string().optional(),
+  productCollectedOrInstalled: z.string().optional(),
 });
 type FormValues = z.infer<typeof formSchema>;
 
@@ -151,6 +152,7 @@ export default function ServiceOrdersPage() {
             observations: order.observations || "",
             defectFound: order.defectFound || "",
             partsRequested: order.partsRequested || "",
+            productCollectedOrInstalled: order.productCollectedOrInstalled || "",
         });
         setIsFormDialogOpen(true);
     };
@@ -174,7 +176,7 @@ export default function ServiceOrdersPage() {
             
             await setDoc(orderRef, updatedData, { merge: true });
 
-            setServiceOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, ...updatedData } : o));
+            setServiceOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, ...updatedData, technicianName: o.technicianName } : o));
             toast({ title: "OS atualizada com sucesso!" });
             setIsFormDialogOpen(false);
         } catch (error) {
@@ -207,6 +209,8 @@ export default function ServiceOrdersPage() {
         reparo_samsung: "Reparo Samsung",
         visita_orcamento_samsung: "Visita Orçamento Samsung",
         visita_assurant: "Visita Assurant",
+        coleta_eco_rma: "Coleta Eco /RMA",
+        instalacao_inicial: "Instalação Inicial",
     };
 
     const handleFilterChange = (key: keyof typeof filters, value: any) => {
@@ -387,6 +391,8 @@ export default function ServiceOrdersPage() {
                                     <SelectItem value="reparo_samsung">Reparo Samsung</SelectItem>
                                     <SelectItem value="visita_orcamento_samsung">Visita Orçamento Samsung</SelectItem>
                                     <SelectItem value="visita_assurant">Visita Assurant</SelectItem>
+                                    <SelectItem value="coleta_eco_rma">Coleta Eco /RMA</SelectItem>
+                                    <SelectItem value="instalacao_inicial">Instalação Inicial</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -419,6 +425,13 @@ export default function ServiceOrdersPage() {
                                 )}
                             </div>
                         )}
+                        
+                        {['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType) && (
+                            <div className="space-y-2">
+                                <Label>Produto Coletado/Instalado</Label>
+                                <Input {...form.register('productCollectedOrInstalled')} />
+                            </div>
+                        )}
 
                          {watchedServiceType === 'visita_assurant' ? (
                             <>
@@ -431,7 +444,7 @@ export default function ServiceOrdersPage() {
                                     <Input {...form.register('partsRequested')} />
                                 </div>
                             </>
-                         ) : (
+                         ) : !['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType) ? (
                             <>
                                 <div className="space-y-2">
                                     <Label>Código de Sintoma</Label>
@@ -442,7 +455,7 @@ export default function ServiceOrdersPage() {
                                     <Input {...form.register('repairCode')} />
                                 </div>
                             </>
-                         )}
+                         ) : null}
                          <div className="space-y-2">
                             <Label>Peça Trocada (Opcional)</Label>
                             <Input {...form.register('replacedPart')} />
