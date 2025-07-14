@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Wrench, LayoutGrid, Users, Tag, LogOut, ClipboardCheck, Bookmark } from "lucide-react"
+import { Wrench, LayoutGrid, Users, Tag, LogOut, ClipboardCheck, Bookmark, History, Target } from "lucide-react"
 
 function AdminSidebar({children}: {children: React.ReactNode}) {
     const pathname = usePathname()
@@ -52,6 +52,11 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
                                 <Link href="/admin/technicians"><Users /> <span>Técnicos</span></Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
+                         <SidebarMenuItem>
+                            <SidebarMenuButton asChild isActive={isActive('/admin/indicators')} tooltip="Indicadores">
+                                <Link href="/admin/indicators"><Target /> <span>Indicadores</span></Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
                         <SidebarMenuItem>
                             <SidebarMenuButton asChild isActive={isActive('/admin/codes')} tooltip="Códigos">
                                 <Link href="/admin/codes"><Tag /> <span>Códigos</span></Link>
@@ -60,6 +65,11 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
                         <SidebarMenuItem>
                             <SidebarMenuButton asChild isActive={isActive('/admin/presets')} tooltip="Presets">
                                 <Link href="/admin/presets"><Bookmark /> <span>Presets</span></Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                            <SidebarMenuButton asChild isActive={isActive('/admin/returns')} tooltip="Retornos">
+                                <Link href="/admin/returns"><History /> <span>Retornos</span></Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                     </SidebarMenu>

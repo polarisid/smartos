@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,22 +44,21 @@ export default function TechniciansPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    const fetchTechnicians = async () => {
+    const fetchData = async () => {
         setIsLoading(true);
         try {
-            const techniciansCol = collection(db, "technicians");
-            const snapshot = await getDocs(techniciansCol);
-            const techs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
+            const techsSnapshot = await getDocs(collection(db, "technicians"));
+            const techs = techsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
             setTechnicians(techs);
         } catch (error) {
-            console.error("Error fetching technicians:", error);
-            toast({ variant: "destructive", title: "Erro ao carregar dados", description: "Não foi possível buscar os técnicos do banco de dados." });
+            console.error("Error fetching data:", error);
+            toast({ variant: "destructive", title: "Erro ao carregar dados", description: "Não foi possível buscar os dados do banco de dados." });
         } finally {
             setIsLoading(false);
         }
     };
 
-    fetchTechnicians();
+    fetchData();
   }, [toast]);
 
   const handleOpenGoalDialog = (tech: Technician) => {
@@ -217,9 +216,11 @@ export default function TechniciansPage() {
       <div className="flex flex-col gap-6 p-4 sm:p-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Gerenciar Técnicos</h1>
-          <Button onClick={handleOpenAddDialog}>
-              <PlusCircle className="mr-2 h-4 w-4" /> Cadastrar Técnico
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button onClick={handleOpenAddDialog}>
+                <PlusCircle className="mr-2 h-4 w-4" /> Cadastrar Técnico
+            </Button>
+          </div>
         </div>
 
         <Card>

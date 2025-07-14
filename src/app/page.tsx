@@ -5,8 +5,8 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { format, isAfter, startOfMonth } from "date-fns";
-import { type Technician, type ServiceOrder, type Preset } from "@/lib/data";
+import { format, isAfter, startOfMonth, startOfYear } from "date-fns";
+import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -19,6 +19,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -36,15 +37,26 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen } from "lucide-react";
+import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
-import { collection, doc, getDoc, getDocs, addDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, addDoc, Timestamp } from "firebase/firestore";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+
 
 type CodeItem = { code: string; description: string; };
 type CodeCategory = { "TV/AV": CodeItem[]; "DA": CodeItem[]; };
@@ -65,6 +77,7 @@ const formSchema = z.object({
   defectFound: z.string().optional(),
   partsRequested: z.string().optional(),
   productCollectedOrInstalled: z.string().optional(),
+  cleaningPerformed: z.boolean().optional(),
 }).superRefine((data, ctx) => {
   const serviceRequiresCodes = !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(data.serviceType);
   
@@ -117,7 +130,12 @@ function Header() {
     );
 }
 
-function PerformanceDashboard({ technicians, serviceOrders }: { technicians: Technician[], serviceOrders: ServiceOrder[] }) {
+function PerformanceDashboard({ technicians, serviceOrders, returns, indicators }: { 
+    technicians: Technician[], 
+    serviceOrders: ServiceOrder[], 
+    returns: Return[],
+    indicators: Indicator[]
+}) {
     const now = new Date();
     const startOfCurrentMonth = startOfMonth(now);
 
@@ -125,12 +143,21 @@ function PerformanceDashboard({ technicians, serviceOrders }: { technicians: Tec
         isAfter(os.date, startOfCurrentMonth)
     );
 
+    const returnsThisMonth = returns.filter(r =>
+        r.returnDate && isAfter(r.returnDate, startOfCurrentMonth)
+    );
+
     const performanceData = technicians.map(tech => {
         const techOrdersThisMonth = serviceOrdersThisMonth.filter(os =>
             os.technicianId === tech.id
         );
 
+        const techReturnsThisMonth = returnsThisMonth.filter(r => 
+            r.technicianId === tech.id
+        );
+
         const osCount = techOrdersThisMonth.length;
+        const cleaningsCount = techOrdersThisMonth.filter(os => os.cleaningPerformed).length;
         
         const revenue = techOrdersThisMonth.reduce((total, os) => {
             if (os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved && os.samsungBudgetValue) {
@@ -147,7 +174,9 @@ function PerformanceDashboard({ technicians, serviceOrders }: { technicians: Tec
             revenue,
             goal,
             progress,
-            osCount
+            osCount,
+            returnCount: techReturnsThisMonth.length,
+            cleaningsCount,
         };
     }).sort((a, b) => (b.goal > 0 ? (b.revenue / b.goal) : 0) - (a.goal > 0 ? (a.revenue / a.goal) : 0));
 
@@ -167,25 +196,43 @@ function PerformanceDashboard({ technicians, serviceOrders }: { technicians: Tec
         instalacao_inicial: { label: "Instalação Inicial", icon: PackageOpen },
     };
 
+    const getGoalDisplay = (indicator: Indicator) => {
+        if (indicator.goalType === 'percentage') {
+            return `${indicator.goalValue}%`
+        }
+        return indicator.goalDescription || '-';
+    };
+
+    const checkIsOnTarget = (indicator: Indicator): boolean => {
+        if (indicator.goalType !== 'percentage' || indicator.goalValue === undefined || indicator.currentValue === undefined) {
+            return true; // Cannot determine, so assume it's on target
+        }
+        if (indicator.evaluationLogic === 'above_is_better') {
+            return indicator.currentValue >= indicator.goalValue;
+        }
+        if (indicator.evaluationLogic === 'below_is_better') {
+            return indicator.currentValue <= indicator.goalValue;
+        }
+        return true;
+    };
+
+
     return (
         <div className="space-y-6">
             <Card>
                 <CardHeader>
                     <CardTitle>Desempenho do Mês</CardTitle>
                     <CardDescription>
-                        Acompanhe o faturamento dos técnicos em relação às suas metas mensais.
+                        Acompanhe o faturamento, OS e retornos dos técnicos em relação às suas metas mensais.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-6 md:grid-cols-2">
                     {performanceData.map(tech => (
                         <Card key={tech.id}>
                             <CardHeader className="pb-4">
-                                <div className="flex items-center justify-between">
-                                    <CardTitle className="text-lg">{tech.name}</CardTitle>
-                                    <span className="text-sm font-medium text-muted-foreground">{tech.osCount} OS</span>
-                                </div>
+                                <CardTitle className="text-lg">{tech.name}</CardTitle>
                             </CardHeader>
-                            <CardContent>
+                            <CardContent className="space-y-4">
                                 <div className="space-y-2">
                                     <Progress value={tech.progress} />
                                     <div className="flex justify-between text-sm text-muted-foreground">
@@ -197,40 +244,202 @@ function PerformanceDashboard({ technicians, serviceOrders }: { technicians: Tec
                                         </span>
                                     </div>
                                 </div>
+                                 <div className="flex justify-between items-center text-sm border-t pt-4">
+                                    <div className="flex items-center gap-2 text-muted-foreground">
+                                        <ClipboardCheck className="h-4 w-4" />
+                                        <span>Total de OS</span>
+                                    </div>
+                                    <span className="font-bold">{tech.osCount}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-sm">
+                                    <div className="flex items-center gap-2 text-muted-foreground">
+                                        <History className="h-4 w-4" />
+                                        <span>Total de Retornos</span>
+                                    </div>
+                                    <span className="font-bold">{tech.returnCount}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-sm">
+                                    <div className="flex items-center gap-2 text-muted-foreground">
+                                        <Sparkles className="h-4 w-4" />
+                                        <span>Total de Limpezas</span>
+                                    </div>
+                                    <span className="font-bold">{tech.cleaningsCount}</span>
+                                </div>
                             </CardContent>
                         </Card>
                     ))}
                 </CardContent>
             </Card>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <ListTree className="h-5 w-5" />
-                        <span>OS por Atendimento no Mês</span>
-                    </CardTitle>
-                    <CardDescription>Distribuição das ordens de serviço por tipo no mês corrente.</CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-4">
-                    {Object.entries(serviceTypeConfig).map(([type, config]) => {
-                        const count = osByServiceType[type as keyof typeof osByServiceType] || 0;
-                        if (!config) return null; // Safeguard if a type is in data but not config
-                        const Icon = config.icon;
-                        return (
-                            <div key={type} className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-muted-foreground">
-                                    <Icon className="h-4 w-4" />
-                                    <span>{config.label}</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <ListTree className="h-5 w-5" />
+                            <span>OS por Atendimento no Mês</span>
+                        </CardTitle>
+                        <CardDescription>Distribuição das ordens de serviço por tipo no mês corrente.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid gap-4">
+                        {Object.entries(serviceTypeConfig).map(([type, config]) => {
+                            const count = osByServiceType[type as keyof typeof osByServiceType] || 0;
+                            if (!config) return null; // Safeguard if a type is in data but not config
+                            const Icon = config.icon;
+                            return (
+                                <div key={type} className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2 text-muted-foreground">
+                                        <Icon className="h-4 w-4" />
+                                        <span>{config.label}</span>
+                                    </div>
+                                    <span className="font-bold">{count}</span>
                                 </div>
-                                <span className="font-bold">{count}</span>
-                            </div>
-                        )
-                    })}
-                </CardContent>
-            </Card>
+                            )
+                        })}
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                           <Target className="h-5 w-5" /> Indicadores da Equipe
+                        </CardTitle>
+                        <CardDescription>Resultados da equipe em relação às metas definidas.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid gap-4">
+                         {indicators.length > 0 ? indicators.map(indicator => {
+                            const isOnTarget = checkIsOnTarget(indicator);
+                            return (
+                                <Collapsible key={indicator.id} className={cn(
+                                    "rounded-lg border p-3 transition-colors",
+                                    !isOnTarget && "border-destructive/50 bg-destructive/10"
+                                )}>
+                                    <CollapsibleTrigger className="w-full">
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex items-center justify-between text-sm font-medium">
+                                                <span>{indicator.name}</span>
+                                                <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
+                                            </div>
+                                            <div className="flex items-center justify-between text-sm">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-muted-foreground">Resultado:</span>
+                                                    <span className="font-bold">{indicator.currentValue ?? 0}{indicator.goalType === 'percentage' ? '%' : ''}</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-muted-foreground">Meta:</span>
+                                                    <span className="font-bold">{getGoalDisplay(indicator)}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </CollapsibleTrigger>
+                                    <CollapsibleContent>
+                                        {indicator.description && <p className="text-xs text-muted-foreground pt-2 mt-2 border-t">{indicator.description}</p>}
+                                    </CollapsibleContent>
+                                </Collapsible>
+                            )
+                         }) : (
+                            <p className="text-sm text-muted-foreground text-center">Nenhum indicador de equipe cadastrado.</p>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
         </div>
     );
 }
+
+function ReturnsRanking({ technicians, returns }: { technicians: Technician[], returns: Return[] }) {
+    const now = new Date();
+    const startOfCurrentYear = startOfYear(now);
+    
+    const returnsThisYear = returns.filter(r => r.returnDate && isAfter(r.returnDate, startOfCurrentYear));
+
+    const returnsByTechnician = technicians.map(tech => {
+        const techReturns = returnsThisYear.filter(r => r.technicianId === tech.id);
+        return {
+            ...tech,
+            returnCount: techReturns.length,
+            returns: techReturns,
+        };
+    }).sort((a, b) => a.returnCount - b.returnCount);
+
+    const getTrophyColor = (rank: number) => {
+        if (rank === 0) return "text-yellow-500";
+        if (rank === 1) return "text-gray-400";
+        if (rank === 2) return "text-yellow-800";
+        return "text-muted-foreground";
+    };
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>Ranking Anual de Retornos</CardTitle>
+                <CardDescription>Técnicos com a menor quantidade de retornos no ano corrente. Clique no nome para ver os detalhes.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead className="w-[100px]">Posição</TableHead>
+                            <TableHead>Técnico</TableHead>
+                            <TableHead className="text-right">Total de Retornos (Ano)</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {returnsByTechnician.map((tech, index) => (
+                            <TableRow key={tech.id}>
+                                <TableCell className="font-bold text-lg flex items-center gap-2">
+                                    <Trophy className={`h-5 w-5 ${getTrophyColor(index)}`} />
+                                    <span>#{index + 1}</span>
+                                </TableCell>
+                                <TableCell>
+                                    <Dialog>
+                                        <DialogTrigger asChild>
+                                            <Button variant="link" className="font-medium p-0 h-auto" disabled={tech.returnCount === 0}>
+                                                {tech.name}
+                                            </Button>
+                                        </DialogTrigger>
+                                        <DialogContent className="max-w-3xl">
+                                            <DialogHeader>
+                                                <DialogTitle>Retornos de {tech.name}</DialogTitle>
+                                                <DialogDescription>
+                                                    Detalhes dos retornos do técnico no ano corrente.
+                                                </DialogDescription>
+                                            </DialogHeader>
+                                            <div className="max-h-[60vh] overflow-y-auto">
+                                                <Table>
+                                                    <TableHeader>
+                                                        <TableRow>
+                                                            <TableHead>Data</TableHead>
+                                                            <TableHead>OS Original</TableHead>
+                                                            <TableHead>OS Retorno</TableHead>
+                                                            <TableHead>Modelo</TableHead>
+                                                            <TableHead className="text-right">Dias</TableHead>
+                                                        </TableRow>
+                                                    </TableHeader>
+                                                    <TableBody>
+                                                        {tech.returns.map((r, i) => (
+                                                            <TableRow key={i}>
+                                                                <TableCell>{r.returnDate ? format(r.returnDate, 'dd/MM/yyyy') : 'N/A'}</TableCell>
+                                                                <TableCell className="font-mono">{r.originalServiceOrder}</TableCell>
+                                                                <TableCell className="font-mono">{r.returnServiceOrder}</TableCell>
+                                                                <TableCell>{r.productModel}</TableCell>
+                                                                <TableCell className="text-right">{r.daysToReturn}</TableCell>
+                                                            </TableRow>
+                                                        ))}
+                                                    </TableBody>
+                                                </Table>
+                                            </div>
+                                        </DialogContent>
+                                    </Dialog>
+                                </TableCell>
+                                <TableCell className="text-right font-mono font-semibold">{tech.returnCount}</TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </CardContent>
+        </Card>
+    );
+}
+
 
 function SearchableSelect({
   options,
@@ -311,7 +520,9 @@ export default function ServiceOrderPage() {
   const [repairCodes, setRepairCodes] = useState<CodeCategory>({ "TV/AV": [], "DA": [] });
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
+  const [returns, setReturns] = useState<Return[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
+  const [indicators, setIndicators] = useState<Indicator[]>([]);
   const [assistantName, setAssistantName] = useState("");
 
   const form = useForm<FormValues>({
@@ -332,6 +543,7 @@ export default function ServiceOrderPage() {
       defectFound: "",
       partsRequested: "",
       productCollectedOrInstalled: "",
+      cleaningPerformed: false,
     },
   });
 
@@ -340,26 +552,44 @@ export default function ServiceOrderPage() {
   const watchedTechnician = form.watch("technician");
   const watchedPreset = form.watch("presetId");
 
-  const fetchServiceOrders = async () => {
+  const fetchDynamicData = async () => {
     try {
-        const querySnapshot = await getDocs(collection(db, "serviceOrders"));
-        const orders = querySnapshot.docs.map(doc => {
+        const [ordersSnapshot, returnsSnapshot, indicatorsSnapshot] = await Promise.all([
+            getDocs(collection(db, "serviceOrders")),
+            getDocs(collection(db, "returns")),
+            getDocs(collection(db, "indicators")),
+        ]);
+        
+        const orders = ordersSnapshot.docs.map(doc => {
             const data = doc.data();
             return {
                 id: doc.id,
                 ...data,
-                date: data.date.toDate(), // Convert Firestore Timestamp to Date
+                date: (data.date as Timestamp).toDate(),
             } as ServiceOrder;
         });
         setServiceOrders(orders);
+
+        const returnsData = returnsSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                ...data,
+                returnDate: (data.returnDate as Timestamp)?.toDate(),
+            } as Return;
+        });
+        setReturns(returnsData);
+
+        const indicatorsData = indicatorsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Indicator));
+        setIndicators(indicatorsData);
+
     } catch (error) {
-        console.error("Error fetching service orders:", error);
+        console.error("Error fetching dynamic data:", error);
         toast({
             variant: "destructive",
-            title: "Erro ao buscar OS",
-            description: "Não foi possível carregar os dados das Ordens de Serviço.",
+            title: "Erro ao buscar dados dinâmicos",
+            description: "Não foi possível carregar os dados mais recentes.",
         });
-        setServiceOrders([]);
     }
   };
 
@@ -370,19 +600,18 @@ export default function ServiceOrderPage() {
                 getDoc(doc(db, "codes", "symptoms")),
                 getDoc(doc(db, "codes", "repairs")),
                 getDocs(collection(db, "technicians")),
-                getDocs(collection(db, "presets"))
+                getDocs(collection(db, "presets")),
             ]);
 
             if (symptomsDoc.exists()) setSymptomCodes(symptomsDoc.data() as CodeCategory);
             if (repairsDoc.exists()) setRepairCodes(repairsDoc.data() as CodeCategory);
-            if (!techsSnapshot.empty) {
-                const techs = techsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
-                setTechnicians(techs);
-            }
-            if (!presetsSnapshot.empty) {
-                const presetsData = presetsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Preset));
-                setPresets(presetsData);
-            }
+            
+            const techs = techsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
+            setTechnicians(techs);
+            
+            const presetsData = presetsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Preset));
+            setPresets(presetsData);
+
         } catch (error) {
             console.error("Error fetching initial data:", error);
             toast({
@@ -393,8 +622,9 @@ export default function ServiceOrderPage() {
         }
     };
     
-    fetchInitialData();
-    fetchServiceOrders();
+    fetchInitialData().then(() => {
+        fetchDynamicData();
+    });
   }, [toast]);
 
   useEffect(() => {
@@ -514,6 +744,7 @@ export default function ServiceOrderPage() {
             defectFound: data.defectFound || '',
             partsRequested: data.partsRequested || '',
             productCollectedOrInstalled: data.productCollectedOrInstalled || '',
+            cleaningPerformed: data.cleaningPerformed || false,
         };
 
         await addDoc(collection(db, "serviceOrders"), newServiceOrder);
@@ -523,7 +754,7 @@ export default function ServiceOrderPage() {
             description: `A ordem de serviço ${data.serviceOrderNumber} foi salva.`,
         });
 
-        fetchServiceOrders(); // Refetch data for dashboard
+        fetchDynamicData(); // Refetch data for dashboard
 
         const technicianBeforeReset = form.getValues("technician");
         
@@ -543,6 +774,7 @@ export default function ServiceOrderPage() {
             defectFound: "",
             partsRequested: "",
             productCollectedOrInstalled: "",
+            cleaningPerformed: false,
         });
 
     } catch (error) {
@@ -583,9 +815,11 @@ export default function ServiceOrderPage() {
         <main className="flex-grow p-4 sm:p-6 md:p-8">
             <div className="max-w-4xl mx-auto">
                 <Tabs defaultValue="os-form" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2 mb-6">
+                    <TabsList className="grid w-full grid-cols-4 mb-6">
                         <TabsTrigger value="os-form">Lançar OS</TabsTrigger>
                         <TabsTrigger value="dashboard">Desempenho do Mês</TabsTrigger>
+                        <TabsTrigger value="returns-ranking">Ranking de Retornos</TabsTrigger>
+                        <TabsTrigger value="routes">Rotas</TabsTrigger>
                     </TabsList>
                     <TabsContent value="os-form">
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -828,6 +1062,18 @@ export default function ServiceOrderPage() {
                                                 </FormItem>
                                             )}/>
 
+                                            <FormField control={form.control} name="cleaningPerformed" render={({ field }) => (
+                                                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                                                    <div className="space-y-0.5">
+                                                        <FormLabel>Foi feita limpeza nesta OS?</FormLabel>
+                                                        <FormDescription className="text-xs">
+                                                            Marque somente se você executou a limpeza.
+                                                        </FormDescription>
+                                                    </div>
+                                                    <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                                </FormItem>
+                                            )}/>
+
                                             <Button type="submit" className="w-full">Gerar Texto e Salvar OS</Button>
                                         </form>
                                     </Form>
@@ -859,7 +1105,28 @@ export default function ServiceOrderPage() {
                         </div>
                     </TabsContent>
                     <TabsContent value="dashboard">
-                        <PerformanceDashboard technicians={technicians} serviceOrders={serviceOrders} />
+                        <PerformanceDashboard 
+                            technicians={technicians} 
+                            serviceOrders={serviceOrders} 
+                            returns={returns} 
+                            indicators={indicators}
+                        />
+                    </TabsContent>
+                    <TabsContent value="returns-ranking">
+                        <ReturnsRanking technicians={technicians} returns={returns} />
+                    </TabsContent>
+                    <TabsContent value="routes">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Rotas</CardTitle>
+                                <CardDescription>Funcionalidade em desenvolvimento.</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-center text-muted-foreground py-10">
+                                    <p>Em breve...</p>
+                                </div>
+                            </CardContent>
+                        </Card>
                     </TabsContent>
                 </Tabs>
             </div>

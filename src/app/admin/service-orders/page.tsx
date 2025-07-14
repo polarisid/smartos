@@ -28,7 +28,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Edit, Trash2, Calendar as CalendarIcon, FilterX } from "lucide-react";
+import { Edit, Trash2, Calendar as CalendarIcon, FilterX, Sparkles } from "lucide-react";
 import { type ServiceOrder, type Technician } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
@@ -52,6 +52,7 @@ const formSchema = z.object({
   defectFound: z.string().optional(),
   partsRequested: z.string().optional(),
   productCollectedOrInstalled: z.string().optional(),
+  cleaningPerformed: z.boolean().optional(),
 });
 type FormValues = z.infer<typeof formSchema>;
 
@@ -73,10 +74,12 @@ export default function ServiceOrdersPage() {
         technicianId: string;
         serviceType: string;
         date: DateRange | undefined;
+        cleaningOnly: boolean;
     }>({
         technicianId: 'all',
         serviceType: 'all',
-        date: undefined
+        date: undefined,
+        cleaningOnly: false,
     });
 
     const form = useForm<FormValues>({
@@ -134,6 +137,10 @@ export default function ServiceOrdersPage() {
             newFilteredOrders = newFilteredOrders.filter(o => isWithinInterval(o.date, interval));
         }
 
+        if (filters.cleaningOnly) {
+            newFilteredOrders = newFilteredOrders.filter(o => o.cleaningPerformed);
+        }
+
         setFilteredOrders(newFilteredOrders);
     }, [filters, serviceOrders]);
     
@@ -153,6 +160,7 @@ export default function ServiceOrdersPage() {
             defectFound: order.defectFound || "",
             partsRequested: order.partsRequested || "",
             productCollectedOrInstalled: order.productCollectedOrInstalled || "",
+            cleaningPerformed: order.cleaningPerformed || false,
         });
         setIsFormDialogOpen(true);
     };
@@ -221,7 +229,8 @@ export default function ServiceOrdersPage() {
         setFilters({
             technicianId: 'all',
             serviceType: 'all',
-            date: undefined
+            date: undefined,
+            cleaningOnly: false,
         });
     };
 
@@ -299,11 +308,21 @@ export default function ServiceOrdersPage() {
                                 </PopoverContent>
                             </Popover>
                         </div>
-                        <div className="flex items-end">
+                         <div className="flex items-end">
                             <Button variant="outline" onClick={clearFilters} className="w-full">
                                 <FilterX className="mr-2 h-4 w-4" />
                                 Limpar Filtros
                             </Button>
+                        </div>
+                    </CardContent>
+                     <CardContent className="pt-0 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-t mt-4 pt-6">
+                        <div className="flex items-center space-x-2">
+                            <Switch
+                                id="cleaning-filter"
+                                checked={filters.cleaningOnly}
+                                onCheckedChange={(checked) => handleFilterChange('cleaningOnly', checked)}
+                            />
+                            <Label htmlFor="cleaning-filter">Mostrar apenas OS com limpeza</Label>
                         </div>
                     </CardContent>
                 </Card>
@@ -324,6 +343,7 @@ export default function ServiceOrdersPage() {
                                         <TableHead>Data</TableHead>
                                         <TableHead>Técnico</TableHead>
                                         <TableHead>Atendimento</TableHead>
+                                        <TableHead className="text-center">Limpeza</TableHead>
                                         <TableHead className="text-right">Ações</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -334,6 +354,9 @@ export default function ServiceOrdersPage() {
                                             <TableCell>{format(order.date, 'dd/MM/yyyy')}</TableCell>
                                             <TableCell>{order.technicianName}</TableCell>
                                             <TableCell>{serviceTypeLabels[order.serviceType] || order.serviceType}</TableCell>
+                                            <TableCell className="text-center">
+                                                {order.cleaningPerformed && <Sparkles className="h-5 w-5 text-yellow-500 mx-auto" />}
+                                            </TableCell>
                                             <TableCell className="text-right">
                                                 <Button variant="outline" size="sm" onClick={() => handleOpenEditDialog(order)}>
                                                     <Edit className="mr-2 h-4 w-4" /> Editar
@@ -345,7 +368,7 @@ export default function ServiceOrdersPage() {
                                         </TableRow>
                                     )) : (
                                         <TableRow>
-                                            <TableCell colSpan={5} className="text-center h-24">
+                                            <TableCell colSpan={6} className="text-center h-24">
                                                 Nenhuma ordem de serviço encontrada com os filtros selecionados.
                                             </TableCell>
                                         </TableRow>
@@ -464,6 +487,12 @@ export default function ServiceOrdersPage() {
                             <Label>Observações (Opcional)</Label>
                             <Textarea {...form.register('observations')} />
                         </div>
+
+                         <div className="flex items-center space-x-2 rounded-lg border p-4">
+                            <Switch id="cleaning-performed" checked={form.watch('cleaningPerformed')} onCheckedChange={(c) => form.setValue('cleaningPerformed', c)} />
+                            <Label htmlFor="cleaning-performed">Foi realizada limpeza nesta OS?</Label>
+                        </div>
+
 
                         <DialogFooter>
                             <Button variant="outline" type="button" onClick={() => setIsFormDialogOpen(false)}>Cancelar</Button>

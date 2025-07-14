@@ -35,8 +35,43 @@ export type ServiceOrder = {
 
   replacedPart?: string;
   observations?: string;
+
+  cleaningPerformed?: boolean;
 };
 
+export type Return = {
+  id: string;
+  technicianId: string;
+  technicianName?: string;
+  originalServiceOrder: string;
+  originalReplacedPart: string;
+  returnServiceOrder: string;
+  returnReplacedPart: string;
+  returnDate: Date;
+  daysToReturn: number;
+  productModel: string;
+};
+
+export type Preset = {
+  id: string;
+  name: string;
+  equipmentType: 'TV/AV' | 'DA';
+  symptomCode: string;
+  repairCode: string;
+  replacedPart?: string;
+  observations?: string;
+};
+
+export type Indicator = {
+  id: string;
+  name: string;
+  description: string;
+  goalType: 'percentage' | 'text';
+  goalValue?: number;
+  goalDescription?: string;
+  evaluationLogic?: 'above_is_better' | 'below_is_better';
+  currentValue?: number;
+}
 
 const today = new Date();
 export const serviceOrders: ServiceOrder[] = [
@@ -91,14 +126,4 @@ export const repairCodes = {
     { code: 'R03', description: 'Troca da placa de potência' },
     { code: 'R04', description: 'Troca da bomba de drenagem' },
   ]
-};
-
-export type Preset = {
-  id: string;
-  name: string;
-  equipmentType: 'TV/AV' | 'DA';
-  symptomCode: string;
-  repairCode: string;
-  replacedPart?: string;
-  observations?: string;
 };
