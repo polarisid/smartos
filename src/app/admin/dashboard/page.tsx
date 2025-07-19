@@ -262,12 +262,22 @@ function ReturnsRanking({ technicians, returns }: { technicians: Technician[], r
     const returnsThisYear = returns.filter(r => r.returnDate && isAfter(r.returnDate, startOfCurrentYear));
 
     const returnsByTechnician = technicians.map(tech => {
-        const techReturnsCount = returnsThisYear.filter(r => r.technicianId === tech.id).length;
+        const techReturns = returnsThisYear.filter(r => r.technicianId === tech.id);
+        const returnCount = techReturns.length;
+        const totalDaysToReturn = techReturns.reduce((acc, r) => acc + r.daysToReturn, 0);
+        const averageDaysToReturn = returnCount > 0 ? totalDaysToReturn / returnCount : 0;
+        
         return {
             ...tech,
-            returnCount: techReturnsCount,
+            returnCount,
+            averageDaysToReturn
         };
-    }).sort((a, b) => a.returnCount - b.returnCount);
+    }).sort((a, b) => {
+        if (a.returnCount !== b.returnCount) {
+            return a.returnCount - b.returnCount;
+        }
+        return b.averageDaysToReturn - a.averageDaysToReturn;
+    });
 
     const getTrophyColor = (rank: number) => {
         if (rank === 0) return "text-yellow-500";
@@ -290,7 +300,8 @@ function ReturnsRanking({ technicians, returns }: { technicians: Technician[], r
                             <TableRow>
                                 <TableHead className="w-[100px]">Posição</TableHead>
                                 <TableHead>Técnico</TableHead>
-                                <TableHead className="text-right">Total de Retornos (Ano)</TableHead>
+                                <TableHead className="text-center">Total de Retornos (Ano)</TableHead>
+                                <TableHead className="text-right">Média de Dias p/ Retorno</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -301,7 +312,8 @@ function ReturnsRanking({ technicians, returns }: { technicians: Technician[], r
                                         <span>#{index + 1}</span>
                                     </TableCell>
                                     <TableCell className="font-medium">{tech.name}</TableCell>
-                                    <TableCell className="text-right font-mono font-semibold">{tech.returnCount}</TableCell>
+                                    <TableCell className="text-center font-mono font-semibold">{tech.returnCount}</TableCell>
+                                    <TableCell className="text-right font-mono font-semibold">{Math.round(tech.averageDaysToReturn)} dias</TableCell>
                                 </TableRow>
                             ))}
                         </TableBody>

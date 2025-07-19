@@ -5,8 +5,8 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { format, isAfter, startOfMonth, startOfYear } from "date-fns";
-import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator } from "@/lib/data";
+import { format, isAfter, startOfMonth, startOfYear, subDays } from "date-fns";
+import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator, type Route, type RouteStop } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -37,10 +37,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown } from "lucide-react";
+import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
-import { collection, doc, getDoc, getDocs, addDoc, Timestamp } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -353,12 +353,22 @@ function ReturnsRanking({ technicians, returns }: { technicians: Technician[], r
 
     const returnsByTechnician = technicians.map(tech => {
         const techReturns = returnsThisYear.filter(r => r.technicianId === tech.id);
+        const returnCount = techReturns.length;
+        const totalDaysToReturn = techReturns.reduce((acc, r) => acc + r.daysToReturn, 0);
+        const averageDaysToReturn = returnCount > 0 ? totalDaysToReturn / returnCount : 0;
+        
         return {
             ...tech,
-            returnCount: techReturns.length,
+            returnCount,
+            averageDaysToReturn,
             returns: techReturns,
         };
-    }).sort((a, b) => a.returnCount - b.returnCount);
+    }).sort((a, b) => {
+        if (a.returnCount !== b.returnCount) {
+            return a.returnCount - b.returnCount;
+        }
+        return b.averageDaysToReturn - a.averageDaysToReturn;
+    });
 
     const getTrophyColor = (rank: number) => {
         if (rank === 0) return "text-yellow-500";
@@ -379,7 +389,8 @@ function ReturnsRanking({ technicians, returns }: { technicians: Technician[], r
                         <TableRow>
                             <TableHead className="w-[100px]">Posição</TableHead>
                             <TableHead>Técnico</TableHead>
-                            <TableHead className="text-right">Total de Retornos (Ano)</TableHead>
+                            <TableHead className="text-center">Retornos (Ano)</TableHead>
+                            <TableHead className="text-right">Média de Dias p/ Retorno</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -430,7 +441,8 @@ function ReturnsRanking({ technicians, returns }: { technicians: Technician[], r
                                         </DialogContent>
                                     </Dialog>
                                 </TableCell>
-                                <TableCell className="text-right font-mono font-semibold">{tech.returnCount}</TableCell>
+                                <TableCell className="text-center font-mono font-semibold">{tech.returnCount}</TableCell>
+                                <TableCell className="text-right font-mono font-semibold">{Math.round(tech.averageDaysToReturn)} dias</TableCell>
                             </TableRow>
                         ))}
                     </TableBody>
@@ -511,6 +523,167 @@ function SearchableSelect({
       </PopoverContent>
     </Popover>
   )
+}
+
+function RouteDetailsRow({ stop, index }: { stop: RouteStop, index: number }) {
+    return (
+        <Collapsible asChild key={index}>
+            <>
+                <CollapsibleTrigger asChild>
+                     <TableRow className="cursor-pointer">
+                        <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
+                        <TableCell className="font-mono">{stop.ascJobNumber}</TableCell>
+                        <TableCell>{stop.city}</TableCell>
+                        <TableCell>{stop.neighborhood}</TableCell>
+                        <TableCell>{stop.model}</TableCell>
+                        <TableCell>{stop.ts}</TableCell>
+                        <TableCell>{stop.warrantyType}</TableCell>
+                        <TableCell>
+                            {stop.parts && stop.parts.length > 0 ? (
+                                <div>
+                                    {stop.parts.map((part, pIndex) => (
+                                        <div key={pIndex} className="font-mono text-xs">
+                                            {part.code} (x{part.quantity})
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <span className="text-xs text-muted-foreground">N/A</span>
+                            )}
+                        </TableCell>
+                         <TableCell className="text-right">
+                           <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
+                        </TableCell>
+                    </TableRow>
+                </CollapsibleTrigger>
+                <CollapsibleContent asChild>
+                    <tr className="bg-muted/50">
+                        <TableCell colSpan={9} className="p-2">
+                             <div className="p-2 bg-background/50 rounded space-y-2">
+                                <div>
+                                    <p className="font-semibold text-xs mb-1">Nome Consumidor:</p>
+                                    <p className="text-sm text-foreground">{stop.consumerName || "N/A"}</p>
+                                </div>
+                                <div>
+                                    <p className="font-semibold text-xs mb-1">Status Comment:</p>
+                                    <p className="text-sm text-foreground">{stop.statusComment || "N/A"}</p>
+                                </div>
+                            </div>
+                        </TableCell>
+                    </tr>
+                </CollapsibleContent>
+            </>
+        </Collapsible>
+    )
+}
+
+function RoutesTab() {
+    const { toast } = useToast();
+    const [routes, setRoutes] = useState<Route[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchActiveRoutes = async () => {
+            setIsLoading(true);
+            try {
+                const sevenDaysAgo = Timestamp.fromDate(subDays(new Date(), 7));
+                const q = query(
+                    collection(db, "routes"),
+                    where("isActive", "==", true),
+                    where("createdAt", ">=", sevenDaysAgo),
+                    orderBy("createdAt", "desc")
+                );
+                const querySnapshot = await getDocs(q);
+                const activeRoutes = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Route));
+                setRoutes(activeRoutes);
+            } catch (error) {
+                console.error("Error fetching active routes:", error);
+                toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar as rotas ativas." });
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchActiveRoutes();
+    }, [toast]);
+
+    if (isLoading) {
+        return (
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><RouteIcon /> Rotas Ativas</CardTitle>
+                    <CardDescription>Buscando as rotas ativas...</CardDescription>
+                </CardHeader>
+                <CardContent className="text-center py-10">
+                    <p>Carregando...</p>
+                </CardContent>
+            </Card>
+        );
+    }
+
+    if (routes.length === 0) {
+        return (
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><RouteIcon /> Rotas Ativas</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="text-center text-muted-foreground py-10">
+                        <p>Nenhuma rota ativa encontrada para os últimos 7 dias.</p>
+                    </div>
+                </CardContent>
+            </Card>
+        );
+    }
+
+    return (
+        <div className="space-y-4">
+            {routes.map(route => (
+                <Card key={route.id}>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2"><RouteIcon /> Rota: {route.name}</CardTitle>
+                        <CardDescription>
+                            Rota criada em: {route.createdAt ? format(route.createdAt.toDate(), 'dd/MM/yyyy HH:mm') : 'N/A'}
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                         <Dialog>
+                            <DialogTrigger asChild>
+                                <Button variant="outline"><Eye className="mr-2 h-4 w-4" /> Ver Detalhes da Rota</Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-6xl">
+                                <DialogHeader>
+                                    <DialogTitle>Detalhes da Rota: {route.name}</DialogTitle>
+                                </DialogHeader>
+                                <div className="max-h-[70vh] overflow-y-auto">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>OS</TableHead>
+                                                <TableHead>ASC Job No.</TableHead>
+                                                <TableHead>Cidade</TableHead>
+                                                <TableHead>Bairro</TableHead>
+                                                <TableHead>Modelo</TableHead>
+                                                <TableHead>TS</TableHead>
+                                                <TableHead>OW/LP</TableHead>
+                                                <TableHead>Peças</TableHead>
+                                                <TableHead className="w-[50px]"></TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {route.stops.map((stop, index) => (
+                                                <RouteDetailsRow key={index} stop={stop} index={index} />
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            </DialogContent>
+                        </Dialog>
+                    </CardContent>
+                </Card>
+            ))}
+        </div>
+    );
 }
 
 export default function ServiceOrderPage() {
@@ -815,10 +988,10 @@ export default function ServiceOrderPage() {
         <main className="flex-grow p-4 sm:p-6 md:p-8">
             <div className="max-w-4xl mx-auto">
                 <Tabs defaultValue="os-form" className="w-full">
-                    <TabsList className="grid w-full grid-cols-4 mb-6">
+                    <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 mb-6">
                         <TabsTrigger value="os-form">Lançar OS</TabsTrigger>
-                        <TabsTrigger value="dashboard">Desempenho do Mês</TabsTrigger>
-                        <TabsTrigger value="returns-ranking">Ranking de Retornos</TabsTrigger>
+                        <TabsTrigger value="dashboard">Desempenho</TabsTrigger>
+                        <TabsTrigger value="returns-ranking">Ranking</TabsTrigger>
                         <TabsTrigger value="routes">Rotas</TabsTrigger>
                     </TabsList>
                     <TabsContent value="os-form">
@@ -1116,17 +1289,7 @@ export default function ServiceOrderPage() {
                         <ReturnsRanking technicians={technicians} returns={returns} />
                     </TabsContent>
                     <TabsContent value="routes">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Rotas</CardTitle>
-                                <CardDescription>Funcionalidade em desenvolvimento.</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-center text-muted-foreground py-10">
-                                    <p>Em breve...</p>
-                                </div>
-                            </CardContent>
-                        </Card>
+                        <RoutesTab />
                     </TabsContent>
                 </Tabs>
             </div>
@@ -1134,3 +1297,7 @@ export default function ServiceOrderPage() {
     </div>
   );
 }
+
+    
+
+    

@@ -1,5 +1,7 @@
 
 
+import { type Timestamp } from "firebase/firestore";
+
 export type Technician = {
   id: string;
   name: string;
@@ -72,6 +74,39 @@ export type Indicator = {
   evaluationLogic?: 'above_is_better' | 'below_is_better';
   currentValue?: number;
 }
+
+export type RoutePart = {
+    code: string;
+    quantity: number;
+}
+
+export type RouteStop = {
+    serviceOrder: string;
+    ascJobNumber: string;
+    consumerName: string;
+    city: string;
+    neighborhood: string;
+    state: string;
+    model: string;
+    turn: string;
+    tat: string;
+    requestDate: string;
+    firstVisitDate: string;
+    ts: string;
+    warrantyType: string;
+    productType: string;
+    statusComment: string;
+    parts: RoutePart[];
+}
+
+export type Route = {
+    id: string;
+    name: string;
+    stops: RouteStop[];
+    createdAt: Timestamp;
+    isActive: boolean;
+}
+
 
 const today = new Date();
 export const serviceOrders: ServiceOrder[] = [
