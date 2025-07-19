@@ -525,12 +525,14 @@ function SearchableSelect({
   )
 }
 
-function RouteDetailsRow({ stop, index }: { stop: RouteStop, index: number }) {
+function RouteDetailsRow({ stop, index, serviceOrders }: { stop: RouteStop, index: number, serviceOrders: ServiceOrder[] }) {
+    const isCompleted = serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder);
+
     return (
         <Collapsible asChild key={index}>
             <>
                 <CollapsibleTrigger asChild>
-                     <TableRow className="cursor-pointer">
+                     <TableRow className={cn("cursor-pointer", isCompleted && "bg-green-100 dark:bg-green-900/50 line-through")}>
                         <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
                         <TableCell className="font-mono">{stop.ascJobNumber}</TableCell>
                         <TableCell>{stop.city}</TableCell>
@@ -539,7 +541,7 @@ function RouteDetailsRow({ stop, index }: { stop: RouteStop, index: number }) {
                         <TableCell>{stop.ts}</TableCell>
                         <TableCell>{stop.warrantyType}</TableCell>
                         <TableCell>
-                            {stop.parts && stop.parts.length > 0 ? (
+                           {stop.parts && stop.parts.length > 0 ? (
                                 <div>
                                     {stop.parts.map((part, pIndex) => (
                                         <div key={pIndex} className="font-mono text-xs">
@@ -577,7 +579,7 @@ function RouteDetailsRow({ stop, index }: { stop: RouteStop, index: number }) {
     )
 }
 
-function RoutesTab() {
+function RoutesTab({ serviceOrders }: { serviceOrders: ServiceOrder[] }) {
     const { toast } = useToast();
     const [routes, setRoutes] = useState<Route[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -586,11 +588,11 @@ function RoutesTab() {
         const fetchActiveRoutes = async () => {
             setIsLoading(true);
             try {
-                const sevenDaysAgo = Timestamp.fromDate(subDays(new Date(), 7));
+                const sevenDaysAgo = subDays(new Date(), 7);
                 const q = query(
                     collection(db, "routes"),
                     where("isActive", "==", true),
-                    where("createdAt", ">=", sevenDaysAgo),
+                    where("createdAt", ">=", Timestamp.fromDate(sevenDaysAgo)),
                     orderBy("createdAt", "desc")
                 );
                 const querySnapshot = await getDocs(q);
@@ -672,7 +674,7 @@ function RoutesTab() {
                                         </TableHeader>
                                         <TableBody>
                                             {route.stops.map((stop, index) => (
-                                                <RouteDetailsRow key={index} stop={stop} index={index} />
+                                                <RouteDetailsRow key={index} stop={stop} index={index} serviceOrders={serviceOrders} />
                                             ))}
                                         </TableBody>
                                     </Table>
@@ -1289,7 +1291,7 @@ export default function ServiceOrderPage() {
                         <ReturnsRanking technicians={technicians} returns={returns} />
                     </TabsContent>
                     <TabsContent value="routes">
-                        <RoutesTab />
+                        <RoutesTab serviceOrders={serviceOrders} />
                     </TabsContent>
                 </Tabs>
             </div>
@@ -1297,7 +1299,3 @@ export default function ServiceOrderPage() {
     </div>
   );
 }
-
-    
-
-    

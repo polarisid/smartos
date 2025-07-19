@@ -23,7 +23,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { db } from "@/lib/firebase";
 import { collection, addDoc, getDocs, doc, deleteDoc, Timestamp, setDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
-import { type Route, type RouteStop } from "@/lib/data";
+import { type Route, type RouteStop, type ServiceOrder } from "@/lib/data";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -36,6 +36,8 @@ function parseRouteText(text: string): RouteStop[] {
     const headerLine = lines.shift()?.trim();
     if (!headerLine) return [];
     
+    // SO Nro.	ASC Job No.	Nome Consumidor	Cidade	Bairro	UF	Modelo	TURNO	TAT	Data de Solicitação	1st Visit Date	TS	OW/LP	SPD	Status comment	COD	QTD...
+    // 0        1           2               3       4       5   6       7       8   9                     10               11  12      13  14              15  16
     const partStartIndex = 15;
 
     return lines.map(line => {
@@ -63,7 +65,7 @@ function parseRouteText(text: string): RouteStop[] {
             firstVisitDate: columns[10]?.trim() || '',
             ts: columns[11]?.trim() || '',
             warrantyType: columns[12]?.trim() || '',
-            productType: columns[13]?.trim() || '',
+            productType: columns[13]?.trim() || '', // SPD
             statusComment: columns[14]?.trim() || '',
             parts: parts,
         };
@@ -190,12 +192,14 @@ function AddRouteDialog({ onRouteAdded }: { onRouteAdded: () => void }) {
     );
 }
 
-function RouteDetailsRow({ stop, index }: { stop: RouteStop, index: number }) {
+function RouteDetailsRow({ stop, index, serviceOrders }: { stop: RouteStop, index: number, serviceOrders: ServiceOrder[] }) {
+    const isCompleted = serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder);
+
     return (
          <Collapsible asChild key={index}>
             <>
                 <CollapsibleTrigger asChild>
-                    <TableRow className="cursor-pointer">
+                    <TableRow className={cn("cursor-pointer", isCompleted && "bg-green-100 dark:bg-green-900/50 line-through")}>
                         <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
                         <TableCell className="font-mono">{stop.ascJobNumber}</TableCell>
                         <TableCell>{stop.city}</TableCell>
@@ -204,7 +208,7 @@ function RouteDetailsRow({ stop, index }: { stop: RouteStop, index: number }) {
                         <TableCell>{stop.ts}</TableCell>
                         <TableCell>{stop.warrantyType}</TableCell>
                         <TableCell>
-                            {stop.parts && stop.parts.length > 0 ? (
+                             {stop.parts && stop.parts.length > 0 ? (
                                 <div>
                                     {stop.parts.map((part, pIndex) => (
                                         <div key={pIndex} className="font-mono text-xs">
@@ -245,6 +249,7 @@ function RouteDetailsRow({ stop, index }: { stop: RouteStop, index: number }) {
 export default function RoutesPage() {
     const { toast } = useToast();
     const [allRoutes, setAllRoutes] = useState<Route[]>([]);
+    const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
     const [filteredRoutes, setFilteredRoutes] = useState<Route[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
@@ -255,11 +260,19 @@ export default function RoutesPage() {
     const fetchRoutes = async () => {
         setIsLoading(true);
         try {
-            const querySnapshot = await getDocs(collection(db, "routes"));
-            const routesData = querySnapshot.docs
+            const [routesSnapshot, ordersSnapshot] = await Promise.all([
+                getDocs(collection(db, "routes")),
+                getDocs(collection(db, "serviceOrders"))
+            ]);
+
+            const routesData = routesSnapshot.docs
                 .map(doc => ({ ...doc.data(), id: doc.id } as Route))
                 .sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
             setAllRoutes(routesData);
+
+            const ordersData = ordersSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as ServiceOrder));
+            setServiceOrders(ordersData);
+
         } catch (error) {
             console.error("Error fetching routes: ", error);
             toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar as rotas." });
@@ -415,7 +428,7 @@ export default function RoutesPage() {
                             </TableHeader>
                             <TableBody>
                                 {selectedRoute?.stops.map((stop, index) => (
-                                    <RouteDetailsRow key={index} stop={stop} index={index} />
+                                    <RouteDetailsRow key={index} stop={stop} index={index} serviceOrders={serviceOrders} />
                                 ))}
                             </TableBody>
                         </Table>
@@ -443,7 +456,3 @@ export default function RoutesPage() {
         </>
     );
 }
-
-    
-
-    
