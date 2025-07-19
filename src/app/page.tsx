@@ -1,11 +1,12 @@
 
+
 "use client";
 
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { format, isAfter, startOfMonth, startOfYear, subDays } from "date-fns";
+import { format, isAfter, startOfMonth, startOfYear, subDays, differenceInDays } from "date-fns";
 import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator, type Route, type RouteStop } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,7 +38,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye } from "lucide-react";
+import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
@@ -56,6 +57,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import React from "react";
 
 
 type CodeItem = { code: string; description: string; };
@@ -525,12 +527,14 @@ function SearchableSelect({
   )
 }
 
-function RouteDetailsRow({ stop, index }: { stop: RouteStop, index: number }) {
+function RouteDetailsRow({ stop, index, serviceOrders }: { stop: RouteStop, index: number, serviceOrders: ServiceOrder[] }) {
+    const isCompleted = serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder);
+
     return (
         <Collapsible asChild key={index}>
-            <>
+            <React.Fragment>
                 <CollapsibleTrigger asChild>
-                     <TableRow className="cursor-pointer">
+                     <TableRow className={cn("cursor-pointer", isCompleted && "bg-green-100 dark:bg-green-900/50 line-through")}>
                         <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
                         <TableCell className="font-mono">{stop.ascJobNumber}</TableCell>
                         <TableCell>{stop.city}</TableCell>
@@ -539,7 +543,7 @@ function RouteDetailsRow({ stop, index }: { stop: RouteStop, index: number }) {
                         <TableCell>{stop.ts}</TableCell>
                         <TableCell>{stop.warrantyType}</TableCell>
                         <TableCell>
-                            {stop.parts && stop.parts.length > 0 ? (
+                           {stop.parts && stop.parts.length > 0 ? (
                                 <div>
                                     {stop.parts.map((part, pIndex) => (
                                         <div key={pIndex} className="font-mono text-xs">
@@ -572,12 +576,12 @@ function RouteDetailsRow({ stop, index }: { stop: RouteStop, index: number }) {
                         </TableCell>
                     </tr>
                 </CollapsibleContent>
-            </>
+            </React.Fragment>
         </Collapsible>
     )
 }
 
-function RoutesTab() {
+function RoutesTab({ serviceOrders }: { serviceOrders: ServiceOrder[] }) {
     const { toast } = useToast();
     const [routes, setRoutes] = useState<Route[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -586,15 +590,24 @@ function RoutesTab() {
         const fetchActiveRoutes = async () => {
             setIsLoading(true);
             try {
-                const sevenDaysAgo = Timestamp.fromDate(subDays(new Date(), 7));
+                const sevenDaysAgo = subDays(new Date(), 7);
                 const q = query(
                     collection(db, "routes"),
                     where("isActive", "==", true),
-                    where("createdAt", ">=", sevenDaysAgo),
+                    where("createdAt", ">=", Timestamp.fromDate(sevenDaysAgo)),
                     orderBy("createdAt", "desc")
                 );
                 const querySnapshot = await getDocs(q);
-                const activeRoutes = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Route));
+                const activeRoutes = querySnapshot.docs.map(doc => {
+                     const data = doc.data();
+                     return { 
+                        ...data, 
+                        id: doc.id,
+                        departureDate: (data.departureDate as Timestamp)?.toDate(),
+                        arrivalDate: (data.arrivalDate as Timestamp)?.toDate(),
+                        createdAt: (data.createdAt as Timestamp)?.toDate(),
+                    } as Route
+                });
                 setRoutes(activeRoutes);
             } catch (error) {
                 console.error("Error fetching active routes:", error);
@@ -638,50 +651,92 @@ function RoutesTab() {
 
     return (
         <div className="space-y-4">
-            {routes.map(route => (
-                <Card key={route.id}>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2"><RouteIcon /> Rota: {route.name}</CardTitle>
-                        <CardDescription>
-                            Rota criada em: {route.createdAt ? format(route.createdAt.toDate(), 'dd/MM/yyyy HH:mm') : 'N/A'}
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                         <Dialog>
-                            <DialogTrigger asChild>
-                                <Button variant="outline"><Eye className="mr-2 h-4 w-4" /> Ver Detalhes da Rota</Button>
-                            </DialogTrigger>
-                            <DialogContent className="max-w-6xl">
-                                <DialogHeader>
-                                    <DialogTitle>Detalhes da Rota: {route.name}</DialogTitle>
-                                </DialogHeader>
-                                <div className="max-h-[70vh] overflow-y-auto">
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>OS</TableHead>
-                                                <TableHead>ASC Job No.</TableHead>
-                                                <TableHead>Cidade</TableHead>
-                                                <TableHead>Bairro</TableHead>
-                                                <TableHead>Modelo</TableHead>
-                                                <TableHead>TS</TableHead>
-                                                <TableHead>OW/LP</TableHead>
-                                                <TableHead>Peças</TableHead>
-                                                <TableHead className="w-[50px]"></TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {route.stops.map((stop, index) => (
-                                                <RouteDetailsRow key={index} stop={stop} index={index} />
-                                            ))}
-                                        </TableBody>
-                                    </Table>
+            {routes.map(route => {
+                const departure = route.departureDate ? route.departureDate : new Date();
+                const arrival = route.arrivalDate ? route.arrivalDate : new Date();
+                const duration = differenceInDays(arrival, departure) + 1;
+
+                return (
+                    <Card key={route.id}>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2"><RouteIcon /> Rota: {route.name}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 text-sm border-t border-b py-4">
+                                <div className="flex items-center gap-2">
+                                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Saída</p>
+                                        <p className="font-semibold">{format(departure, 'dd/MM/yyyy')}</p>
+                                    </div>
                                 </div>
-                            </DialogContent>
-                        </Dialog>
-                    </CardContent>
-                </Card>
-            ))}
+                                <div className="flex items-center gap-2">
+                                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Chegada</p>
+                                        <p className="font-semibold">{format(arrival, 'dd/MM/yyyy')}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Sun className="h-4 w-4 text-muted-foreground" />
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Duração</p>
+                                        <p className="font-semibold">{duration} dia{duration !== 1 ? 's' : ''}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <MapPin className="h-4 w-4 text-muted-foreground" />
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Tipo</p>
+                                        <p className="font-semibold capitalize">{route.routeType}</p>
+                                    </div>
+                                </div>
+                                {route.licensePlate && (
+                                    <div className="flex items-center gap-2">
+                                        <Car className="h-4 w-4 text-muted-foreground" />
+                                        <div>
+                                            <p className="text-xs text-muted-foreground">Placa</p>
+                                            <p className="font-semibold uppercase">{route.licensePlate}</p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button variant="outline"><Eye className="mr-2 h-4 w-4" /> Ver Detalhes da Rota</Button>
+                                </DialogTrigger>
+                                <DialogContent className="max-w-6xl">
+                                    <DialogHeader>
+                                        <DialogTitle>Detalhes da Rota: {route.name}</DialogTitle>
+                                    </DialogHeader>
+                                    <div className="max-h-[70vh] overflow-y-auto">
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>OS</TableHead>
+                                                    <TableHead>ASC Job No.</TableHead>
+                                                    <TableHead>Cidade</TableHead>
+                                                    <TableHead>Bairro</TableHead>
+                                                    <TableHead>Modelo</TableHead>
+                                                    <TableHead>TS</TableHead>
+                                                    <TableHead>OW/LP</TableHead>
+                                                    <TableHead>Peças</TableHead>
+                                                    <TableHead className="w-[50px]"></TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {route.stops.map((stop, index) => (
+                                                    <RouteDetailsRow key={index} stop={stop} index={index} serviceOrders={serviceOrders} />
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                </DialogContent>
+                            </Dialog>
+                        </CardContent>
+                    </Card>
+                )
+            })}
         </div>
     );
 }
@@ -1289,7 +1344,7 @@ export default function ServiceOrderPage() {
                         <ReturnsRanking technicians={technicians} returns={returns} />
                     </TabsContent>
                     <TabsContent value="routes">
-                        <RoutesTab />
+                        <RoutesTab serviceOrders={serviceOrders} />
                     </TabsContent>
                 </Tabs>
             </div>
@@ -1297,7 +1352,3 @@ export default function ServiceOrderPage() {
     </div>
   );
 }
-
-    
-
-    

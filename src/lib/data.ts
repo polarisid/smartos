@@ -105,6 +105,10 @@ export type Route = {
     stops: RouteStop[];
     createdAt: Timestamp;
     isActive: boolean;
+    departureDate?: Timestamp | Date;
+    arrivalDate?: Timestamp | Date;
+    routeType?: 'capital' | 'interior';
+    licensePlate?: string;
 }
 
 

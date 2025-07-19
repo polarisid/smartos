@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
@@ -17,26 +18,53 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown } from "lucide-react";
+import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, getDocs, doc, deleteDoc, Timestamp, setDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
-import { type Route, type RouteStop } from "@/lib/data";
+import { type Route, type RouteStop, type ServiceOrder } from "@/lib/data";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import React from "react";
+
 
 function parseRouteText(text: string): RouteStop[] {
     if (!text.trim()) return [];
 
     const lines = text.trim().split('\n');
-    const headerLine = lines.shift()?.trim();
+    const headerLine = lines.shift()?.trim(); // Remove header
     if (!headerLine) return [];
     
-    const partStartIndex = 15;
+    // Index map based on the header
+    const headers = headerLine.split('\t').map(h => h.trim());
+    const getIndex = (name: string) => headers.indexOf(name);
+
+    const soNroIdx = getIndex('SO Nro.');
+    const ascJobNoIdx = getIndex('ASC Job No.');
+    const consumerNameIdx = getIndex('Nome Consumidor');
+    const cityIdx = getIndex('Cidade');
+    const neighborhoodIdx = getIndex('Bairro');
+    const stateIdx = getIndex('UF');
+    const modelIdx = getIndex('Modelo');
+    const turnIdx = getIndex('TURNO');
+    const tatIdx = getIndex('TAT');
+    const requestDateIdx = getIndex('Data de Solicitação');
+    const firstVisitDateIdx = getIndex('1st Visit Date');
+    const tsIdx = getIndex('TS');
+    const warrantyTypeIdx = getIndex('OW/LP');
+    const productTypeIdx = getIndex('SPD');
+    const statusCommentIdx = getIndex('Status comment');
+    
+    const partStartIndex = statusCommentIdx + 1;
 
     return lines.map(line => {
         const columns = line.split('\t');
@@ -50,76 +78,142 @@ function parseRouteText(text: string): RouteStop[] {
             }
         }
         return {
-            serviceOrder: columns[0]?.trim() || '',
-            ascJobNumber: columns[1]?.trim() || '',
-            consumerName: columns[2]?.trim() || '',
-            city: columns[3]?.trim() || '',
-            neighborhood: columns[4]?.trim() || '',
-            state: columns[5]?.trim() || '',
-            model: columns[6]?.trim() || '',
-            turn: columns[7]?.trim() || '',
-            tat: columns[8]?.trim() || '',
-            requestDate: columns[9]?.trim() || '',
-            firstVisitDate: columns[10]?.trim() || '',
-            ts: columns[11]?.trim() || '',
-            warrantyType: columns[12]?.trim() || '',
-            productType: columns[13]?.trim() || '',
-            statusComment: columns[14]?.trim() || '',
+            serviceOrder: columns[soNroIdx]?.trim() || '',
+            ascJobNumber: columns[ascJobNoIdx]?.trim() || '',
+            consumerName: columns[consumerNameIdx]?.trim() || '',
+            city: columns[cityIdx]?.trim() || '',
+            neighborhood: columns[neighborhoodIdx]?.trim() || '',
+            state: columns[stateIdx]?.trim() || '',
+            model: columns[modelIdx]?.trim() || '',
+            turn: columns[turnIdx]?.trim() || '',
+            tat: columns[tatIdx]?.trim() || '',
+            requestDate: columns[requestDateIdx]?.trim() || '',
+            firstVisitDate: columns[firstVisitDateIdx]?.trim() || '',
+            ts: columns[tsIdx]?.trim() || '',
+            warrantyType: columns[warrantyTypeIdx]?.trim() || '',
+            productType: columns[productTypeIdx]?.trim() || '',
+            statusComment: columns[statusCommentIdx]?.trim() || '',
             parts: parts,
         };
     }).filter(stop => stop.serviceOrder);
 }
 
+function reconstructRouteText(stops: RouteStop[]): string {
+    const header = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tQTD\tCOD\tQTD\tCOD\tQTD\tCOD\tQTD\tCOD\tQTD";
+    const lines = stops.map(stop => {
+        const baseColumns = [
+            stop.serviceOrder,
+            stop.ascJobNumber,
+            stop.consumerName,
+            stop.city,
+            stop.neighborhood,
+            stop.state,
+            stop.model,
+            stop.turn,
+            stop.tat,
+            stop.requestDate,
+            stop.firstVisitDate,
+            stop.ts,
+            stop.warrantyType,
+            stop.productType,
+            stop.statusComment,
+        ];
+        const partColumns = stop.parts.flatMap(p => [p.code, p.quantity.toString()]);
+        return [...baseColumns, ...partColumns].join('\t');
+    });
+    return [header, ...lines].join('\n');
+}
 
-function AddRouteDialog({ onRouteAdded }: { onRouteAdded: () => void }) {
+function RouteFormDialog({ 
+    mode, 
+    isOpen, 
+    onOpenChange, 
+    onRouteSaved, 
+    initialData 
+}: { 
+    mode: 'add' | 'edit',
+    isOpen: boolean,
+    onOpenChange: (open: boolean) => void,
+    onRouteSaved: () => void,
+    initialData?: Route | null 
+}) {
     const { toast } = useToast();
-    const [isOpen, setIsOpen] = useState(false);
     const [routeName, setRouteName] = useState("");
     const [routeText, setRouteText] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [departureDate, setDepartureDate] = useState<Date | undefined>();
+    const [arrivalDate, setArrivalDate] = useState<Date | undefined>();
+    const [routeType, setRouteType] = useState<'capital' | 'interior' | undefined>();
+    const [licensePlate, setLicensePlate] = useState("");
+
+    useEffect(() => {
+        if (mode === 'edit' && initialData) {
+            setRouteName(initialData.name);
+            setDepartureDate(initialData.departureDate instanceof Timestamp ? initialData.departureDate.toDate() : initialData.departureDate);
+            setArrivalDate(initialData.arrivalDate instanceof Timestamp ? initialData.arrivalDate.toDate() : initialData.arrivalDate);
+            setRouteType(initialData.routeType);
+            setRouteText(reconstructRouteText(initialData.stops));
+            setLicensePlate(initialData.licensePlate || "");
+        } else {
+            setRouteName("");
+            setRouteText("");
+            setDepartureDate(undefined);
+            setArrivalDate(undefined);
+            setRouteType(undefined);
+            setLicensePlate("");
+        }
+    }, [initialData, mode, isOpen]);
+
 
     const parsedStops = useMemo(() => parseRouteText(routeText), [routeText]);
 
     const handleSave = async () => {
-        if (!routeName || parsedStops.length === 0) {
+        if (!routeName || parsedStops.length === 0 || !departureDate || !arrivalDate || !routeType) {
             toast({
                 variant: "destructive",
                 title: "Dados Incompletos",
-                description: "O nome da rota e os dados da rota são obrigatórios."
+                description: "Todos os campos da rota (nome, datas, tipo e dados) são obrigatórios."
             });
             return;
         }
         setIsSubmitting(true);
         try {
-            await addDoc(collection(db, "routes"), {
+            const dataToSave = {
                 name: routeName,
                 stops: parsedStops,
-                createdAt: Timestamp.now(),
-                isActive: true,
-            });
-            toast({ title: "Rota salva com sucesso!" });
-            setIsOpen(false);
-            setRouteName("");
-            setRouteText("");
-            onRouteAdded();
+                departureDate: Timestamp.fromDate(departureDate),
+                arrivalDate: Timestamp.fromDate(arrivalDate),
+                routeType: routeType,
+                licensePlate: licensePlate,
+            };
+
+            if (mode === 'add') {
+                await addDoc(collection(db, "routes"), {
+                    ...dataToSave,
+                    createdAt: Timestamp.now(),
+                    isActive: true,
+                });
+                toast({ title: "Rota salva com sucesso!" });
+            } else if (initialData) {
+                await setDoc(doc(db, "routes", initialData.id), dataToSave, { merge: true });
+                toast({ title: "Rota atualizada com sucesso!" });
+            }
+            
+            onOpenChange(false);
+            onRouteSaved();
         } catch (error) {
             console.error("Error saving route: ", error);
-            toast({ variant: "destructive", title: "Erro ao Salvar", description: "Não foi possível salvar a rota." });
+            toast({ variant: "destructive", title: "Erro ao Salvar", description: `Não foi possível ${mode === 'add' ? 'salvar' : 'atualizar'} a rota.` });
         } finally {
             setIsSubmitting(false);
         }
     };
     
     return (
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-            <DialogTrigger asChild>
-                <Button>
-                    <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Rota
-                </Button>
-            </DialogTrigger>
+        <Dialog open={isOpen} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-4xl">
                 <DialogHeader>
-                    <DialogTitle>Adicionar Nova Rota</DialogTitle>
+                    <DialogTitle>{mode === 'add' ? 'Adicionar Nova Rota' : 'Editar Rota'}</DialogTitle>
                     <DialogDescription>
                         Preencha o nome da rota e cole os dados da sua planilha.
                     </DialogDescription>
@@ -135,6 +229,61 @@ function AddRouteDialog({ onRouteAdded }: { onRouteAdded: () => void }) {
                                 placeholder="Ex: Rota de Segunda-feira"
                             />
                         </div>
+                        <div className="grid grid-cols-2 gap-4">
+                             <div className="space-y-2">
+                                <Label>Data de Saída</Label>
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                    <Button
+                                        variant={"outline"}
+                                        className={cn("w-full justify-start text-left font-normal", !departureDate && "text-muted-foreground")}
+                                    >
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {departureDate ? format(departureDate, "PPP", { locale: ptBR }) : <span>Selecione a data</span>}
+                                    </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={departureDate} onSelect={setDepartureDate} initialFocus /></PopoverContent>
+                                </Popover>
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Previsão de Chegada</Label>
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                    <Button
+                                        variant={"outline"}
+                                        className={cn("w-full justify-start text-left font-normal", !arrivalDate && "text-muted-foreground")}
+                                    >
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {arrivalDate ? format(arrivalDate, "PPP", { locale: ptBR }) : <span>Selecione a data</span>}
+                                    </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={arrivalDate} onSelect={setArrivalDate} initialFocus /></PopoverContent>
+                                </Popover>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Tipo de Rota</Label>
+                                <Select value={routeType} onValueChange={(v) => setRouteType(v as 'capital' | 'interior')}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Selecione o tipo" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="capital">Capital</SelectItem>
+                                        <SelectItem value="interior">Interior</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="license-plate">Placa do Veículo</Label>
+                                <Input
+                                    id="license-plate"
+                                    value={licensePlate}
+                                    onChange={(e) => setLicensePlate(e.target.value)}
+                                    placeholder="Ex: ABC-1234"
+                                />
+                            </div>
+                        </div>
                         <div className="space-y-2">
                              <Label htmlFor="route-text">Colar Dados da Rota</Label>
                              <Textarea 
@@ -145,7 +294,7 @@ function AddRouteDialog({ onRouteAdded }: { onRouteAdded: () => void }) {
                                 rows={10}
                              />
                              <p className="text-xs text-muted-foreground">
-                                Cabeçalho esperado: <code className="font-mono text-xs">SO Nro. | ASC Job No. | ...</code>
+                                O cabeçalho da planilha deve ser incluído no texto.
                             </p>
                         </div>
                     </div>
@@ -180,7 +329,7 @@ function AddRouteDialog({ onRouteAdded }: { onRouteAdded: () => void }) {
                     </div>
                 </div>
                 <DialogFooter>
-                    <Button variant="outline" onClick={() => setIsOpen(false)}>Cancelar</Button>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
                     <Button onClick={handleSave} disabled={!routeName || parsedStops.length === 0 || isSubmitting}>
                         <Save className="mr-2 h-4 w-4" /> {isSubmitting ? "Salvando..." : "Salvar Rota"}
                     </Button>
@@ -190,12 +339,14 @@ function AddRouteDialog({ onRouteAdded }: { onRouteAdded: () => void }) {
     );
 }
 
-function RouteDetailsRow({ stop, index }: { stop: RouteStop, index: number }) {
+function RouteDetailsRow({ stop, index, serviceOrders }: { stop: RouteStop, index: number, serviceOrders: ServiceOrder[] }) {
+    const isCompleted = serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder);
+
     return (
          <Collapsible asChild key={index}>
-            <>
+            <React.Fragment>
                 <CollapsibleTrigger asChild>
-                    <TableRow className="cursor-pointer">
+                    <TableRow className={cn("cursor-pointer", isCompleted && "bg-green-100 dark:bg-green-900/50 line-through")}>
                         <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
                         <TableCell className="font-mono">{stop.ascJobNumber}</TableCell>
                         <TableCell>{stop.city}</TableCell>
@@ -204,7 +355,7 @@ function RouteDetailsRow({ stop, index }: { stop: RouteStop, index: number }) {
                         <TableCell>{stop.ts}</TableCell>
                         <TableCell>{stop.warrantyType}</TableCell>
                         <TableCell>
-                            {stop.parts && stop.parts.length > 0 ? (
+                             {stop.parts && stop.parts.length > 0 ? (
                                 <div>
                                     {stop.parts.map((part, pIndex) => (
                                         <div key={pIndex} className="font-mono text-xs">
@@ -237,7 +388,7 @@ function RouteDetailsRow({ stop, index }: { stop: RouteStop, index: number }) {
                         </TableCell>
                     </tr>
                 </CollapsibleContent>
-            </>
+            </React.Fragment>
         </Collapsible>
     )
 }
@@ -245,6 +396,7 @@ function RouteDetailsRow({ stop, index }: { stop: RouteStop, index: number }) {
 export default function RoutesPage() {
     const { toast } = useToast();
     const [allRoutes, setAllRoutes] = useState<Route[]>([]);
+    const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
     const [filteredRoutes, setFilteredRoutes] = useState<Route[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
@@ -252,14 +404,36 @@ export default function RoutesPage() {
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [showOnlyActive, setShowOnlyActive] = useState(true);
 
+    const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
+    const [dialogMode, setDialogMode] = useState<'add' | 'edit'>('add');
+    const [selectedRouteForEdit, setSelectedRouteForEdit] = useState<Route | null>(null);
+
+
     const fetchRoutes = async () => {
         setIsLoading(true);
         try {
-            const querySnapshot = await getDocs(collection(db, "routes"));
-            const routesData = querySnapshot.docs
-                .map(doc => ({ ...doc.data(), id: doc.id } as Route))
+            const [routesSnapshot, ordersSnapshot] = await Promise.all([
+                getDocs(collection(db, "routes")),
+                getDocs(collection(db, "serviceOrders"))
+            ]);
+
+            const routesData = routesSnapshot.docs
+                .map(doc => {
+                    const data = doc.data();
+                    return {
+                         ...data, 
+                         id: doc.id,
+                         departureDate: (data.departureDate as Timestamp)?.toDate(),
+                         arrivalDate: (data.arrivalDate as Timestamp)?.toDate(),
+                         createdAt: (data.createdAt as Timestamp)
+                    } as Route
+                })
                 .sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
             setAllRoutes(routesData);
+
+            const ordersData = ordersSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as ServiceOrder));
+            setServiceOrders(ordersData);
+
         } catch (error) {
             console.error("Error fetching routes: ", error);
             toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar as rotas." });
@@ -318,12 +492,20 @@ export default function RoutesPage() {
         setIsDeleteDialogOpen(true);
     };
 
+    const handleOpenFormDialog = (mode: 'add' | 'edit', route?: Route) => {
+        setDialogMode(mode);
+        setSelectedRouteForEdit(route || null);
+        setIsFormDialogOpen(true);
+    };
+
     return (
         <>
             <div className="flex flex-col gap-6 p-4 sm:p-6">
                 <div className="flex items-center justify-between">
                     <h1 className="text-2xl font-bold">Gerenciar Rotas</h1>
-                    <AddRouteDialog onRouteAdded={fetchRoutes} />
+                    <Button onClick={() => handleOpenFormDialog('add')}>
+                        <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Rota
+                    </Button>
                 </div>
 
                 <Card>
@@ -375,6 +557,9 @@ export default function RoutesPage() {
                                                 <Button variant="outline" size="sm" onClick={() => handleOpenViewDialog(route)}>
                                                    <Eye className="mr-2 h-4 w-4" /> Visualizar
                                                 </Button>
+                                                <Button variant="outline" size="sm" onClick={() => handleOpenFormDialog('edit', route)}>
+                                                   <Edit className="mr-2 h-4 w-4" /> Editar
+                                                </Button>
                                                 {route.isActive && (
                                                     <Button size="sm" onClick={() => handleFinalizeRoute(route.id)}>
                                                         <CheckCircle className="mr-2 h-4 w-4" /> Finalizar
@@ -393,6 +578,14 @@ export default function RoutesPage() {
                 </Card>
             </div>
             
+            <RouteFormDialog 
+                mode={dialogMode}
+                isOpen={isFormDialogOpen}
+                onOpenChange={setIsFormDialogOpen}
+                onRouteSaved={fetchRoutes}
+                initialData={selectedRouteForEdit}
+            />
+
             <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
                 <DialogContent className="max-w-6xl">
                     <DialogHeader>
@@ -415,7 +608,7 @@ export default function RoutesPage() {
                             </TableHeader>
                             <TableBody>
                                 {selectedRoute?.stops.map((stop, index) => (
-                                    <RouteDetailsRow key={index} stop={stop} index={index} />
+                                    <RouteDetailsRow key={index} stop={stop} index={index} serviceOrders={serviceOrders} />
                                 ))}
                             </TableBody>
                         </Table>
@@ -443,7 +636,5 @@ export default function RoutesPage() {
         </>
     );
 }
-
-    
 
     
