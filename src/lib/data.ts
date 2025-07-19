@@ -108,6 +108,7 @@ export type Route = {
     departureDate?: Timestamp | Date;
     arrivalDate?: Timestamp | Date;
     routeType?: 'capital' | 'interior';
+    licensePlate?: string;
 }
 
 

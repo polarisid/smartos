@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -37,7 +38,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun } from "lucide-react";
+import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
@@ -56,6 +57,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import React from "react";
 
 
 type CodeItem = { code: string; description: string; };
@@ -530,7 +532,7 @@ function RouteDetailsRow({ stop, index, serviceOrders }: { stop: RouteStop, inde
 
     return (
         <Collapsible asChild key={index}>
-            <>
+            <React.Fragment>
                 <CollapsibleTrigger asChild>
                      <TableRow className={cn("cursor-pointer", isCompleted && "bg-green-100 dark:bg-green-900/50 line-through")}>
                         <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
@@ -574,7 +576,7 @@ function RouteDetailsRow({ stop, index, serviceOrders }: { stop: RouteStop, inde
                         </TableCell>
                     </tr>
                 </CollapsibleContent>
-            </>
+            </React.Fragment>
         </Collapsible>
     )
 }
@@ -603,6 +605,7 @@ function RoutesTab({ serviceOrders }: { serviceOrders: ServiceOrder[] }) {
                         id: doc.id,
                         departureDate: (data.departureDate as Timestamp)?.toDate(),
                         arrivalDate: (data.arrivalDate as Timestamp)?.toDate(),
+                        createdAt: (data.createdAt as Timestamp)?.toDate(),
                     } as Route
                 });
                 setRoutes(activeRoutes);
@@ -651,7 +654,7 @@ function RoutesTab({ serviceOrders }: { serviceOrders: ServiceOrder[] }) {
             {routes.map(route => {
                 const departure = route.departureDate ? route.departureDate : new Date();
                 const arrival = route.arrivalDate ? route.arrivalDate : new Date();
-                const duration = differenceInDays(arrival, departure);
+                const duration = differenceInDays(arrival, departure) + 1;
 
                 return (
                     <Card key={route.id}>
@@ -659,7 +662,7 @@ function RoutesTab({ serviceOrders }: { serviceOrders: ServiceOrder[] }) {
                             <CardTitle className="flex items-center gap-2"><RouteIcon /> Rota: {route.name}</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm border-t border-b py-4">
+                            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 text-sm border-t border-b py-4">
                                 <div className="flex items-center gap-2">
                                     <Calendar className="h-4 w-4 text-muted-foreground" />
                                     <div>
@@ -688,6 +691,15 @@ function RoutesTab({ serviceOrders }: { serviceOrders: ServiceOrder[] }) {
                                         <p className="font-semibold capitalize">{route.routeType}</p>
                                     </div>
                                 </div>
+                                {route.licensePlate && (
+                                    <div className="flex items-center gap-2">
+                                        <Car className="h-4 w-4 text-muted-foreground" />
+                                        <div>
+                                            <p className="text-xs text-muted-foreground">Placa</p>
+                                            <p className="font-semibold uppercase">{route.licensePlate}</p>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                             <Dialog>
                                 <DialogTrigger asChild>

@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
@@ -33,6 +34,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import React from "react";
 
 
 function parseRouteText(text: string): RouteStop[] {
@@ -142,6 +144,7 @@ function RouteFormDialog({
     const [departureDate, setDepartureDate] = useState<Date | undefined>();
     const [arrivalDate, setArrivalDate] = useState<Date | undefined>();
     const [routeType, setRouteType] = useState<'capital' | 'interior' | undefined>();
+    const [licensePlate, setLicensePlate] = useState("");
 
     useEffect(() => {
         if (mode === 'edit' && initialData) {
@@ -150,12 +153,14 @@ function RouteFormDialog({
             setArrivalDate(initialData.arrivalDate instanceof Timestamp ? initialData.arrivalDate.toDate() : initialData.arrivalDate);
             setRouteType(initialData.routeType);
             setRouteText(reconstructRouteText(initialData.stops));
+            setLicensePlate(initialData.licensePlate || "");
         } else {
             setRouteName("");
             setRouteText("");
             setDepartureDate(undefined);
             setArrivalDate(undefined);
             setRouteType(undefined);
+            setLicensePlate("");
         }
     }, [initialData, mode, isOpen]);
 
@@ -179,6 +184,7 @@ function RouteFormDialog({
                 departureDate: Timestamp.fromDate(departureDate),
                 arrivalDate: Timestamp.fromDate(arrivalDate),
                 routeType: routeType,
+                licensePlate: licensePlate,
             };
 
             if (mode === 'add') {
@@ -255,17 +261,28 @@ function RouteFormDialog({
                                 </Popover>
                             </div>
                         </div>
-                        <div className="space-y-2">
-                            <Label>Tipo de Rota</Label>
-                            <Select value={routeType} onValueChange={(v) => setRouteType(v as 'capital' | 'interior')}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Selecione o tipo" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="capital">Capital</SelectItem>
-                                    <SelectItem value="interior">Interior</SelectItem>
-                                </SelectContent>
-                            </Select>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Tipo de Rota</Label>
+                                <Select value={routeType} onValueChange={(v) => setRouteType(v as 'capital' | 'interior')}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Selecione o tipo" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="capital">Capital</SelectItem>
+                                        <SelectItem value="interior">Interior</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="license-plate">Placa do Veículo</Label>
+                                <Input
+                                    id="license-plate"
+                                    value={licensePlate}
+                                    onChange={(e) => setLicensePlate(e.target.value)}
+                                    placeholder="Ex: ABC-1234"
+                                />
+                            </div>
                         </div>
                         <div className="space-y-2">
                              <Label htmlFor="route-text">Colar Dados da Rota</Label>
