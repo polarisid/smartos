@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Wrench, LayoutGrid, Users, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route } from "lucide-react"
+import { Wrench, LayoutGrid, Users, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList } from "lucide-react"
 
 function AdminSidebar({children}: {children: React.ReactNode}) {
     const pathname = usePathname()
@@ -75,6 +75,11 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
                         <SidebarMenuItem>
                             <SidebarMenuButton asChild isActive={isActive('/admin/routes')} tooltip="Rotas">
                                 <Link href="/admin/routes"><Route /> <span>Rotas</span></Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                            <SidebarMenuButton asChild isActive={isActive('/admin/checklists')} tooltip="Checklists">
+                                <Link href="/admin/checklists"><ClipboardList /> <span>Checklists</span></Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                     </SidebarMenu>

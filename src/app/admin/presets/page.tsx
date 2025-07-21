@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Edit, Trash2, Bookmark } from "lucide-react";
+import { PlusCircle, Edit, Trash2, Bookmark, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, doc, getDoc, setDoc, addDoc, deleteDoc } from "firebase/firestore";
@@ -30,6 +30,8 @@ type CodeItem = { code: string; description: string; };
 type CodeCategory = { "TV/AV": CodeItem[]; "DA": CodeItem[]; };
 
 type FormData = Omit<Preset, 'id'>;
+
+const defaultVisitTemplate = `Olá, bom dia! Somos da assistência técnica autorizada Samsung. Referente ao seu atendimento da ordem de serviço {{serviceOrder}}, para o cliente {{consumerName}} na cidade de {{city}}. Poderia me confirmar a sua localização?`;
 
 export default function PresetsPage() {
     const [presets, setPresets] = useState<Preset[]>([]);
@@ -50,6 +52,7 @@ export default function PresetsPage() {
         observations: ''
     });
 
+    const [visitTemplate, setVisitTemplate] = useState(defaultVisitTemplate);
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const { toast } = useToast();
@@ -58,15 +61,22 @@ export default function PresetsPage() {
         const fetchData = async () => {
             setIsLoading(true);
             try {
-                const presetsSnapshot = await getDocs(collection(db, "presets"));
+                const [presetsSnapshot, symptomsDoc, repairsDoc, templateDoc] = await Promise.all([
+                    getDocs(collection(db, "presets")),
+                    getDoc(doc(db, "codes", "symptoms")),
+                    getDoc(doc(db, "codes", "repairs")),
+                    getDoc(doc(db, "textTemplates", "visitAnnouncement"))
+                ]);
+
                 const presetsData = presetsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Preset));
                 setPresets(presetsData);
 
-                const symptomsDoc = await getDoc(doc(db, "codes", "symptoms"));
                 if (symptomsDoc.exists()) setSymptomCodes(symptomsDoc.data() as CodeCategory);
-
-                const repairsDoc = await getDoc(doc(db, "codes", "repairs"));
                 if (repairsDoc.exists()) setRepairCodes(repairsDoc.data() as CodeCategory);
+
+                if (templateDoc.exists()) {
+                    setVisitTemplate(templateDoc.data().template);
+                }
 
             } catch (error) {
                 console.error("Error fetching data:", error);
@@ -162,6 +172,19 @@ export default function PresetsPage() {
         }
     };
     
+    const handleSaveTemplate = async () => {
+        setIsSubmitting(true);
+        try {
+            await setDoc(doc(db, "textTemplates", "visitAnnouncement"), { template: visitTemplate });
+            toast({ title: "Modelo de texto salvo com sucesso!" });
+        } catch (error) {
+            console.error("Error saving text template:", error);
+            toast({ variant: "destructive", title: "Erro ao Salvar", description: "Não foi possível salvar o modelo de texto." });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
     const currentSymptomOptions = symptomCodes[formData.equipmentType] || [];
     const currentRepairOptions = repairCodes[formData.equipmentType] || [];
     
@@ -169,11 +192,36 @@ export default function PresetsPage() {
         <>
             <div className="flex flex-col gap-6 p-4 sm:p-6">
                 <div className="flex items-center justify-between">
-                    <h1 className="text-2xl font-bold">Gerenciar Presets</h1>
+                    <h1 className="text-2xl font-bold">Gerenciar Presets e Modelos</h1>
                     <Button onClick={handleOpenAddDialog}>
-                        <PlusCircle className="mr-2 h-4 w-4" /> Criar Preset
+                        <PlusCircle className="mr-2 h-4 w-4" /> Criar Preset de Códigos
                     </Button>
                 </div>
+                
+                 <Card>
+                    <CardHeader>
+                        <CardTitle>Modelos de Texto</CardTitle>
+                        <CardDescription>
+                            Edite o modelo de texto para o anúncio de visita. Use as variáveis
+                            <code className="mx-1 font-mono bg-muted p-1 rounded-sm text-xs">{`{{consumerName}}`}</code>,
+                            <code className="mx-1 font-mono bg-muted p-1 rounded-sm text-xs">{`{{serviceOrder}}`}</code> e
+                            <code className="mx-1 font-mono bg-muted p-1 rounded-sm text-xs">{`{{city}}`}</code>.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Textarea 
+                            value={visitTemplate}
+                            onChange={(e) => setVisitTemplate(e.target.value)}
+                            rows={5}
+                            disabled={isLoading}
+                        />
+                    </CardContent>
+                    <CardFooter>
+                        <Button onClick={handleSaveTemplate} disabled={isSubmitting}>
+                            <Save className="mr-2 h-4 w-4" /> {isSubmitting ? "Salvando..." : "Salvar Modelo"}
+                        </Button>
+                    </CardFooter>
+                </Card>
 
                 <Card>
                     <CardHeader>

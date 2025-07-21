@@ -111,6 +111,22 @@ export type Route = {
     licensePlate?: string;
 }
 
+export type ChecklistField = {
+  id: string;
+  name: string;
+  type: 'text' | 'checkbox';
+  page: number;
+  x: number;
+  y: number;
+}
+
+export type ChecklistTemplate = {
+  id: string;
+  name: string;
+  pdfUrl: string;
+  fields: ChecklistField[];
+}
+
 
 const today = new Date();
 export const serviceOrders: ServiceOrder[] = [

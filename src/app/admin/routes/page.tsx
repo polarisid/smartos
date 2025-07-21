@@ -31,7 +31,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { cn } from "@/lib/utils";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { format } from "date-fns";
+import { format, isAfter } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import React from "react";
@@ -339,11 +339,14 @@ function RouteFormDialog({
     );
 }
 
-function RouteDetailsRow({ stop, index, serviceOrders }: { stop: RouteStop, index: number, serviceOrders: ServiceOrder[] }) {
-    const isCompleted = serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder);
+function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop: RouteStop, index: number, serviceOrders: ServiceOrder[], routeCreatedAt: Timestamp | Date }) {
+    const isCompleted = serviceOrders.some(os => 
+        os.serviceOrderNumber === stop.serviceOrder && 
+        isAfter(os.date, routeCreatedAt)
+    );
 
     return (
-         <Collapsible asChild key={index}>
+        <Collapsible asChild key={index}>
             <React.Fragment>
                 <CollapsibleTrigger asChild>
                     <TableRow className={cn("cursor-pointer", isCompleted && "bg-green-100 dark:bg-green-900/50 line-through")}>
@@ -431,7 +434,7 @@ export default function RoutesPage() {
                 .sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
             setAllRoutes(routesData);
 
-            const ordersData = ordersSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as ServiceOrder));
+            const ordersData = ordersSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id, date: (doc.data().date as Timestamp).toDate() } as ServiceOrder));
             setServiceOrders(ordersData);
 
         } catch (error) {
@@ -444,7 +447,7 @@ export default function RoutesPage() {
 
     useEffect(() => {
         fetchRoutes();
-    }, []);
+    }, [toast]);
 
     useEffect(() => {
         const routesToFilter = [...allRoutes];
@@ -546,7 +549,7 @@ export default function RoutesPage() {
                                    {filteredRoutes.map(route => (
                                        <TableRow key={route.id} className={!route.isActive ? "text-muted-foreground" : ""}>
                                            <TableCell className="font-medium">{route.name}</TableCell>
-                                           <TableCell>{route.createdAt ? route.createdAt.toDate().toLocaleDateString('pt-BR') : 'N/A'}</TableCell>
+                                           <TableCell>{route.createdAt ? (route.createdAt as Timestamp).toDate().toLocaleDateString('pt-BR') : 'N/A'}</TableCell>
                                            <TableCell>{route.stops.length}</TableCell>
                                            <TableCell>
                                                 <Badge variant={route.isActive ? "default" : "secondary"}>
@@ -608,7 +611,7 @@ export default function RoutesPage() {
                             </TableHeader>
                             <TableBody>
                                 {selectedRoute?.stops.map((stop, index) => (
-                                    <RouteDetailsRow key={index} stop={stop} index={index} serviceOrders={serviceOrders} />
+                                    <RouteDetailsRow key={index} stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={selectedRoute.createdAt} />
                                 ))}
                             </TableBody>
                         </Table>

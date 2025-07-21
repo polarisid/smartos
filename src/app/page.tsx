@@ -38,7 +38,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car } from "lucide-react";
+import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
@@ -527,61 +527,85 @@ function SearchableSelect({
   )
 }
 
-function RouteDetailsRow({ stop, index, serviceOrders }: { stop: RouteStop, index: number, serviceOrders: ServiceOrder[] }) {
-    const isCompleted = serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder);
+function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt, visitTemplate }: { 
+    stop: RouteStop, 
+    index: number, 
+    serviceOrders: ServiceOrder[], 
+    routeCreatedAt: Date | Timestamp,
+    visitTemplate: string
+}) {
+    const { toast } = useToast();
+    const isCompleted = serviceOrders.some(os => 
+        os.serviceOrderNumber === stop.serviceOrder && 
+        isAfter(os.date, routeCreatedAt)
+    );
+
+    const handleCopyVisitText = () => {
+        let textToCopy = visitTemplate
+            .replace(/{{consumerName}}/g, stop.consumerName.split(' ')[0])
+            .replace(/{{serviceOrder}}/g, stop.serviceOrder)
+            .replace(/{{city}}/g, stop.city);
+        
+        navigator.clipboard.writeText(textToCopy);
+        toast({ title: "Texto copiado!", description: "O anúncio de visita foi copiado." });
+    };
 
     return (
-        <Collapsible asChild key={index}>
-            <React.Fragment>
-                <CollapsibleTrigger asChild>
-                     <TableRow className={cn("cursor-pointer", isCompleted && "bg-green-100 dark:bg-green-900/50 line-through")}>
-                        <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
-                        <TableCell className="font-mono">{stop.ascJobNumber}</TableCell>
-                        <TableCell>{stop.city}</TableCell>
-                        <TableCell>{stop.neighborhood}</TableCell>
-                        <TableCell>{stop.model}</TableCell>
-                        <TableCell>{stop.ts}</TableCell>
-                        <TableCell>{stop.warrantyType}</TableCell>
-                        <TableCell>
-                           {stop.parts && stop.parts.length > 0 ? (
-                                <div>
-                                    {stop.parts.map((part, pIndex) => (
-                                        <div key={pIndex} className="font-mono text-xs">
-                                            {part.code} (x{part.quantity})
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <span className="text-xs text-muted-foreground">N/A</span>
-                            )}
-                        </TableCell>
-                         <TableCell className="text-right">
-                           <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
-                        </TableCell>
-                    </TableRow>
-                </CollapsibleTrigger>
-                <CollapsibleContent asChild>
-                    <tr className="bg-muted/50">
-                        <TableCell colSpan={9} className="p-2">
-                             <div className="p-2 bg-background/50 rounded space-y-2">
-                                <div>
-                                    <p className="font-semibold text-xs mb-1">Nome Consumidor:</p>
-                                    <p className="text-sm text-foreground">{stop.consumerName || "N/A"}</p>
-                                </div>
-                                <div>
-                                    <p className="font-semibold text-xs mb-1">Status Comment:</p>
-                                    <p className="text-sm text-foreground">{stop.statusComment || "N/A"}</p>
-                                </div>
+        <React.Fragment key={index}>
+            <CollapsibleTrigger asChild>
+                    <TableRow className={cn("cursor-pointer", isCompleted && "bg-green-100 dark:bg-green-900/50 line-through")}>
+                    <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
+                    <TableCell className="font-mono">{stop.ascJobNumber}</TableCell>
+                    <TableCell>{stop.city}</TableCell>
+                    <TableCell>{stop.neighborhood}</TableCell>
+                    <TableCell>{stop.model}</TableCell>
+                    <TableCell>{stop.ts}</TableCell>
+                    <TableCell>{stop.warrantyType}</TableCell>
+                    <TableCell>
+                        {stop.parts && stop.parts.length > 0 ? (
+                            <div>
+                                {stop.parts.map((part, pIndex) => (
+                                    <div key={pIndex} className="font-mono text-xs">
+                                        {part.code} (x{part.quantity})
+                                    </div>
+                                ))}
                             </div>
-                        </TableCell>
-                    </tr>
-                </CollapsibleContent>
-            </React.Fragment>
-        </Collapsible>
+                        ) : (
+                            <span className="text-xs text-muted-foreground">N/A</span>
+                        )}
+                    </TableCell>
+                        <TableCell className="text-right">
+                        <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
+                    </TableCell>
+                </TableRow>
+            </CollapsibleTrigger>
+            <CollapsibleContent asChild>
+                <tr className="bg-muted/50">
+                    <TableCell colSpan={9} className="p-2">
+                            <div className="p-2 bg-background/50 rounded space-y-2">
+                            <div>
+                                <p className="font-semibold text-xs mb-1">Nome Consumidor:</p>
+                                <p className="text-sm text-foreground">{stop.consumerName || "N/A"}</p>
+                            </div>
+                            <div>
+                                <p className="font-semibold text-xs mb-1">Status Comment:</p>
+                                <p className="text-sm text-foreground">{stop.statusComment || "N/A"}</p>
+                            </div>
+                            <div className="border-t pt-2">
+                                    <Button size="sm" variant="outline" onClick={handleCopyVisitText}>
+                                    <MessageSquare className="mr-2 h-4 w-4" />
+                                    Copiar Anúncio de Visita
+                                </Button>
+                            </div>
+                        </div>
+                    </TableCell>
+                </tr>
+            </CollapsibleContent>
+        </React.Fragment>
     )
 }
 
-function RoutesTab({ serviceOrders }: { serviceOrders: ServiceOrder[] }) {
+function RoutesTab({ serviceOrders, visitTemplate }: { serviceOrders: ServiceOrder[], visitTemplate: string }) {
     const { toast } = useToast();
     const [routes, setRoutes] = useState<Route[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -726,7 +750,9 @@ function RoutesTab({ serviceOrders }: { serviceOrders: ServiceOrder[] }) {
                                             </TableHeader>
                                             <TableBody>
                                                 {route.stops.map((stop, index) => (
-                                                    <RouteDetailsRow key={index} stop={stop} index={index} serviceOrders={serviceOrders} />
+                                                    <Collapsible asChild key={index}>
+                                                        <RouteDetailsRow stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={route.createdAt} visitTemplate={visitTemplate} />
+                                                    </Collapsible>
                                                 ))}
                                             </TableBody>
                                         </Table>
@@ -752,6 +778,7 @@ export default function ServiceOrderPage() {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [indicators, setIndicators] = useState<Indicator[]>([]);
   const [assistantName, setAssistantName] = useState("");
+  const [visitTemplate, setVisitTemplate] = useState("");
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -824,11 +851,12 @@ export default function ServiceOrderPage() {
   useEffect(() => {
     const fetchInitialData = async () => {
         try {
-            const [symptomsDoc, repairsDoc, techsSnapshot, presetsSnapshot] = await Promise.all([
+            const [symptomsDoc, repairsDoc, techsSnapshot, presetsSnapshot, templateDoc] = await Promise.all([
                 getDoc(doc(db, "codes", "symptoms")),
                 getDoc(doc(db, "codes", "repairs")),
                 getDocs(collection(db, "technicians")),
                 getDocs(collection(db, "presets")),
+                getDoc(doc(db, "textTemplates", "visitAnnouncement"))
             ]);
 
             if (symptomsDoc.exists()) setSymptomCodes(symptomsDoc.data() as CodeCategory);
@@ -839,6 +867,12 @@ export default function ServiceOrderPage() {
             
             const presetsData = presetsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Preset));
             setPresets(presetsData);
+
+            if (templateDoc.exists()) {
+                setVisitTemplate(templateDoc.data().template);
+            } else {
+                setVisitTemplate(`Olá, bom dia! Somos da assistência técnica autorizada Samsung. Referente ao seu atendimento da ordem de serviço {{serviceOrder}}, para o cliente {{consumerName}} na cidade de {{city}}. Poderia me confirmar a sua localização?`);
+            }
 
         } catch (error) {
             console.error("Error fetching initial data:", error);
@@ -1344,7 +1378,7 @@ export default function ServiceOrderPage() {
                         <ReturnsRanking technicians={technicians} returns={returns} />
                     </TabsContent>
                     <TabsContent value="routes">
-                        <RoutesTab serviceOrders={serviceOrders} />
+                        <RoutesTab serviceOrders={serviceOrders} visitTemplate={visitTemplate} />
                     </TabsContent>
                 </Tabs>
             </div>
@@ -1352,3 +1386,7 @@ export default function ServiceOrderPage() {
     </div>
   );
 }
+
+
+
+
