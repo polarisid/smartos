@@ -78,6 +78,7 @@ export type Indicator = {
 export type RoutePart = {
     code: string;
     quantity: number;
+    trackingCode?: string;
 }
 
 export type RouteStop = {

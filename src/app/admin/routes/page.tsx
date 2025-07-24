@@ -346,53 +346,51 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
     );
 
     return (
-        <Collapsible asChild key={index}>
-            <React.Fragment>
-                <CollapsibleTrigger asChild>
-                    <TableRow className={cn("cursor-pointer", isCompleted && "bg-green-100 dark:bg-green-900/50 line-through")}>
-                        <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
-                        <TableCell className="font-mono">{stop.ascJobNumber}</TableCell>
-                        <TableCell>{stop.city}</TableCell>
-                        <TableCell>{stop.neighborhood}</TableCell>
-                        <TableCell>{stop.model}</TableCell>
-                        <TableCell>{stop.ts}</TableCell>
-                        <TableCell>{stop.warrantyType}</TableCell>
-                        <TableCell>
-                             {stop.parts && stop.parts.length > 0 ? (
-                                <div>
-                                    {stop.parts.map((part, pIndex) => (
-                                        <div key={pIndex} className="font-mono text-xs">
-                                            {part.code} (x{part.quantity})
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <span className="text-xs text-muted-foreground">N/A</span>
-                            )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                           <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
-                        </TableCell>
-                    </TableRow>
-                </CollapsibleTrigger>
-                <CollapsibleContent asChild>
-                    <tr className="bg-muted/50">
-                        <TableCell colSpan={9} className="p-2">
-                             <div className="p-2 bg-background/50 rounded space-y-2">
-                                <div>
-                                    <p className="font-semibold text-xs mb-1">Nome Consumidor:</p>
-                                    <p className="text-sm text-foreground">{stop.consumerName || "N/A"}</p>
-                                </div>
-                                <div>
-                                    <p className="font-semibold text-xs mb-1">Status Comment:</p>
-                                    <p className="text-sm text-foreground">{stop.statusComment || "N/A"}</p>
-                                </div>
+        <React.Fragment key={index}>
+            <CollapsibleTrigger asChild>
+                <TableRow className={cn("cursor-pointer", isCompleted && "bg-green-100 dark:bg-green-900/50 line-through")}>
+                    <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
+                    <TableCell className="font-mono">{stop.ascJobNumber}</TableCell>
+                    <TableCell>{stop.city}</TableCell>
+                    <TableCell>{stop.neighborhood}</TableCell>
+                    <TableCell>{stop.model}</TableCell>
+                    <TableCell>{stop.ts}</TableCell>
+                    <TableCell>{stop.warrantyType}</TableCell>
+                    <TableCell>
+                            {stop.parts && stop.parts.length > 0 ? (
+                            <div>
+                                {stop.parts.map((part, pIndex) => (
+                                    <div key={pIndex} className="font-mono text-xs">
+                                        {part.code} (x{part.quantity})
+                                    </div>
+                                ))}
                             </div>
-                        </TableCell>
-                    </tr>
-                </CollapsibleContent>
-            </React.Fragment>
-        </Collapsible>
+                        ) : (
+                            <span className="text-xs text-muted-foreground">N/A</span>
+                        )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                        <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
+                    </TableCell>
+                </TableRow>
+            </CollapsibleTrigger>
+            <CollapsibleContent asChild>
+                <tr className="bg-muted/50">
+                    <TableCell colSpan={9} className="p-2">
+                            <div className="p-2 bg-background/50 rounded space-y-2">
+                            <div>
+                                <p className="font-semibold text-xs mb-1">Nome Consumidor:</p>
+                                <p className="text-sm text-foreground">{stop.consumerName || "N/A"}</p>
+                            </div>
+                            <div>
+                                <p className="font-semibold text-xs mb-1">Status Comment:</p>
+                                <p className="text-sm text-foreground">{stop.statusComment || "N/A"}</p>
+                            </div>
+                        </div>
+                    </TableCell>
+                </tr>
+            </CollapsibleContent>
+        </React.Fragment>
     )
 }
 
@@ -611,7 +609,9 @@ export default function RoutesPage() {
                             </TableHeader>
                             <TableBody>
                                 {selectedRoute?.stops.map((stop, index) => (
-                                    <RouteDetailsRow key={index} stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={selectedRoute.createdAt} />
+                                     <Collapsible asChild key={index}>
+                                        <RouteDetailsRow stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={selectedRoute.createdAt} />
+                                     </Collapsible>
                                 ))}
                             </TableBody>
                         </Table>
