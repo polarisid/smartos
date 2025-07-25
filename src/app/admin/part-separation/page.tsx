@@ -11,18 +11,21 @@ import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { type Route, type RouteStop, type RoutePart } from "@/lib/data";
 import { collection, doc, getDocs, query, setDoc, Timestamp, orderBy, getDoc } from "firebase/firestore";
-import { ChevronDown, PackageSearch, Save, Search } from "lucide-react";
+import { ChevronDown, PackageSearch, Save, Search, FileDown } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 
-function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCodes, onTrackingCodeChange, isHistory = false }: {
+function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCodes, onTrackingCodeChange, onGeneratePdf, isHistory = false }: {
     routes: Route[],
     onSaveChanges?: (routeId: string) => void,
     onSavePart: (routeId: string, stopServiceOrder: string, part: RoutePart) => Promise<void>,
     isSubmitting: boolean,
     trackingCodes: Record<string, Record<string, Record<string, string>>>,
     onTrackingCodeChange: (routeId: string, stopServiceOrder: string, partCode: string, value: string) => void,
+    onGeneratePdf: (route: Route) => void,
     isHistory?: boolean
 }) {
     const [internalFilters, setInternalFilters] = useState<Record<string, string>>({});
@@ -129,12 +132,18 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
                                             </Table>
                                         </div>
                                     ))}
-                                    {!isHistory && onSaveChanges && (
-                                        <Button onClick={() => onSaveChanges(route.id)} disabled={isSubmitting}>
-                                            <Save className="mr-2 h-4 w-4" />
-                                            {isSubmitting ? "Salvando..." : "Salvar Todos os Rastreios da Rota"}
+                                    <div className="flex gap-2">
+                                        {!isHistory && onSaveChanges && (
+                                            <Button onClick={() => onSaveChanges(route.id)} disabled={isSubmitting}>
+                                                <Save className="mr-2 h-4 w-4" />
+                                                {isSubmitting ? "Salvando..." : "Salvar Todos os Rastreios da Rota"}
+                                            </Button>
+                                        )}
+                                        <Button variant="secondary" onClick={() => onGeneratePdf(route)}>
+                                            <FileDown className="mr-2 h-4 w-4" />
+                                            Gerar Extrato PDF
                                         </Button>
-                                    )}
+                                    </div>
                                 </CollapsibleContent>
                             </Collapsible>
                         </CardContent>
@@ -275,7 +284,7 @@ export default function PartSeparationPage() {
                 ...stop,
                 parts: stop.parts.map(part => ({
                     ...part,
-                    trackingCode: trackingCodes[routeId]?.[stop.serviceOrder]?.[part.code] || "",
+                    trackingCode: trackingCodes[routeId]?.[stop.serviceOrder]?.[part.code] || part.trackingCode || "",
                 })),
             }));
             
@@ -289,6 +298,51 @@ export default function PartSeparationPage() {
         } finally {
             setIsSubmitting(false);
         }
+    };
+
+    const handleGeneratePdf = (route: Route) => {
+        const doc = new jsPDF();
+
+        doc.setFontSize(16);
+        doc.text(`Extrato de Peças - Rota: ${route.name}`, 14, 20);
+        doc.setFontSize(10);
+        doc.text(`Data de Criação: ${route.createdAt.toDate().toLocaleDateString('pt-BR')}`, 14, 26);
+
+        type Row = (string | number | { content: string | number, rowSpan: number, styles: { valign: 'middle' } })[];
+        const tableBody: Row[] = [];
+        
+        route.stops.forEach(stop => {
+            if (stop.parts && stop.parts.length > 0) {
+                stop.parts.forEach((part, partIndex) => {
+                    const trackingCode = trackingCodes[route.id]?.[stop.serviceOrder]?.[part.code] || part.trackingCode || "";
+                    const row: Row = [];
+                    if (partIndex === 0) {
+                        row.push({
+                            content: stop.serviceOrder,
+                            rowSpan: stop.parts.length,
+                            styles: { valign: 'middle' },
+                        });
+                    }
+                    row.push(part.code);
+                    row.push(part.quantity);
+                    row.push(trackingCode);
+                    tableBody.push(row);
+                });
+            }
+        });
+
+        if (tableBody.length > 0) {
+            (doc as any).autoTable({
+                startY: 35,
+                head: [['OS', 'Peça', 'Qtd', 'Código de Rastreio']],
+                body: tableBody,
+                theme: 'grid',
+            });
+        } else {
+            doc.text("Nenhuma peça encontrada para esta rota.", 14, 35);
+        }
+
+        doc.save(`extrato-${route.name.replace(/\s+/g, '-')}.pdf`);
     };
 
     return (
@@ -334,6 +388,7 @@ export default function PartSeparationPage() {
                             isSubmitting={isSubmitting}
                             trackingCodes={trackingCodes}
                             onTrackingCodeChange={handleTrackingCodeChange}
+                            onGeneratePdf={handleGeneratePdf}
                         />
                     </TabsContent>
                     <TabsContent value="history" className="mt-6">
@@ -343,6 +398,7 @@ export default function PartSeparationPage() {
                             isSubmitting={isSubmitting}
                             trackingCodes={trackingCodes}
                             onTrackingCodeChange={handleTrackingCodeChange}
+                            onGeneratePdf={handleGeneratePdf}
                             isHistory={true}
                         />
                     </TabsContent>
@@ -352,3 +408,4 @@ export default function PartSeparationPage() {
     );
 }
  
+    

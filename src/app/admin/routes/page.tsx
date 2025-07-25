@@ -22,7 +22,7 @@ import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as Ca
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, getDocs, doc, deleteDoc, Timestamp, setDoc } from "firebase/firestore";
+import { collection, addDoc, getDocs, doc, deleteDoc, Timestamp, setDoc, writeBatch } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { type Route, type RouteStop, type ServiceOrder } from "@/lib/data";
 import { Switch } from "@/components/ui/switch";
@@ -74,6 +74,7 @@ function parseRouteText(text: string): RouteStop[] {
                 parts.push({
                     code: columns[i].trim(),
                     quantity: parseInt(columns[i + 1]?.trim() || '0', 10),
+                    trackingCode: ''
                 });
             }
         }
@@ -118,7 +119,7 @@ function reconstructRouteText(stops: RouteStop[]): string {
             stop.productType,
             stop.statusComment,
         ];
-        const partColumns = stop.parts.flatMap(p => [p.code, p.quantity.toString()]);
+        const partColumns = (stop.parts || []).flatMap(p => [p.code, p.quantity.toString()]);
         return [...baseColumns, ...partColumns].join('\t');
     });
     return [header, ...lines].join('\n');
@@ -346,7 +347,7 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
     );
 
     return (
-        <React.Fragment key={index}>
+        <React.Fragment>
             <CollapsibleTrigger asChild>
                 <TableRow className={cn("cursor-pointer", isCompleted && "bg-green-100 dark:bg-green-900/50 line-through")}>
                     <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
@@ -357,7 +358,7 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
                     <TableCell>{stop.ts}</TableCell>
                     <TableCell>{stop.warrantyType}</TableCell>
                     <TableCell>
-                            {stop.parts && stop.parts.length > 0 ? (
+                            {(stop.parts || []).length > 0 ? (
                             <div>
                                 {stop.parts.map((part, pIndex) => (
                                     <div key={pIndex} className="font-mono text-xs">

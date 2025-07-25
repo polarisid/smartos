@@ -22,7 +22,7 @@ import { PlusCircle, Edit, Divide, Trash2 } from "lucide-react";
 import { type Technician } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, setDoc, addDoc, deleteDoc } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, writeBatch } from "firebase/firestore";
 
 export default function TechniciansPage() {
   const [technicians, setTechnicians] = useState<Technician[]>([]);
@@ -166,12 +166,14 @@ export default function TechniciansPage() {
     const goalPerTechnician = totalGoal / technicians.length;
     
     try {
-      const updatedTechs = technicians.map(t => ({ ...t, goal: goalPerTechnician }));
-      const updatePromises = updatedTechs.map(tech => 
-        setDoc(doc(db, "technicians", tech.id), { goal: goalPerTechnician }, { merge: true })
-      );
-      await Promise.all(updatePromises);
+      const batch = writeBatch(db);
+      technicians.forEach(tech => {
+        const techRef = doc(db, "technicians", tech.id);
+        batch.update(techRef, { goal: goalPerTechnician });
+      });
+      await batch.commit();
       
+      const updatedTechs = technicians.map(t => ({ ...t, goal: goalPerTechnician }));
       setTechnicians(updatedTechs);
 
       toast({
