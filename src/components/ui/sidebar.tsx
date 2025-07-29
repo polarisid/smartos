@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
@@ -354,6 +354,30 @@ const SidebarHeader = React.forwardRef<
   HTMLDivElement,
   React.ComponentProps<"div">
 >(({ className, ...props }, ref) => {
+  const { isMobile, openMobile } = useSidebar()
+  if (isMobile && openMobile) {
+    // We want to move the title to the SheetHeader for accessibility.
+    const title = React.Children.toArray(props.children).find(
+      (child) =>
+        React.isValidElement(child) &&
+        (child.type === "h2" || child.type === SheetTitle)
+    )
+
+    return (
+      <>
+        <SheetHeader className="p-2 text-left">
+          <SheetTitle>{title}</SheetTitle>
+        </SheetHeader>
+        <div
+          ref={ref}
+          data-sidebar="header"
+          className={cn("flex flex-col gap-2 p-2", className)}
+          {...props}
+        />
+      </>
+    )
+  }
+
   return (
     <div
       ref={ref}

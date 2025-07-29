@@ -277,7 +277,7 @@ export default function ChecklistsPage() {
                     <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
                     <AlertDialogDescription>
                       Esta ação não pode ser desfeita. Isso excluirá permanentemente o modelo 
-                      <span className="font-bold mx-1">{selectedTemplate?.name}</span> e o arquivo PDF associado.
+                      <span className="font-bold mx-1">{selectedTemplate?.name ?? ''}</span> e o arquivo PDF associado.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

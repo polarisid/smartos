@@ -310,6 +310,12 @@ export default function PartSeparationPage() {
             });
 
             await setDoc(routeDocRef, { stops: updatedStops }, { merge: true });
+            
+            // Update state locally instead of refetching
+            setAllRoutes(prevRoutes => prevRoutes.map(route => 
+                route.id === routeId ? { ...route, stops: updatedStops } : route
+            ));
+
             toast({ title: "Código de rastreio salvo!", description: `Rastreio para a peça ${partToUpdate.code} salvo.` });
 
         } catch (error) {
@@ -317,7 +323,6 @@ export default function PartSeparationPage() {
             toast({ variant: "destructive", title: "Erro ao salvar", description: "Não foi possível salvar o código de rastreio da peça." });
         } finally {
             setIsSubmitting(false);
-            fetchAllRoutes();
         }
     };
 
@@ -487,5 +492,6 @@ export default function PartSeparationPage() {
     
 
     
+
 
 

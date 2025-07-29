@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -38,7 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare } from "lucide-react";
+import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
@@ -117,17 +116,55 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 function Header() {
+    const [installPromptEvent, setInstallPromptEvent] = useState<any>(null);
+
+    useEffect(() => {
+        const handleBeforeInstallPrompt = (event: Event) => {
+            event.preventDefault();
+            setInstallPromptEvent(event);
+        };
+
+        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+        return () => {
+            window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+        };
+    }, []);
+
+    const handleInstallClick = () => {
+        if (!installPromptEvent) {
+            return;
+        }
+        installPromptEvent.prompt();
+        installPromptEvent.userChoice.then((choiceResult: { outcome: string }) => {
+            if (choiceResult.outcome === 'accepted') {
+                console.log('User accepted the install prompt');
+            } else {
+                console.log('User dismissed the install prompt');
+            }
+            setInstallPromptEvent(null);
+        });
+    };
+    
     return (
         <header className="bg-card border-b p-4 flex justify-between items-center sticky top-0 z-40">
             <Link href="/" className="flex items-center gap-3 text-primary">
                 <Wrench className="w-7 h-7" />
                 <h1 className="text-2xl font-bold text-foreground">SmartService OS</h1>
             </Link>
-            <Button asChild variant="outline">
-                <Link href="/admin">
-                    <LogIn className="mr-2 h-4 w-4" /> Área Admin
-                </Link>
-            </Button>
+            <div className="flex items-center gap-2">
+                 {installPromptEvent && (
+                    <Button onClick={handleInstallClick}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Instalar App
+                    </Button>
+                )}
+                <Button asChild variant="outline">
+                    <Link href="/admin">
+                        <LogIn className="mr-2 h-4 w-4" /> Área Admin
+                    </Link>
+                </Button>
+            </div>
         </header>
     );
 }
@@ -680,6 +717,15 @@ function RoutesTab({ serviceOrders, visitTemplate }: { serviceOrders: ServiceOrd
                 const arrival = route.arrivalDate ? route.arrivalDate : new Date();
                 const duration = differenceInDays(arrival, departure) + 1;
 
+                const totalStops = route.stops.length;
+                const completedStopsCount = route.stops.filter(stop => 
+                    serviceOrders.some(os => 
+                        os.serviceOrderNumber === stop.serviceOrder && isAfter(os.date, route.createdAt)
+                    )
+                ).length;
+                const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
+
+
                 return (
                     <Card key={route.id}>
                         <CardHeader>
@@ -725,6 +771,12 @@ function RoutesTab({ serviceOrders, visitTemplate }: { serviceOrders: ServiceOrd
                                     </div>
                                 )}
                             </div>
+                            
+                            <div className="space-y-2">
+                                <Progress value={progress} />
+                                <p className="text-xs text-muted-foreground text-right">{completedStopsCount} de {totalStops} paradas concluídas</p>
+                            </div>
+
                             <Dialog>
                                 <DialogTrigger asChild>
                                     <Button variant="outline"><Eye className="mr-2 h-4 w-4" /> Ver Detalhes da Rota</Button>
@@ -1387,6 +1439,4 @@ export default function ServiceOrderPage() {
   );
 }
 
-
-
-
+    

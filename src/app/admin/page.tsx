@@ -1,5 +1,7 @@
+"use server";
+
 import { redirect } from 'next/navigation'
 
-export default function AdminPage() {
+export default async function AdminPage() {
   redirect('/admin/login')
 }

@@ -15,6 +15,8 @@ import {
   SidebarFooter,
   SidebarInset,
   SidebarTrigger,
+  SheetHeader,
+  SheetTitle
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"

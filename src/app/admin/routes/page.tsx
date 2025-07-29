@@ -35,6 +35,7 @@ import { format, isAfter } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import React from "react";
+import { Progress } from "@/components/ui/progress";
 
 
 function parseRouteText(text: string): RouteStop[] {
@@ -341,9 +342,10 @@ function RouteFormDialog({
 }
 
 function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop: RouteStop, index: number, serviceOrders: ServiceOrder[], routeCreatedAt: Timestamp | Date }) {
+    const createdAtDate = routeCreatedAt instanceof Timestamp ? routeCreatedAt.toDate() : routeCreatedAt;
     const isCompleted = serviceOrders.some(os => 
         os.serviceOrderNumber === stop.serviceOrder && 
-        isAfter(os.date, routeCreatedAt)
+        isAfter(os.date, createdAtDate)
     );
 
     return (
@@ -422,15 +424,16 @@ export default function RoutesPage() {
             const routesData = routesSnapshot.docs
                 .map(doc => {
                     const data = doc.data();
+                    const createdAtDate = (data.createdAt as Timestamp)?.toDate();
                     return {
                          ...data, 
                          id: doc.id,
                          departureDate: (data.departureDate as Timestamp)?.toDate(),
                          arrivalDate: (data.arrivalDate as Timestamp)?.toDate(),
-                         createdAt: (data.createdAt as Timestamp)
+                         createdAt: createdAtDate
                     } as Route
                 })
-                .sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+                .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
             setAllRoutes(routesData);
 
             const ordersData = ordersSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id, date: (doc.data().date as Timestamp).toDate() } as ServiceOrder));
@@ -500,10 +503,29 @@ export default function RoutesPage() {
         setIsFormDialogOpen(true);
     };
 
+    const renderRouteActions = (route: Route) => (
+        <div className="flex flex-wrap gap-2 justify-end">
+            <Button variant="outline" size="sm" onClick={() => handleOpenViewDialog(route)}>
+                <Eye className="mr-2 h-4 w-4" /> Visualizar
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleOpenFormDialog('edit', route)}>
+                <Edit className="mr-2 h-4 w-4" /> Editar
+            </Button>
+            {route.isActive && (
+                <Button size="sm" onClick={() => handleFinalizeRoute(route.id)}>
+                    <CheckCircle className="mr-2 h-4 w-4" /> Finalizar
+                </Button>
+            )}
+            <Button variant="destructive" size="sm" onClick={() => handleOpenDeleteDialog(route)}>
+                <Trash2 className="mr-2 h-4 w-4" /> Excluir
+            </Button>
+        </div>
+    );
+
     return (
         <>
             <div className="flex flex-col gap-6 p-4 sm:p-6">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-4">
                     <h1 className="text-2xl font-bold">Gerenciar Rotas</h1>
                     <Button onClick={() => handleOpenFormDialog('add')}>
                         <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Rota
@@ -534,47 +556,98 @@ export default function RoutesPage() {
                                 <p className="text-sm">Clique em "Adicionar Rota" para importar uma nova ou altere o filtro.</p>
                             </div>
                        ) : (
-                           <Table>
-                               <TableHeader>
-                                   <TableRow>
-                                       <TableHead>Nome da Rota</TableHead>
-                                       <TableHead>Data de Criação</TableHead>
-                                       <TableHead>Paradas</TableHead>
-                                       <TableHead>Status</TableHead>
-                                       <TableHead className="text-right">Ações</TableHead>
-                                   </TableRow>
-                               </TableHeader>
-                               <TableBody>
-                                   {filteredRoutes.map(route => (
-                                       <TableRow key={route.id} className={!route.isActive ? "text-muted-foreground" : ""}>
-                                           <TableCell className="font-medium">{route.name}</TableCell>
-                                           <TableCell>{route.createdAt ? (route.createdAt as Timestamp).toDate().toLocaleDateString('pt-BR') : 'N/A'}</TableCell>
-                                           <TableCell>{route.stops.length}</TableCell>
-                                           <TableCell>
-                                                <Badge variant={route.isActive ? "default" : "secondary"}>
-                                                    {route.isActive ? "Ativa" : "Finalizada"}
-                                                </Badge>
-                                           </TableCell>
-                                           <TableCell className="text-right space-x-2">
-                                                <Button variant="outline" size="sm" onClick={() => handleOpenViewDialog(route)}>
-                                                   <Eye className="mr-2 h-4 w-4" /> Visualizar
-                                                </Button>
-                                                <Button variant="outline" size="sm" onClick={() => handleOpenFormDialog('edit', route)}>
-                                                   <Edit className="mr-2 h-4 w-4" /> Editar
-                                                </Button>
-                                                {route.isActive && (
-                                                    <Button size="sm" onClick={() => handleFinalizeRoute(route.id)}>
-                                                        <CheckCircle className="mr-2 h-4 w-4" /> Finalizar
-                                                    </Button>
-                                                )}
-                                                <Button variant="destructive" size="sm" onClick={() => handleOpenDeleteDialog(route)}>
-                                                    <Trash2 className="mr-2 h-4 w-4" /> Excluir
-                                                </Button>
-                                           </TableCell>
-                                       </TableRow>
-                                   ))}
-                               </TableBody>
-                           </Table>
+                        <>
+                           {/* Desktop Table */}
+                           <div className="hidden md:block">
+                                <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Nome da Rota</TableHead>
+                                        <TableHead>Data de Criação</TableHead>
+                                        <TableHead>Paradas</TableHead>
+                                        <TableHead>Progresso</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead className="text-right">Ações</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filteredRoutes.map(route => {
+                                            const totalStops = route.stops.length;
+                                            const completedStopsCount = route.stops.filter(stop => 
+                                                serviceOrders.some(os => 
+                                                    os.serviceOrderNumber === stop.serviceOrder && isAfter(os.date, route.createdAt)
+                                                )
+                                            ).length;
+                                            const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
+
+                                        return (
+                                            <TableRow key={route.id} className={!route.isActive ? "text-muted-foreground" : ""}>
+                                            <TableCell className="font-medium">{route.name}</TableCell>
+                                            <TableCell>{route.createdAt ? format(route.createdAt, 'dd/MM/yyyy') : 'N/A'}</TableCell>
+                                            <TableCell>{route.stops.length}</TableCell>
+                                            <TableCell className="w-[200px]">
+                                                    <div className="flex flex-col gap-1">
+                                                        <Progress value={progress} />
+                                                        <span className="text-xs text-muted-foreground">{completedStopsCount} de {totalStops} concluídas</span>
+                                                    </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                    <Badge variant={route.isActive ? "default" : "secondary"}>
+                                                        {route.isActive ? "Ativa" : "Finalizada"}
+                                                    </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right space-x-2">
+                                                {renderRouteActions(route)}
+                                            </TableCell>
+                                        </TableRow>
+                                    )})}
+                                </TableBody>
+                                </Table>
+                           </div>
+
+                            {/* Mobile Card View */}
+                            <div className="md:hidden space-y-4">
+                                {filteredRoutes.map(route => {
+                                        const totalStops = route.stops.length;
+                                        const completedStopsCount = route.stops.filter(stop => 
+                                            serviceOrders.some(os => 
+                                                os.serviceOrderNumber === stop.serviceOrder && isAfter(os.date, route.createdAt)
+                                            )
+                                        ).length;
+                                        const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
+
+                                    return (
+                                        <Card key={route.id} className={cn(!route.isActive && "bg-muted/50")}>
+                                            <CardHeader>
+                                                <div className="flex justify-between items-start">
+                                                    <CardTitle>{route.name}</CardTitle>
+                                                    <Badge variant={route.isActive ? "default" : "secondary"}>
+                                                        {route.isActive ? "Ativa" : "Finalizada"}
+                                                    </Badge>
+                                                </div>
+                                            </CardHeader>
+                                            <CardContent className="space-y-4">
+                                                <div className="flex justify-between text-sm">
+                                                    <span className="text-muted-foreground">Criação:</span>
+                                                    <span className="font-medium">{route.createdAt ? format(route.createdAt, 'dd/MM/yyyy') : 'N/A'}</span>
+                                                </div>
+                                                <div className="flex justify-between text-sm">
+                                                    <span className="text-muted-foreground">Paradas:</span>
+                                                    <span className="font-medium">{totalStops}</span>
+                                                </div>
+                                                <div className="space-y-2">
+                                                     <Progress value={progress} />
+                                                    <span className="text-xs text-muted-foreground">{completedStopsCount} de {totalStops} concluídas</span>
+                                                </div>
+                                            </CardContent>
+                                            <CardFooter>
+                                                {renderRouteActions(route)}
+                                            </CardFooter>
+                                        </Card>
+                                    )
+                                })}
+                            </div>
+                        </>
                        )}
                     </CardContent>
                 </Card>
@@ -640,5 +713,3 @@ export default function RoutesPage() {
         </>
     );
 }
-
-    
