@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,8 +11,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import type { Html5QrcodeScanner, Html5QrcodeError, Html5QrcodeResult } from 'html5-qrcode';
+import type { Html5QrcodeScanner, Html5QrcodeError, Html5QrcodeResult, Html5Qrcode } from 'html5-qrcode';
 import { useToast } from '@/hooks/use-toast';
+import { RefreshCw } from 'lucide-react';
 
 export function ScannerDialog({ 
     isOpen, 
@@ -26,17 +27,27 @@ export function ScannerDialog({
     const scannerId = "barcode-scanner-view";
     const scannerRef = useRef<Html5QrcodeScanner | null>(null);
     const { toast } = useToast();
+    const [isPaused, setIsPaused] = useState(false);
 
     useEffect(() => {
         if (!isOpen) {
             if (scannerRef.current) {
-                scannerRef.current.clear().catch(error => {
-                    // This can throw an error if the scanner is already cleared or not running, so we can ignore it.
-                });
-                scannerRef.current = null;
+                // Ensure scanner is stopped and resources are released.
+                try {
+                    scannerRef.current.clear().catch(error => {
+                        // This can throw an error if the scanner is already cleared or not running, so we can ignore it.
+                    });
+                } catch (e) {
+                    // Ignore errors on cleanup
+                } finally {
+                     scannerRef.current = null;
+                }
             }
             return;
         }
+
+        // Reset pause state when dialog opens
+        setIsPaused(false);
 
         const startScanner = async () => {
             // Dynamically import the library only on the client-side
@@ -59,22 +70,34 @@ export function ScannerDialog({
             scannerRef.current = scanner;
 
             const handleSuccess = (decodedText: string, result: Html5QrcodeResult) => {
-                // Validation: check if it's 10 digits and numbers only
                 const isValid = /^\d{10}$/.test(decodedText);
 
                 if (!isValid) {
+                    if (scannerRef.current) {
+                        try {
+                           (scannerRef.current as any).pause(true);
+                           setIsPaused(true);
+                        } catch (e) {
+                            console.error("Failed to pause scanner", e);
+                        }
+                    }
                     toast({
                         variant: "destructive",
                         title: "Código Inválido",
                         description: "O código deve conter exatamente 10 dígitos numéricos.",
                     });
-                    return; // Keep scanner running
+                    return; 
                 }
 
                 if (scannerRef.current) {
                     onScanSuccess(decodedText);
-                    scannerRef.current.clear();
-                    scannerRef.current = null;
+                     try {
+                        scannerRef.current.clear();
+                    } catch (e) {
+                        // Ignore errors on cleanup
+                    } finally {
+                        scannerRef.current = null;
+                    }
                 }
             };
 
@@ -83,7 +106,7 @@ export function ScannerDialog({
             };
             
             const scannerElement = document.getElementById(scannerId);
-            if (scannerElement) {
+            if (scannerElement && !scannerRef.current.isScanning) {
                 scanner.render(handleSuccess, handleError);
             }
         };
@@ -95,7 +118,7 @@ export function ScannerDialog({
             if (scannerRef.current) {
                  try {
                     // Check if scanner is in a clearable state before trying to clear
-                    if (scannerRef.current && scannerRef.current.getState() === 2 /* SCANNING */) {
+                    if (scannerRef.current.getState() === 2 /* SCANNING */) {
                        scannerRef.current.clear();
                     }
                  } catch (e) {
@@ -106,6 +129,18 @@ export function ScannerDialog({
             }
         };
     }, [isOpen, onScanSuccess, toast]);
+    
+    const handleResumeScan = () => {
+        if (scannerRef.current) {
+            try {
+                (scannerRef.current as any).resume();
+                setIsPaused(false);
+            } catch(e) {
+                console.error("Failed to resume scanner", e);
+            }
+        }
+    };
+
 
     return (
         <>
@@ -130,7 +165,16 @@ export function ScannerDialog({
                             Aponte a câmera para o código de barras ou QR code.
                         </DialogDescription>
                     </DialogHeader>
-                    <div id={scannerId} className="w-full aspect-square[&>div]:border-none"></div>
+                    <div id={scannerId} className="w-full aspect-square[&>div]:border-none relative">
+                        {isPaused && (
+                            <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center z-10">
+                                <Button onClick={handleResumeScan}>
+                                    <RefreshCw className="mr-2 h-4 w-4" />
+                                    Escanear Novamente
+                                </Button>
+                            </div>
+                        )}
+                    </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={onClose}>Cancelar</Button>
                     </DialogFooter>
@@ -139,4 +183,3 @@ export function ScannerDialog({
         </>
     );
 }
-
