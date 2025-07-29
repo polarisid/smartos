@@ -11,15 +11,76 @@ import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { type Route, type RouteStop, type RoutePart } from "@/lib/data";
 import { collection, doc, getDocs, query, setDoc, Timestamp, orderBy, getDoc } from "firebase/firestore";
-import { ChevronDown, PackageSearch, Save, Search, FileDown, CheckCircle } from "lucide-react";
+import { ChevronDown, PackageSearch, Save, Search, FileDown, CheckCircle, ScanLine } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Html5QrcodeScanner, Html5QrcodeError, Html5QrcodeResult } from 'html5-qrcode';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { cn } from "@/lib/utils";
 
 
-function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCodes, onTrackingCodeChange, onGeneratePdf, isHistory = false }: {
+function ScannerDialog({ 
+    isOpen, 
+    onClose, 
+    onScanSuccess 
+}: { 
+    isOpen: boolean, 
+    onClose: () => void, 
+    onScanSuccess: (decodedText: string) => void 
+}) {
+    const scannerId = "barcode-scanner-view";
+
+    useEffect(() => {
+        if (isOpen) {
+            const scanner = new Html5QrcodeScanner(scannerId, {
+                fps: 10,
+                qrbox: { width: 250, height: 250 },
+                supportedScanTypes: [], // To support all scan types
+            }, /* verbose= */ false);
+
+            const handleSuccess = (decodedText: string, result: Html5QrcodeResult) => {
+                scanner.clear();
+                onScanSuccess(decodedText);
+            };
+
+            const handleError = (errorMessage: string, error: Html5QrcodeError) => {
+                // console.error(`QR Code parsing error: ${errorMessage}`);
+            };
+
+            scanner.render(handleSuccess, handleError);
+
+            return () => {
+                // Cleanup function to clear the scanner
+                if (document.getElementById(scannerId)?.innerHTML) {
+                    scanner.clear().catch(error => {
+                        console.error("Failed to clear html5QrcodeScanner.", error);
+                    });
+                }
+            };
+        }
+    }, [isOpen, onScanSuccess]);
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Ler Código de Barras</DialogTitle>
+                    <DialogDescription>
+                        Aponte a câmera para o código de barras ou QR code.
+                    </DialogDescription>
+                </DialogHeader>
+                <div id={scannerId} className="w-full"></div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={onClose}>Cancelar</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCodes, onTrackingCodeChange, onGeneratePdf, onOpenScanner, isHistory = false }: {
     routes: Route[],
     onSaveChanges?: (routeId: string) => void,
     onSavePart: (routeId: string, stopServiceOrder: string, part: RoutePart) => Promise<void>,
@@ -27,6 +88,7 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
     trackingCodes: Record<string, Record<string, Record<string, string>>>,
     onTrackingCodeChange: (routeId: string, stopServiceOrder: string, partCode: string, value: string) => void,
     onGeneratePdf: (route: Route) => void,
+    onOpenScanner: (target: { routeId: string, stopServiceOrder: string, partCode: string }) => void,
     isHistory?: boolean
 }) {
     const [internalFilters, setInternalFilters] = useState<Record<string, string>>({});
@@ -121,7 +183,7 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
                                                     const trackingCodeValue = trackingCodes[route.id]?.[stop.serviceOrder]?.[part.code] || "";
                                                     return (
                                                         <div key={part.code} className="border-t pt-3">
-                                                            <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4 space-y-2 sm:space-y-0">
+                                                            <div className="flex flex-col sm:flex-row sm:items-end sm:gap-4 space-y-2 sm:space-y-0">
                                                                 <div className="flex-1 space-y-1">
                                                                      <div className="flex items-baseline gap-4">
                                                                         <div className="flex-1">
@@ -145,13 +207,24 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
                                                                         />
                                                                     </div>
                                                                     {!isHistory && (
-                                                                        <Button 
-                                                                            size="sm" 
-                                                                            onClick={() => onSavePart(route.id, stop.serviceOrder, { ...part, trackingCode: trackingCodeValue })}
-                                                                            disabled={isSubmitting || !trackingCodeValue}
-                                                                        >
-                                                                            <Save className="h-4 w-4" />
-                                                                        </Button>
+                                                                        <>
+                                                                             <Button 
+                                                                                size="icon" 
+                                                                                variant="outline"
+                                                                                type="button"
+                                                                                onClick={() => onOpenScanner({ routeId: route.id, stopServiceOrder: stop.serviceOrder, partCode: part.code })}
+                                                                                disabled={isSubmitting}
+                                                                            >
+                                                                                <ScanLine className="h-4 w-4" />
+                                                                            </Button>
+                                                                            <Button 
+                                                                                size="icon" 
+                                                                                onClick={() => onSavePart(route.id, stop.serviceOrder, { ...part, trackingCode: trackingCodeValue })}
+                                                                                disabled={isSubmitting || !trackingCodeValue}
+                                                                            >
+                                                                                <Save className="h-4 w-4" />
+                                                                            </Button>
+                                                                        </>
                                                                     )}
                                                                 </div>
                                                             </div>
@@ -190,6 +263,9 @@ export default function PartSeparationPage() {
     const [allRoutes, setAllRoutes] = useState<Route[]>([]);
     const [trackingCodes, setTrackingCodes] = useState<Record<string, Record<string, Record<string, string>>>>({}); // { routeId: { stopServiceOrder: { partCode: trackingCode } } }
     const [partCodeFilter, setPartCodeFilter] = useState("");
+    
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [scanTarget, setScanTarget] = useState<{ routeId: string, stopServiceOrder: string, partCode: string } | null>(null);
 
     const fetchAllRoutes = async () => {
         setIsLoading(true);
@@ -375,69 +451,95 @@ export default function PartSeparationPage() {
         doc.save(`extrato-${route.name.replace(/\s+/g, '-')}.pdf`);
     };
 
+    const handleOpenScanner = (target: { routeId: string, stopServiceOrder: string, partCode: string }) => {
+        setScanTarget(target);
+        setIsScannerOpen(true);
+    };
+    
+    const handleScanSuccess = (decodedText: string) => {
+        if (scanTarget) {
+            const { routeId, stopServiceOrder, partCode } = scanTarget;
+            handleTrackingCodeChange(routeId, stopServiceOrder, partCode, decodedText);
+        }
+        setIsScannerOpen(false);
+        setScanTarget(null);
+        toast({ title: "Código lido com sucesso!", description: "O código de rastreio foi preenchido." });
+    };
+
     return (
-        <div className="flex flex-col gap-6 p-4 sm:p-6">
-            <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold">Separação de Peças</h1>
-            </div>
+        <>
+            <div className="flex flex-col gap-6 p-4 sm:p-6">
+                <div className="flex items-center justify-between">
+                    <h1 className="text-2xl font-bold">Separação de Peças</h1>
+                </div>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>Filtros</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className="max-w-sm space-y-2">
-                        <Label htmlFor="part-code-filter">Pesquisar por Código de Peça</Label>
-                        <div className="relative">
-                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                            <Input 
-                                id="part-code-filter"
-                                placeholder="Ex: BN96-12345A"
-                                value={partCodeFilter}
-                                onChange={(e) => setPartCodeFilter(e.target.value)}
-                                className="pl-8"
-                            />
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Filtros</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="max-w-sm space-y-2">
+                            <Label htmlFor="part-code-filter">Pesquisar por Código de Peça</Label>
+                            <div className="relative">
+                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                <Input 
+                                    id="part-code-filter"
+                                    placeholder="Ex: BN96-12345A"
+                                    value={partCodeFilter}
+                                    onChange={(e) => setPartCodeFilter(e.target.value)}
+                                    className="pl-8"
+                                />
+                            </div>
                         </div>
-                    </div>
-                </CardContent>
-            </Card>
+                    </CardContent>
+                </Card>
 
-            {isLoading ? (
-                <p className="text-center text-muted-foreground py-10">Carregando rotas...</p>
-            ) : (
-                <Tabs defaultValue="active">
-                    <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="active">Separação Ativa</TabsTrigger>
-                        <TabsTrigger value="history">Histórico de Rotas</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="active" className="mt-6">
-                        <RouteList
-                            routes={activeRoutes}
-                            onSaveChanges={handleSaveChanges}
-                            onSavePart={handleSavePartTrackingCode}
-                            isSubmitting={isSubmitting}
-                            trackingCodes={trackingCodes}
-                            onTrackingCodeChange={handleTrackingCodeChange}
-                            onGeneratePdf={handleGeneratePdf}
-                        />
-                    </TabsContent>
-                    <TabsContent value="history" className="mt-6">
-                         <RouteList
-                            routes={completedRoutes}
-                            onSavePart={handleSavePartTrackingCode}
-                            isSubmitting={isSubmitting}
-                            trackingCodes={trackingCodes}
-                            onTrackingCodeChange={handleTrackingCodeChange}
-                            onGeneratePdf={handleGeneratePdf}
-                            isHistory={true}
-                        />
-                    </TabsContent>
-                </Tabs>
-            )}
-        </div>
+                {isLoading ? (
+                    <p className="text-center text-muted-foreground py-10">Carregando rotas...</p>
+                ) : (
+                    <Tabs defaultValue="active">
+                        <TabsList className="grid w-full grid-cols-2">
+                            <TabsTrigger value="active">Separação Ativa</TabsTrigger>
+                            <TabsTrigger value="history">Histórico de Rotas</TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="active" className="mt-6">
+                            <RouteList
+                                routes={activeRoutes}
+                                onSaveChanges={handleSaveChanges}
+                                onSavePart={handleSavePartTrackingCode}
+                                isSubmitting={isSubmitting}
+                                trackingCodes={trackingCodes}
+                                onTrackingCodeChange={handleTrackingCodeChange}
+                                onGeneratePdf={handleGeneratePdf}
+                                onOpenScanner={handleOpenScanner}
+                            />
+                        </TabsContent>
+                        <TabsContent value="history" className="mt-6">
+                            <RouteList
+                                routes={completedRoutes}
+                                onSavePart={handleSavePartTrackingCode}
+                                isSubmitting={isSubmitting}
+                                trackingCodes={trackingCodes}
+                                onTrackingCodeChange={handleTrackingCodeChange}
+                                onGeneratePdf={handleGeneratePdf}
+                                onOpenScanner={handleOpenScanner}
+                                isHistory={true}
+                            />
+                        </TabsContent>
+                    </Tabs>
+                )}
+            </div>
+            
+            <ScannerDialog 
+                isOpen={isScannerOpen} 
+                onClose={() => setIsScannerOpen(false)}
+                onScanSuccess={handleScanSuccess}
+            />
+        </>
     );
 }
  
     
 
     
+
