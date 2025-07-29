@@ -11,7 +11,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import type { Html5QrcodeScanner, Html5QrcodeError, Html5QrcodeResult, Html5QrcodeScanType } from 'html5-qrcode';
+import type { Html5QrcodeScanner, Html5QrcodeError, Html5QrcodeResult } from 'html5-qrcode';
+import { useToast } from '@/hooks/use-toast';
 
 export function ScannerDialog({ 
     isOpen, 
@@ -24,12 +25,13 @@ export function ScannerDialog({
 }) {
     const scannerId = "barcode-scanner-view";
     const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+    const { toast } = useToast();
 
     useEffect(() => {
         if (!isOpen) {
             if (scannerRef.current) {
                 scannerRef.current.clear().catch(error => {
-                    console.error("Failed to clear scanner on close.", error);
+                    // This can throw an error if the scanner is already cleared or not running, so we can ignore it.
                 });
                 scannerRef.current = null;
             }
@@ -37,8 +39,10 @@ export function ScannerDialog({
         }
 
         const startScanner = async () => {
+            // Dynamically import the library only on the client-side
             const { Html5QrcodeScanner } = await import('html5-qrcode');
 
+            // Avoid re-initializing the scanner
             if (scannerRef.current) {
                 return;
             }
@@ -48,13 +52,25 @@ export function ScannerDialog({
                 {
                     fps: 10,
                     qrbox: { width: 250, height: 250 },
-                    // Let the library decide the scan type
-                    supportedScanTypes: [], 
+                    supportedScanTypes: [],
                 }, 
-                false
+                false // verbose
             );
+            scannerRef.current = scanner;
 
             const handleSuccess = (decodedText: string, result: Html5QrcodeResult) => {
+                // Validation: check if it's 10 digits and numbers only
+                const isValid = /^\d{10}$/.test(decodedText);
+
+                if (!isValid) {
+                    toast({
+                        variant: "destructive",
+                        title: "Código Inválido",
+                        description: "O código deve conter exatamente 10 dígitos numéricos.",
+                    });
+                    return; // Keep scanner running
+                }
+
                 if (scannerRef.current) {
                     onScanSuccess(decodedText);
                     scannerRef.current.clear();
@@ -63,29 +79,24 @@ export function ScannerDialog({
             };
 
             const handleError = (errorMessage: string, error: Html5QrcodeError) => {
-                // This will be called for non-fatal errors, we can ignore them.
+                // This will be called for non-fatal errors (e.g., QR code not found), we can ignore them.
             };
             
             const scannerElement = document.getElementById(scannerId);
             if (scannerElement) {
-                // The render method doesn't always return a promise, so we should not chain .catch
                 scanner.render(handleSuccess, handleError);
-                scannerRef.current = scanner;
             }
         };
 
-        // Delay starting the scanner slightly to ensure the dialog is fully rendered
         const timeoutId = setTimeout(startScanner, 100);
 
         return () => {
             clearTimeout(timeoutId);
             if (scannerRef.current) {
                  try {
-                    // Check if scanner is in a clearable state
-                    if (scannerRef.current.getState() !== 2 /* SCANNING */) {
-                       // Do not clear if not scanning, to avoid errors
-                    } else {
-                        scannerRef.current.clear();
+                    // Check if scanner is in a clearable state before trying to clear
+                    if (scannerRef.current && scannerRef.current.getState() === 2 /* SCANNING */) {
+                       scannerRef.current.clear();
                     }
                  } catch (e) {
                      // console.error("Error clearing scanner on unmount:", e);
@@ -94,22 +105,38 @@ export function ScannerDialog({
                  }
             }
         };
-    }, [isOpen, onScanSuccess]);
+    }, [isOpen, onScanSuccess, toast]);
 
     return (
-        <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Ler Código de Barras</DialogTitle>
-                    <DialogDescription>
-                        Aponte a câmera para o código de barras ou QR code.
-                    </DialogDescription>
-                </DialogHeader>
-                <div id={scannerId} className="w-full aspect-square[&>div]:border-none"></div>
-                <DialogFooter>
-                    <Button variant="outline" onClick={onClose}>Cancelar</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+        <>
+            <style jsx global>{`
+                /* Hide the default UI elements from the html5-qrcode library */
+                #${scannerId} > div > span > button {
+                    display: none !important;
+                }
+                #html5-qrcode-anchor-scan-type-change,
+                #${scannerId}__dashboard_section_csr > div > span:first-child {
+                     display: none !important;
+                }
+                 #${scannerId}__dashboard_section_csr > div:first-child {
+                     margin-bottom: 0px !important;
+                 }
+            `}</style>
+            <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Ler Código de Barras</DialogTitle>
+                        <DialogDescription>
+                            Aponte a câmera para o código de barras ou QR code.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div id={scannerId} className="w-full aspect-square[&>div]:border-none"></div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={onClose}>Cancelar</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
     );
 }
+

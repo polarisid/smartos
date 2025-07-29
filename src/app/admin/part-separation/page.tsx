@@ -364,25 +364,21 @@ export default function PartSeparationPage() {
         doc.setFontSize(10);
         doc.text(`Data de Criação: ${route.createdAt.toDate().toLocaleDateString('pt-BR')}`, 14, 26);
 
-        type Row = (string | number | { content: string | number, rowSpan: number, styles: { valign: 'middle' } })[];
+        type Row = (string | number | { content: string | number, rowSpan?: number, styles?: { valign: 'middle' } })[];
         const tableBody: Row[] = [];
         
         route.stops.forEach(stop => {
             if (stop.parts && stop.parts.length > 0) {
                 stop.parts.forEach((part, partIndex) => {
                     const trackingCode = trackingCodes[route.id]?.[stop.serviceOrder]?.[part.code] || part.trackingCode || "";
-                    const row: Row = [];
+
                     if (partIndex === 0) {
-                        row.push({
-                            content: stop.serviceOrder,
-                            rowSpan: stop.parts.length,
-                            styles: { valign: 'middle' },
-                        });
+                        const osCell = { content: stop.serviceOrder, rowSpan: stop.parts.length, styles: { valign: 'middle' } };
+                        const modelCell = { content: stop.model, rowSpan: stop.parts.length, styles: { valign: 'middle' } };
+                        tableBody.push([osCell, modelCell, part.code, part.quantity, trackingCode]);
+                    } else {
+                        tableBody.push([part.code, part.quantity, trackingCode]);
                     }
-                    row.push(part.code);
-                    row.push(part.quantity);
-                    row.push(trackingCode);
-                    tableBody.push(row);
                 });
             }
         });
@@ -390,7 +386,7 @@ export default function PartSeparationPage() {
         if (tableBody.length > 0) {
             (doc as any).autoTable({
                 startY: 35,
-                head: [['OS', 'Peça', 'Qtd', 'Código de Rastreio']],
+                head: [['OS', 'Modelo', 'Peça', 'Qtd', 'Código de Rastreio']],
                 body: tableBody,
                 theme: 'grid',
             });
@@ -492,6 +488,8 @@ export default function PartSeparationPage() {
     
 
     
+
+
 
 
 
