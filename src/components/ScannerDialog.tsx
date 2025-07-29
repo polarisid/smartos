@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,7 +11,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Html5QrcodeScanner, Html5QrcodeError, Html5QrcodeResult } from 'html5-qrcode';
+import { Html5QrcodeScanner, Html5QrcodeError, Html5QrcodeResult, Html5Qrcode } from 'html5-qrcode';
 
 export function ScannerDialog({ 
     isOpen, 
@@ -23,45 +23,55 @@ export function ScannerDialog({
     onScanSuccess: (decodedText: string) => void 
 }) {
     const scannerId = "barcode-scanner-view";
+    const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
     useEffect(() => {
-        if (isOpen) {
-            const scanner = new Html5QrcodeScanner(scannerId, {
-                fps: 10,
-                qrbox: { width: 250, height: 250 },
-                supportedScanTypes: [], // To support all scan types
-            }, /* verbose= */ false);
+        if (isOpen && !scannerRef.current) {
+            const scanner = new Html5QrcodeScanner(
+                scannerId, 
+                {
+                    fps: 10,
+                    qrbox: { width: 250, height: 250 },
+                    supportedScanTypes: [],
+                }, 
+                false
+            );
 
             const handleSuccess = (decodedText: string, result: Html5QrcodeResult) => {
-                scanner.clear();
                 onScanSuccess(decodedText);
             };
 
             const handleError = (errorMessage: string, error: Html5QrcodeError) => {
-                // console.error(`QR Code parsing error: ${errorMessage}`);
+                // Silently ignore errors, they happen frequently when the camera is adjusting.
             };
 
             scanner.render(handleSuccess, handleError).catch(err => {
                 console.error("Scanner render error", err);
             });
-
-            return () => {
-                // Cleanup function to clear the scanner
-                if (document.getElementById(scannerId)?.innerHTML) {
-                     scanner.clear().catch(error => {
-                        console.error("Failed to clear html5QrcodeScanner.", error);
-                    });
-                }
-            };
+            scannerRef.current = scanner;
         }
-    }, [isOpen, onScanSuccess]);
 
-    if (!isOpen) {
-        return null;
+        return () => {
+            if (scannerRef.current && scannerRef.current.getState()) {
+                 scannerRef.current.clear().catch(error => {
+                    console.error("Failed to clear html5QrcodeScanner.", error);
+                });
+                scannerRef.current = null;
+            }
+        };
+    }, [isOpen, onScanSuccess]);
+    
+    const handleClose = () => {
+      if (scannerRef.current && scannerRef.current.getState()) {
+        scannerRef.current.clear().catch(err => console.error(err));
+        scannerRef.current = null;
+      }
+      onClose();
     }
 
+
     return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
+        <Dialog open={isOpen} onOpenChange={handleClose}>
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Ler Código de Barras</DialogTitle>
@@ -69,9 +79,9 @@ export function ScannerDialog({
                         Aponte a câmera para o código de barras ou QR code.
                     </DialogDescription>
                 </DialogHeader>
-                <div id={scannerId} className="w-full"></div>
+                {isOpen && <div id={scannerId} className="w-full"></div>}
                 <DialogFooter>
-                    <Button variant="outline" onClick={onClose}>Cancelar</Button>
+                    <Button variant="outline" onClick={handleClose}>Cancelar</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
