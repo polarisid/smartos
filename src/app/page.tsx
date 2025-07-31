@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -37,7 +38,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download } from "lucide-react";
+import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
@@ -149,19 +150,20 @@ function Header() {
     return (
         <header className="bg-card border-b p-4 flex justify-between items-center sticky top-0 z-40">
             <Link href="/" className="flex items-center gap-3 text-primary">
-                <Wrench className="w-7 h-7" />
-                <h1 className="text-2xl font-bold text-foreground">SmartService OS</h1>
+                <Wrench className="w-6 h-6 sm:w-7 sm:h-7" />
+                <h1 className="text-xl sm:text-2xl font-bold text-foreground">SmartService OS</h1>
             </Link>
             <div className="flex items-center gap-2">
                  {installPromptEvent && (
-                    <Button onClick={handleInstallClick}>
-                        <Download className="mr-2 h-4 w-4" />
-                        Instalar App
+                    <Button onClick={handleInstallClick} size="sm" className="relative">
+                        <Download className="mr-0 sm:mr-2 h-4 w-4" />
+                        <span className="hidden sm:inline">Instalar App</span>
                     </Button>
                 )}
-                <Button asChild variant="outline">
+                <Button asChild variant="outline" size="sm">
                     <Link href="/admin">
-                        <LogIn className="mr-2 h-4 w-4" /> Área Admin
+                        <LogIn className="mr-0 sm:mr-2 h-4 w-4" />
+                        <span className="hidden sm:inline">Área Admin</span>
                     </Link>
                 </Button>
             </div>
@@ -685,7 +687,7 @@ function RoutesTab({ serviceOrders, visitTemplate }: { serviceOrders: ServiceOrd
         return (
             <Card>
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><RouteIcon /> Rotas Ativas</CardTitle>
+                    <CardTitle className="flex items-center gap-2"><RouteIcon /> Rotas Ativas da Equipe</CardTitle>
                     <CardDescription>Buscando as rotas ativas...</CardDescription>
                 </CardHeader>
                 <CardContent className="text-center py-10">
@@ -699,11 +701,11 @@ function RoutesTab({ serviceOrders, visitTemplate }: { serviceOrders: ServiceOrd
         return (
             <Card>
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><RouteIcon /> Rotas Ativas</CardTitle>
+                    <CardTitle className="flex items-center gap-2"><RouteIcon /> Rotas Ativas da Equipe</CardTitle>
                 </CardHeader>
                 <CardContent>
                     <div className="text-center text-muted-foreground py-10">
-                        <p>Nenhuma rota ativa encontrada para os últimos 7 dias.</p>
+                        <p>Nenhuma rota ativa encontrada para a equipe nos últimos 7 dias.</p>
                     </div>
                 </CardContent>
             </Card>
@@ -730,6 +732,9 @@ function RoutesTab({ serviceOrders, visitTemplate }: { serviceOrders: ServiceOrd
                     <Card key={route.id}>
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2"><RouteIcon /> Rota: {route.name}</CardTitle>
+                             <CardDescription>
+                                Técnico responsável: <span className="font-medium text-foreground">{route.technicianName}</span>
+                            </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
                             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 text-sm border-t border-b py-4">
@@ -1129,7 +1134,7 @@ export default function ServiceOrderPage() {
         <main className="flex-grow p-4 sm:p-6 md:p-8">
             <div className="max-w-4xl mx-auto">
                 <Tabs defaultValue="os-form" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 mb-6">
+                    <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 mb-6">
                         <TabsTrigger value="os-form">Lançar OS</TabsTrigger>
                         <TabsTrigger value="dashboard">Desempenho</TabsTrigger>
                         <TabsTrigger value="returns-ranking">Ranking</TabsTrigger>
@@ -1440,3 +1445,5 @@ export default function ServiceOrderPage() {
 }
 
     
+
+

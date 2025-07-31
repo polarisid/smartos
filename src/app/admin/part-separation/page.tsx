@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
@@ -25,7 +26,7 @@ const ScannerDialog = dynamic(
 );
 
 
-function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCodes, onTrackingCodeChange, onGeneratePdf, onOpenScanner, isHistory = false }: {
+function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCodes, onTrackingCodeChange, onGeneratePdf, onOpenScanner, externalFilter, isHistory = false }: {
     routes: Route[],
     onSaveChanges?: (routeId: string) => void,
     onSavePart: (routeId: string, stopServiceOrder: string, part: RoutePart) => Promise<void>,
@@ -34,9 +35,9 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
     onTrackingCodeChange: (routeId: string, stopServiceOrder: string, partCode: string, value: string) => void,
     onGeneratePdf: (route: Route) => void,
     onOpenScanner: (target: { routeId: string, stopServiceOrder: string, partCode: string }) => void,
+    externalFilter: string;
     isHistory?: boolean
 }) {
-    const [internalFilters, setInternalFilters] = useState<Record<string, string>>({});
 
     if (routes.length === 0) {
         return (
@@ -48,29 +49,28 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
         );
     }
     
-    const handleInternalFilterChange = (routeId: string, value: string) => {
-        setInternalFilters(prev => ({ ...prev, [routeId]: value }));
-    };
-
     return (
          <div className="space-y-4">
             {routes.map((route) => {
-                const internalFilter = internalFilters[route.id] || "";
-                const filteredStops = internalFilter ? route.stops.filter(stop => 
-                    stop.serviceOrder.toLowerCase().includes(internalFilter.toLowerCase()) ||
-                    stop.consumerName.toLowerCase().includes(internalFilter.toLowerCase()) ||
-                    stop.model.toLowerCase().includes(internalFilter.toLowerCase()) ||
-                    stop.parts.some(part => part.code.toLowerCase().includes(internalFilter.toLowerCase()))
+                const filteredStops = externalFilter ? route.stops.filter(stop => 
+                    stop.serviceOrder.toLowerCase().includes(externalFilter.toLowerCase()) ||
+                    stop.consumerName.toLowerCase().includes(externalFilter.toLowerCase()) ||
+                    stop.model.toLowerCase().includes(externalFilter.toLowerCase()) ||
+                    (stop.parts || []).some(part => part.code.toLowerCase().includes(externalFilter.toLowerCase()))
                 ) : route.stops;
                 
                 const allPartsInRoute = route.stops.flatMap(stop => 
-                    stop.parts.map(part => ({ ...part, serviceOrder: stop.serviceOrder }))
+                    (stop.parts || []).map(part => ({ ...part, serviceOrder: stop.serviceOrder }))
                 );
 
                 const areAllPartsTracked = allPartsInRoute.length > 0 && allPartsInRoute.every(part => {
                     const code = trackingCodes[route.id]?.[part.serviceOrder]?.[part.code] || "";
                     return code.trim() !== "";
                 });
+
+                if (filteredStops.length === 0) {
+                    return null;
+                }
 
                 return (
                     <Card key={route.id} className={cn(areAllPartsTracked && "bg-green-100 dark:bg-green-900/50")}>
@@ -80,7 +80,7 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
                                 {route.name}
                             </CardTitle>
                             <CardDescription>
-                                Rota criada em {route.createdAt.toDate().toLocaleDateString('pt-BR')} com {route.stops.length} paradas.
+                                Rota criada em {route.createdAt instanceof Date ? route.createdAt.toLocaleDateString('pt-BR') : 'N/A'} com {route.stops.length} paradas.
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -93,20 +93,7 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
                                     </Button>
                                 </CollapsibleTrigger>
                                 <CollapsibleContent className="mt-4 space-y-4">
-                                     <div className="space-y-2">
-                                        <Label htmlFor={`internal-filter-${route.id}`}>Pesquisar OS ou Peça na Rota</Label>
-                                         <div className="relative">
-                                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                                            <Input
-                                                id={`internal-filter-${route.id}`}
-                                                placeholder="Filtrar por OS, cliente, modelo ou peça..."
-                                                value={internalFilter}
-                                                onChange={(e) => handleInternalFilterChange(route.id, e.target.value)}
-                                                className="pl-8"
-                                            />
-                                        </div>
-                                    </div>
-                                    {filteredStops.filter(stop => stop.parts.length > 0).map(stop => {
+                                    {filteredStops.filter(stop => stop.parts && stop.parts.length > 0).map(stop => {
                                         const areAllPartsInStopTracked = stop.parts.length > 0 && stop.parts.every(part => {
                                             const code = trackingCodes[route.id]?.[stop.serviceOrder]?.[part.code] || "";
                                             return code.trim() !== "";
@@ -134,6 +121,7 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
                                                                         <div className="flex-1">
                                                                             <Label className="text-xs sm:hidden">Peça:</Label>
                                                                             <p className="font-mono">{part.code}</p>
+                                                                            <p className="text-xs text-muted-foreground">{part.description}</p>
                                                                         </div>
                                                                         <div className="text-right">
                                                                             <Label className="text-xs sm:hidden">Qtd:</Label>
@@ -207,7 +195,7 @@ export default function PartSeparationPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [allRoutes, setAllRoutes] = useState<Route[]>([]);
     const [trackingCodes, setTrackingCodes] = useState<Record<string, Record<string, Record<string, string>>>>({}); // { routeId: { stopServiceOrder: { partCode: trackingCode } } }
-    const [partCodeFilter, setPartCodeFilter] = useState("");
+    const [filterText, setFilterText] = useState("");
     
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [scanTarget, setScanTarget] = useState<{ routeId: string, stopServiceOrder: string, partCode: string } | null>(null);
@@ -217,16 +205,18 @@ export default function PartSeparationPage() {
         try {
             const q = query(collection(db, "routes"), orderBy("createdAt", "desc"));
             const querySnapshot = await getDocs(q);
-            const routesData = querySnapshot.docs
-                .map(doc => {
-                    const data = doc.data();
-                    return {
-                        id: doc.id,
-                        ...data,
-                        createdAt: data.createdAt as Timestamp,
-                    } as Route;
-                });
-
+            const routesData = querySnapshot.docs.map(doc => {
+                const data = doc.data();
+                // Ensure all Timestamps are converted to Dates
+                const toDate = (ts: any) => ts instanceof Timestamp ? ts.toDate() : ts;
+                return {
+                    id: doc.id,
+                    ...data,
+                    createdAt: toDate(data.createdAt),
+                    departureDate: toDate(data.departureDate),
+                    arrivalDate: toDate(data.arrivalDate),
+                } as Route;
+            });
             setAllRoutes(routesData);
 
             // Initialize tracking codes state from fetched routes data
@@ -257,17 +247,18 @@ export default function PartSeparationPage() {
     }, [toast]);
 
     const filteredRoutes = useMemo(() => {
-        if (!partCodeFilter) {
-            return allRoutes;
-        }
-        return allRoutes.filter(route =>
-            route.stops.some(stop =>
-                stop.parts.some(part =>
-                    part.code.toLowerCase().includes(partCodeFilter.toLowerCase())
-                )
-            )
-        );
-    }, [allRoutes, partCodeFilter]);
+        return allRoutes.filter(route => {
+             if (!filterText) return true;
+            const filterLower = filterText.toLowerCase();
+
+            return route.stops.some(stop =>
+                stop.serviceOrder.toLowerCase().includes(filterLower) ||
+                stop.consumerName.toLowerCase().includes(filterLower) ||
+                stop.model.toLowerCase().includes(filterLower) ||
+                (stop.parts || []).some(part => part.code.toLowerCase().includes(filterLower))
+            );
+        });
+    }, [allRoutes, filterText]);
 
     const activeRoutes = useMemo(() => filteredRoutes.filter(r => r.isActive), [filteredRoutes]);
     const completedRoutes = useMemo(() => filteredRoutes.filter(r => !r.isActive), [filteredRoutes]);
@@ -299,7 +290,7 @@ export default function PartSeparationPage() {
                 if (stop.serviceOrder === stopServiceOrder) {
                     return {
                         ...stop,
-                        parts: stop.parts.map(part => 
+                        parts: (stop.parts || []).map(part => 
                             part.code === partToUpdate.code 
                                 ? { ...part, trackingCode: partToUpdate.trackingCode } 
                                 : part
@@ -338,7 +329,7 @@ export default function PartSeparationPage() {
 
             const updatedStops = routeToUpdate.stops.map(stop => ({
                 ...stop,
-                parts: stop.parts.map(part => ({
+                parts: (stop.parts || []).map(part => ({
                     ...part,
                     trackingCode: trackingCodes[routeId]?.[stop.serviceOrder]?.[part.code] || part.trackingCode || "",
                 })),
@@ -362,20 +353,24 @@ export default function PartSeparationPage() {
         doc.setFontSize(16);
         doc.text(`Extrato de Peças - Rota: ${route.name}`, 14, 20);
         doc.setFontSize(10);
-        doc.text(`Data de Criação: ${route.createdAt.toDate().toLocaleDateString('pt-BR')}`, 14, 26);
+        const createdAtDate = route.createdAt instanceof Date ? route.createdAt : route.createdAt.toDate();
+        doc.text(`Data de Criação: ${createdAtDate.toLocaleDateString('pt-BR')}`, 14, 26);
 
-        type Row = (string | number | { content: string | number, rowSpan?: number, styles?: { valign: 'middle' } })[];
+        type Row = (string | number)[];
         const tableBody: Row[] = [];
         
         route.stops.forEach(stop => {
             if (stop.parts && stop.parts.length > 0) {
-                stop.parts.forEach((part, partIndex) => {
+                 stop.parts.forEach((part, partIndex) => {
                     const trackingCode = trackingCodes[route.id]?.[stop.serviceOrder]?.[part.code] || part.trackingCode || "";
-
                     if (partIndex === 0) {
-                        const osCell = { content: stop.serviceOrder, rowSpan: stop.parts.length, styles: { valign: 'middle' } };
-                        const modelCell = { content: stop.model, rowSpan: stop.parts.length, styles: { valign: 'middle' } };
-                        tableBody.push([osCell, modelCell, part.code, part.quantity, trackingCode]);
+                        tableBody.push([
+                            { content: stop.serviceOrder, rowSpan: stop.parts.length, styles: { valign: 'middle' } },
+                            { content: stop.model, rowSpan: stop.parts.length, styles: { valign: 'middle' } },
+                            part.code, 
+                            part.quantity, 
+                            trackingCode
+                        ]);
                     } else {
                         tableBody.push([part.code, part.quantity, trackingCode]);
                     }
@@ -421,18 +416,18 @@ export default function PartSeparationPage() {
 
                 <Card>
                     <CardHeader>
-                        <CardTitle>Filtros</CardTitle>
+                        <CardTitle>Filtro Geral</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="max-w-sm space-y-2">
-                            <Label htmlFor="part-code-filter">Pesquisar por Código de Peça</Label>
+                        <div className="space-y-2">
+                            <Label htmlFor="os-filter">Pesquisar por OS, Cliente, Modelo ou Peça</Label>
                             <div className="relative">
                                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                                 <Input 
-                                    id="part-code-filter"
-                                    placeholder="Ex: BN96-12345A"
-                                    value={partCodeFilter}
-                                    onChange={(e) => setPartCodeFilter(e.target.value)}
+                                    id="os-filter"
+                                    placeholder="Digite para filtrar..."
+                                    value={filterText}
+                                    onChange={(e) => setFilterText(e.target.value)}
                                     className="pl-8"
                                 />
                             </div>
@@ -458,6 +453,7 @@ export default function PartSeparationPage() {
                                 onTrackingCodeChange={handleTrackingCodeChange}
                                 onGeneratePdf={handleGeneratePdf}
                                 onOpenScanner={handleOpenScanner}
+                                externalFilter={filterText}
                             />
                         </TabsContent>
                         <TabsContent value="history" className="mt-6">
@@ -469,6 +465,7 @@ export default function PartSeparationPage() {
                                 onTrackingCodeChange={handleTrackingCodeChange}
                                 onGeneratePdf={handleGeneratePdf}
                                 onOpenScanner={handleOpenScanner}
+                                externalFilter={filterText}
                                 isHistory={true}
                             />
                         </TabsContent>
@@ -488,6 +485,10 @@ export default function PartSeparationPage() {
     
 
     
+
+
+
+
 
 
 

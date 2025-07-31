@@ -18,13 +18,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit } from "lucide-react";
+import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, getDocs, doc, deleteDoc, Timestamp, setDoc, writeBatch } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
-import { type Route, type RouteStop, type ServiceOrder } from "@/lib/data";
+import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart } from "@/lib/data";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -69,12 +69,13 @@ function parseRouteText(text: string): RouteStop[] {
 
     return lines.map(line => {
         const columns = line.split('\t');
-        const parts = [];
-        for (let i = partStartIndex; i < columns.length; i += 2) {
+        const parts: RoutePart[] = [];
+        for (let i = partStartIndex; i < columns.length; i += 3) {
             if (columns[i] && columns[i].trim()) {
                 parts.push({
                     code: columns[i].trim(),
-                    quantity: parseInt(columns[i + 1]?.trim() || '0', 10),
+                    description: columns[i+1]?.trim() || '',
+                    quantity: parseInt(columns[i + 2]?.trim() || '0', 10),
                     trackingCode: ''
                 });
             }
@@ -101,7 +102,7 @@ function parseRouteText(text: string): RouteStop[] {
 }
 
 function reconstructRouteText(stops: RouteStop[]): string {
-    const header = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tQTD\tCOD\tQTD\tCOD\tQTD\tCOD\tQTD\tCOD\tQTD";
+    const header = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD";
     const lines = stops.map(stop => {
         const baseColumns = [
             stop.serviceOrder,
@@ -120,7 +121,7 @@ function reconstructRouteText(stops: RouteStop[]): string {
             stop.productType,
             stop.statusComment,
         ];
-        const partColumns = (stop.parts || []).flatMap(p => [p.code, p.quantity.toString()]);
+        const partColumns = (stop.parts || []).flatMap(p => [p.code, p.description, p.quantity.toString()]);
         return [...baseColumns, ...partColumns].join('\t');
     });
     return [header, ...lines].join('\n');
@@ -131,13 +132,15 @@ function RouteFormDialog({
     isOpen, 
     onOpenChange, 
     onRouteSaved, 
-    initialData 
+    initialData,
+    technicians
 }: { 
     mode: 'add' | 'edit',
     isOpen: boolean,
     onOpenChange: (open: boolean) => void,
     onRouteSaved: () => void,
-    initialData?: Route | null 
+    initialData?: Route | null,
+    technicians: Technician[]
 }) {
     const { toast } = useToast();
     const [routeName, setRouteName] = useState("");
@@ -147,22 +150,27 @@ function RouteFormDialog({
     const [arrivalDate, setArrivalDate] = useState<Date | undefined>();
     const [routeType, setRouteType] = useState<'capital' | 'interior' | undefined>();
     const [licensePlate, setLicensePlate] = useState("");
+    const [technicianId, setTechnicianId] = useState<string | undefined>();
 
     useEffect(() => {
-        if (mode === 'edit' && initialData) {
-            setRouteName(initialData.name);
-            setDepartureDate(initialData.departureDate instanceof Timestamp ? initialData.departureDate.toDate() : initialData.departureDate);
-            setArrivalDate(initialData.arrivalDate instanceof Timestamp ? initialData.arrivalDate.toDate() : initialData.arrivalDate);
-            setRouteType(initialData.routeType);
-            setRouteText(reconstructRouteText(initialData.stops));
-            setLicensePlate(initialData.licensePlate || "");
-        } else {
-            setRouteName("");
-            setRouteText("");
-            setDepartureDate(undefined);
-            setArrivalDate(undefined);
-            setRouteType(undefined);
-            setLicensePlate("");
+        if (isOpen) {
+            if (mode === 'edit' && initialData) {
+                setRouteName(initialData.name);
+                setDepartureDate(initialData.departureDate instanceof Timestamp ? initialData.departureDate.toDate() : initialData.departureDate);
+                setArrivalDate(initialData.arrivalDate instanceof Timestamp ? initialData.arrivalDate.toDate() : initialData.arrivalDate);
+                setRouteType(initialData.routeType);
+                setRouteText(reconstructRouteText(initialData.stops));
+                setLicensePlate(initialData.licensePlate || "");
+                setTechnicianId(initialData.technicianId || "");
+            } else {
+                setRouteName("");
+                setRouteText("");
+                setDepartureDate(undefined);
+                setArrivalDate(undefined);
+                setRouteType(undefined);
+                setLicensePlate("");
+                setTechnicianId(undefined);
+            }
         }
     }, [initialData, mode, isOpen]);
 
@@ -170,23 +178,48 @@ function RouteFormDialog({
     const parsedStops = useMemo(() => parseRouteText(routeText), [routeText]);
 
     const handleSave = async () => {
-        if (!routeName || parsedStops.length === 0 || !departureDate || !arrivalDate || !routeType) {
+        if (!routeName || parsedStops.length === 0 || !departureDate || !arrivalDate || !routeType || !technicianId) {
             toast({
                 variant: "destructive",
                 title: "Dados Incompletos",
-                description: "Todos os campos da rota (nome, datas, tipo e dados) são obrigatórios."
+                description: "Todos os campos da rota (nome, técnico, datas, tipo e dados) são obrigatórios."
             });
             return;
         }
         setIsSubmitting(true);
         try {
+            const technician = technicians.find(t => t.id === technicianId);
+            
+            let stopsToSave: RouteStop[] = parsedStops;
+
+            // CRITICAL FIX: Preserve tracking codes when editing
+            if (mode === 'edit' && initialData) {
+                 stopsToSave = parsedStops.map(newStop => {
+                    const existingStop = initialData.stops.find(s => s.serviceOrder === newStop.serviceOrder);
+                    if (existingStop && existingStop.parts) {
+                        const newParts = newStop.parts.map(newPart => {
+                             const existingPart = existingStop.parts.find(p => p.code === newPart.code);
+                             if (existingPart) {
+                                 return { ...newPart, trackingCode: existingPart.trackingCode || '' };
+                             }
+                             return newPart;
+                        });
+                        return { ...newStop, parts: newParts };
+                    }
+                    return newStop;
+                 });
+            }
+
+
             const dataToSave = {
                 name: routeName,
-                stops: parsedStops,
+                stops: stopsToSave,
                 departureDate: Timestamp.fromDate(departureDate),
                 arrivalDate: Timestamp.fromDate(arrivalDate),
                 routeType: routeType,
                 licensePlate: licensePlate,
+                technicianId: technicianId,
+                technicianName: technician?.name || '',
             };
 
             if (mode === 'add') {
@@ -217,7 +250,7 @@ function RouteFormDialog({
                 <DialogHeader>
                     <DialogTitle>{mode === 'add' ? 'Adicionar Nova Rota' : 'Editar Rota'}</DialogTitle>
                     <DialogDescription>
-                        Preencha o nome da rota e cole os dados da sua planilha.
+                        Preencha o nome da rota, atribua a um técnico e cole os dados da sua planilha.
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid md:grid-cols-2 gap-6 py-4 max-h-[70vh] overflow-y-auto">
@@ -231,6 +264,21 @@ function RouteFormDialog({
                                 placeholder="Ex: Rota de Segunda-feira"
                             />
                         </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="technicianId">Técnico Responsável</Label>
+                            <Select value={technicianId} onValueChange={setTechnicianId}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Selecione um técnico" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {technicians.map(tech => (
+                                        <SelectItem key={tech.id} value={tech.id}>{tech.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
                         <div className="grid grid-cols-2 gap-4">
                              <div className="space-y-2">
                                 <Label>Data de Saída</Label>
@@ -332,7 +380,7 @@ function RouteFormDialog({
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-                    <Button onClick={handleSave} disabled={!routeName || parsedStops.length === 0 || isSubmitting}>
+                    <Button onClick={handleSave} disabled={isSubmitting}>
                         <Save className="mr-2 h-4 w-4" /> {isSubmitting ? "Salvando..." : "Salvar Rota"}
                     </Button>
                 </DialogFooter>
@@ -401,6 +449,7 @@ export default function RoutesPage() {
     const { toast } = useToast();
     const [allRoutes, setAllRoutes] = useState<Route[]>([]);
     const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
+    const [technicians, setTechnicians] = useState<Technician[]>([]);
     const [filteredRoutes, setFilteredRoutes] = useState<Route[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
@@ -416,9 +465,10 @@ export default function RoutesPage() {
     const fetchRoutes = async () => {
         setIsLoading(true);
         try {
-            const [routesSnapshot, ordersSnapshot] = await Promise.all([
+            const [routesSnapshot, ordersSnapshot, techsSnapshot] = await Promise.all([
                 getDocs(collection(db, "routes")),
-                getDocs(collection(db, "serviceOrders"))
+                getDocs(collection(db, "serviceOrders")),
+                getDocs(collection(db, "technicians"))
             ]);
 
             const routesData = routesSnapshot.docs
@@ -438,6 +488,9 @@ export default function RoutesPage() {
 
             const ordersData = ordersSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id, date: (doc.data().date as Timestamp).toDate() } as ServiceOrder));
             setServiceOrders(ordersData);
+            
+            const techsData = techsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
+            setTechnicians(techsData);
 
         } catch (error) {
             console.error("Error fetching routes: ", error);
@@ -563,7 +616,7 @@ export default function RoutesPage() {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Nome da Rota</TableHead>
-                                        <TableHead>Data de Criação</TableHead>
+                                        <TableHead>Técnico</TableHead>
                                         <TableHead>Paradas</TableHead>
                                         <TableHead>Progresso</TableHead>
                                         <TableHead>Status</TableHead>
@@ -583,7 +636,12 @@ export default function RoutesPage() {
                                         return (
                                             <TableRow key={route.id} className={!route.isActive ? "text-muted-foreground" : ""}>
                                             <TableCell className="font-medium">{route.name}</TableCell>
-                                            <TableCell>{route.createdAt ? format(route.createdAt, 'dd/MM/yyyy') : 'N/A'}</TableCell>
+                                            <TableCell>
+                                                <div className="flex items-center gap-2">
+                                                    <Users className="h-4 w-4 text-muted-foreground" />
+                                                    <span>{route.technicianName || 'N/A'}</span>
+                                                </div>
+                                            </TableCell>
                                             <TableCell>{route.stops.length}</TableCell>
                                             <TableCell className="w-[200px]">
                                                     <div className="flex flex-col gap-1">
@@ -627,9 +685,9 @@ export default function RoutesPage() {
                                                 </div>
                                             </CardHeader>
                                             <CardContent className="space-y-4">
-                                                <div className="flex justify-between text-sm">
-                                                    <span className="text-muted-foreground">Criação:</span>
-                                                    <span className="font-medium">{route.createdAt ? format(route.createdAt, 'dd/MM/yyyy') : 'N/A'}</span>
+                                                 <div className="flex justify-between text-sm">
+                                                    <span className="text-muted-foreground flex items-center gap-2"><Users className="h-4 w-4" /> Técnico:</span>
+                                                    <span className="font-medium">{route.technicianName || 'N/A'}</span>
                                                 </div>
                                                 <div className="flex justify-between text-sm">
                                                     <span className="text-muted-foreground">Paradas:</span>
@@ -659,6 +717,7 @@ export default function RoutesPage() {
                 onOpenChange={setIsFormDialogOpen}
                 onRouteSaved={fetchRoutes}
                 initialData={selectedRouteForEdit}
+                technicians={technicians}
             />
 
             <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>

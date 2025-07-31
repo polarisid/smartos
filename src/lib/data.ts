@@ -77,6 +77,7 @@ export type Indicator = {
 
 export type RoutePart = {
     code: string;
+    description: string;
     quantity: number;
     trackingCode?: string;
 }
@@ -110,6 +111,8 @@ export type Route = {
     arrivalDate?: Timestamp | Date;
     routeType?: 'capital' | 'interior';
     licensePlate?: string;
+    technicianId?: string;
+    technicianName?: string;
 }
 
 export type ChecklistField = {
