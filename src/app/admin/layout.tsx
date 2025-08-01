@@ -3,7 +3,8 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
+import { useAuth } from "@/context/AuthContext"
 import {
   SidebarProvider,
   Sidebar,
@@ -20,11 +21,21 @@ import {
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Wrench, LayoutGrid, Users, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch } from "lucide-react"
+import { Wrench, LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, DollarSign, Users } from "lucide-react"
+import { useEffect } from "react"
 
 function AdminSidebar({children}: {children: React.ReactNode}) {
     const pathname = usePathname()
+    const { user, logout, appUser } = useAuth();
     const isActive = (path: string) => pathname.startsWith(path) && (pathname === path || pathname.charAt(path.length) === '/')
+
+    const handleLogout = async () => {
+        try {
+            await logout();
+        } catch (error) {
+            console.error("Failed to log out", error);
+        }
+    };
 
     return (
         <SidebarProvider>
@@ -51,7 +62,12 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
                         </SidebarMenuItem>
                         <SidebarMenuItem>
                             <SidebarMenuButton asChild isActive={isActive('/admin/technicians')} tooltip="Técnicos">
-                                <Link href="/admin/technicians"><Users /> <span>Técnicos</span></Link>
+                                <Link href="/admin/technicians"><UsersIcon /> <span>Técnicos</span></Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                            <SidebarMenuButton asChild isActive={isActive('/admin/users')} tooltip="Usuários">
+                                <Link href="/admin/users"><Users /> <span>Usuários</span></Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                          <SidebarMenuItem>
@@ -69,9 +85,19 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
                                 <Link href="/admin/presets"><Bookmark /> <span>Presets</span></Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
+                         <SidebarMenuItem>
+                            <SidebarMenuButton asChild isActive={isActive('/admin/counter-budgets')} tooltip="Orçamentos Balcão">
+                                <Link href="/admin/counter-budgets"><DollarSign /> <span>Orçamentos Balcão</span></Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
                         <SidebarMenuItem>
                             <SidebarMenuButton asChild isActive={isActive('/admin/returns')} tooltip="Retornos">
                                 <Link href="/admin/returns"><History /> <span>Retornos</span></Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                         <SidebarMenuItem>
+                            <SidebarMenuButton asChild isActive={isActive('/admin/chargebacks')} tooltip="Estornos">
+                                <Link href="/admin/chargebacks"><FileMinus /> <span>Estornos</span></Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                         <SidebarMenuItem>
@@ -96,12 +122,12 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
                         <div className="flex items-center gap-2">
                             <Avatar className="h-8 w-8">
                                 <AvatarImage src="https://placehold.co/40x40.png" alt="Admin" data-ai-hint="user avatar" />
-                                <AvatarFallback>A</AvatarFallback>
+                                <AvatarFallback>{appUser?.name?.charAt(0).toUpperCase()}</AvatarFallback>
                             </Avatar>
-                            <span className="font-medium text-sm">Admin</span>
+                            <span className="font-medium text-sm truncate">{appUser?.name || user?.email}</span>
                         </div>
-                        <Button asChild variant="ghost" size="icon" className="h-8 w-8">
-                           <Link href="/"><LogOut /></Link>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleLogout}>
+                           <LogOut />
                         </Button>
                     </div>
                 </SidebarFooter>
@@ -123,10 +149,35 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode
 }) {
-  const pathname = usePathname()
+  const { user, loading, appUser } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    if (loading) return;
+    if (pathname === '/admin/login') return;
+
+    if (!user) {
+      router.push('/admin/login');
+      return;
+    }
+    
+    if (appUser && appUser.role !== 'admin') {
+      router.push('/'); // Or a dedicated "access-denied" page
+    }
+
+  }, [user, appUser, loading, router, pathname]);
+
+  if (loading) {
+      return <div className="min-h-screen flex items-center justify-center"><p>Verificando permissões...</p></div>
+  }
 
   if (pathname === '/admin/login') {
     return <main className="min-h-screen flex items-center justify-center p-4">{children}</main>
+  }
+  
+  if (!user || appUser?.role !== 'admin') {
+      return null;
   }
 
   return <AdminSidebar>{children}</AdminSidebar>

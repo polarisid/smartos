@@ -5,23 +5,25 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { Wrench, Users, Tag, Tv, WashingMachine, ShieldCheck, ListTree, ClipboardCheck, History, Trophy, Sparkles } from "lucide-react";
-import { type ServiceOrder, type Technician, type Return } from "@/lib/data";
+import { Wrench, Users, Tag, Tv, WashingMachine, ShieldCheck, ListTree, ClipboardCheck, History, Trophy, Sparkles, FileMinus } from "lucide-react";
+import { type ServiceOrder, type Technician, type Return, type Chargeback } from "@/lib/data";
 import { startOfWeek, startOfMonth, isAfter, startOfYear, isToday } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, Timestamp } from "firebase/firestore";
 
 function GeneralDashboard({
     technicians,
     serviceOrders,
     returns,
+    chargebacks,
     filterPeriod,
     setFilterPeriod
 }: {
     technicians: Technician[],
     serviceOrders: ServiceOrder[],
     returns: Return[],
+    chargebacks: Chargeback[],
     filterPeriod: 'today' | 'this_week' | 'this_month' | 'this_year' | 'all_time',
     setFilterPeriod: (period: 'today' | 'this_week' | 'this_month' | 'this_year' | 'all_time') => void
 }) {
@@ -46,6 +48,7 @@ function GeneralDashboard({
 
     const filteredServiceOrders = serviceOrders.filter(os => filterByDate(os.date));
     const filteredReturns = returns.filter(r => r.returnDate && filterByDate(r.returnDate));
+    const filteredChargebacks = chargebacks.filter(c => filterByDate(c.date));
     
     const totalOsFiltered = filteredServiceOrders.length;
     const totalReturnsFiltered = filteredReturns.length;
@@ -56,25 +59,36 @@ function GeneralDashboard({
         }
         return total;
     }, 0);
-    const totalBonusFiltered = totalRevenueFiltered.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+    const totalChargebacksFiltered = filteredChargebacks.reduce((total, c) => total + c.value, 0);
+
+    const netRevenueFiltered = totalRevenueFiltered - totalChargebacksFiltered;
+
+    const netBonusFiltered = netRevenueFiltered.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 
     const performanceData = technicians.map(tech => {
         const techOrders = filteredServiceOrders.filter(os => os.technicianId === tech.id);
-        const revenue = techOrders.reduce((total, os) => {
+        const techChargebacks = filteredChargebacks.filter(c => c.technicianId === tech.id);
+
+        const grossRevenue = techOrders.reduce((total, os) => {
             if (os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved && os.samsungBudgetValue) {
                 return total + os.samsungBudgetValue;
             }
             return total;
         }, 0);
+
+        const totalChargebacks = techChargebacks.reduce((total, c) => total + c.value, 0);
+        const netRevenue = grossRevenue - totalChargebacks;
+
         const goal = tech.goal || 0;
-        const progress = goal > 0 ? Math.min((revenue / goal) * 100, 100) : 0;
+        const progress = goal > 0 ? Math.min((netRevenue / goal) * 100, 100) : 0;
         const cleaningsCount = techOrders.filter(os => os.cleaningPerformed).length;
         
         return {
           technician: tech,
           osCount: techOrders.length,
-          revenue,
+          revenue: netRevenue,
           goal,
           progress,
           cleaningsCount,
@@ -137,8 +151,8 @@ function GeneralDashboard({
                     <Tag className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                    <div className="text-2xl font-bold">{totalBonusFiltered}</div>
-                    <p className="text-xs text-muted-foreground">Valor estimado no período</p>
+                    <div className="text-2xl font-bold">{netBonusFiltered}</div>
+                    <p className="text-xs text-muted-foreground">Valor líquido (com estornos) no período</p>
                 </CardContent>
                 </Card>
                 <Card>
@@ -187,7 +201,7 @@ function GeneralDashboard({
                             <TableCell className="text-right">{data.revenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</TableCell>
                             <TableCell className="text-right">
                                 <div className="flex flex-col items-end gap-1">
-                                    <Progress value={data.progress} className="h-2"/>
+                                    <Progress value={data.progress} />
                                     <span className="text-xs text-muted-foreground">
                                         Meta: {data.goal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                     </span>
@@ -330,28 +344,33 @@ export default function DashboardPage() {
     const [technicians, setTechnicians] = useState<Technician[]>([]);
     const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
     const [returns, setReturns] = useState<Return[]>([]);
+    const [chargebacks, setChargebacks] = useState<Chargeback[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
             setIsLoading(true);
             try {
-                const techSnapshot = await getDocs(collection(db, "technicians"));
+                const [techSnapshot, orderSnapshot, returnsSnapshot, chargebacksSnapshot] = await Promise.all([
+                    getDocs(collection(db, "technicians")),
+                    getDocs(collection(db, "serviceOrders")),
+                    getDocs(collection(db, "returns")),
+                    getDocs(collection(db, "chargebacks")),
+                ]);
+
                 const techs = techSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
                 setTechnicians(techs);
 
-                const orderSnapshot = await getDocs(collection(db, "serviceOrders"));
                 const orders = orderSnapshot.docs.map(doc => {
                     const data = doc.data();
                     return {
                         id: doc.id,
                         ...data,
-                        date: data.date.toDate(),
+                        date: (data.date as Timestamp).toDate(),
                     } as ServiceOrder;
                 });
                 setServiceOrders(orders);
 
-                const returnsSnapshot = await getDocs(collection(db, "returns"));
                 const returnsData = returnsSnapshot.docs.map(doc => {
                     const data = doc.data();
                     return {
@@ -361,6 +380,16 @@ export default function DashboardPage() {
                     } as Return;
                 });
                 setReturns(returnsData);
+
+                const chargebacksData = chargebacksSnapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return {
+                        id: doc.id,
+                        ...data,
+                        date: (data.date as Timestamp).toDate(),
+                    } as Chargeback;
+                });
+                setChargebacks(chargebacksData);
 
             } catch (error) {
                 console.error("Error fetching dashboard data:", error);
@@ -387,7 +416,8 @@ export default function DashboardPage() {
                 <GeneralDashboard 
                     technicians={technicians} 
                     serviceOrders={serviceOrders} 
-                    returns={returns} 
+                    returns={returns}
+                    chargebacks={chargebacks}
                     filterPeriod={filterPeriod}
                     setFilterPeriod={setFilterPeriod}
                 />

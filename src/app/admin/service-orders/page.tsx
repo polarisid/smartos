@@ -28,7 +28,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Edit, Trash2, Calendar as CalendarIcon, FilterX, Sparkles } from "lucide-react";
+import { Edit, Trash2, Calendar as CalendarIcon, FilterX, Sparkles, DollarSign } from "lucide-react";
 import { type ServiceOrder, type Technician } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
@@ -75,11 +75,13 @@ export default function ServiceOrdersPage() {
         serviceType: string;
         date: DateRange | undefined;
         cleaningOnly: boolean;
+        approvedOnly: boolean;
     }>({
         technicianId: 'all',
         serviceType: 'all',
         date: undefined,
         cleaningOnly: false,
+        approvedOnly: false,
     });
 
     const form = useForm<FormValues>({
@@ -139,6 +141,10 @@ export default function ServiceOrdersPage() {
 
         if (filters.cleaningOnly) {
             newFilteredOrders = newFilteredOrders.filter(o => o.cleaningPerformed);
+        }
+
+        if (filters.approvedOnly) {
+            newFilteredOrders = newFilteredOrders.filter(o => o.samsungBudgetApproved === true);
         }
 
         setFilteredOrders(newFilteredOrders);
@@ -231,6 +237,7 @@ export default function ServiceOrdersPage() {
             serviceType: 'all',
             date: undefined,
             cleaningOnly: false,
+            approvedOnly: false,
         });
     };
 
@@ -324,6 +331,14 @@ export default function ServiceOrdersPage() {
                             />
                             <Label htmlFor="cleaning-filter">Mostrar apenas OS com limpeza</Label>
                         </div>
+                        <div className="flex items-center space-x-2">
+                            <Switch
+                                id="approved-filter"
+                                checked={filters.approvedOnly}
+                                onCheckedChange={(checked) => handleFilterChange('approvedOnly', checked)}
+                            />
+                            <Label htmlFor="approved-filter">Mostrar apenas com orçamento aprovado</Label>
+                        </div>
                     </CardContent>
                 </Card>
 
@@ -343,6 +358,7 @@ export default function ServiceOrdersPage() {
                                         <TableHead>Data</TableHead>
                                         <TableHead>Técnico</TableHead>
                                         <TableHead>Atendimento</TableHead>
+                                        <TableHead>Valor Aprovado</TableHead>
                                         <TableHead className="text-center">Limpeza</TableHead>
                                         <TableHead className="text-right">Ações</TableHead>
                                     </TableRow>
@@ -354,6 +370,13 @@ export default function ServiceOrdersPage() {
                                             <TableCell>{format(order.date, 'dd/MM/yyyy')}</TableCell>
                                             <TableCell>{order.technicianName}</TableCell>
                                             <TableCell>{serviceTypeLabels[order.serviceType] || order.serviceType}</TableCell>
+                                            <TableCell>
+                                                {order.samsungBudgetApproved && order.samsungBudgetValue ? (
+                                                    <span className="font-mono text-green-600">
+                                                        {order.samsungBudgetValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                                    </span>
+                                                ) : '-'}
+                                            </TableCell>
                                             <TableCell className="text-center">
                                                 {order.cleaningPerformed && <Sparkles className="h-5 w-5 text-yellow-500 mx-auto" />}
                                             </TableCell>
@@ -368,7 +391,7 @@ export default function ServiceOrdersPage() {
                                         </TableRow>
                                     )) : (
                                         <TableRow>
-                                            <TableCell colSpan={6} className="text-center h-24">
+                                            <TableCell colSpan={7} className="text-center h-24">
                                                 Nenhuma ordem de serviço encontrada com os filtros selecionados.
                                             </TableCell>
                                         </TableRow>

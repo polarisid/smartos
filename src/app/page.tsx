@@ -7,7 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format, isAfter, startOfMonth, startOfYear, subDays, differenceInDays } from "date-fns";
-import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator, type Route, type RouteStop } from "@/lib/data";
+import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator, type Route, type RouteStop, type Chargeback } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -161,7 +161,7 @@ function Header() {
                     </Button>
                 )}
                 <Button asChild variant="outline" size="sm">
-                    <Link href="/admin">
+                    <Link href="/admin/login">
                         <LogIn className="mr-0 sm:mr-2 h-4 w-4" />
                         <span className="hidden sm:inline">Área Admin</span>
                     </Link>
@@ -171,11 +171,12 @@ function Header() {
     );
 }
 
-function PerformanceDashboard({ technicians, serviceOrders, returns, indicators }: { 
+function PerformanceDashboard({ technicians, serviceOrders, returns, indicators, chargebacks }: { 
     technicians: Technician[], 
     serviceOrders: ServiceOrder[], 
     returns: Return[],
-    indicators: Indicator[]
+    indicators: Indicator[],
+    chargebacks: Chargeback[]
 }) {
     const now = new Date();
     const startOfCurrentMonth = startOfMonth(now);
@@ -188,6 +189,10 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators 
         r.returnDate && isAfter(r.returnDate, startOfCurrentMonth)
     );
 
+    const chargebacksThisMonth = chargebacks.filter(c =>
+        isAfter(c.date, startOfCurrentMonth)
+    );
+
     const performanceData = technicians.map(tech => {
         const techOrdersThisMonth = serviceOrdersThisMonth.filter(os =>
             os.technicianId === tech.id
@@ -197,22 +202,30 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators 
             r.technicianId === tech.id
         );
 
+        const techChargebacksThisMonth = chargebacksThisMonth.filter(c =>
+            c.technicianId === tech.id
+        );
+
         const osCount = techOrdersThisMonth.length;
         const cleaningsCount = techOrdersThisMonth.filter(os => os.cleaningPerformed).length;
         
-        const revenue = techOrdersThisMonth.reduce((total, os) => {
+        const grossRevenue = techOrdersThisMonth.reduce((total, os) => {
             if (os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved && os.samsungBudgetValue) {
                 return total + os.samsungBudgetValue;
             }
             return total;
         }, 0);
 
+        const totalChargebacks = techChargebacksThisMonth.reduce((total, c) => total + c.value, 0);
+
+        const netRevenue = grossRevenue - totalChargebacks;
+
         const goal = tech.goal || 0;
-        const progress = goal > 0 ? Math.min((revenue / goal) * 100, 100) : 0;
+        const progress = goal > 0 ? Math.min((netRevenue / goal) * 100, 100) : 0;
 
         return {
             ...tech,
-            revenue,
+            revenue: netRevenue,
             goal,
             progress,
             osCount,
@@ -653,11 +666,9 @@ function RoutesTab({ serviceOrders, visitTemplate }: { serviceOrders: ServiceOrd
         const fetchActiveRoutes = async () => {
             setIsLoading(true);
             try {
-                const sevenDaysAgo = subDays(new Date(), 7);
                 const q = query(
                     collection(db, "routes"),
                     where("isActive", "==", true),
-                    where("createdAt", ">=", Timestamp.fromDate(sevenDaysAgo)),
                     orderBy("createdAt", "desc")
                 );
                 const querySnapshot = await getDocs(q);
@@ -702,10 +713,11 @@ function RoutesTab({ serviceOrders, visitTemplate }: { serviceOrders: ServiceOrd
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2"><RouteIcon /> Rotas Ativas da Equipe</CardTitle>
+                    <CardDescription>Nenhuma rota ativa encontrada para a equipe.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <div className="text-center text-muted-foreground py-10">
-                        <p>Nenhuma rota ativa encontrada para a equipe nos últimos 7 dias.</p>
+                        <p>Nenhuma rota ativa encontrada para a equipe.</p>
                     </div>
                 </CardContent>
             </Card>
@@ -832,6 +844,7 @@ export default function ServiceOrderPage() {
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
   const [returns, setReturns] = useState<Return[]>([]);
+  const [chargebacks, setChargebacks] = useState<Chargeback[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [indicators, setIndicators] = useState<Indicator[]>([]);
   const [assistantName, setAssistantName] = useState("");
@@ -866,10 +879,11 @@ export default function ServiceOrderPage() {
 
   const fetchDynamicData = async () => {
     try {
-        const [ordersSnapshot, returnsSnapshot, indicatorsSnapshot] = await Promise.all([
+        const [ordersSnapshot, returnsSnapshot, indicatorsSnapshot, chargebacksSnapshot] = await Promise.all([
             getDocs(collection(db, "serviceOrders")),
             getDocs(collection(db, "returns")),
             getDocs(collection(db, "indicators")),
+            getDocs(collection(db, "chargebacks")),
         ]);
         
         const orders = ordersSnapshot.docs.map(doc => {
@@ -891,6 +905,16 @@ export default function ServiceOrderPage() {
             } as Return;
         });
         setReturns(returnsData);
+
+        const chargebacksData = chargebacksSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                ...data,
+                date: (data.date as Timestamp).toDate(),
+            } as Chargeback;
+        });
+        setChargebacks(chargebacksData);
 
         const indicatorsData = indicatorsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Indicator));
         setIndicators(indicatorsData);
@@ -1429,6 +1453,7 @@ export default function ServiceOrderPage() {
                             serviceOrders={serviceOrders} 
                             returns={returns} 
                             indicators={indicators}
+                            chargebacks={chargebacks}
                         />
                     </TabsContent>
                     <TabsContent value="returns-ranking">
@@ -1440,10 +1465,10 @@ export default function ServiceOrderPage() {
                 </Tabs>
             </div>
         </main>
+        <footer className="bg-card border-t p-4 text-center text-xs text-muted-foreground">
+            <p>SmartService OS - Feito com ❤️ para simplificar sua vida.</p>
+            <Link href="/counter-technician/login" className="text-primary hover:underline">Acesso Técnico Balcão</Link>
+        </footer>
     </div>
   );
 }
-
-    
-
-

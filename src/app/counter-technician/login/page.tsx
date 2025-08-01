@@ -16,14 +16,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Wrench } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/context/AuthContext";
 
-export default function AdminLoginPage() {
+export default function CounterTechnicianLoginPage() {
   const router = useRouter();
   const { toast } = useToast();
   const { login } = useAuth();
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -37,9 +36,9 @@ export default function AdminLoginPage() {
     try {
       await login(email, password);
       toast({ title: "Login bem-sucedido!" });
-      router.push("/admin/dashboard");
+      router.push("/counter-technician/dashboard");
     } catch (err: any) {
-      let errorMessage = "Ocorreu um erro desconhecido.";
+       let errorMessage = "Ocorreu um erro desconhecido.";
       switch (err.code) {
         case 'auth/user-not-found':
         case 'auth/wrong-password':
@@ -61,42 +60,42 @@ export default function AdminLoginPage() {
 
   return (
     <Card className="mx-auto max-w-sm">
-      <CardHeader className="text-center">
+    <CardHeader className="text-center">
         <Wrench className="mx-auto h-12 w-12 text-primary mb-4" />
-        <CardTitle className="text-2xl">Admin Login</CardTitle>
+        <CardTitle className="text-2xl">Acesso Técnico Balcão</CardTitle>
         <CardDescription>
-          Acesse o painel de administração
+        Acesse o painel para registrar orçamentos e estornos.
         </CardDescription>
-      </CardHeader>
-      <CardContent>
+    </CardHeader>
+    <CardContent>
         <form onSubmit={handleLogin} className="grid gap-4">
           <div className="grid gap-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="admin@example.com"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={isLoading}
-            />
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="tecnico.balcao@example.com"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={isLoading}
+              />
           </div>
           <div className="grid gap-2">
-            <div className="flex items-center">
-              <Label htmlFor="password">Senha</Label>
-            </div>
-            <Input 
-              id="password" 
-              type="password" 
-              required 
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={isLoading}
-            />
+              <div className="flex items-center">
+                <Label htmlFor="password">Senha</Label>
+              </div>
+              <Input 
+                id="password" 
+                type="password" 
+                required 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={isLoading}
+              />
           </div>
-          {error && (
-             <Alert variant="destructive">
+           {error && (
+            <Alert variant="destructive">
                 <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
@@ -104,25 +103,18 @@ export default function AdminLoginPage() {
             {isLoading ? 'Entrando...' : 'Login'}
           </Button>
         </form>
-        <div className="mt-4 text-center text-sm space-y-2">
-          <p>
+        <div className="mt-4 text-center text-sm">
+           <p className="mb-2">
             Não tem uma conta?{' '}
             <Link href="/signup" className="underline">
               Cadastre-se
             </Link>
           </p>
-          <p>
-            <Link href="/" className="underline">
+          <Link href="/" className="underline">
               Voltar para a página inicial
-            </Link>
-          </p>
-          <p>
-            <Link href="/counter-technician/login" className="underline">
-              Acessar como Técnico de Balcão
-            </Link>
-          </p>
+          </Link>
         </div>
-      </CardContent>
+    </CardContent>
     </Card>
   );
 }

@@ -18,15 +18,18 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Edit, Divide, Trash2 } from "lucide-react";
-import { type Technician } from "@/lib/data";
+import { PlusCircle, Edit, Divide, Trash2, User, UserCog } from "lucide-react";
+import { type Technician, type AppUser } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, writeBatch } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, writeBatch, query, where } from "firebase/firestore";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+type EnrichedTechnician = Technician & { role?: AppUser['role'] };
 
 export default function TechniciansPage() {
-  const [technicians, setTechnicians] = useState<Technician[]>([]);
-  const [selectedTech, setSelectedTech] = useState<Technician | null>(null);
+  const [technicians, setTechnicians] = useState<EnrichedTechnician[]>([]);
+  const [selectedTech, setSelectedTech] = useState<EnrichedTechnician | null>(null);
 
   // States for dialogs
   const [isGoalDialogOpen, setIsGoalDialogOpen] = useState(false);
@@ -36,44 +39,68 @@ export default function TechniciansPage() {
   // Form states
   const [goalValue, setGoalValue] = useState<string>("");
   const [globalGoal, setGlobalGoal] = useState<string>("");
-  const [newTechName, setNewTechName] = useState("");
+  const [newTechId, setNewTechId] = useState("");
+  const [availableUsers, setAvailableUsers] = useState<AppUser[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { toast } = useToast();
 
-  useEffect(() => {
-    const fetchData = async () => {
-        setIsLoading(true);
-        try {
-            const techsSnapshot = await getDocs(collection(db, "technicians"));
-            const techs = techsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
-            setTechnicians(techs);
-        } catch (error) {
-            console.error("Error fetching data:", error);
-            toast({ variant: "destructive", title: "Erro ao carregar dados", description: "Não foi possível buscar os dados do banco de dados." });
-        } finally {
-            setIsLoading(false);
-        }
-    };
+  const fetchData = async () => {
+      setIsLoading(true);
+      try {
+          const [techsSnapshot, usersSnapshot] = await Promise.all([
+            getDocs(collection(db, "technicians")),
+            getDocs(collection(db, "users"))
+          ]);
+          
+          const users = usersSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as AppUser));
+          const usersMap = new Map(users.map(u => [u.uid, u]));
 
+          const techs = techsSnapshot.docs.map(doc => {
+            const techData = { id: doc.id, ...doc.data() } as Technician;
+            const user = usersMap.get(techData.id);
+            return {
+              ...techData,
+              role: user?.role
+            } as EnrichedTechnician;
+          });
+          setTechnicians(techs);
+
+          // Filter out users who are already technicians
+          const existingTechIds = new Set(techs.map(t => t.id));
+          const usersNotTechnicians = users.filter(u => 
+            !existingTechIds.has(u.uid) && (u.role === 'technician' || u.role === 'counter_technician')
+          );
+          setAvailableUsers(usersNotTechnicians);
+
+      } catch (error) {
+          console.error("Error fetching data:", error);
+          toast({ variant: "destructive", title: "Erro ao carregar dados", description: "Não foi possível buscar os dados do banco de dados." });
+      } finally {
+          setIsLoading(false);
+      }
+  };
+
+  useEffect(() => {
     fetchData();
   }, [toast]);
 
-  const handleOpenGoalDialog = (tech: Technician) => {
+  const handleOpenGoalDialog = (tech: EnrichedTechnician) => {
     setSelectedTech(tech);
     setGoalValue(tech.goal?.toString() || "");
     setIsGoalDialogOpen(true);
   };
   
-  const handleOpenDeleteDialog = (tech: Technician) => {
+  const handleOpenDeleteDialog = (tech: EnrichedTechnician) => {
     setSelectedTech(tech);
     setIsDeleteDialogOpen(true);
   };
 
   const handleOpenAddDialog = () => {
     setNewTechName("");
+    setNewTechId("");
     setIsAddTechDialogOpen(true);
   };
 
@@ -108,11 +135,12 @@ export default function TechniciansPage() {
   };
 
   const handleSaveNewTech = async () => {
-    if (!newTechName.trim()) {
+    const selectedUser = availableUsers.find(u => u.uid === newTechId);
+    if (!selectedUser) {
       toast({
         variant: "destructive",
-        title: "Nome Inválido",
-        description: "O nome do técnico não pode estar em branco.",
+        title: "Usuário Inválido",
+        description: "Por favor, selecione um usuário válido para ser o técnico.",
       });
       return;
     }
@@ -120,20 +148,22 @@ export default function TechniciansPage() {
     setIsSubmitting(true);
     try {
       const newTechData = {
-        name: newTechName.trim(),
+        name: selectedUser.name,
         goal: 0,
       };
-      const docRef = await addDoc(collection(db, "technicians"), newTechData);
+      // Use the user's UID as the document ID for the technician
+      const techDocRef = doc(db, "technicians", selectedUser.uid);
+      await setDoc(techDocRef, newTechData);
 
-      setTechnicians(currentTechs => [...currentTechs, { id: docRef.id, ...newTechData }]);
+      // Refetch data to update the available users list and the main tech list
+      await fetchData(); 
 
       toast({
         title: "Técnico Cadastrado!",
         description: `O técnico ${newTechData.name} foi adicionado com sucesso.`,
       });
-
+      
       setIsAddTechDialogOpen(false);
-      setNewTechName("");
     } catch (error) {
       console.error("Error adding technician: ", error);
       toast({ variant: "destructive", title: "Erro ao cadastrar", description: "Não foi possível adicionar o novo técnico." });
@@ -197,6 +227,7 @@ export default function TechniciansPage() {
       await deleteDoc(doc(db, "technicians", selectedTech.id));
 
       setTechnicians(currentTechs => currentTechs.filter(t => t.id !== selectedTech.id));
+      await fetchData(); // Refetch to update available users
 
       toast({
         title: "Técnico Excluído!",
@@ -212,6 +243,17 @@ export default function TechniciansPage() {
       setIsSubmitting(false);
     }
   };
+
+  const getRoleInfo = (role?: AppUser['role']) => {
+    switch (role) {
+      case 'technician':
+        return { icon: User, text: 'Técnico de Campo', color: 'text-sky-600' };
+      case 'counter_technician':
+        return { icon: UserCog, text: 'Técnico de Balcão', color: 'text-emerald-600' };
+      default:
+        return { icon: User, text: 'Função desconhecida', color: 'text-muted-foreground' };
+    }
+  }
 
   return (
     <>
@@ -262,30 +304,40 @@ export default function TechniciansPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>ID</TableHead>
                     <TableHead>Nome</TableHead>
                     <TableHead>Meta (R$)</TableHead>
                     <TableHead className="text-right w-[240px]">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {technicians.map((tech) => (
-                    <TableRow key={tech.id}>
-                      <TableCell className="font-mono">{tech.id}</TableCell>
-                      <TableCell className="font-medium">{tech.name}</TableCell>
-                      <TableCell>
-                        {tech.goal ? `R$ ${tech.goal.toFixed(2).replace('.', ',')}` : 'Não definida'}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="outline" size="sm" onClick={() => handleOpenGoalDialog(tech)}>
-                          <Edit className="mr-2 h-4 w-4" /> Definir Meta
-                        </Button>
-                        <Button variant="destructive" size="sm" className="ml-2" onClick={() => handleOpenDeleteDialog(tech)}>
-                          <Trash2 className="mr-2 h-4 w-4" /> Excluir
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {technicians.map((tech) => {
+                    const RoleIcon = getRoleInfo(tech.role).icon;
+                    const roleText = getRoleInfo(tech.role).text;
+                    const roleColor = getRoleInfo(tech.role).color;
+
+                    return (
+                        <TableRow key={tech.id}>
+                          <TableCell className="font-medium">
+                            <div>{tech.name}</div>
+                            <div className={`flex items-center gap-1.5 text-xs ${roleColor}`}>
+                                <RoleIcon className="h-3 w-3" />
+                                <span>{roleText}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {tech.goal ? `R$ ${tech.goal.toFixed(2).replace('.', ',')}` : 'Não definida'}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="outline" size="sm" onClick={() => handleOpenGoalDialog(tech)}>
+                              <Edit className="mr-2 h-4 w-4" /> Definir Meta
+                            </Button>
+                            <Button variant="destructive" size="sm" className="ml-2" onClick={() => handleOpenDeleteDialog(tech)}>
+                              <Trash2 className="mr-2 h-4 w-4" /> Excluir
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             )}
@@ -299,23 +351,28 @@ export default function TechniciansPage() {
               <DialogHeader>
                   <DialogTitle>Cadastrar Novo Técnico</DialogTitle>
                   <DialogDescription>
-                      Insira o nome do novo técnico. O ID será gerado automaticamente.
+                      Selecione um usuário cadastrado com a função "Técnico" ou "Técnico de Balcão" para adicioná-lo à lista.
                   </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
                   <div className="grid w-full items-center gap-1.5">
-                      <Label htmlFor="new-tech-name">Nome</Label>
-                      <Input 
-                          id="new-tech-name"
-                          value={newTechName}
-                          onChange={(e) => setNewTechName(e.target.value)}
-                          placeholder="Ex: Ana Souza"
-                      />
+                      <Label htmlFor="user-select">Usuário</Label>
+                       <Select onValueChange={setNewTechId} value={newTechId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione um usuário" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableUsers.map(user => (
+                            <SelectItem key={user.uid} value={user.uid}>{user.name} ({user.email})</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                        {availableUsers.length === 0 && <p className="text-xs text-muted-foreground mt-2">Não há novos usuários com função de técnico disponíveis. Cadastre um novo usuário ou altere a função de um existente.</p>}
                   </div>
               </div>
               <DialogFooter>
                   <Button type="button" onClick={() => setIsAddTechDialogOpen(false)} variant="outline">Cancelar</Button>
-                  <Button type="button" onClick={handleSaveNewTech} disabled={isSubmitting}>{isSubmitting ? 'Salvando...' : 'Salvar'}</Button>
+                  <Button type="button" onClick={handleSaveNewTech} disabled={isSubmitting || !newTechId}>{isSubmitting ? 'Salvando...' : 'Salvar'}</Button>
               </DialogFooter>
           </DialogContent>
       </Dialog>
@@ -356,7 +413,7 @@ export default function TechniciansPage() {
             <AlertDialogDescription>
               Esta ação não pode ser desfeita. Isso excluirá permanentemente o técnico
               <span className="font-bold mx-1">{selectedTech?.name}</span>
-              do sistema.
+              do sistema. O registro de usuário permanecerá.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -374,3 +431,5 @@ export default function TechniciansPage() {
     </>
   );
 }
+
+    

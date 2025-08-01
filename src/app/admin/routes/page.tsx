@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
@@ -41,65 +40,113 @@ import { Progress } from "@/components/ui/progress";
 function parseRouteText(text: string): RouteStop[] {
     if (!text.trim()) return [];
 
-    const lines = text.trim().split('\n');
-    const headerLine = lines.shift()?.trim(); // Remove header
+    // Normalize line endings and split into lines
+    const lines = text.trim().replace(/\r\n/g, '\n').split('\n');
+    const headerLine = lines.shift()?.trim();
     if (!headerLine) return [];
     
-    // Index map based on the header
-    const headers = headerLine.split('\t').map(h => h.trim());
-    const getIndex = (name: string) => headers.indexOf(name);
+    // Replace multiple spaces/tabs with a single tab for consistent splitting
+    const normalizeSpaces = (line: string) => line.replace(/[\s\t]{2,}/g, '\t');
 
-    const soNroIdx = getIndex('SO Nro.');
-    const ascJobNoIdx = getIndex('ASC Job No.');
-    const consumerNameIdx = getIndex('Nome Consumidor');
-    const cityIdx = getIndex('Cidade');
-    const neighborhoodIdx = getIndex('Bairro');
-    const stateIdx = getIndex('UF');
-    const modelIdx = getIndex('Modelo');
-    const turnIdx = getIndex('TURNO');
-    const tatIdx = getIndex('TAT');
-    const requestDateIdx = getIndex('Data de Solicitação');
-    const firstVisitDateIdx = getIndex('1st Visit Date');
-    const tsIdx = getIndex('TS');
-    const warrantyTypeIdx = getIndex('OW/LP');
-    const productTypeIdx = getIndex('SPD');
-    const statusCommentIdx = getIndex('Status comment');
+    const headers = normalizeSpaces(headerLine).split('\t').map(h => h.trim().toLowerCase());
     
-    const partStartIndex = statusCommentIdx + 1;
+    // Dynamically find indices of headers
+    const getIndex = (name: string | string[]) => {
+        const names = Array.isArray(name) ? name : [name];
+        for (const n of names) {
+            const index = headers.indexOf(n.toLowerCase());
+            if (index !== -1) return index;
+        }
+        return -1;
+    };
 
-    return lines.map(line => {
-        const columns = line.split('\t');
-        const parts: RoutePart[] = [];
-        for (let i = partStartIndex; i < columns.length; i += 3) {
-            if (columns[i] && columns[i].trim()) {
-                parts.push({
-                    code: columns[i].trim(),
-                    description: columns[i+1]?.trim() || '',
-                    quantity: parseInt(columns[i + 2]?.trim() || '0', 10),
-                    trackingCode: ''
-                });
+    const headerIndices = {
+        soNro: getIndex('so nro.'),
+        ascJobNo: getIndex('asc job no.'),
+        consumerName: getIndex('nome consumidor'),
+        city: getIndex('cidade'),
+        neighborhood: getIndex('bairro'),
+        state: getIndex('uf'),
+        model: getIndex('modelo'),
+        turn: getIndex('turno'),
+        tat: getIndex('tat'),
+        requestDate: getIndex('data de solicitação'),
+        firstVisitDate: getIndex('1st visit date'),
+        ts: getIndex('ts'),
+        warrantyType: getIndex('ow/lp'),
+        productType: getIndex('spd'),
+        statusComment: getIndex('status comment'),
+    };
+    
+    // Find all indices for parts
+    const partColumns: { codeIndex: number; qtyIndex: number; descIndex?: number }[] = [];
+    headers.forEach((header, index) => {
+        if (header === 'cod') {
+            const codeIndex = index;
+            let qtyIndex = -1;
+            let descIndex = -1;
+            
+            // Look for QTD and DESCRICAO in the next columns
+            if (headers[index + 1]?.toLowerCase() === 'qtd') {
+                qtyIndex = index + 1;
+            } else if (headers[index + 1]?.toLowerCase() === 'descricao' && headers[index + 2]?.toLowerCase() === 'qtd') {
+                descIndex = index + 1;
+                qtyIndex = index + 2;
+            }
+            
+            if (qtyIndex !== -1) {
+                partColumns.push({ codeIndex, qtyIndex, descIndex: descIndex !== -1 ? descIndex : undefined });
             }
         }
+    });
+
+    return lines.map(line => {
+        const columns = normalizeSpaces(line).split('\t');
+
+        // Basic validation: ensure the line has enough columns to be a valid entry
+        const serviceOrder = columns[headerIndices.soNro]?.trim();
+        if (!serviceOrder) {
+            return null;
+        }
+
+        const parts: RoutePart[] = [];
+        partColumns.forEach(pc => {
+            const code = columns[pc.codeIndex]?.trim();
+            const quantityStr = columns[pc.qtyIndex]?.trim();
+            if (code && quantityStr) {
+                const quantity = parseInt(quantityStr, 10);
+                if (!isNaN(quantity) && quantity > 0) {
+                    parts.push({
+                        code: code,
+                        description: pc.descIndex ? (columns[pc.descIndex]?.trim() || '') : '',
+                        quantity: quantity,
+                        trackingCode: ''
+                    });
+                }
+            }
+        });
+        
         return {
-            serviceOrder: columns[soNroIdx]?.trim() || '',
-            ascJobNumber: columns[ascJobNoIdx]?.trim() || '',
-            consumerName: columns[consumerNameIdx]?.trim() || '',
-            city: columns[cityIdx]?.trim() || '',
-            neighborhood: columns[neighborhoodIdx]?.trim() || '',
-            state: columns[stateIdx]?.trim() || '',
-            model: columns[modelIdx]?.trim() || '',
-            turn: columns[turnIdx]?.trim() || '',
-            tat: columns[tatIdx]?.trim() || '',
-            requestDate: columns[requestDateIdx]?.trim() || '',
-            firstVisitDate: columns[firstVisitDateIdx]?.trim() || '',
-            ts: columns[tsIdx]?.trim() || '',
-            warrantyType: columns[warrantyTypeIdx]?.trim() || '',
-            productType: columns[productTypeIdx]?.trim() || '',
-            statusComment: columns[statusCommentIdx]?.trim() || '',
+            serviceOrder: serviceOrder,
+            ascJobNumber: columns[headerIndices.ascJobNo]?.trim() || '',
+            consumerName: columns[headerIndices.consumerName]?.trim() || '',
+            city: columns[headerIndices.city]?.trim() || '',
+            neighborhood: columns[headerIndices.neighborhood]?.trim() || '',
+            state: columns[headerIndices.state]?.trim() || '',
+            model: columns[headerIndices.model]?.trim() || '',
+            turn: columns[headerIndices.turn]?.trim() || '',
+            tat: columns[headerIndices.tat]?.trim() || '',
+            requestDate: columns[headerIndices.requestDate]?.trim() || '',
+            firstVisitDate: columns[headerIndices.firstVisitDate]?.trim() || '',
+            ts: columns[headerIndices.ts]?.trim() || '',
+            warrantyType: columns[headerIndices.warrantyType]?.trim() || '',
+            productType: columns[headerIndices.productType]?.trim() || '',
+            statusComment: columns[headerIndices.statusComment]?.trim() || '',
             parts: parts,
         };
-    }).filter(stop => stop.serviceOrder);
+    }).filter((stop): stop is RouteStop => stop !== null);
 }
+
 
 function reconstructRouteText(stops: RouteStop[]): string {
     const header = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD";
@@ -355,16 +402,26 @@ function RouteFormDialog({
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>OS</TableHead>
-                                        <TableHead>Consumidor</TableHead>
                                         <TableHead>Modelo</TableHead>
+                                        <TableHead>Peças</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {parsedStops.length > 0 ? parsedStops.map((stop, index) => (
                                         <TableRow key={index}>
                                             <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
-                                            <TableCell>{stop.consumerName}</TableCell>
                                             <TableCell>{stop.model}</TableCell>
+                                            <TableCell>
+                                                {stop.parts.length > 0 ? (
+                                                    <ul className="list-disc pl-4 text-xs font-mono">
+                                                        {stop.parts.map((part, pIndex) => (
+                                                            <li key={`${part.code}-${pIndex}`}>{part.code} (x{part.quantity})</li>
+                                                        ))}
+                                                    </ul>
+                                                ) : (
+                                                    <span className="text-xs text-muted-foreground">Nenhuma</span>
+                                                )}
+                                            </TableCell>
                                         </TableRow>
                                     )) : (
                                         <TableRow>

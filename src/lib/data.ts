@@ -2,6 +2,13 @@
 
 import { type Timestamp } from "firebase/firestore";
 
+export type AppUser = {
+  uid: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'technician' | 'counter_technician';
+};
+
 export type Technician = {
   id: string;
   name: string;
@@ -41,6 +48,16 @@ export type ServiceOrder = {
   cleaningPerformed?: boolean;
 };
 
+export type CounterBudget = {
+  id: string;
+  technicianId: string;
+  technicianName?: string;
+  serviceOrderNumber: string;
+  observations: string;
+  value: number;
+  date: Date;
+}
+
 export type Return = {
   id: string;
   technicianId: string;
@@ -53,6 +70,16 @@ export type Return = {
   daysToReturn: number;
   productModel: string;
 };
+
+export type Chargeback = {
+  id: string;
+  technicianId: string;
+  technicianName?: string;
+  serviceOrderNumber: string;
+  value: number;
+  reason: string;
+  date: Date;
+}
 
 export type Preset = {
   id: string;
@@ -105,7 +132,7 @@ export type Route = {
     id: string;
     name: string;
     stops: RouteStop[];
-    createdAt: Timestamp;
+    createdAt: Timestamp | Date;
     isActive: boolean;
     departureDate?: Timestamp | Date;
     arrivalDate?: Timestamp | Date;
