@@ -14,7 +14,7 @@ import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, Timestamp, query, 
 import { type Chargeback, type CounterBudget, type AppUser } from "@/lib/data";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { format, isAfter, startOfMonth, endOfMonth } from 'date-fns';
+import { format, isWithinInterval, startOfMonth, endOfMonth } from 'date-fns';
 import { useAuth } from "@/context/AuthContext";
 import { Progress } from "@/components/ui/progress";
 
@@ -306,36 +306,34 @@ function GoalTab({ appUser }: { appUser: AppUser | null }) {
                 if (techDoc.exists()) {
                     setGoal(techDoc.data().goal || 0);
                 } else {
-                    // This can happen if a user is created but not yet a technician
-                    // For now, we'll assume a goal of 0
                     setGoal(0);
                 }
 
-                // Fetch financial data for the current month
                 const now = new Date();
-                const firstDay = startOfMonth(now);
-                const lastDay = endOfMonth(now);
+                const currentMonthInterval = {
+                    start: startOfMonth(now),
+                    end: endOfMonth(now),
+                };
 
-                const budgetsQuery = query(
-                    collection(db, "counterBudgets"),
-                    where("technicianId", "==", appUser.uid),
-                    where("date", ">=", firstDay),
-                    where("date", "<=", lastDay)
-                );
-                const chargebacksQuery = query(
-                    collection(db, "chargebacks"),
-                    where("technicianId", "==", appUser.uid),
-                    where("date", ">=", firstDay),
-                    where("date", "<=", lastDay)
-                );
+                // Fetch all for user, then filter by date in JS
+                const budgetsQuery = query(collection(db, "counterBudgets"), where("technicianId", "==", appUser.uid));
+                const chargebacksQuery = query(collection(db, "chargebacks"), where("technicianId", "==", appUser.uid));
 
                 const [budgetsSnapshot, chargebacksSnapshot] = await Promise.all([
                     getDocs(budgetsQuery),
                     getDocs(chargebacksQuery),
                 ]);
 
-                const grossRevenue = budgetsSnapshot.docs.reduce((sum, doc) => sum + doc.data().value, 0);
-                const totalChargebacks = chargebacksSnapshot.docs.reduce((sum, doc) => sum + doc.data().value, 0);
+                const budgetsThisMonth = budgetsSnapshot.docs
+                    .map(doc => ({ ...doc.data(), date: (doc.data().date as Timestamp).toDate() }))
+                    .filter(b => isWithinInterval(b.date, currentMonthInterval));
+
+                const chargebacksThisMonth = chargebacksSnapshot.docs
+                    .map(doc => ({ ...doc.data(), date: (doc.data().date as Timestamp).toDate() }))
+                    .filter(c => isWithinInterval(c.date, currentMonthInterval));
+
+                const grossRevenue = budgetsThisMonth.reduce((sum, doc) => sum + doc.value, 0);
+                const totalChargebacks = chargebacksThisMonth.reduce((sum, doc) => sum + doc.value, 0);
                 
                 setPerformance({
                     gross: grossRevenue,
@@ -395,7 +393,7 @@ function GoalTab({ appUser }: { appUser: AppUser | null }) {
                         <p className="text-lg font-semibold text-red-600">-{performance.chargebacks.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
                     </div>
                      <div className="p-4 bg-muted/50 rounded-lg flex flex-col items-center justify-center">
-                        {isGoalMet ? (
+                        {isGoalMet && goal > 0 ? (
                             <div className="flex items-center gap-2 text-green-600">
                                 <CheckCircle className="h-6 w-6" />
                                 <p className="text-lg font-semibold">Meta Atingida!</p>

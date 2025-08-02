@@ -16,14 +16,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Edit, Trash2, Users } from "lucide-react";
+import { Edit, Trash2, Users, PlusCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { type AppUser } from "@/lib/data";
 import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/context/AuthContext";
+import { Alert, AlertTitle } from "@/components/ui/alert";
+
 
 export default function UsersPage() {
     const [users, setUsers] = useState<AppUser[]>([]);
@@ -33,9 +37,20 @@ export default function UsersPage() {
     const [selectedUser, setSelectedUser] = useState<AppUser | null>(null);
     const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [isAddUserDialogOpen, setIsAddUserDialogOpen] = useState(false);
     
     const [newRole, setNewRole] = useState<AppUser['role']>('technician');
+
+    const [formError, setFormError] = useState('');
+    const [formState, setFormState] = useState({
+        name: '',
+        email: '',
+        password: '',
+        role: 'technician' as AppUser['role'],
+    });
+
     const { toast } = useToast();
+    const { signup } = useAuth();
 
     const fetchUsers = async () => {
         setIsLoading(true);
@@ -65,6 +80,12 @@ export default function UsersPage() {
         setSelectedUser(user);
         setIsDeleteDialogOpen(true);
     };
+
+    const handleOpenAddUserDialog = () => {
+        setFormState({ name: '', email: '', password: '', role: 'technician' });
+        setFormError('');
+        setIsAddUserDialogOpen(true);
+    }
     
     const handleSaveRole = async () => {
         if (!selectedUser) return;
@@ -90,15 +111,38 @@ export default function UsersPage() {
         try {
             await deleteDoc(doc(db, "users", selectedUser.uid));
             
-            // Note: This only deletes the Firestore record, not the Firebase Auth user.
-            // Deleting the auth user should be done via a backend function for security.
-            
             setUsers(prev => prev.filter(u => u.uid !== selectedUser.uid));
             toast({ title: "Usuário removido com sucesso." });
             setIsDeleteDialogOpen(false);
         } catch (error) {
             console.error("Error deleting user:", error);
             toast({ variant: "destructive", title: "Erro ao remover", description: "Não foi possível remover o usuário." });
+        } finally {
+            setIsSubmitting(false);
+        }
+    }
+
+    const handleCreateUser = async () => {
+        if (!formState.name || !formState.email || !formState.password) {
+            setFormError('Todos os campos são obrigatórios.');
+            return;
+        }
+        setFormError('');
+        setIsSubmitting(true);
+        try {
+            await signup(formState.email, formState.password, formState.name, formState.role);
+            toast({ title: "Usuário criado com sucesso!" });
+            setIsAddUserDialogOpen(false);
+            await fetchUsers();
+        } catch (err: any) {
+            let errorMessage = "Ocorreu um erro desconhecido.";
+            switch (err.code) {
+                case 'auth/email-already-in-use': errorMessage = 'Este email já está em uso.'; break;
+                case 'auth/invalid-email': errorMessage = 'O formato do email é inválido.'; break;
+                case 'auth/weak-password': errorMessage = 'A senha é muito fraca. Use pelo menos 6 caracteres.'; break;
+                default: errorMessage = 'Falha ao criar conta. Por favor, tente novamente.'; break;
+            }
+            setFormError(errorMessage);
         } finally {
             setIsSubmitting(false);
         }
@@ -115,6 +159,9 @@ export default function UsersPage() {
             <div className="flex flex-col gap-6 p-4 sm:p-6">
                 <div className="flex items-center justify-between">
                     <h1 className="text-2xl font-bold">Gerenciar Usuários</h1>
+                     <Button onClick={handleOpenAddUserDialog}>
+                        <PlusCircle className="mr-2 h-4 w-4" /> Criar Usuário
+                    </Button>
                 </div>
 
                 <Card>
@@ -123,7 +170,7 @@ export default function UsersPage() {
                            <Users /> Usuários do Sistema
                         </CardTitle>
                         <CardDescription>
-                            Gerencie as funções e o acesso dos usuários. Novos usuários podem se cadastrar através da página de registro.
+                            Gerencie as funções e o acesso dos usuários.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -166,6 +213,57 @@ export default function UsersPage() {
                 </Card>
             </div>
             
+            {/* Add User Dialog */}
+            <Dialog open={isAddUserDialogOpen} onOpenChange={setIsAddUserDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Criar Novo Usuário</DialogTitle>
+                        <DialogDescription>
+                           Preencha os dados abaixo para criar uma nova conta de acesso.
+                        </DialogDescription>
+                    </DialogHeader>
+                     <div className="grid gap-4 py-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="name">Nome Completo</Label>
+                            <Input id="name" value={formState.name} onChange={(e) => setFormState(s => ({...s, name: e.target.value}))} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="email">Email</Label>
+                            <Input id="email" type="email" value={formState.email} onChange={(e) => setFormState(s => ({...s, email: e.target.value}))} />
+                        </div>
+                         <div className="space-y-2">
+                            <Label htmlFor="password">Senha</Label>
+                            <Input id="password" type="password" value={formState.password} onChange={(e) => setFormState(s => ({...s, password: e.target.value}))} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="role-add">Função</Label>
+                            <Select value={formState.role} onValueChange={(v) => setFormState(s => ({...s, role: v as AppUser['role']}))}>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="admin">Admin</SelectItem>
+                                    <SelectItem value="technician">Técnico</SelectItem>
+                                    <SelectItem value="counter_technician">Técnico de Balcão</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        {formError && (
+                            <Alert variant="destructive">
+                                <AlertDescription>{formError}</AlertDescription>
+                            </Alert>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsAddUserDialogOpen(false)}>Cancelar</Button>
+                        <Button onClick={handleCreateUser} disabled={isSubmitting}>
+                            {isSubmitting ? 'Criando...' : 'Criar Usuário'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Edit Role Dialog */}
             <Dialog open={isRoleDialogOpen} onOpenChange={setIsRoleDialogOpen}>
                 <DialogContent>
                     <DialogHeader>
@@ -176,7 +274,7 @@ export default function UsersPage() {
                     </DialogHeader>
                      <div className="grid gap-4 py-4">
                         <div className="space-y-2">
-                            <Label htmlFor="role">Função</Label>
+                            <Label htmlFor="role-edit">Função</Label>
                             <Select value={newRole} onValueChange={(v) => setNewRole(v as AppUser['role'])}>
                                 <SelectTrigger>
                                     <SelectValue placeholder="Selecione uma função" />
@@ -198,6 +296,7 @@ export default function UsersPage() {
                 </DialogContent>
             </Dialog>
 
+            {/* Delete Confirmation Dialog */}
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
                 <AlertDialogContent>
                     <AlertDialogHeader>

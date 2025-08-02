@@ -39,7 +39,8 @@ export default function TechniciansPage() {
   // Form states
   const [goalValue, setGoalValue] = useState<string>("");
   const [globalGoal, setGlobalGoal] = useState<string>("");
-  const [newTechId, setNewTechId] = useState("");
+  const [newTechName, setNewTechName] = useState("");
+  const [newTechUserId, setNewTechUserId] = useState("");
   const [availableUsers, setAvailableUsers] = useState<AppUser[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -71,7 +72,7 @@ export default function TechniciansPage() {
           // Filter out users who are already technicians
           const existingTechIds = new Set(techs.map(t => t.id));
           const usersNotTechnicians = users.filter(u => 
-            !existingTechIds.has(u.uid) && (u.role === 'technician' || u.role === 'counter_technician')
+            !existingTechIds.has(u.uid) && (u.role === 'technician' || u.role === 'counter_technician' || u.role === 'admin')
           );
           setAvailableUsers(usersNotTechnicians);
 
@@ -100,7 +101,7 @@ export default function TechniciansPage() {
 
   const handleOpenAddDialog = () => {
     setNewTechName("");
-    setNewTechId("");
+    setNewTechUserId("");
     setIsAddTechDialogOpen(true);
   };
 
@@ -135,12 +136,11 @@ export default function TechniciansPage() {
   };
 
   const handleSaveNewTech = async () => {
-    const selectedUser = availableUsers.find(u => u.uid === newTechId);
-    if (!selectedUser) {
+    if (!newTechName.trim()) {
       toast({
         variant: "destructive",
-        title: "Usuário Inválido",
-        description: "Por favor, selecione um usuário válido para ser o técnico.",
+        title: "Nome Obrigatório",
+        description: "Por favor, insira o nome do técnico.",
       });
       return;
     }
@@ -148,15 +148,20 @@ export default function TechniciansPage() {
     setIsSubmitting(true);
     try {
       const newTechData = {
-        name: selectedUser.name,
+        name: newTechName.trim(),
         goal: 0,
       };
-      // Use the user's UID as the document ID for the technician
-      const techDocRef = doc(db, "technicians", selectedUser.uid);
-      await setDoc(techDocRef, newTechData);
 
-      // Refetch data to update the available users list and the main tech list
-      await fetchData(); 
+      if (newTechUserId && newTechUserId !== 'none') {
+        // Create a linked technician using the user's UID as the document ID
+        const techDocRef = doc(db, "technicians", newTechUserId);
+        await setDoc(techDocRef, newTechData);
+      } else {
+        // Create a standalone/anonymous technician with an auto-generated ID
+        await addDoc(collection(db, "technicians"), newTechData);
+      }
+
+      await fetchData(); // Refetch data to update the UI
 
       toast({
         title: "Técnico Cadastrado!",
@@ -246,12 +251,14 @@ export default function TechniciansPage() {
 
   const getRoleInfo = (role?: AppUser['role']) => {
     switch (role) {
+      case 'admin':
+        return { icon: UserCog, text: 'Admin', color: 'text-purple-600' };
       case 'technician':
         return { icon: User, text: 'Técnico de Campo', color: 'text-sky-600' };
       case 'counter_technician':
         return { icon: UserCog, text: 'Técnico de Balcão', color: 'text-emerald-600' };
       default:
-        return { icon: User, text: 'Função desconhecida', color: 'text-muted-foreground' };
+        return { icon: User, text: 'Avulso (Sem Login)', color: 'text-muted-foreground' };
     }
   }
 
@@ -351,28 +358,54 @@ export default function TechniciansPage() {
               <DialogHeader>
                   <DialogTitle>Cadastrar Novo Técnico</DialogTitle>
                   <DialogDescription>
-                      Selecione um usuário cadastrado com a função "Técnico" ou "Técnico de Balcão" para adicioná-lo à lista.
+                      Preencha o nome e, opcionalmente, vincule a um usuário para acesso ao sistema.
                   </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
-                  <div className="grid w-full items-center gap-1.5">
-                      <Label htmlFor="user-select">Usuário</Label>
-                       <Select onValueChange={setNewTechId} value={newTechId}>
+                  <div className="space-y-2">
+                      <Label htmlFor="tech-name">Nome do Técnico</Label>
+                      <Input 
+                        id="tech-name"
+                        placeholder="Ex: João da Silva"
+                        value={newTechName}
+                        onChange={(e) => setNewTechName(e.target.value)}
+                        disabled={!!newTechUserId}
+                      />
+                  </div>
+                  <div className="space-y-2">
+                      <Label htmlFor="user-select">Vincular a um Usuário (Opcional)</Label>
+                       <Select 
+                          onValueChange={(value) => {
+                            setNewTechUserId(value);
+                            if (value && value !== 'none') {
+                                const selectedUser = availableUsers.find(u => u.uid === value);
+                                if (selectedUser) {
+                                    setNewTechName(selectedUser.name);
+                                }
+                            } else {
+                                setNewTechName(""); // Clear name if "none" is selected
+                            }
+                          }} 
+                          value={newTechUserId}
+                        >
                         <SelectTrigger>
-                          <SelectValue placeholder="Selecione um usuário" />
+                          <SelectValue placeholder="Selecione um usuário para vincular" />
                         </SelectTrigger>
                         <SelectContent>
+                           <SelectItem value="none">Nenhum (Técnico Avulso)</SelectItem>
                           {availableUsers.map(user => (
                             <SelectItem key={user.uid} value={user.uid}>{user.name} ({user.email})</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                        {availableUsers.length === 0 && <p className="text-xs text-muted-foreground mt-2">Não há novos usuários com função de técnico disponíveis. Cadastre um novo usuário ou altere a função de um existente.</p>}
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Vincular a um usuário permite que ele acesse o painel (Ex: Técnico de Balcão).
+                      </p>
                   </div>
               </div>
               <DialogFooter>
                   <Button type="button" onClick={() => setIsAddTechDialogOpen(false)} variant="outline">Cancelar</Button>
-                  <Button type="button" onClick={handleSaveNewTech} disabled={isSubmitting || !newTechId}>{isSubmitting ? 'Salvando...' : 'Salvar'}</Button>
+                  <Button type="button" onClick={handleSaveNewTech} disabled={isSubmitting || !newTechName}>{isSubmitting ? 'Salvando...' : 'Salvar'}</Button>
               </DialogFooter>
           </DialogContent>
       </Dialog>
@@ -413,7 +446,7 @@ export default function TechniciansPage() {
             <AlertDialogDescription>
               Esta ação não pode ser desfeita. Isso excluirá permanentemente o técnico
               <span className="font-bold mx-1">{selectedTech?.name}</span>
-              do sistema. O registro de usuário permanecerá.
+              do sistema. O registro de usuário, se houver, permanecerá.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -5,8 +5,8 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { Wrench, Users, Tag, Tv, WashingMachine, ShieldCheck, ListTree, ClipboardCheck, History, Trophy, Sparkles, FileMinus } from "lucide-react";
-import { type ServiceOrder, type Technician, type Return, type Chargeback } from "@/lib/data";
+import { Wrench, Users, Tag, Tv, WashingMachine, ShieldCheck, ListTree, ClipboardCheck, History, Trophy, Sparkles, FileMinus, DollarSign, Store } from "lucide-react";
+import { type ServiceOrder, type Technician, type Return, type Chargeback, type CounterBudget } from "@/lib/data";
 import { startOfWeek, startOfMonth, isAfter, startOfYear, isToday } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/lib/firebase";
@@ -17,6 +17,7 @@ function GeneralDashboard({
     serviceOrders,
     returns,
     chargebacks,
+    counterBudgets,
     filterPeriod,
     setFilterPeriod
 }: {
@@ -24,6 +25,7 @@ function GeneralDashboard({
     serviceOrders: ServiceOrder[],
     returns: Return[],
     chargebacks: Chargeback[],
+    counterBudgets: CounterBudget[],
     filterPeriod: 'today' | 'this_week' | 'this_month' | 'this_year' | 'all_time',
     setFilterPeriod: (period: 'today' | 'this_week' | 'this_month' | 'this_year' | 'all_time') => void
 }) {
@@ -49,6 +51,7 @@ function GeneralDashboard({
     const filteredServiceOrders = serviceOrders.filter(os => filterByDate(os.date));
     const filteredReturns = returns.filter(r => r.returnDate && filterByDate(r.returnDate));
     const filteredChargebacks = chargebacks.filter(c => filterByDate(c.date));
+    const filteredCounterBudgets = counterBudgets.filter(cb => filterByDate(cb.date));
     
     const totalOsFiltered = filteredServiceOrders.length;
     const totalReturnsFiltered = filteredReturns.length;
@@ -58,7 +61,8 @@ function GeneralDashboard({
             return total + os.samsungBudgetValue;
         }
         return total;
-    }, 0);
+    }, 0) + filteredCounterBudgets.reduce((total, cb) => total + cb.value, 0);
+
 
     const totalChargebacksFiltered = filteredChargebacks.reduce((total, c) => total + c.value, 0);
 
@@ -66,17 +70,21 @@ function GeneralDashboard({
 
     const netBonusFiltered = netRevenueFiltered.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+    const counterRevenueFiltered = filteredCounterBudgets.reduce((total, cb) => total + cb.value, 0);
+
 
     const performanceData = technicians.map(tech => {
         const techOrders = filteredServiceOrders.filter(os => os.technicianId === tech.id);
         const techChargebacks = filteredChargebacks.filter(c => c.technicianId === tech.id);
+        const techCounterBudgets = filteredCounterBudgets.filter(cb => cb.technicianId === tech.id);
 
         const grossRevenue = techOrders.reduce((total, os) => {
             if (os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved && os.samsungBudgetValue) {
                 return total + os.samsungBudgetValue;
             }
             return total;
-        }, 0);
+        }, 0) + techCounterBudgets.reduce((total, cb) => total + cb.value, 0);
+
 
         const totalChargebacks = techChargebacks.reduce((total, c) => total + c.value, 0);
         const netRevenue = grossRevenue - totalChargebacks;
@@ -134,7 +142,7 @@ function GeneralDashboard({
                 </Tabs>
             </div>
 
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
                 <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Ordens de Serviço ({filterLabels[filterPeriod]})</CardTitle>
@@ -148,11 +156,21 @@ function GeneralDashboard({
                 <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Faturamento ({filterLabels[filterPeriod]})</CardTitle>
-                    <Tag className="h-4 w-4 text-muted-foreground" />
+                    <DollarSign className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                     <div className="text-2xl font-bold">{netBonusFiltered}</div>
                     <p className="text-xs text-muted-foreground">Valor líquido (com estornos) no período</p>
+                </CardContent>
+                </Card>
+                <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Faturamento Balcão ({filterLabels[filterPeriod]})</CardTitle>
+                    <Store className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold">{counterRevenueFiltered.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
+                    <p className="text-xs text-muted-foreground">Total de orçamentos aprovados no balcão</p>
                 </CardContent>
                 </Card>
                 <Card>
@@ -345,17 +363,19 @@ export default function DashboardPage() {
     const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
     const [returns, setReturns] = useState<Return[]>([]);
     const [chargebacks, setChargebacks] = useState<Chargeback[]>([]);
+    const [counterBudgets, setCounterBudgets] = useState<CounterBudget[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
             setIsLoading(true);
             try {
-                const [techSnapshot, orderSnapshot, returnsSnapshot, chargebacksSnapshot] = await Promise.all([
+                const [techSnapshot, orderSnapshot, returnsSnapshot, chargebacksSnapshot, counterBudgetsSnapshot] = await Promise.all([
                     getDocs(collection(db, "technicians")),
                     getDocs(collection(db, "serviceOrders")),
                     getDocs(collection(db, "returns")),
                     getDocs(collection(db, "chargebacks")),
+                    getDocs(collection(db, "counterBudgets")),
                 ]);
 
                 const techs = techSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
@@ -391,6 +411,17 @@ export default function DashboardPage() {
                 });
                 setChargebacks(chargebacksData);
 
+                const counterBudgetsData = counterBudgetsSnapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return {
+                        id: doc.id,
+                        ...data,
+                        date: (data.date as Timestamp).toDate(),
+                    } as CounterBudget;
+                });
+                setCounterBudgets(counterBudgetsData);
+
+
             } catch (error) {
                 console.error("Error fetching dashboard data:", error);
             } finally {
@@ -418,6 +449,7 @@ export default function DashboardPage() {
                     serviceOrders={serviceOrders} 
                     returns={returns}
                     chargebacks={chargebacks}
+                    counterBudgets={counterBudgets}
                     filterPeriod={filterPeriod}
                     setFilterPeriod={setFilterPeriod}
                 />
@@ -429,3 +461,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+    
