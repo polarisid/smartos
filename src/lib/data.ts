@@ -58,6 +58,16 @@ export type CounterBudget = {
   date: Date;
 }
 
+export type InHomeBudget = {
+  id: string;
+  technicianId?: string; // Made optional
+  approvedBy: string; // New field to store the name
+  serviceOrderNumber: string;
+  observations: string;
+  value: number;
+  date: Date;
+}
+
 export type Return = {
   id: string;
   technicianId: string;

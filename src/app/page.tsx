@@ -7,7 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format, isAfter, startOfMonth, startOfYear, subDays, differenceInDays } from "date-fns";
-import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator, type Route, type RouteStop, type Chargeback, type CounterBudget } from "@/lib/data";
+import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator, type Route, type RouteStop, type Chargeback, type CounterBudget, type InHomeBudget } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -171,13 +171,14 @@ function Header() {
     );
 }
 
-function PerformanceDashboard({ technicians, serviceOrders, returns, indicators, chargebacks, counterBudgets }: { 
+function PerformanceDashboard({ technicians, serviceOrders, returns, indicators, chargebacks, counterBudgets, inHomeBudgets }: { 
     technicians: Technician[], 
     serviceOrders: ServiceOrder[], 
     returns: Return[],
     indicators: Indicator[],
     chargebacks: Chargeback[],
-    counterBudgets: CounterBudget[]
+    counterBudgets: CounterBudget[],
+    inHomeBudgets: InHomeBudget[]
 }) {
     const now = new Date();
     const startOfCurrentMonth = startOfMonth(now);
@@ -191,11 +192,15 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators,
     );
 
     const chargebacksThisMonth = chargebacks.filter(c =>
-        isAfter(c.date, startOfCurrentMonth)
+        c.date && isAfter(c.date, startOfCurrentMonth)
     );
 
     const counterBudgetsThisMonth = counterBudgets.filter(cb =>
-        isAfter(cb.date, startOfCurrentMonth)
+        cb.date && isAfter(cb.date, startOfCurrentMonth)
+    );
+
+    const inHomeBudgetsThisMonth = inHomeBudgets.filter(ihb =>
+        ihb.date && isAfter(ihb.date, startOfCurrentMonth)
     );
 
     const performanceData = technicians.map(tech => {
@@ -214,6 +219,10 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators,
         const techCounterBudgetsThisMonth = counterBudgetsThisMonth.filter(cb =>
             cb.technicianId === tech.id
         );
+        
+        const techInHomeBudgetsThisMonth = inHomeBudgetsThisMonth.filter(ihb =>
+            ihb.technicianId === tech.id
+        );
 
         const osCount = techOrdersThisMonth.length;
         const cleaningsCount = techOrdersThisMonth.filter(os => os.cleaningPerformed).length;
@@ -223,7 +232,7 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators,
                 return total + os.samsungBudgetValue;
             }
             return total;
-        }, 0) + techCounterBudgetsThisMonth.reduce((total, cb) => total + cb.value, 0);
+        }, 0) + techCounterBudgetsThisMonth.reduce((total, cb) => total + cb.value, 0) + techInHomeBudgetsThisMonth.reduce((total, ihb) => total + ihb.value, 0);
 
         const totalChargebacks = techChargebacksThisMonth.reduce((total, c) => total + c.value, 0);
 
@@ -855,6 +864,7 @@ export default function ServiceOrderPage() {
   const [returns, setReturns] = useState<Return[]>([]);
   const [chargebacks, setChargebacks] = useState<Chargeback[]>([]);
   const [counterBudgets, setCounterBudgets] = useState<CounterBudget[]>([]);
+  const [inHomeBudgets, setInHomeBudgets] = useState<InHomeBudget[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [indicators, setIndicators] = useState<Indicator[]>([]);
   const [assistantName, setAssistantName] = useState("");
@@ -889,12 +899,13 @@ export default function ServiceOrderPage() {
 
   const fetchDynamicData = async () => {
     try {
-        const [ordersSnapshot, returnsSnapshot, indicatorsSnapshot, chargebacksSnapshot, counterBudgetsSnapshot] = await Promise.all([
+        const [ordersSnapshot, returnsSnapshot, indicatorsSnapshot, chargebacksSnapshot, counterBudgetsSnapshot, inHomeBudgetsSnapshot] = await Promise.all([
             getDocs(collection(db, "serviceOrders")),
             getDocs(collection(db, "returns")),
             getDocs(collection(db, "indicators")),
             getDocs(collection(db, "chargebacks")),
             getDocs(collection(db, "counterBudgets")),
+            getDocs(collection(db, "inHomeBudgets")),
         ]);
         
         const orders = ordersSnapshot.docs.map(doc => {
@@ -936,6 +947,16 @@ export default function ServiceOrderPage() {
             } as CounterBudget;
         });
         setCounterBudgets(counterBudgetsData);
+
+        const inHomeBudgetsData = inHomeBudgetsSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                ...data,
+                date: (data.date as Timestamp).toDate(),
+            } as InHomeBudget;
+        });
+        setInHomeBudgets(inHomeBudgetsData);
 
         const indicatorsData = indicatorsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Indicator));
         setIndicators(indicatorsData);
@@ -1476,6 +1497,7 @@ export default function ServiceOrderPage() {
                             indicators={indicators}
                             chargebacks={chargebacks}
                             counterBudgets={counterBudgets}
+                            inHomeBudgets={inHomeBudgets}
                         />
                     </TabsContent>
                     <TabsContent value="returns-ranking">
@@ -1496,3 +1518,6 @@ export default function ServiceOrderPage() {
 }
 
     
+
+    
+

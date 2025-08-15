@@ -5,12 +5,14 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { Wrench, Users, Tag, Tv, WashingMachine, ShieldCheck, ListTree, ClipboardCheck, History, Trophy, Sparkles, FileMinus, DollarSign, Store } from "lucide-react";
-import { type ServiceOrder, type Technician, type Return, type Chargeback, type CounterBudget } from "@/lib/data";
-import { startOfWeek, startOfMonth, isAfter, startOfYear, isToday } from 'date-fns';
+import { Wrench, Users, Tag, Tv, WashingMachine, ShieldCheck, ListTree, ClipboardCheck, History, Trophy, Sparkles, FileMinus, DollarSign, Store, Home, Target, TrendingUp, UserCheck, PencilRuler } from "lucide-react";
+import { type ServiceOrder, type Technician, type Return, type Chargeback, type CounterBudget, type InHomeBudget } from "@/lib/data";
+import { startOfWeek, startOfMonth, isAfter, startOfYear, isToday, endOfMonth, eachDayOfInterval, isWeekend } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, Timestamp } from "firebase/firestore";
+import { collection, getDocs, Timestamp, doc, getDoc } from "firebase/firestore";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 function GeneralDashboard({
     technicians,
@@ -18,16 +20,22 @@ function GeneralDashboard({
     returns,
     chargebacks,
     counterBudgets,
+    inHomeBudgets,
     filterPeriod,
-    setFilterPeriod
+    setFilterPeriod,
+    inHomeGoal,
+    counterGoal
 }: {
     technicians: Technician[],
     serviceOrders: ServiceOrder[],
     returns: Return[],
     chargebacks: Chargeback[],
     counterBudgets: CounterBudget[],
+    inHomeBudgets: InHomeBudget[],
     filterPeriod: 'today' | 'this_week' | 'this_month' | 'this_year' | 'all_time',
-    setFilterPeriod: (period: 'today' | 'this_week' | 'this_month' | 'this_year' | 'all_time') => void
+    setFilterPeriod: (period: 'today' | 'this_week' | 'this_month' | 'this_year' | 'all_time') => void,
+    inHomeGoal: number,
+    counterGoal: number
 }) {
     const now = new Date();
 
@@ -52,6 +60,7 @@ function GeneralDashboard({
     const filteredReturns = returns.filter(r => r.returnDate && filterByDate(r.returnDate));
     const filteredChargebacks = chargebacks.filter(c => filterByDate(c.date));
     const filteredCounterBudgets = counterBudgets.filter(cb => filterByDate(cb.date));
+    const filteredInHomeBudgets = inHomeBudgets.filter(ihb => ihb.date && filterByDate(ihb.date));
     
     const totalOsFiltered = filteredServiceOrders.length;
     const totalReturnsFiltered = filteredReturns.length;
@@ -61,7 +70,7 @@ function GeneralDashboard({
             return total + os.samsungBudgetValue;
         }
         return total;
-    }, 0) + filteredCounterBudgets.reduce((total, cb) => total + cb.value, 0);
+    }, 0) + filteredCounterBudgets.reduce((total, cb) => total + cb.value, 0) + filteredInHomeBudgets.reduce((total, ihb) => total + ihb.value, 0);
 
 
     const totalChargebacksFiltered = filteredChargebacks.reduce((total, c) => total + c.value, 0);
@@ -71,19 +80,62 @@ function GeneralDashboard({
     const netBonusFiltered = netRevenueFiltered.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
     const counterRevenueFiltered = filteredCounterBudgets.reduce((total, cb) => total + cb.value, 0);
+    const counterProgress = counterGoal > 0 ? (counterRevenueFiltered / counterGoal) * 100 : 0;
+    
+    // START: New calculations for separated cards
+    const fieldTechRevenue = filteredServiceOrders.reduce((total, os) => {
+        if (os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved && os.samsungBudgetValue) {
+            return total + os.samsungBudgetValue;
+        }
+        return total;
+    }, 0);
+
+    const manualEntriesRevenue = filteredInHomeBudgets.reduce((total, ihb) => total + ihb.value, 0);
+    // END: New calculations
+
+    const inHomeRevenueFiltered = fieldTechRevenue + manualEntriesRevenue - filteredChargebacks.reduce((total, c) => {
+        const isCounterTech = technicians.some(t => t.id === c.technicianId && t.role === 'counter_technician');
+        return !isCounterTech ? total + c.value : total;
+    }, 0);
+
+    const inHomeProgress = inHomeGoal > 0 ? (inHomeRevenueFiltered / inHomeGoal) * 100 : 0;
+
+    // Daily average calculation
+    const calculateDailyAverage = (goal: number, currentRevenue: number) => {
+        const remainingGoal = Math.max(0, goal - currentRevenue);
+        const today = new Date();
+        let dailyAverage = 0;
+        
+        if (filterPeriod === 'this_month' && remainingGoal > 0) {
+            const endOfCurrentMonth = endOfMonth(today);
+            const remainingDaysInterval = eachDayOfInterval({ start: today, end: endOfCurrentMonth });
+            const remainingBusinessDays = remainingDaysInterval.filter(day => !isWeekend(day)).length;
+
+            if (remainingBusinessDays > 0) {
+                dailyAverage = remainingGoal / remainingBusinessDays;
+            } else {
+                dailyAverage = remainingGoal; // If no business days left, the full amount is needed
+            }
+        }
+        return dailyAverage;
+    }
+
+    const inHomeDailyAverage = calculateDailyAverage(inHomeGoal, inHomeRevenueFiltered);
+    const counterDailyAverage = calculateDailyAverage(counterGoal, counterRevenueFiltered);
 
 
     const performanceData = technicians.map(tech => {
         const techOrders = filteredServiceOrders.filter(os => os.technicianId === tech.id);
         const techChargebacks = filteredChargebacks.filter(c => c.technicianId === tech.id);
         const techCounterBudgets = filteredCounterBudgets.filter(cb => cb.technicianId === tech.id);
+        const techInHomeBudgets = filteredInHomeBudgets.filter(ihb => ihb.technicianId === tech.id);
 
         const grossRevenue = techOrders.reduce((total, os) => {
             if (os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved && os.samsungBudgetValue) {
                 return total + os.samsungBudgetValue;
             }
             return total;
-        }, 0) + techCounterBudgets.reduce((total, cb) => total + cb.value, 0);
+        }, 0) + techCounterBudgets.reduce((total, cb) => total + cb.value, 0) + techInHomeBudgets.reduce((total, ihb) => total + ihb.value, 0);
 
 
         const totalChargebacks = techChargebacks.reduce((total, c) => total + c.value, 0);
@@ -141,8 +193,7 @@ function GeneralDashboard({
                     </TabsList>
                 </Tabs>
             </div>
-
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
+             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Ordens de Serviço ({filterLabels[filterPeriod]})</CardTitle>
@@ -155,22 +206,12 @@ function GeneralDashboard({
                 </Card>
                 <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Faturamento ({filterLabels[filterPeriod]})</CardTitle>
+                    <CardTitle className="text-sm font-medium">Faturamento Total ({filterLabels[filterPeriod]})</CardTitle>
                     <DollarSign className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                     <div className="text-2xl font-bold">{netBonusFiltered}</div>
                     <p className="text-xs text-muted-foreground">Valor líquido (com estornos) no período</p>
-                </CardContent>
-                </Card>
-                <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Faturamento Balcão ({filterLabels[filterPeriod]})</CardTitle>
-                    <Store className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                    <div className="text-2xl font-bold">{counterRevenueFiltered.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
-                    <p className="text-xs text-muted-foreground">Total de orçamentos aprovados no balcão</p>
                 </CardContent>
                 </Card>
                 <Card>
@@ -183,17 +224,85 @@ function GeneralDashboard({
                     <p className="text-xs text-muted-foreground">Retornos no período selecionado</p>
                 </CardContent>
                 </Card>
+            </div>
+             <div className="grid gap-6 md:grid-cols-2">
                 <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Técnicos Ativos</CardTitle>
-                    <Users className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                    <div className="text-2xl font-bold">{technicians.length}</div>
-                    <p className="text-xs text-muted-foreground">Todos os técnicos operando</p>
-                </CardContent>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Acompanhamento Meta In-Home ({filterLabels[filterPeriod]})</CardTitle>
+                        <Target className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                         <div className="text-2xl font-bold">{inHomeRevenueFiltered.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
+                        <p className="text-xs text-muted-foreground">
+                            de {inHomeGoal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </p>
+                        <div className="flex items-center gap-2 mt-2">
+                            <Progress value={inHomeProgress} className="flex-1" />
+                            <span className="text-xs font-semibold text-muted-foreground">{inHomeProgress.toFixed(0)}%</span>
+                        </div>
+                        {filterPeriod === 'this_month' && (
+                             <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+                                <TrendingUp className="h-4 w-4" />
+                                <span>Média diária restante: <span className="font-bold text-foreground">{inHomeDailyAverage.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span></span>
+                             </div>
+                        )}
+                    </CardContent>
+                </Card>
+                 <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Acompanhamento Meta Balcão ({filterLabels[filterPeriod]})</CardTitle>
+                        <Target className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                         <div className="text-2xl font-bold">{counterRevenueFiltered.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
+                        <p className="text-xs text-muted-foreground">
+                            de {counterGoal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </p>
+                         <div className="flex items-center gap-2 mt-2">
+                            <Progress value={counterProgress} className="flex-1" />
+                            <span className="text-xs font-semibold text-muted-foreground">{counterProgress.toFixed(0)}%</span>
+                        </div>
+                        {filterPeriod === 'this_month' && (
+                             <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+                                <TrendingUp className="h-4 w-4" />
+                                <span>Média diária restante: <span className="font-bold text-foreground">{counterDailyAverage.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span></span>
+                             </div>
+                        )}
+                    </CardContent>
                 </Card>
             </div>
+             <div className="grid gap-6 md:grid-cols-3">
+                 <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Faturamento de Campo ({filterLabels[filterPeriod]})</CardTitle>
+                        <UserCheck className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{fieldTechRevenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
+                        <p className="text-xs text-muted-foreground">Soma das OS de campo aprovadas</p>
+                    </CardContent>
+                </Card>
+                 <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Entradas Manuais ({filterLabels[filterPeriod]})</CardTitle>
+                        <PencilRuler className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{manualEntriesRevenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
+                        <p className="text-xs text-muted-foreground">Orçamentos adicionados pelo admin</p>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Faturamento Balcão ({filterLabels[filterPeriod]})</CardTitle>
+                        <Store className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{counterRevenueFiltered.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
+                        <p className="text-xs text-muted-foreground">Total de orçamentos aprovados no balcão</p>
+                    </CardContent>
+                </Card>
+             </div>
             <Card>
                 <CardHeader>
                     <CardTitle>Desempenho por Técnico</CardTitle>
@@ -364,19 +473,33 @@ export default function DashboardPage() {
     const [returns, setReturns] = useState<Return[]>([]);
     const [chargebacks, setChargebacks] = useState<Chargeback[]>([]);
     const [counterBudgets, setCounterBudgets] = useState<CounterBudget[]>([]);
+    const [inHomeBudgets, setInHomeBudgets] = useState<InHomeBudget[]>([]);
+    const [inHomeGoal, setInHomeGoal] = useState<number>(15000);
+    const [counterGoal, setCounterGoal] = useState<number>(10000);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
             setIsLoading(true);
             try {
-                const [techSnapshot, orderSnapshot, returnsSnapshot, chargebacksSnapshot, counterBudgetsSnapshot] = await Promise.all([
+                const [techSnapshot, orderSnapshot, returnsSnapshot, chargebacksSnapshot, counterBudgetsSnapshot, inHomeBudgetsSnapshot, inHomeGoalDoc, counterGoalDoc] = await Promise.all([
                     getDocs(collection(db, "technicians")),
                     getDocs(collection(db, "serviceOrders")),
                     getDocs(collection(db, "returns")),
                     getDocs(collection(db, "chargebacks")),
                     getDocs(collection(db, "counterBudgets")),
+                    getDocs(collection(db, "inHomeBudgets")),
+                    getDoc(doc(db, "configs", "inHomeGoal")),
+                    getDoc(doc(db, "configs", "counterGoal")),
                 ]);
+
+                if (inHomeGoalDoc.exists()) {
+                    setInHomeGoal(inHomeGoalDoc.data().value || 15000);
+                }
+
+                if (counterGoalDoc.exists()) {
+                    setCounterGoal(counterGoalDoc.data().value || 10000);
+                }
 
                 const techs = techSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
                 setTechnicians(techs);
@@ -421,6 +544,16 @@ export default function DashboardPage() {
                 });
                 setCounterBudgets(counterBudgetsData);
 
+                const inHomeBudgetsData = inHomeBudgetsSnapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return {
+                        id: doc.id,
+                        ...data,
+                        date: (data.date as Timestamp).toDate(),
+                    } as InHomeBudget;
+                });
+                setInHomeBudgets(inHomeBudgetsData);
+
 
             } catch (error) {
                 console.error("Error fetching dashboard data:", error);
@@ -450,8 +583,11 @@ export default function DashboardPage() {
                     returns={returns}
                     chargebacks={chargebacks}
                     counterBudgets={counterBudgets}
+                    inHomeBudgets={inHomeBudgets}
                     filterPeriod={filterPeriod}
                     setFilterPeriod={setFilterPeriod}
+                    inHomeGoal={inHomeGoal}
+                    counterGoal={counterGoal}
                 />
             </TabsContent>
             <TabsContent value="returns">

@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Wrench, LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, DollarSign, Users } from "lucide-react"
+import { Wrench, LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, DollarSign, Users, Home, TrendingUp } from "lucide-react"
 import { useEffect } from "react"
 
 function AdminSidebar({children}: {children: React.ReactNode}) {
@@ -86,6 +86,11 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild isActive={isActive('/admin/inhome-budgets')} tooltip="Lançamentos In-Home">
+                                <Link href="/admin/inhome-budgets"><Home className="w-4 h-4" /> <span>Lançamentos In-Home</span></Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                         <SidebarMenuItem>
                             <SidebarMenuButton asChild isActive={isActive('/admin/counter-budgets')} tooltip="Orçamentos Balcão">
                                 <Link href="/admin/counter-budgets"><DollarSign /> <span>Orçamentos Balcão</span></Link>
                             </SidebarMenuButton>
@@ -93,11 +98,6 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
                         <SidebarMenuItem>
                             <SidebarMenuButton asChild isActive={isActive('/admin/returns')} tooltip="Retornos">
                                 <Link href="/admin/returns"><History /> <span>Retornos</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                         <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/chargebacks')} tooltip="Estornos">
-                                <Link href="/admin/chargebacks"><FileMinus /> <span>Estornos</span></Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                         <SidebarMenuItem>

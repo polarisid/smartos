@@ -2,14 +2,85 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, Timestamp } from "firebase/firestore";
+import { collection, getDocs, Timestamp, doc, getDoc, setDoc } from "firebase/firestore";
 import { type CounterBudget } from "@/lib/data";
-import { DollarSign } from "lucide-react";
+import { DollarSign, Save } from "lucide-react";
 import { format } from 'date-fns';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+
+function GoalManagement() {
+    const { toast } = useToast();
+    const [goalValue, setGoalValue] = useState<number>(10000); // Default goal
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        const fetchGoal = async () => {
+            setIsLoading(true);
+            try {
+                const goalDocRef = doc(db, "configs", "counterGoal");
+                const goalDoc = await getDoc(goalDocRef);
+                if (goalDoc.exists()) {
+                    setGoalValue(goalDoc.data().value || 10000);
+                }
+            } catch (error) {
+                console.error("Error fetching counter goal:", error);
+                toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar a meta salva." });
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchGoal();
+    }, [toast]);
+    
+    const handleSaveGoal = async () => {
+        setIsSubmitting(true);
+        try {
+            const goalDocRef = doc(db, "configs", "counterGoal");
+            await setDoc(goalDocRef, { value: goalValue });
+            toast({ title: "Meta salva com sucesso!" });
+        } catch (error) {
+            console.error("Error saving counter goal:", error);
+            toast({ variant: "destructive", title: "Erro ao salvar", description: "Não foi possível salvar a meta." });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>Gerenciar Meta Balcão</CardTitle>
+                <CardDescription>Defina a meta de faturamento geral para os serviços de balcão. Este valor será usado no dashboard.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <div className="grid w-full max-w-sm items-center gap-1.5">
+                    <Label htmlFor="counter-goal">Meta de Faturamento (R$)</Label>
+                    <Input 
+                        id="counter-goal"
+                        type="number"
+                        value={goalValue}
+                        onChange={(e) => setGoalValue(parseFloat(e.target.value) || 0)}
+                        placeholder="Ex: 10000"
+                        disabled={isLoading || isSubmitting}
+                    />
+                </div>
+            </CardContent>
+            <CardFooter>
+                 <Button onClick={handleSaveGoal} disabled={isLoading || isSubmitting}>
+                    <Save className="mr-2 h-4 w-4" /> {isSubmitting ? "Salvando..." : "Salvar Meta"}
+                </Button>
+            </CardFooter>
+        </Card>
+    );
+}
 
 export default function CounterBudgetsPage() {
     const { toast } = useToast();
@@ -42,6 +113,8 @@ export default function CounterBudgetsPage() {
             <div className="flex items-center justify-between">
                 <h1 className="text-2xl font-bold">Orçamentos do Balcão</h1>
             </div>
+
+            <GoalManagement />
 
              <Card>
                 <CardHeader>
