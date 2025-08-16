@@ -136,6 +136,7 @@ export type RouteStop = {
     productType: string;
     statusComment: string;
     parts: RoutePart[];
+    stopType?: 'padrao' | 'coleta' | 'entrega';
 }
 
 export type Route = {

@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users } from "lucide-react";
+import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { db } from "@/lib/firebase";
@@ -92,6 +92,9 @@ function parseRouteText(text: string): RouteStop[] {
             } else if (headers[index + 1]?.toLowerCase() === 'descricao' && headers[index + 2]?.toLowerCase() === 'qtd') {
                 descIndex = index + 1;
                 qtyIndex = index + 2;
+            } else if (headers[index + 1]?.toLowerCase() === 'descrição' && headers[index + 2]?.toLowerCase() === 'qtd') {
+                descIndex = index + 1;
+                qtyIndex = index + 2;
             }
             
             if (qtyIndex !== -1) {
@@ -143,30 +146,32 @@ function parseRouteText(text: string): RouteStop[] {
             productType: columns[headerIndices.productType]?.trim() || '',
             statusComment: columns[headerIndices.statusComment]?.trim() || '',
             parts: parts,
+            stopType: 'padrao', // Default value
         };
     }).filter((stop): stop is RouteStop => stop !== null);
 }
 
 
 function reconstructRouteText(stops: RouteStop[]): string {
+    if (!stops || stops.length === 0) return "";
     const header = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD";
     const lines = stops.map(stop => {
         const baseColumns = [
-            stop.serviceOrder,
-            stop.ascJobNumber,
-            stop.consumerName,
-            stop.city,
-            stop.neighborhood,
-            stop.state,
-            stop.model,
-            stop.turn,
-            stop.tat,
-            stop.requestDate,
-            stop.firstVisitDate,
-            stop.ts,
-            stop.warrantyType,
-            stop.productType,
-            stop.statusComment,
+            stop.serviceOrder || '',
+            stop.ascJobNumber || '',
+            stop.consumerName || '',
+            stop.city || '',
+            stop.neighborhood || '',
+            stop.state || '',
+            stop.model || '',
+            stop.turn || '',
+            stop.tat || '',
+            stop.requestDate || '',
+            stop.firstVisitDate || '',
+            stop.ts || '',
+            stop.warrantyType || '',
+            stop.productType || '',
+            stop.statusComment || '',
         ];
         const partColumns = (stop.parts || []).flatMap(p => [p.code, p.description, p.quantity.toString()]);
         return [...baseColumns, ...partColumns].join('\t');
@@ -198,6 +203,7 @@ function RouteFormDialog({
     const [routeType, setRouteType] = useState<'capital' | 'interior' | undefined>();
     const [licensePlate, setLicensePlate] = useState("");
     const [technicianId, setTechnicianId] = useState<string | undefined>();
+    const [parsedStops, setParsedStops] = useState<RouteStop[]>([]);
 
     useEffect(() => {
         if (isOpen) {
@@ -206,9 +212,12 @@ function RouteFormDialog({
                 setDepartureDate(initialData.departureDate instanceof Timestamp ? initialData.departureDate.toDate() : initialData.departureDate);
                 setArrivalDate(initialData.arrivalDate instanceof Timestamp ? initialData.arrivalDate.toDate() : initialData.arrivalDate);
                 setRouteType(initialData.routeType);
-                setRouteText(reconstructRouteText(initialData.stops));
                 setLicensePlate(initialData.licensePlate || "");
                 setTechnicianId(initialData.technicianId || "");
+                
+                const initialText = reconstructRouteText(initialData.stops);
+                setRouteText(initialText);
+                setParsedStops(initialData.stops.map(s => ({ ...s, stopType: s.stopType || 'padrao' })));
             } else {
                 setRouteName("");
                 setRouteText("");
@@ -217,12 +226,31 @@ function RouteFormDialog({
                 setRouteType(undefined);
                 setLicensePlate("");
                 setTechnicianId(undefined);
+                setParsedStops([]);
             }
         }
     }, [initialData, mode, isOpen]);
+    
+    const handleRouteTextChange = (text: string) => {
+        setRouteText(text);
+        const stopsFromText = parseRouteText(text);
+        setParsedStops(currentStops => {
+            // Preserve existing stop types if the service order number matches
+            return stopsFromText.map(newStop => {
+                const existingStop = currentStops.find(cs => cs.serviceOrder === newStop.serviceOrder);
+                return { ...newStop, stopType: existingStop?.stopType || 'padrao' };
+            });
+        });
+    };
 
 
-    const parsedStops = useMemo(() => parseRouteText(routeText), [routeText]);
+    const handleStopTypeChange = (index: number, type: 'padrao' | 'coleta' | 'entrega') => {
+        setParsedStops(currentStops => {
+            const newStops = [...currentStops];
+            newStops[index].stopType = type;
+            return newStops;
+        });
+    };
 
     const handleSave = async () => {
         if (!routeName || parsedStops.length === 0 || !departureDate || !arrivalDate || !routeType || !technicianId) {
@@ -387,7 +415,7 @@ function RouteFormDialog({
                                 id="route-text"
                                 placeholder="Cole aqui os dados da sua planilha..."
                                 value={routeText}
-                                onChange={(e) => setRouteText(e.target.value)}
+                                onChange={(e) => handleRouteTextChange(e.target.value)}
                                 rows={10}
                              />
                              <p className="text-xs text-muted-foreground">
@@ -402,7 +430,7 @@ function RouteFormDialog({
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>OS</TableHead>
-                                        <TableHead>Modelo</TableHead>
+                                        <TableHead>Tipo</TableHead>
                                         <TableHead>Peças</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -410,9 +438,20 @@ function RouteFormDialog({
                                     {parsedStops.length > 0 ? parsedStops.map((stop, index) => (
                                         <TableRow key={index}>
                                             <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
-                                            <TableCell>{stop.model}</TableCell>
                                             <TableCell>
-                                                {stop.parts.length > 0 ? (
+                                                <Select value={stop.stopType || 'padrao'} onValueChange={(v) => handleStopTypeChange(index, v as any)}>
+                                                    <SelectTrigger className="text-xs h-8">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="padrao">Padrão</SelectItem>
+                                                        <SelectItem value="coleta">Coleta</SelectItem>
+                                                        <SelectItem value="entrega">Entrega</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </TableCell>
+                                            <TableCell>
+                                                {stop.parts && stop.parts.length > 0 ? (
                                                     <ul className="list-disc pl-4 text-xs font-mono">
                                                         {stop.parts.map((part, pIndex) => (
                                                             <li key={`${part.code}-${pIndex}`}>{part.code} (x{part.quantity})</li>
@@ -453,10 +492,19 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
         isAfter(os.date, createdAtDate)
     );
 
+    const getRowClass = () => {
+        if (isCompleted) return "bg-green-100 dark:bg-green-900/50 line-through";
+        switch (stop.stopType) {
+            case 'coleta': return 'bg-yellow-100 dark:bg-yellow-900/50';
+            case 'entrega': return 'bg-blue-100 dark:bg-blue-900/50';
+            default: return '';
+        }
+    };
+
     return (
         <React.Fragment>
             <CollapsibleTrigger asChild>
-                <TableRow className={cn("cursor-pointer", isCompleted && "bg-green-100 dark:bg-green-900/50 line-through")}>
+                <TableRow className={cn("cursor-pointer", getRowClass())}>
                     <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
                     <TableCell className="font-mono">{stop.ascJobNumber}</TableCell>
                     <TableCell>{stop.city}</TableCell>
@@ -685,7 +733,7 @@ export default function RoutesPage() {
                                             const totalStops = route.stops.length;
                                             const completedStopsCount = route.stops.filter(stop => 
                                                 serviceOrders.some(os => 
-                                                    os.serviceOrderNumber === stop.serviceOrder && isAfter(os.date, route.createdAt)
+                                                    os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt)
                                                 )
                                             ).length;
                                             const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
@@ -726,7 +774,7 @@ export default function RoutesPage() {
                                         const totalStops = route.stops.length;
                                         const completedStopsCount = route.stops.filter(stop => 
                                             serviceOrders.some(os => 
-                                                os.serviceOrderNumber === stop.serviceOrder && isAfter(os.date, route.createdAt)
+                                                os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt)
                                             )
                                         ).length;
                                         const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
@@ -781,6 +829,14 @@ export default function RoutesPage() {
                 <DialogContent className="max-w-6xl">
                     <DialogHeader>
                         <DialogTitle>Detalhes da Rota: {selectedRoute?.name}</DialogTitle>
+                         <DialogDescription>
+                            Use a legenda de cores para identificar os tipos de parada.
+                        </DialogDescription>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs pt-2">
+                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-yellow-100 border border-yellow-300"></div><span>Coleta</span></div>
+                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300"></div><span>Entrega</span></div>
+                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-100 border border-green-300"></div><span>Finalizada</span></div>
+                        </div>
                     </DialogHeader>
                     <div className="max-h-[70vh] overflow-y-auto">
                         <Table>
@@ -800,7 +856,7 @@ export default function RoutesPage() {
                             <TableBody>
                                 {selectedRoute?.stops.map((stop, index) => (
                                      <Collapsible asChild key={index}>
-                                        <RouteDetailsRow stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={selectedRoute.createdAt} />
+                                        <RouteDetailsRow stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={selectedRoute.createdAt!} />
                                      </Collapsible>
                                 ))}
                             </TableBody>
@@ -829,3 +885,4 @@ export default function RoutesPage() {
         </>
     );
 }
+
