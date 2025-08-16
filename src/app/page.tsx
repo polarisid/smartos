@@ -620,17 +620,30 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt, visitTemp
         toast({ title: "Texto copiado!", description: "O anúncio de visita foi copiado." });
     };
 
+    const getRowClass = () => {
+        if (isCompleted) return "bg-green-100 dark:bg-green-900/50 line-through";
+        switch (stop.stopType) {
+            case 'coleta': return 'bg-yellow-100 dark:bg-yellow-900/50';
+            case 'entrega': return 'bg-blue-100 dark:bg-blue-900/50';
+            default: return '';
+        }
+    };
+
+    const stopTypeLabels = {
+        padrao: 'Padrão',
+        coleta: 'Coleta',
+        entrega: 'Entrega'
+    };
+
     return (
         <React.Fragment key={index}>
             <CollapsibleTrigger asChild>
-                    <TableRow className={cn("cursor-pointer", isCompleted && "bg-green-100 dark:bg-green-900/50 line-through")}>
+                <TableRow className={cn("cursor-pointer", getRowClass())}>
                     <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
-                    <TableCell className="font-mono">{stop.ascJobNumber}</TableCell>
+                    <TableCell>{stopTypeLabels[stop.stopType || 'padrao']}</TableCell>
                     <TableCell>{stop.city}</TableCell>
                     <TableCell>{stop.neighborhood}</TableCell>
                     <TableCell>{stop.model}</TableCell>
-                    <TableCell>{stop.ts}</TableCell>
-                    <TableCell>{stop.warrantyType}</TableCell>
                     <TableCell>
                         {stop.parts && stop.parts.length > 0 ? (
                             <div>
@@ -644,18 +657,22 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt, visitTemp
                             <span className="text-xs text-muted-foreground">N/A</span>
                         )}
                     </TableCell>
-                        <TableCell className="text-right">
+                    <TableCell className="text-right">
                         <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
                     </TableCell>
                 </TableRow>
             </CollapsibleTrigger>
             <CollapsibleContent asChild>
                 <tr className="bg-muted/50">
-                    <TableCell colSpan={9} className="p-2">
+                    <TableCell colSpan={7} className="p-2">
                             <div className="p-2 bg-background/50 rounded space-y-2">
                             <div>
                                 <p className="font-semibold text-xs mb-1">Nome Consumidor:</p>
                                 <p className="text-sm text-foreground">{stop.consumerName || "N/A"}</p>
+                            </div>
+                             <div>
+                                <p className="font-semibold text-xs mb-1">Detalhes:</p>
+                                <p className="text-sm text-foreground">{stop.ascJobNumber} / {stop.ts} / {stop.warrantyType}</p>
                             </div>
                             <div>
                                 <p className="font-semibold text-xs mb-1">Status Comment:</p>
@@ -819,18 +836,24 @@ function RoutesTab({ serviceOrders, visitTemplate }: { serviceOrders: ServiceOrd
                                 <DialogContent className="max-w-6xl">
                                     <DialogHeader>
                                         <DialogTitle>Detalhes da Rota: {route.name}</DialogTitle>
+                                        <DialogDescription>
+                                            Use a legenda de cores para identificar os tipos de parada.
+                                        </DialogDescription>
+                                         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs pt-2">
+                                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-yellow-100 border border-yellow-300"></div><span>Coleta</span></div>
+                                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300"></div><span>Entrega</span></div>
+                                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-100 border border-green-300"></div><span>Finalizada</span></div>
+                                        </div>
                                     </DialogHeader>
                                     <div className="max-h-[70vh] overflow-y-auto">
                                         <Table>
                                             <TableHeader>
                                                 <TableRow>
                                                     <TableHead>OS</TableHead>
-                                                    <TableHead>ASC Job No.</TableHead>
+                                                    <TableHead>Tipo</TableHead>
                                                     <TableHead>Cidade</TableHead>
                                                     <TableHead>Bairro</TableHead>
                                                     <TableHead>Modelo</TableHead>
-                                                    <TableHead>TS</TableHead>
-                                                    <TableHead>OW/LP</TableHead>
                                                     <TableHead>Peças</TableHead>
                                                     <TableHead className="w-[50px]"></TableHead>
                                                 </TableRow>
@@ -1520,4 +1543,5 @@ export default function ServiceOrderPage() {
     
 
     
+
 
