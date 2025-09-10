@@ -21,41 +21,48 @@ export async function GET() {
       techniciansMap.set(doc.id, tech.name);
     });
 
-    // Process active routes into a map where key is serviceOrderNumber and value is route info
-    const activeServiceOrdersMap = new Map<string, { routeId: string; routeName: string }>();
-    activeRoutesSnapshot.forEach(doc => {
-      const route = { id: doc.id, ...doc.data() } as Route;
-      if (route.stops) {
-        route.stops.forEach(stop => {
-          activeServiceOrdersMap.set(stop.serviceOrder, {
-            routeId: route.id,
-            routeName: route.name,
-          });
-        });
-      }
+    // Process service orders into a map for quick lookup
+    const serviceOrdersMap = new Map<string, ServiceOrder>();
+    ordersSnapshot.forEach(doc => {
+      const order = { id: doc.id, ...doc.data() } as ServiceOrder;
+      serviceOrdersMap.set(order.serviceOrderNumber, order);
     });
 
-    // Filter and enrich service orders that are in an active route
-    const enrichedServiceOrders = ordersSnapshot.docs
-      .map(doc => ({ id: doc.id, ...doc.data() } as ServiceOrder))
-      .filter(order => activeServiceOrdersMap.has(order.serviceOrderNumber))
-      .map(order => {
-        const routeInfo = activeServiceOrdersMap.get(order.serviceOrderNumber)!; // We know it exists due to the filter
-        const technicianName = techniciansMap.get(order.technicianId) || 'N/A';
+    // Process active routes and enrich them with their service orders
+    const enrichedRoutes = activeRoutesSnapshot.docs.map(doc => {
+        const route = { id: doc.id, ...doc.data() } as Route;
         
-        // Convert Firebase Timestamp to a serializable format (ISO string)
-        const date = (order.date as unknown as Timestamp).toDate().toISOString();
+        const serviceOrdersInRoute = (route.stops || [])
+            .map(stop => {
+                const serviceOrder = serviceOrdersMap.get(stop.serviceOrder);
+                if (serviceOrder) {
+                    const technicianName = techniciansMap.get(serviceOrder.technicianId) || 'N/A';
+                    const date = (serviceOrder.date as unknown as Timestamp).toDate().toISOString();
+                    return {
+                        ...serviceOrder,
+                        date,
+                        technicianName,
+                    };
+                }
+                return null;
+            })
+            .filter((os): os is ServiceOrder & { date: string; technicianName: string } => os !== null);
+
+        // Convert route's Timestamps to serializable format
+        const createdAt = (route.createdAt as unknown as Timestamp)?.toDate().toISOString();
+        const departureDate = (route.departureDate as unknown as Timestamp)?.toDate().toISOString();
+        const arrivalDate = (route.arrivalDate as unknown as Timestamp)?.toDate().toISOString();
 
         return {
-          ...order,
-          date, // Override with the ISO string date
-          routeName: routeInfo.routeName,
-          routeId: routeInfo.routeId,
-          technicianName: technicianName,
+            ...route,
+            createdAt,
+            departureDate,
+            arrivalDate,
+            serviceOrders: serviceOrdersInRoute,
         };
-      });
+    });
 
-    return NextResponse.json(enrichedServiceOrders, {
+    return NextResponse.json(enrichedRoutes, {
       headers: {
         'Access-Control-Allow-Origin': '*', // Allow requests from any origin
         'Access-Control-Allow-Methods': 'GET, OPTIONS',
