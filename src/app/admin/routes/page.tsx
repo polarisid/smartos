@@ -21,7 +21,7 @@ import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as Ca
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, getDocs, doc, deleteDoc, Timestamp, setDoc, writeBatch } from "firebase/firestore";
+import { collection, addDoc, getDocs, doc, deleteDoc, Timestamp, setDoc, writeBatch, getDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart } from "@/lib/data";
 import { Switch } from "@/components/ui/switch";
@@ -35,6 +35,7 @@ import { ptBR } from "date-fns/locale";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import React from "react";
 import { Progress } from "@/components/ui/progress";
+import { triggerWebhook } from "@/app/admin/returns/page";
 
 
 function parseRouteText(text: string): RouteStop[] {
@@ -179,6 +180,7 @@ function reconstructRouteText(stops: RouteStop[]): string {
     return [header, ...lines].join('\n');
 }
 
+
 function RouteFormDialog({ 
     mode, 
     isOpen, 
@@ -214,10 +216,9 @@ function RouteFormDialog({
                 setRouteType(initialData.routeType);
                 setLicensePlate(initialData.licensePlate || "");
                 setTechnicianId(initialData.technicianId || "");
-                
+                setParsedStops(initialData.stops.map(s => ({ ...s, stopType: s.stopType || 'padrao' })));
                 const initialText = reconstructRouteText(initialData.stops);
                 setRouteText(initialText);
-                setParsedStops(initialData.stops.map(s => ({ ...s, stopType: s.stopType || 'padrao' })));
             } else {
                 setRouteName("");
                 setRouteText("");
@@ -234,13 +235,11 @@ function RouteFormDialog({
     const handleRouteTextChange = (text: string) => {
         setRouteText(text);
         const stopsFromText = parseRouteText(text);
-        setParsedStops(currentStops => {
-            // Preserve existing stop types if the service order number matches
-            return stopsFromText.map(newStop => {
-                const existingStop = currentStops.find(cs => cs.serviceOrder === newStop.serviceOrder);
-                return { ...newStop, stopType: existingStop?.stopType || 'padrao' };
-            });
+        const newStops = stopsFromText.map(newStop => {
+            const existingStop = parsedStops.find(cs => cs.serviceOrder === newStop.serviceOrder);
+            return { ...newStop, stopType: existingStop?.stopType || 'padrao' };
         });
+        setParsedStops(newStops);
     };
 
 
@@ -267,13 +266,12 @@ function RouteFormDialog({
             
             let stopsToSave: RouteStop[] = parsedStops;
 
-            // CRITICAL FIX: Preserve tracking codes when editing
             if (mode === 'edit' && initialData) {
                  stopsToSave = parsedStops.map(newStop => {
                     const existingStop = initialData.stops.find(s => s.serviceOrder === newStop.serviceOrder);
                     if (existingStop && existingStop.parts) {
-                        const newParts = newStop.parts.map(newPart => {
-                             const existingPart = existingStop.parts.find(p => p.code === newPart.code);
+                        const newParts = (newStop.parts || []).map(newPart => {
+                             const existingPart = (existingStop.parts || []).find(p => p.code === newPart.code);
                              if (existingPart) {
                                  return { ...newPart, trackingCode: existingPart.trackingCode || '' };
                              }
@@ -304,6 +302,23 @@ function RouteFormDialog({
                     isActive: true,
                 });
                 toast({ title: "Rota salva com sucesso!" });
+
+                // Trigger webhook for new route with detailed payload
+                await triggerWebhook({
+                    event: 'new_route',
+                    technicianName: technician?.name,
+                    technicianPhone: technician?.phone,
+                    routeName: routeName,
+                    licensePlate: licensePlate,
+                    departureDate: format(departureDate, 'dd/MM/yyyy'),
+                    arrivalDate: format(arrivalDate, 'dd/MM/yyyy'),
+                    stops: stopsToSave.map(stop => ({
+                        so_nro: stop.serviceOrder,
+                        cidade: stop.city,
+                        spd: stop.productType
+                    }))
+                });
+
             } else if (initialData) {
                 await setDoc(doc(db, "routes", initialData.id), dataToSave, { merge: true });
                 toast({ title: "Rota atualizada com sucesso!" });

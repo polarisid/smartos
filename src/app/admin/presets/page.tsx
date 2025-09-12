@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Edit, Trash2, Bookmark, Save } from "lucide-react";
+import { PlusCircle, Edit, Trash2, Bookmark, Save, Webhook } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, doc, getDoc, setDoc, addDoc, deleteDoc } from "firebase/firestore";
@@ -32,6 +32,76 @@ type CodeCategory = { "TV/AV": CodeItem[]; "DA": CodeItem[]; };
 type FormData = Omit<Preset, 'id'>;
 
 const defaultVisitTemplate = `Olá, bom dia! Somos da assistência técnica autorizada Samsung. Referente ao seu atendimento da ordem de serviço {{serviceOrder}}, para o cliente {{consumerName}} na cidade de {{city}}. Poderia me confirmar a sua localização?`;
+
+function WebhookManagement() {
+    const { toast } = useToast();
+    const [webhookUrl, setWebhookUrl] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        const fetchWebhookConfig = async () => {
+            setIsLoading(true);
+            try {
+                const configDoc = await getDoc(doc(db, "configs", "webhook"));
+                if (configDoc.exists()) {
+                    setWebhookUrl(configDoc.data().url || '');
+                }
+            } catch (error) {
+                console.error("Error fetching webhook config:", error);
+                toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar a URL do webhook." });
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchWebhookConfig();
+    }, [toast]);
+    
+    const handleSaveWebhook = async () => {
+        setIsSubmitting(true);
+        try {
+            await setDoc(doc(db, "configs", "webhook"), { url: webhookUrl });
+            toast({ title: "Configuração do Webhook salva!" });
+        } catch (error) {
+            console.error("Error saving webhook config:", error);
+            toast({ variant: "destructive", title: "Erro ao salvar", description: "Não foi possível salvar a URL do webhook." });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+    
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Webhook /> Gerenciamento de Webhook</CardTitle>
+                <CardDescription>
+                    Configure a URL para receber notificações via webhook quando eventos como 'nova rota' ou 'novo retorno' ocorrerem.
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <div className="space-y-2">
+                    <Label htmlFor="webhook-url">URL do Webhook</Label>
+                    <Input 
+                        id="webhook-url"
+                        placeholder="https://seu-servico.com/webhook"
+                        value={webhookUrl}
+                        onChange={(e) => setWebhookUrl(e.target.value)}
+                        disabled={isLoading || isSubmitting}
+                    />
+                     <p className="text-xs text-muted-foreground">
+                        Deixe em branco para desativar as notificações via webhook.
+                    </p>
+                </div>
+            </CardContent>
+            <CardFooter>
+                <Button onClick={handleSaveWebhook} disabled={isLoading || isSubmitting}>
+                    <Save className="mr-2 h-4 w-4" /> {isSubmitting ? "Salvando..." : "Salvar Webhook"}
+                </Button>
+            </CardFooter>
+        </Card>
+    );
+}
+
 
 export default function PresetsPage() {
     const [presets, setPresets] = useState<Preset[]>([]);
@@ -198,6 +268,8 @@ export default function PresetsPage() {
                     </Button>
                 </div>
                 
+                <WebhookManagement />
+
                  <Card>
                     <CardHeader>
                         <CardTitle>Modelos de Texto</CardTitle>

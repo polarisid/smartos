@@ -4,7 +4,6 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -21,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { PlusCircle, Edit, Trash2, History, Calendar as CalendarIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, Timestamp } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, Timestamp, getDoc } from "firebase/firestore";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type Return, type Technician, type ServiceOrder } from "@/lib/data";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -31,6 +30,33 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 type FormData = Omit<Return, 'id' | 'technicianName'>;
+
+export async function triggerWebhook(payload: any) {
+    try {
+        const configDoc = await getDoc(doc(db, "configs", "webhook"));
+        if (!configDoc.exists()) {
+            console.log("Webhook URL not configured.");
+            return;
+        }
+        const webhookUrl = configDoc.data().url;
+        if (!webhookUrl) {
+            console.log("Webhook URL is empty.");
+            return;
+        }
+
+        await fetch(webhookUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+    } catch (error) {
+        console.error("Failed to trigger webhook:", error);
+        // Do not block user flow, just log the error
+    }
+}
+
 
 export default function ReturnsPage() {
     const [returns, setReturns] = useState<Return[]>([]);
@@ -132,9 +158,10 @@ export default function ReturnsPage() {
 
         setIsSubmitting(true);
         const dataToSave = { ...formData };
+        const technician = technicians.find(t => t.id === dataToSave.technicianId);
 
         try {
-            const technicianName = technicians.find(t => t.id === dataToSave.technicianId)?.name;
+            const technicianName = technician?.name;
             const fullDataToSave: Return = { id: '', technicianName, ...dataToSave } as Return;
 
             if (dialogMode === 'add') {
@@ -142,6 +169,17 @@ export default function ReturnsPage() {
                 fullDataToSave.id = docRef.id;
                 setReturns(prev => [...prev, fullDataToSave].sort((a,b) => (b.returnDate?.getTime() || 0) - (a.returnDate?.getTime() || 0)));
                 toast({ title: "Retorno registrado com sucesso!" });
+
+                // Trigger webhook for new return
+                await triggerWebhook({
+                    event: 'new_return',
+                    technicianName: technician?.name,
+                    technicianPhone: technician?.phone,
+                    returnServiceOrder: dataToSave.returnServiceOrder,
+                    originalServiceOrder: dataToSave.originalServiceOrder,
+                    daysToReturn: dataToSave.daysToReturn,
+                    productModel: dataToSave.productModel,
+                });
             } else if (selectedReturn) {
                 const returnRef = doc(db, "returns", selectedReturn.id);
                 await setDoc(returnRef, dataToSave, { merge: true });

@@ -22,10 +22,12 @@ import { PlusCircle, Edit, Divide, Trash2, User, UserCog } from "lucide-react";
 import { type Technician, type AppUser } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, writeBatch, query, where } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, writeBatch, query, where, updateDoc } from "firebase/firestore";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type EnrichedTechnician = Technician & { role?: AppUser['role'] };
+type FormDataType = Partial<Omit<Technician, 'id' | 'goal'>> & { userId?: string };
+
 
 export default function TechniciansPage() {
   const [technicians, setTechnicians] = useState<EnrichedTechnician[]>([]);
@@ -34,13 +36,14 @@ export default function TechniciansPage() {
   // States for dialogs
   const [isGoalDialogOpen, setIsGoalDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [isAddTechDialogOpen, setIsAddTechDialogOpen] = useState(false);
+  const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
+  const [formMode, setFormMode] = useState<'add' | 'edit'>('add');
 
   // Form states
   const [goalValue, setGoalValue] = useState<string>("");
   const [globalGoal, setGlobalGoal] = useState<string>("");
-  const [newTechName, setNewTechName] = useState("");
-  const [newTechUserId, setNewTechUserId] = useState("");
+  const [formData, setFormData] = useState<FormDataType>({ name: '', phone: '', userId: '' });
+
   const [availableUsers, setAvailableUsers] = useState<AppUser[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -99,11 +102,17 @@ export default function TechniciansPage() {
     setIsDeleteDialogOpen(true);
   };
 
-  const handleOpenAddDialog = () => {
-    setNewTechName("");
-    setNewTechUserId("");
-    setIsAddTechDialogOpen(true);
+  const handleOpenFormDialog = (mode: 'add' | 'edit', tech: EnrichedTechnician | null = null) => {
+    setFormMode(mode);
+    setSelectedTech(tech);
+    if (mode === 'add') {
+      setFormData({ name: '', phone: '', userId: '' });
+    } else if (tech) {
+      setFormData({ name: tech.name, phone: tech.phone || '', userId: tech.id });
+    }
+    setIsFormDialogOpen(true);
   };
+
 
   const handleSaveGoal = async () => {
     if (!selectedTech) return;
@@ -135,8 +144,8 @@ export default function TechniciansPage() {
     }
   };
 
-  const handleSaveNewTech = async () => {
-    if (!newTechName.trim()) {
+  const handleSaveTech = async () => {
+    if (!formData.name?.trim()) {
       toast({
         variant: "destructive",
         title: "Nome Obrigatório",
@@ -147,31 +156,35 @@ export default function TechniciansPage() {
     
     setIsSubmitting(true);
     try {
-      const newTechData = {
-        name: newTechName.trim(),
-        goal: 0,
-      };
+      if (formMode === 'add') {
+        const newTechData: Partial<Technician> = {
+          name: formData.name.trim(),
+          phone: formData.phone || '',
+          goal: 0,
+        };
 
-      if (newTechUserId && newTechUserId !== 'none') {
-        // Create a linked technician using the user's UID as the document ID
-        const techDocRef = doc(db, "technicians", newTechUserId);
-        await setDoc(techDocRef, newTechData);
-      } else {
-        // Create a standalone/anonymous technician with an auto-generated ID
-        await addDoc(collection(db, "technicians"), newTechData);
+        if (formData.userId && formData.userId !== 'none') {
+          await setDoc(doc(db, "technicians", formData.userId), newTechData);
+        } else {
+          await addDoc(collection(db, "technicians"), newTechData);
+        }
+        toast({ title: "Técnico Cadastrado!", description: `O técnico ${newTechData.name} foi adicionado com sucesso.` });
+
+      } else if (formMode === 'edit' && selectedTech) {
+        const updatedData: Partial<Technician> = {
+            name: formData.name.trim(),
+            phone: formData.phone || '',
+        };
+        const techRef = doc(db, "technicians", selectedTech.id);
+        await updateDoc(techRef, updatedData);
+        toast({ title: "Técnico Atualizado!", description: "Os dados do técnico foram atualizados."});
       }
-
-      await fetchData(); // Refetch data to update the UI
-
-      toast({
-        title: "Técnico Cadastrado!",
-        description: `O técnico ${newTechData.name} foi adicionado com sucesso.`,
-      });
       
-      setIsAddTechDialogOpen(false);
+      await fetchData(); // Refetch data to update the UI
+      setIsFormDialogOpen(false);
     } catch (error) {
-      console.error("Error adding technician: ", error);
-      toast({ variant: "destructive", title: "Erro ao cadastrar", description: "Não foi possível adicionar o novo técnico." });
+      console.error("Error saving technician: ", error);
+      toast({ variant: "destructive", title: "Erro ao Salvar", description: "Não foi possível salvar os dados do técnico." });
     } finally {
       setIsSubmitting(false);
     }
@@ -268,7 +281,7 @@ export default function TechniciansPage() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Gerenciar Técnicos</h1>
           <div className="flex items-center gap-2">
-            <Button onClick={handleOpenAddDialog}>
+            <Button onClick={() => handleOpenFormDialog('add')}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Cadastrar Técnico
             </Button>
           </div>
@@ -312,8 +325,9 @@ export default function TechniciansPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nome</TableHead>
+                    <TableHead>Telefone</TableHead>
                     <TableHead>Meta (R$)</TableHead>
-                    <TableHead className="text-right w-[240px]">Ações</TableHead>
+                    <TableHead className="text-right w-[320px]">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -331,11 +345,15 @@ export default function TechniciansPage() {
                                 <span>{roleText}</span>
                             </div>
                           </TableCell>
+                          <TableCell>{tech.phone || 'N/A'}</TableCell>
                           <TableCell>
                             {tech.goal ? `R$ ${tech.goal.toFixed(2).replace('.', ',')}` : 'Não definida'}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button variant="outline" size="sm" onClick={() => handleOpenGoalDialog(tech)}>
+                             <Button variant="outline" size="sm" onClick={() => handleOpenFormDialog('edit', tech)}>
+                              <Edit className="mr-2 h-4 w-4" /> Editar
+                            </Button>
+                            <Button variant="outline" size="sm" className="ml-2" onClick={() => handleOpenGoalDialog(tech)}>
                               <Edit className="mr-2 h-4 w-4" /> Definir Meta
                             </Button>
                             <Button variant="destructive" size="sm" className="ml-2" onClick={() => handleOpenDeleteDialog(tech)}>
@@ -352,13 +370,13 @@ export default function TechniciansPage() {
         </Card>
       </div>
 
-      {/* Add New Tech Dialog */}
-      <Dialog open={isAddTechDialogOpen} onOpenChange={setIsAddTechDialogOpen}>
+      {/* Add/Edit Tech Dialog */}
+      <Dialog open={isFormDialogOpen} onOpenChange={setIsFormDialogOpen}>
           <DialogContent className="sm:max-w-[425px]">
               <DialogHeader>
-                  <DialogTitle>Cadastrar Novo Técnico</DialogTitle>
+                  <DialogTitle>{formMode === 'add' ? 'Cadastrar Novo Técnico' : `Editar Técnico: ${selectedTech?.name}`}</DialogTitle>
                   <DialogDescription>
-                      Preencha o nome e, opcionalmente, vincule a um usuário para acesso ao sistema.
+                      Preencha os dados do técnico.
                   </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
@@ -367,45 +385,53 @@ export default function TechniciansPage() {
                       <Input 
                         id="tech-name"
                         placeholder="Ex: João da Silva"
-                        value={newTechName}
-                        onChange={(e) => setNewTechName(e.target.value)}
-                        disabled={!!newTechUserId}
+                        value={formData.name || ''}
+                        onChange={(e) => setFormData(prev => ({...prev, name: e.target.value}))}
+                        disabled={formMode === 'edit' && !!formData.userId}
                       />
                   </div>
                   <div className="space-y-2">
-                      <Label htmlFor="user-select">Vincular a um Usuário (Opcional)</Label>
-                       <Select 
-                          onValueChange={(value) => {
-                            setNewTechUserId(value);
-                            if (value && value !== 'none') {
-                                const selectedUser = availableUsers.find(u => u.uid === value);
-                                if (selectedUser) {
-                                    setNewTechName(selectedUser.name);
-                                }
-                            } else {
-                                setNewTechName(""); // Clear name if "none" is selected
-                            }
-                          }} 
-                          value={newTechUserId}
-                        >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione um usuário para vincular" />
-                        </SelectTrigger>
-                        <SelectContent>
-                           <SelectItem value="none">Nenhum (Técnico Avulso)</SelectItem>
-                          {availableUsers.map(user => (
-                            <SelectItem key={user.uid} value={user.uid}>{user.name} ({user.email})</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        Vincular a um usuário permite que ele acesse o painel (Ex: Técnico de Balcão).
-                      </p>
+                      <Label htmlFor="tech-phone">Telefone</Label>
+                      <Input 
+                        id="tech-phone"
+                        placeholder="(99) 99999-9999"
+                        value={formData.phone || ''}
+                        onChange={(e) => setFormData(prev => ({...prev, phone: e.target.value}))}
+                      />
                   </div>
+                  {formMode === 'add' && (
+                    <div className="space-y-2">
+                        <Label htmlFor="user-select">Vincular a um Usuário (Opcional)</Label>
+                        <Select 
+                            onValueChange={(value) => {
+                                const selectedUser = availableUsers.find(u => u.uid === value);
+                                setFormData(prev => ({
+                                    ...prev,
+                                    userId: value,
+                                    name: selectedUser ? selectedUser.name : (value === 'none' ? prev.name : '')
+                                }));
+                            }} 
+                            value={formData.userId}
+                            >
+                            <SelectTrigger>
+                            <SelectValue placeholder="Selecione um usuário para vincular" />
+                            </SelectTrigger>
+                            <SelectContent>
+                            <SelectItem value="none">Nenhum (Técnico Avulso)</SelectItem>
+                            {availableUsers.map(user => (
+                                <SelectItem key={user.uid} value={user.uid}>{user.name} ({user.email})</SelectItem>
+                            ))}
+                            </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground mt-2">
+                            Vincular a um usuário permite que ele acesse o painel (Ex: Técnico de Balcão).
+                        </p>
+                    </div>
+                  )}
               </div>
               <DialogFooter>
-                  <Button type="button" onClick={() => setIsAddTechDialogOpen(false)} variant="outline">Cancelar</Button>
-                  <Button type="button" onClick={handleSaveNewTech} disabled={isSubmitting || !newTechName}>{isSubmitting ? 'Salvando...' : 'Salvar'}</Button>
+                  <Button type="button" onClick={() => setIsFormDialogOpen(false)} variant="outline">Cancelar</Button>
+                  <Button type="button" onClick={handleSaveTech} disabled={isSubmitting || !formData.name}>{isSubmitting ? 'Salvando...' : 'Salvar'}</Button>
               </DialogFooter>
           </DialogContent>
       </Dialog>
@@ -464,5 +490,3 @@ export default function TechniciansPage() {
     </>
   );
 }
-
-    

@@ -12,6 +12,7 @@ export type AppUser = {
 export type Technician = {
   id: string;
   name: string;
+  phone?: string;
   goal?: number;
 };
 
