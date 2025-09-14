@@ -9,6 +9,12 @@ export type AppUser = {
   role: 'admin' | 'technician' | 'counter_technician';
 };
 
+export type Driver = {
+  id: string;
+  name: string;
+  phone: string;
+};
+
 export type Technician = {
   id: string;
   name: string;
@@ -152,6 +158,9 @@ export type Route = {
     licensePlate?: string;
     technicianId?: string;
     technicianName?: string;
+    driverId?: string;
+    driverName?: string;
+    driverPhone?: string;
 }
 
 export type ChecklistField = {

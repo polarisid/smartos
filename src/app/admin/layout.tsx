@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Wrench, LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, DollarSign, Users, Home, TrendingUp } from "lucide-react"
+import { Wrench, LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, DollarSign, Users, Home, TrendingUp, Truck } from "lucide-react"
 import { useEffect } from "react"
 
 function AdminSidebar({children}: {children: React.ReactNode}) {
@@ -63,6 +63,11 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
                         <SidebarMenuItem>
                             <SidebarMenuButton asChild isActive={isActive('/admin/technicians')} tooltip="Técnicos">
                                 <Link href="/admin/technicians"><UsersIcon /> <span>Técnicos</span></Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                            <SidebarMenuButton asChild isActive={isActive('/admin/drivers')} tooltip="Motoristas">
+                                <Link href="/admin/drivers"><Truck /> <span>Motoristas</span></Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                         <SidebarMenuItem>

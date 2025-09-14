@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
@@ -23,7 +24,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { db } from "@/lib/firebase";
 import { collection, addDoc, getDocs, doc, deleteDoc, Timestamp, setDoc, writeBatch, getDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
-import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart } from "@/lib/data";
+import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart, type Driver } from "@/lib/data";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -187,14 +188,16 @@ function RouteFormDialog({
     onOpenChange, 
     onRouteSaved, 
     initialData,
-    technicians
+    technicians,
+    drivers
 }: { 
     mode: 'add' | 'edit',
     isOpen: boolean,
     onOpenChange: (open: boolean) => void,
     onRouteSaved: () => void,
     initialData?: Route | null,
-    technicians: Technician[]
+    technicians: Technician[],
+    drivers: Driver[]
 }) {
     const { toast } = useToast();
     const [routeName, setRouteName] = useState("");
@@ -205,6 +208,7 @@ function RouteFormDialog({
     const [routeType, setRouteType] = useState<'capital' | 'interior' | undefined>();
     const [licensePlate, setLicensePlate] = useState("");
     const [technicianId, setTechnicianId] = useState<string | undefined>();
+    const [driverId, setDriverId] = useState<string | undefined>();
     const [parsedStops, setParsedStops] = useState<RouteStop[]>([]);
 
     useEffect(() => {
@@ -216,6 +220,7 @@ function RouteFormDialog({
                 setRouteType(initialData.routeType);
                 setLicensePlate(initialData.licensePlate || "");
                 setTechnicianId(initialData.technicianId || "");
+                setDriverId(initialData.driverId || "");
                 setParsedStops(initialData.stops.map(s => ({ ...s, stopType: s.stopType || 'padrao' })));
                 const initialText = reconstructRouteText(initialData.stops);
                 setRouteText(initialText);
@@ -227,19 +232,25 @@ function RouteFormDialog({
                 setRouteType(undefined);
                 setLicensePlate("");
                 setTechnicianId(undefined);
+                setDriverId(undefined);
                 setParsedStops([]);
             }
         }
     }, [initialData, mode, isOpen]);
     
-    const handleRouteTextChange = (text: string) => {
+     const handleRouteTextChange = (text: string) => {
         setRouteText(text);
         const stopsFromText = parseRouteText(text);
-        const newStops = stopsFromText.map(newStop => {
-            const existingStop = parsedStops.find(cs => cs.serviceOrder === newStop.serviceOrder);
-            return { ...newStop, stopType: existingStop?.stopType || 'padrao' };
+        const currentStops = parsedStops;
+
+        const updatedStops = stopsFromText.map(newStop => {
+            const existingStop = currentStops.find(cs => cs.serviceOrder === newStop.serviceOrder);
+            return {
+                ...newStop,
+                stopType: existingStop?.stopType || 'padrao'
+            };
         });
-        setParsedStops(newStops);
+        setParsedStops(updatedStops);
     };
 
 
@@ -263,6 +274,7 @@ function RouteFormDialog({
         setIsSubmitting(true);
         try {
             const technician = technicians.find(t => t.id === technicianId);
+            const driver = drivers.find(d => d.id === driverId);
             
             let stopsToSave: RouteStop[] = parsedStops;
 
@@ -293,6 +305,9 @@ function RouteFormDialog({
                 licensePlate: licensePlate,
                 technicianId: technicianId,
                 technicianName: technician?.name || '',
+                driverId: driverId,
+                driverName: driver?.name || '',
+                driverPhone: driver?.phone || '',
             };
 
             if (mode === 'add') {
@@ -308,6 +323,8 @@ function RouteFormDialog({
                     event: 'new_route',
                     technicianName: technician?.name,
                     technicianPhone: technician?.phone,
+                    driverName: driver?.name,
+                    driverPhone: driver?.phone,
                     routeName: routeName,
                     licensePlate: licensePlate,
                     departureDate: format(departureDate, 'dd/MM/yyyy'),
@@ -364,6 +381,21 @@ function RouteFormDialog({
                                 <SelectContent>
                                     {technicians.map(tech => (
                                         <SelectItem key={tech.id} value={tech.id}>{tech.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="driverId">Motorista (Opcional)</Label>
+                            <Select value={driverId} onValueChange={setDriverId}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Selecione um motorista" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                     <SelectItem value="none">Nenhum</SelectItem>
+                                    {drivers.map(driver => (
+                                        <SelectItem key={driver.id} value={driver.id}>{driver.name}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
@@ -570,6 +602,7 @@ export default function RoutesPage() {
     const [allRoutes, setAllRoutes] = useState<Route[]>([]);
     const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
     const [technicians, setTechnicians] = useState<Technician[]>([]);
+    const [drivers, setDrivers] = useState<Driver[]>([]);
     const [filteredRoutes, setFilteredRoutes] = useState<Route[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
@@ -585,10 +618,11 @@ export default function RoutesPage() {
     const fetchRoutes = async () => {
         setIsLoading(true);
         try {
-            const [routesSnapshot, ordersSnapshot, techsSnapshot] = await Promise.all([
+            const [routesSnapshot, ordersSnapshot, techsSnapshot, driversSnapshot] = await Promise.all([
                 getDocs(collection(db, "routes")),
                 getDocs(collection(db, "serviceOrders")),
-                getDocs(collection(db, "technicians"))
+                getDocs(collection(db, "technicians")),
+                getDocs(collection(db, "drivers"))
             ]);
 
             const routesData = routesSnapshot.docs
@@ -611,6 +645,9 @@ export default function RoutesPage() {
             
             const techsData = techsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
             setTechnicians(techsData);
+            
+            const driversData = driversSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Driver));
+            setDrivers(driversData);
 
         } catch (error) {
             console.error("Error fetching routes: ", error);
@@ -737,6 +774,7 @@ export default function RoutesPage() {
                                     <TableRow>
                                         <TableHead>Nome da Rota</TableHead>
                                         <TableHead>Técnico</TableHead>
+                                        <TableHead>Motorista</TableHead>
                                         <TableHead>Paradas</TableHead>
                                         <TableHead>Progresso</TableHead>
                                         <TableHead>Status</TableHead>
@@ -760,6 +798,12 @@ export default function RoutesPage() {
                                                 <div className="flex items-center gap-2">
                                                     <Users className="h-4 w-4 text-muted-foreground" />
                                                     <span>{route.technicianName || 'N/A'}</span>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="flex items-center gap-2">
+                                                    <Truck className="h-4 w-4 text-muted-foreground" />
+                                                    <span>{route.driverName || 'N/A'}</span>
                                                 </div>
                                             </TableCell>
                                             <TableCell>{route.stops.length}</TableCell>
@@ -810,6 +854,10 @@ export default function RoutesPage() {
                                                     <span className="font-medium">{route.technicianName || 'N/A'}</span>
                                                 </div>
                                                 <div className="flex justify-between text-sm">
+                                                    <span className="text-muted-foreground flex items-center gap-2"><Truck className="h-4 w-4" /> Motorista:</span>
+                                                    <span className="font-medium">{route.driverName || 'N/A'}</span>
+                                                </div>
+                                                <div className="flex justify-between text-sm">
                                                     <span className="text-muted-foreground">Paradas:</span>
                                                     <span className="font-medium">{totalStops}</span>
                                                 </div>
@@ -838,6 +886,7 @@ export default function RoutesPage() {
                 onRouteSaved={fetchRoutes}
                 initialData={selectedRouteForEdit}
                 technicians={technicians}
+                drivers={drivers}
             />
 
             <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
