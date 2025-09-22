@@ -208,7 +208,7 @@ function RouteFormDialog({
     const [routeType, setRouteType] = useState<'capital' | 'interior' | undefined>();
     const [licensePlate, setLicensePlate] = useState("");
     const [technicianId, setTechnicianId] = useState<string | undefined>();
-    const [driverId, setDriverId] = useState<string | undefined>();
+    const [driverId, setDriverId] = useState<string | undefined>("none");
     const [parsedStops, setParsedStops] = useState<RouteStop[]>([]);
 
     useEffect(() => {
@@ -220,7 +220,7 @@ function RouteFormDialog({
                 setRouteType(initialData.routeType);
                 setLicensePlate(initialData.licensePlate || "");
                 setTechnicianId(initialData.technicianId || "");
-                setDriverId(initialData.driverId || "");
+                setDriverId(initialData.driverId || "none");
                 setParsedStops(initialData.stops.map(s => ({ ...s, stopType: s.stopType || 'padrao' })));
                 const initialText = reconstructRouteText(initialData.stops);
                 setRouteText(initialText);
@@ -232,7 +232,7 @@ function RouteFormDialog({
                 setRouteType(undefined);
                 setLicensePlate("");
                 setTechnicianId(undefined);
-                setDriverId(undefined);
+                setDriverId("none");
                 setParsedStops([]);
             }
         }
@@ -318,7 +318,6 @@ function RouteFormDialog({
                 });
                 toast({ title: "Rota salva com sucesso!" });
 
-                // Trigger webhook for new route with detailed payload
                 await triggerWebhook({
                     event: 'new_route',
                     technicianName: technician?.name,
@@ -949,4 +948,5 @@ export default function RoutesPage() {
         </>
     );
 }
+
 

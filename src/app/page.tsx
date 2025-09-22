@@ -7,7 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format, isAfter, startOfMonth, startOfYear, subDays, differenceInDays } from "date-fns";
-import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator, type Route, type RouteStop, type Chargeback, type CounterBudget, type InHomeBudget } from "@/lib/data";
+import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator, type Route, type RouteStop, type Chargeback, type CounterBudget, type InHomeBudget, type RoutePart } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -58,6 +58,7 @@ import {
 } from "@/components/ui/dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import React from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 
 
 type CodeItem = { code: string; description: string; };
@@ -692,42 +693,16 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt, visitTemp
     )
 }
 
-function RoutesTab({ serviceOrders, visitTemplate }: { serviceOrders: ServiceOrder[], visitTemplate: string }) {
+function RoutesTab({ serviceOrders, visitTemplate, activeRoutes }: { serviceOrders: ServiceOrder[], visitTemplate: string, activeRoutes: Route[] }) {
     const { toast } = useToast();
-    const [routes, setRoutes] = useState<Route[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const fetchActiveRoutes = async () => {
-            setIsLoading(true);
-            try {
-                const q = query(
-                    collection(db, "routes"),
-                    where("isActive", "==", true),
-                    orderBy("createdAt", "desc")
-                );
-                const querySnapshot = await getDocs(q);
-                const activeRoutes = querySnapshot.docs.map(doc => {
-                     const data = doc.data();
-                     return { 
-                        ...data, 
-                        id: doc.id,
-                        departureDate: (data.departureDate as Timestamp)?.toDate(),
-                        arrivalDate: (data.arrivalDate as Timestamp)?.toDate(),
-                        createdAt: (data.createdAt as Timestamp)?.toDate(),
-                    } as Route
-                });
-                setRoutes(activeRoutes);
-            } catch (error) {
-                console.error("Error fetching active routes:", error);
-                toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar as rotas ativas." });
-            } finally {
-                setIsLoading(false);
-            }
-        };
+        if(activeRoutes.length > 0 || activeRoutes.length === 0){
+            setIsLoading(false);
+        }
+    },[activeRoutes])
 
-        fetchActiveRoutes();
-    }, [toast]);
 
     if (isLoading) {
         return (
@@ -743,7 +718,7 @@ function RoutesTab({ serviceOrders, visitTemplate }: { serviceOrders: ServiceOrd
         );
     }
 
-    if (routes.length === 0) {
+    if (activeRoutes.length === 0) {
         return (
             <Card>
                 <CardHeader>
@@ -761,9 +736,9 @@ function RoutesTab({ serviceOrders, visitTemplate }: { serviceOrders: ServiceOrd
 
     return (
         <div className="space-y-4">
-            {routes.map(route => {
-                const departure = route.departureDate ? route.departureDate : new Date();
-                const arrival = route.arrivalDate ? route.arrivalDate : new Date();
+            {activeRoutes.map(route => {
+                const departure = route.departureDate || new Date();
+                const arrival = route.arrivalDate || new Date();
                 const duration = differenceInDays(arrival, departure) + 1;
 
                 const totalStops = route.stops.length;
@@ -861,7 +836,7 @@ function RoutesTab({ serviceOrders, visitTemplate }: { serviceOrders: ServiceOrd
                                             <TableBody>
                                                 {route.stops.map((stop, index) => (
                                                     <Collapsible asChild key={index}>
-                                                        <RouteDetailsRow stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={route.createdAt} visitTemplate={visitTemplate} />
+                                                        <RouteDetailsRow stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={(route.createdAt as Date)} visitTemplate={visitTemplate} />
                                                     </Collapsible>
                                                 ))}
                                             </TableBody>
@@ -892,6 +867,9 @@ export default function ServiceOrderPage() {
   const [indicators, setIndicators] = useState<Indicator[]>([]);
   const [assistantName, setAssistantName] = useState("");
   const [visitTemplate, setVisitTemplate] = useState("");
+  const [activeRoutes, setActiveRoutes] = useState<Route[]>([]);
+  const [routeParts, setRouteParts] = useState<RoutePart[]>([]);
+  const [selectedParts, setSelectedParts] = useState<string[]>([]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -919,16 +897,18 @@ export default function ServiceOrderPage() {
   const watchedEquipmentType = form.watch("equipmentType");
   const watchedTechnician = form.watch("technician");
   const watchedPreset = form.watch("presetId");
+  const watchedServiceOrderNumber = form.watch("serviceOrderNumber");
 
   const fetchDynamicData = async () => {
     try {
-        const [ordersSnapshot, returnsSnapshot, indicatorsSnapshot, chargebacksSnapshot, counterBudgetsSnapshot, inHomeBudgetsSnapshot] = await Promise.all([
+        const [ordersSnapshot, returnsSnapshot, indicatorsSnapshot, chargebacksSnapshot, counterBudgetsSnapshot, inHomeBudgetsSnapshot, activeRoutesSnapshot] = await Promise.all([
             getDocs(collection(db, "serviceOrders")),
             getDocs(collection(db, "returns")),
             getDocs(collection(db, "indicators")),
             getDocs(collection(db, "chargebacks")),
             getDocs(collection(db, "counterBudgets")),
             getDocs(collection(db, "inHomeBudgets")),
+            getDocs(query(collection(db, "routes"), where("isActive", "==", true))),
         ]);
         
         const orders = ordersSnapshot.docs.map(doc => {
@@ -983,6 +963,18 @@ export default function ServiceOrderPage() {
 
         const indicatorsData = indicatorsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Indicator));
         setIndicators(indicatorsData);
+
+        const routesData = activeRoutesSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                ...data,
+                createdAt: (data.createdAt as Timestamp)?.toDate(),
+                departureDate: (data.departureDate as Timestamp)?.toDate(),
+                arrivalDate: (data.arrivalDate as Timestamp)?.toDate(),
+            } as Route;
+        });
+        setActiveRoutes(routesData);
 
     } catch (error) {
         console.error("Error fetching dynamic data:", error);
@@ -1078,6 +1070,30 @@ export default function ServiceOrderPage() {
       form.setValue("observations", "");
     }
   }, [watchedPreset, presets, form]);
+
+  useEffect(() => {
+    if (watchedServiceOrderNumber && activeRoutes.length > 0) {
+        let foundParts: RoutePart[] = [];
+        for (const route of activeRoutes) {
+            const stop = route.stops.find(s => s.serviceOrder === watchedServiceOrderNumber);
+            if (stop && stop.parts && stop.parts.length > 0) {
+                foundParts = stop.parts;
+                break;
+            }
+        }
+        setRouteParts(foundParts);
+        setSelectedParts([]); // Reset selections when OS changes
+        form.setValue("replacedPart", "");
+    } else {
+        setRouteParts([]);
+        setSelectedParts([]);
+    }
+  }, [watchedServiceOrderNumber, activeRoutes, form]);
+  
+  useEffect(() => {
+      const replacedPartText = selectedParts.join(', ');
+      form.setValue("replacedPart", replacedPartText);
+  }, [selectedParts, form]);
 
 
   const onSubmit = async (data: FormValues) => {
@@ -1334,6 +1350,37 @@ export default function ServiceOrderPage() {
                                                 )}
                                             />
 
+                                            {routeParts.length > 0 && (
+                                                <div className="space-y-2 rounded-lg border bg-muted/50 p-4">
+                                                    <div className="space-y-1">
+                                                        <Label className="font-semibold">Peças da Rota para esta OS</Label>
+                                                        <p className="text-xs text-muted-foreground">Selecione as peças usadas.</p>
+                                                    </div>
+                                                    <div className="space-y-2 pt-2">
+                                                        {routeParts.map((part) => (
+                                                            <div key={part.code} className="flex items-center space-x-2">
+                                                                <Checkbox
+                                                                    id={`part-${part.code}`}
+                                                                    onCheckedChange={(checked) => {
+                                                                        setSelectedParts((prev) =>
+                                                                            checked
+                                                                                ? [...prev, part.code]
+                                                                                : prev.filter((p) => p !== part.code)
+                                                                        );
+                                                                    }}
+                                                                />
+                                                                <label
+                                                                    htmlFor={`part-${part.code}`}
+                                                                    className="text-sm font-mono leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                                                >
+                                                                    {part.code}
+                                                                </label>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
                                             <FormField
                                                 control={form.control}
                                                 name="serviceType"
@@ -1527,7 +1574,7 @@ export default function ServiceOrderPage() {
                         <ReturnsRanking technicians={technicians} returns={returns} />
                     </TabsContent>
                     <TabsContent value="routes">
-                        <RoutesTab serviceOrders={serviceOrders} visitTemplate={visitTemplate} />
+                        <RoutesTab serviceOrders={serviceOrders} visitTemplate={visitTemplate} activeRoutes={activeRoutes} />
                     </TabsContent>
                 </Tabs>
             </div>
@@ -1543,5 +1590,10 @@ export default function ServiceOrderPage() {
     
 
     
+
+
+
+
+
 
 
