@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
@@ -20,7 +19,11 @@ import 'jspdf-autotable';
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import { Badge } from "@/components/ui/badge";
-import { isAfter } from "date-fns";
+import { isAfter, startOfMonth, endOfMonth, isWithinInterval, getMonth, getYear, setMonth, setYear } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import * as XLSX from 'xlsx';
+
 
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
@@ -191,6 +194,130 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
     );
 }
 
+function MonthlyPartsSummary({ serviceOrders }: { serviceOrders: ServiceOrder[] }) {
+    const [selectedDate, setSelectedDate] = useState(new Date());
+
+    const monthlyUsedParts = useMemo(() => {
+        const start = startOfMonth(selectedDate);
+        const end = endOfMonth(selectedDate);
+
+        const osThisMonth = serviceOrders.filter(os => os.date && isWithinInterval(os.date, { start, end }));
+
+        const partsCount: { [partCode: string]: number } = {};
+
+        osThisMonth.forEach(os => {
+            if (os.replacedPart) {
+                const parts = os.replacedPart.split(',').map(p => p.trim()).filter(Boolean);
+                parts.forEach(partCode => {
+                    partsCount[partCode] = (partsCount[partCode] || 0) + 1;
+                });
+            }
+        });
+
+        return Object.entries(partsCount).map(([partCode, quantity]) => ({ "Código da Peça": partCode, "Quantidade Usada no Mês": quantity }));
+    }, [serviceOrders, selectedDate]);
+    
+    const years = Array.from({ length: 5 }, (_, i) => getYear(new Date()) - i);
+    const months = Array.from({ length: 12 }, (_, i) => ({
+        value: i,
+        label: new Date(0, i).toLocaleString('pt-BR', { month: 'long' }),
+    }));
+    
+    const handleDownloadSheet = () => {
+        if (monthlyUsedParts.length === 0) {
+            return;
+        }
+        const worksheet = XLSX.utils.json_to_sheet(monthlyUsedParts);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Peças Usadas");
+        
+        const monthLabel = months.find(m => m.value === getMonth(selectedDate))?.label || '';
+        const yearLabel = getYear(selectedDate);
+        
+        XLSX.writeFile(workbook, `relatorio-pecas-usadas-${monthLabel}-${yearLabel}.xlsx`);
+    };
+
+
+    return (
+        <Card className="mb-6">
+             <Collapsible>
+                <CollapsibleTrigger asChild>
+                     <CardHeader className="flex-row items-center justify-between cursor-pointer">
+                        <div>
+                            <CardTitle>Relatório Mensal de Peças Usadas</CardTitle>
+                            <CardDescription>Total de peças utilizadas em todas as ordens de serviço finalizadas no período selecionado.</CardDescription>
+                        </div>
+                        <ChevronDown className="h-5 w-5 transition-transform [&[data-state=open]]:rotate-180" />
+                    </CardHeader>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                    <CardContent>
+                        <div className="flex flex-col sm:flex-row gap-4 mb-6 p-4 border rounded-lg bg-muted/50 items-end">
+                            <div className="flex-1 space-y-2">
+                                <Label>Mês</Label>
+                                <Select
+                                    value={String(getMonth(selectedDate))}
+                                    onValueChange={(value) => setSelectedDate(prev => setMonth(prev, Number(value)))}
+                                >
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        {months.map(month => (
+                                            <SelectItem key={month.value} value={String(month.value)}>
+                                                {month.label.charAt(0).toUpperCase() + month.label.slice(1)}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                             <div className="flex-1 space-y-2">
+                                <Label>Ano</Label>
+                                <Select
+                                    value={String(getYear(selectedDate))}
+                                    onValueChange={(value) => setSelectedDate(prev => setYear(prev, Number(value)))}
+                                >
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        {years.map(year => (
+                                            <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                             <div className="flex-none">
+                                <Button onClick={handleDownloadSheet} disabled={monthlyUsedParts.length === 0}>
+                                    <FileDown className="mr-2 h-4 w-4" /> Baixar Planilha
+                                </Button>
+                            </div>
+                        </div>
+
+                        {monthlyUsedParts.length === 0 ? (
+                             <p className="text-center text-muted-foreground py-10">Nenhuma peça usada encontrada para o período selecionado.</p>
+                        ) : (
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Código da Peça</TableHead>
+                                        <TableHead className="text-right">Quantidade Usada no Mês</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {monthlyUsedParts.map(item => (
+                                        <TableRow key={item["Código da Peça"]}>
+                                            <TableCell className="font-mono">{item["Código da Peça"]}</TableCell>
+                                            <TableCell className="text-right font-semibold">{item["Quantidade Usada no Mês"]}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        )}
+                    </CardContent>
+                 </CollapsibleContent>
+            </Collapsible>
+        </Card>
+    );
+}
+
+
 function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrders: ServiceOrder[] }) {
     const { toast } = useToast();
 
@@ -228,6 +355,11 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                     });
                 }
             });
+            
+            const totalPlanned = Object.values(plannedParts).reduce((sum, part) => sum + part.quantity, 0);
+            const totalUsed = Object.values(usedParts).reduce((sum, part) => sum + part.count, 0);
+            const utilizationRate = totalPlanned > 0 ? (totalUsed / totalPlanned) * 100 : 0;
+
 
             const summary = Object.entries(plannedParts).map(([partCode, partData]) => {
                 const usedInfo = usedParts[partCode] || { count: 0, osNumbers: [] };
@@ -255,7 +387,8 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
 
             return {
                 route,
-                summary
+                summary,
+                utilizationRate,
             };
         }).filter(item => item.summary.length > 0);
     }, [routes, serviceOrders]);
@@ -275,6 +408,12 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
             const doc = new jsPDF();
             doc.setFontSize(16);
             doc.text(`Resumo de Utilização de Peças - Rota: ${route.name}`, 14, 20);
+            
+            const createdAtDate = route.createdAt instanceof Timestamp ? route.createdAt.toDate() : route.createdAt;
+            if (createdAtDate) {
+                doc.setFontSize(10);
+                doc.text(`Data da Rota: ${createdAtDate.toLocaleDateString('pt-BR')}`, 14, 26);
+            }
 
             type Row = (string | number)[];
             const tableBody: Row[] = [];
@@ -306,7 +445,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
 
 
             (doc as any).autoTable({
-                startY: 30,
+                startY: 35,
                 head: [['OS', 'Peça', 'Descrição', 'Cód. Rastreio', 'Status']],
                 body: tableBody,
                 theme: 'grid',
@@ -336,17 +475,24 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
 
     return (
         <div className="space-y-4">
-            {summaryData.map(({ route, summary }) => (
+            {summaryData.map(({ route, summary, utilizationRate }) => (
                 <Card key={route.id}>
-                    <CardHeader className="flex flex-row items-center justify-between">
-                        <div>
-                            <CardTitle>{route.name}</CardTitle>
-                            <CardDescription>Resumo de utilização de peças para esta rota.</CardDescription>
+                    <CardHeader>
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                            <div>
+                                <CardTitle>{route.name}</CardTitle>
+                                <CardDescription>Resumo de utilização de peças para esta rota.</CardDescription>
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                                <Badge variant={utilizationRate > 80 ? "default" : "destructive"} className="text-base py-1 px-3">
+                                    Aproveitamento: {utilizationRate.toFixed(1)}%
+                                </Badge>
+                                 <Button variant="outline" size="sm" onClick={() => handleGenerateSummaryPdf(route)}>
+                                    <FileDown className="mr-2 h-4 w-4" />
+                                    Exportar Resumo PDF
+                                </Button>
+                            </div>
                         </div>
-                        <Button variant="outline" size="sm" onClick={() => handleGenerateSummaryPdf(route)}>
-                            <FileDown className="mr-2 h-4 w-4" />
-                            Exportar Resumo PDF
-                        </Button>
                     </CardHeader>
                     <CardContent>
                         <Table>
@@ -672,6 +818,7 @@ export default function PartSeparationPage() {
                             />
                         </TabsContent>
                          <TabsContent value="summary" className="mt-6">
+                           <MonthlyPartsSummary serviceOrders={serviceOrders} />
                            <PartsSummary routes={filteredRoutes} serviceOrders={serviceOrders} />
                         </TabsContent>
                     </Tabs>
@@ -686,23 +833,5 @@ export default function PartSeparationPage() {
         </>
     );
 }
- 
-    
-
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     

@@ -3,18 +3,18 @@
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, DollarSign, FileMinus, Target, CheckCircle, XCircle } from "lucide-react";
+import { PlusCircle, DollarSign, FileMinus, Target, CheckCircle, XCircle, TrendingUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, Timestamp, query, where, getDoc } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, Timestamp, query, where, getDoc, orderBy, limit, startAfter, DocumentSnapshot, endBefore } from "firebase/firestore";
 import { type Chargeback, type CounterBudget, type AppUser } from "@/lib/data";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { format, isWithinInterval, startOfMonth, endOfMonth } from 'date-fns';
+import { format, isWithinInterval, startOfMonth, endOfMonth, eachDayOfInterval, isWeekend } from 'date-fns';
 import { useAuth } from "@/context/AuthContext";
 import { Progress } from "@/components/ui/progress";
 
@@ -25,23 +25,54 @@ function BudgetsTab({ appUser }: { appUser: AppUser | null }) {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [formData, setFormData] = useState({ serviceOrderNumber: '', observations: '', value: 0 });
 
-    const fetchBudgets = async () => {
+    const [lastVisible, setLastVisible] = useState<DocumentSnapshot | null>(null);
+    const [hasMore, setHasMore] = useState(true);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+    const fetchBudgets = async (loadMore = false) => {
         if (!appUser) return;
-        setIsLoading(true);
+
+        if (loadMore) {
+            setIsLoadingMore(true);
+        } else {
+            setIsLoading(true);
+            setBudgets([]);
+        }
+
         try {
-            const q = query(collection(db, "counterBudgets"), where("technicianId", "==", appUser.uid));
+            let q;
+            if (loadMore && lastVisible) {
+                q = query(collection(db, "counterBudgets"), where("technicianId", "==", appUser.uid), orderBy("date", "desc"), startAfter(lastVisible), limit(10));
+            } else {
+                q = query(collection(db, "counterBudgets"), where("technicianId", "==", appUser.uid), orderBy("date", "desc"), limit(10));
+            }
+            
             const snapshot = await getDocs(q);
             const data = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data(),
                 date: (doc.data().date as Timestamp).toDate(),
-            } as CounterBudget)).sort((a, b) => b.date.getTime() - a.date.getTime());
-            setBudgets(data);
+            } as CounterBudget));
+
+            if (loadMore) {
+                setBudgets(prev => [...prev, ...data]);
+            } else {
+                setBudgets(data);
+            }
+
+            if (snapshot.docs.length < 10) {
+                setHasMore(false);
+            } else {
+                setLastVisible(snapshot.docs[snapshot.docs.length - 1]);
+                setHasMore(true);
+            }
+
         } catch (error) {
             console.error("Error fetching budgets:", error);
             toast({ variant: "destructive", title: "Erro", description: "Não foi possível buscar os orçamentos." });
         } finally {
             setIsLoading(false);
+            setIsLoadingMore(false);
         }
     };
     
@@ -50,6 +81,12 @@ function BudgetsTab({ appUser }: { appUser: AppUser | null }) {
             fetchBudgets();
         }
     }, [appUser, toast]);
+
+    const handleLoadMore = () => {
+        if (hasMore) {
+            fetchBudgets(true);
+        }
+    };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const { id, value, type } = e.target;
@@ -124,7 +161,7 @@ function BudgetsTab({ appUser }: { appUser: AppUser | null }) {
                         <CardDescription>Visualize os orçamentos que você registrou.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {isLoading ? <p>Carregando...</p> : (
+                        {isLoading ? <p className="text-center py-10">Carregando...</p> : (
                             <Table>
                                 <TableHeader>
                                     <TableRow>
@@ -147,6 +184,13 @@ function BudgetsTab({ appUser }: { appUser: AppUser | null }) {
                             </Table>
                         )}
                     </CardContent>
+                    {hasMore && !isLoading && (
+                        <CardFooter className="pt-6 justify-center">
+                            <Button onClick={handleLoadMore} disabled={isLoadingMore} variant="outline">
+                                {isLoadingMore ? 'Carregando...' : 'Carregar mais orçamentos'}
+                            </Button>
+                        </CardFooter>
+                    )}
                 </Card>
             </div>
         </div>
@@ -353,6 +397,25 @@ function GoalTab({ appUser }: { appUser: AppUser | null }) {
         }
     }, [appUser, toast]);
 
+    const calculateDailyAverage = (goal: number, currentRevenue: number) => {
+        const remainingGoal = Math.max(0, goal - currentRevenue);
+        const today = new Date();
+        let dailyAverage = 0;
+        
+        if (remainingGoal > 0) {
+            const endOfCurrentMonth = endOfMonth(today);
+            const remainingDaysInterval = eachDayOfInterval({ start: today, end: endOfCurrentMonth });
+            const remainingBusinessDays = remainingDaysInterval.filter(day => !isWeekend(day)).length;
+
+            if (remainingBusinessDays > 0) {
+                dailyAverage = remainingGoal / remainingBusinessDays;
+            } else {
+                dailyAverage = remainingGoal;
+            }
+        }
+        return dailyAverage;
+    }
+
     if (isLoading) {
         return <p>Carregando desempenho...</p>;
     }
@@ -363,6 +426,7 @@ function GoalTab({ appUser }: { appUser: AppUser | null }) {
 
     const progress = goal > 0 ? Math.min((performance.net / goal) * 100, 100) : 0;
     const isGoalMet = performance.net >= goal;
+    const dailyAverage = calculateDailyAverage(goal, performance.net);
 
     return (
         <Card>
@@ -381,6 +445,12 @@ function GoalTab({ appUser }: { appUser: AppUser | null }) {
                         </p>
                     </div>
                     <Progress value={progress} />
+                    {dailyAverage > 0 && (
+                        <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+                            <TrendingUp className="h-4 w-4" />
+                            <span>Média diária restante: <span className="font-bold text-foreground">{dailyAverage.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span></span>
+                        </div>
+                    )}
                 </div>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t pt-6">

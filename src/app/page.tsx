@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -82,6 +81,9 @@ const formSchema = z.object({
   productCollectedOrInstalled: z.string().optional(),
   cleaningPerformed: z.boolean().optional(),
 }).superRefine((data, ctx) => {
+    if (!ctx.formState.isSubmitted) {
+        return;
+    }
   const serviceRequiresCodes = !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(data.serviceType);
   
   if (serviceRequiresCodes) {
@@ -92,15 +94,15 @@ const formSchema = z.object({
         path: ["symptomCode"],
       });
     }
+    
+    const repairIsOptional = data.serviceType === 'visita_orcamento_samsung' || data.serviceType === 'reparo_samsung';
 
-    if (data.serviceType !== 'visita_orcamento_samsung') {
-      if (!data.repairCode || data.repairCode.length === 0) {
+    if (!repairIsOptional && (!data.repairCode || data.repairCode.length === 0)) {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Selecione o código de reparo.",
-          path: ["repairCode"],
+            code: z.ZodIssueCode.custom,
+            message: "Selecione o código de reparo.",
+            path: ["repairCode"],
         });
-      }
     }
   }
 
@@ -203,6 +205,14 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators,
     const inHomeBudgetsThisMonth = inHomeBudgets.filter(ihb =>
         ihb.date && isAfter(ihb.date, startOfCurrentMonth)
     );
+    
+    const serviceTypeConfig: Record<string, { label: string; icon: React.ElementType }> = {
+        reparo_samsung: { label: "Reparo Samsung", icon: Wrench },
+        visita_orcamento_samsung: { label: "Visita Orçamento Samsung", icon: ClipboardCheck },
+        visita_assurant: { label: "Visita Assurant", icon: ShieldCheck },
+        coleta_eco_rma: { label: "Coleta Eco /RMA", icon: Package },
+        instalacao_inicial: { label: "Instalação Inicial", icon: PackageOpen },
+    };
 
     const performanceData = technicians.map(tech => {
         const techOrdersThisMonth = serviceOrdersThisMonth.filter(os =>
@@ -228,6 +238,12 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators,
         const osCount = techOrdersThisMonth.length;
         const cleaningsCount = techOrdersThisMonth.filter(os => os.cleaningPerformed).length;
         
+        const osCountByType = techOrdersThisMonth.reduce((acc, os) => {
+            const type = os.serviceType;
+            acc[type] = (acc[type] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+        
         const grossRevenue = techOrdersThisMonth.reduce((total, os) => {
             if (os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved && os.samsungBudgetValue) {
                 return total + os.samsungBudgetValue;
@@ -248,6 +264,7 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators,
             goal,
             progress,
             osCount,
+            osCountByType,
             returnCount: techReturnsThisMonth.length,
             cleaningsCount,
         };
@@ -260,14 +277,6 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators,
         acc[os.serviceType]++;
         return acc;
     }, {} as Record<ServiceOrder['serviceType'], number>);
-
-    const serviceTypeConfig: Record<string, { label: string; icon: React.ElementType }> = {
-        reparo_samsung: { label: "Reparo Samsung", icon: Wrench },
-        visita_orcamento_samsung: { label: "Visita Orçamento Samsung", icon: ClipboardCheck },
-        visita_assurant: { label: "Visita Assurant", icon: ShieldCheck },
-        coleta_eco_rma: { label: "Coleta Eco /RMA", icon: Package },
-        instalacao_inicial: { label: "Instalação Inicial", icon: PackageOpen },
-    };
 
     const getGoalDisplay = (indicator: Indicator) => {
         if (indicator.goalType === 'percentage') {
@@ -317,27 +326,51 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators,
                                         </span>
                                     </div>
                                 </div>
-                                 <div className="flex justify-between items-center text-sm border-t pt-4">
-                                    <div className="flex items-center gap-2 text-muted-foreground">
-                                        <ClipboardCheck className="h-4 w-4" />
-                                        <span>Total de OS</span>
+                                 <div className="border-t pt-4 space-y-1">
+                                     <Collapsible>
+                                        <CollapsibleTrigger className="w-full">
+                                            <div className="flex justify-between items-center text-sm py-1">
+                                                <div className="flex items-center gap-2 text-muted-foreground">
+                                                    <ClipboardCheck className="h-4 w-4" />
+                                                    <span>Total de OS</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold">{tech.osCount}</span>
+                                                    <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
+                                                </div>
+                                            </div>
+                                        </CollapsibleTrigger>
+                                        <CollapsibleContent className="text-sm pl-6 mt-1 space-y-1">
+                                            {Object.entries(tech.osCountByType).map(([type, count]) => {
+                                                const Icon = serviceTypeConfig[type]?.icon || Wrench;
+                                                const label = serviceTypeConfig[type]?.label || type;
+                                                return (
+                                                     <div key={type} className="flex justify-between items-center text-xs">
+                                                         <div className="flex items-center gap-2 text-muted-foreground">
+                                                            <Icon className="h-3 w-3" />
+                                                            <span>{label}</span>
+                                                        </div>
+                                                        <span className="font-bold">{count}</span>
+                                                     </div>
+                                                )
+                                            })}
+                                        </CollapsibleContent>
+                                     </Collapsible>
+                                    <div className="flex justify-between items-center text-sm py-1">
+                                        <div className="flex items-center gap-2 text-muted-foreground">
+                                            <History className="h-4 w-4" />
+                                            <span>Total de Retornos</span>
+                                        </div>
+                                        <span className="font-bold">{tech.returnCount}</span>
                                     </div>
-                                    <span className="font-bold">{tech.osCount}</span>
-                                </div>
-                                <div className="flex justify-between items-center text-sm">
-                                    <div className="flex items-center gap-2 text-muted-foreground">
-                                        <History className="h-4 w-4" />
-                                        <span>Total de Retornos</span>
+                                    <div className="flex justify-between items-center text-sm py-1">
+                                        <div className="flex items-center gap-2 text-muted-foreground">
+                                            <Sparkles className="h-4 w-4" />
+                                            <span>Total de Limpezas</span>
+                                        </div>
+                                        <span className="font-bold">{tech.cleaningsCount}</span>
                                     </div>
-                                    <span className="font-bold">{tech.returnCount}</span>
-                                </div>
-                                <div className="flex justify-between items-center text-sm">
-                                    <div className="flex items-center gap-2 text-muted-foreground">
-                                        <Sparkles className="h-4 w-4" />
-                                        <span>Total de Limpezas</span>
-                                    </div>
-                                    <span className="font-bold">{tech.cleaningsCount}</span>
-                                </div>
+                                 </div>
                             </CardContent>
                         </Card>
                     ))}
@@ -606,9 +639,10 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt, visitTemp
     visitTemplate: string
 }) {
     const { toast } = useToast();
+    const createdAtAsDate = routeCreatedAt instanceof Timestamp ? routeCreatedAt.toDate() : routeCreatedAt;
     const isCompleted = serviceOrders.some(os => 
         os.serviceOrderNumber === stop.serviceOrder && 
-        isAfter(os.date, routeCreatedAt)
+        isAfter(os.date, createdAtAsDate)
     );
 
     const handleCopyVisitText = () => {
@@ -737,14 +771,14 @@ function RoutesTab({ serviceOrders, visitTemplate, activeRoutes }: { serviceOrde
     return (
         <div className="space-y-4">
             {activeRoutes.map(route => {
-                const departure = route.departureDate || new Date();
-                const arrival = route.arrivalDate || new Date();
+                const departure = route.departureDate ? (route.departureDate instanceof Timestamp ? route.departureDate.toDate() : route.departureDate) : new Date();
+                const arrival = route.arrivalDate ? (route.arrivalDate instanceof Timestamp ? route.arrivalDate.toDate() : route.arrivalDate) : new Date();
                 const duration = differenceInDays(arrival, departure) + 1;
 
                 const totalStops = route.stops.length;
                 const completedStopsCount = route.stops.filter(stop => 
                     serviceOrders.some(os => 
-                        os.serviceOrderNumber === stop.serviceOrder && isAfter(os.date, route.createdAt)
+                        os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt)
                     )
                 ).length;
                 const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
@@ -1354,7 +1388,7 @@ export default function ServiceOrderPage() {
                                                 <div className="space-y-2 rounded-lg border bg-muted/50 p-4">
                                                     <div className="space-y-1">
                                                         <Label className="font-semibold">Peças da Rota para esta OS</Label>
-                                                        <p className="text-xs text-muted-foreground">Selecione as peças usadas.</p>
+                                                        <p className="text-xs text-muted-foreground">Selecione as peças usadas</p>
                                                     </div>
                                                     <div className="space-y-2 pt-2">
                                                         {routeParts.map((part) => (
@@ -1459,7 +1493,7 @@ export default function ServiceOrderPage() {
                                                     )}/>
                                                     <FormField control={form.control} name="repairCode" render={({ field }) => (
                                                         <FormItem>
-                                                            <FormLabel>Código de Reparo {watchedServiceType === 'visita_orcamento_samsung' && '(Opcional)'}</FormLabel>
+                                                            <FormLabel>Código de Reparo {(watchedServiceType === 'visita_orcamento_samsung' || watchedServiceType === 'reparo_samsung') && '(Opcional)'}</FormLabel>
                                                                 <FormControl>
                                                                 <SearchableSelect
                                                                     value={field.value || ""}
@@ -1586,14 +1620,3 @@ export default function ServiceOrderPage() {
     </div>
   );
 }
-
-    
-
-    
-
-
-
-
-
-
-
