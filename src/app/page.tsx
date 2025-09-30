@@ -37,7 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users } from "lucide-react";
+import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, Percent } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
@@ -243,6 +243,10 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators,
             acc[type] = (acc[type] || 0) + 1;
             return acc;
         }, {} as Record<string, number>);
+
+        const budgetVisitOrders = techOrdersThisMonth.filter(os => os.serviceType === 'visita_orcamento_samsung');
+        const approvedBudgets = budgetVisitOrders.filter(os => os.samsungBudgetApproved).length;
+        const conversionRate = budgetVisitOrders.length > 0 ? (approvedBudgets / budgetVisitOrders.length) * 100 : 0;
         
         const grossRevenue = techOrdersThisMonth.reduce((total, os) => {
             if (os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved && os.samsungBudgetValue) {
@@ -267,6 +271,7 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators,
             osCountByType,
             returnCount: techReturnsThisMonth.length,
             cleaningsCount,
+            conversionRate,
         };
     }).sort((a, b) => (b.goal > 0 ? (b.revenue / b.goal) : 0) - (a.goal > 0 ? (a.revenue / a.goal) : 0));
 
@@ -369,6 +374,13 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators,
                                             <span>Total de Limpezas</span>
                                         </div>
                                         <span className="font-bold">{tech.cleaningsCount}</span>
+                                    </div>
+                                     <div className="flex justify-between items-center text-sm py-1">
+                                        <div className="flex items-center gap-2 text-muted-foreground">
+                                            <Percent className="h-4 w-4" />
+                                            <span>Taxa de Conversão</span>
+                                        </div>
+                                        <span className="font-bold">{tech.conversionRate.toFixed(1)}%</span>
                                     </div>
                                  </div>
                             </CardContent>
