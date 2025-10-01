@@ -81,9 +81,6 @@ const formSchema = z.object({
   productCollectedOrInstalled: z.string().optional(),
   cleaningPerformed: z.boolean().optional(),
 }).superRefine((data, ctx) => {
-    if (!ctx.formState.isSubmitted) {
-        return;
-    }
   const serviceRequiresCodes = !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(data.serviceType);
   
   if (serviceRequiresCodes) {
