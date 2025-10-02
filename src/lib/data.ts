@@ -143,6 +143,9 @@ export type RouteStop = {
     productType: string;
     statusComment: string;
     parts: RoutePart[];
+    replacedPart?: string;
+    observations?: string;
+    technicianName?: string;
     stopType?: 'padrao' | 'coleta' | 'entrega';
 }
 
@@ -170,6 +173,7 @@ export type ChecklistField = {
   page: number;
   x: number;
   y: number;
+  variableKey?: string;
 }
 
 export type ChecklistTemplate = {

@@ -1,12 +1,13 @@
 
+
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format, isAfter, startOfMonth, startOfYear, subDays, differenceInDays } from "date-fns";
-import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator, type Route, type RouteStop, type Chargeback, type CounterBudget, type InHomeBudget, type RoutePart } from "@/lib/data";
+import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator, type Route, type RouteStop, type Chargeback, type CounterBudget, type InHomeBudget, type RoutePart, type ChecklistTemplate, type ChecklistField } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -37,7 +38,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, Percent } from "lucide-react";
+import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, Percent, Link as LinkIcon, Trash2, TrendingUp, FileDown } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
@@ -54,11 +55,29 @@ import {
   DialogTitle,
   DialogDescription,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import React from "react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { ptBR } from 'date-fns/locale';
 
+type FieldWithPosition = ChecklistField & { x: number; y: number };
+
+const availableVariables: { key: keyof RouteStop | 'currentDate' | 'technicianName', label: string }[] = [
+    { key: 'serviceOrder', label: 'Número da OS' },
+    { key: 'consumerName', label: 'Nome do Cliente' },
+    { key: 'model', label: 'Modelo do Produto' },
+    { key: 'city', label: 'Cidade' },
+    { key: 'neighborhood', label: 'Bairro' },
+    { key: 'requestDate', label: 'Data de Solicitação' },
+    { key: 'warrantyType', label: 'Tipo de Garantia' },
+    { key: 'replacedPart', label: 'Peças Trocadas'},
+    { key: 'observations', label: 'Observações'},
+    { key: 'technicianName', label: 'Nome do Técnico'},
+    { key: 'currentDate', label: 'Data Atual (DD/MM/AAAA)'},
+];
 
 type CodeItem = { code: string; description: string; };
 type CodeCategory = { "TV/AV": CodeItem[]; "DA": CodeItem[]; };
@@ -115,6 +134,7 @@ const formSchema = z.object({
 });
 
 type FormValues = z.infer<typeof formSchema>;
+
 
 function Header() {
     const [installPromptEvent, setInstallPromptEvent] = useState<any>(null);
@@ -895,8 +915,201 @@ function RoutesTab({ serviceOrders, visitTemplate, activeRoutes }: { serviceOrde
     );
 }
 
+function ChecklistSection({ 
+    checklistTemplates, 
+    routeStopData,
+    mainFormData,
+    onChecklistDataChange,
+    checklistData,
+    technicianName
+}: {
+    checklistTemplates: ChecklistTemplate[],
+    routeStopData: RouteStop | null,
+    mainFormData: FormValues,
+    onChecklistDataChange: (data: Record<string, string | boolean>) => void,
+    checklistData: Record<string, string | boolean>,
+    technicianName?: string;
+}) {
+    const { toast } = useToast();
+    const [selectedTemplate, setSelectedTemplate] = useState<ChecklistTemplate | null>(null);
+    const [fields, setFields] = useState<FieldWithPosition[]>([]);
+    const [isGenerating, setIsGenerating] = useState(false);
+
+    useEffect(() => {
+        if (selectedTemplate) {
+            const initialFields = (selectedTemplate.fields || []).map(f => ({ ...f, x: f.x || 50, y: f.y || 50 }));
+            setFields(initialFields as FieldWithPosition[]);
+        } else {
+            setFields([]);
+        }
+    }, [selectedTemplate]);
+
+     useEffect(() => {
+        const newChecklistData: Record<string, string | boolean> = {};
+        const allData = { 
+            ...routeStopData, 
+            serviceOrder: mainFormData.serviceOrderNumber,
+            replacedPart: mainFormData.replacedPart,
+            observations: mainFormData.observations,
+            technicianName: technicianName,
+            currentDate: new Date().toLocaleDateString('pt-BR'),
+        };
+
+        fields.forEach(field => {
+            if (field.variableKey && field.variableKey in allData) {
+                const value = allData[field.variableKey as keyof typeof allData];
+                if (value) {
+                     newChecklistData[field.id] = String(value);
+                }
+            }
+        });
+        onChecklistDataChange({...checklistData, ...newChecklistData});
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+     }, [fields, mainFormData.serviceOrderNumber, mainFormData.replacedPart, mainFormData.observations, routeStopData, technicianName]);
+
+
+    const handleTemplateChange = (templateId: string) => {
+        const template = checklistTemplates.find(t => t.id === templateId);
+        setSelectedTemplate(template || null);
+        if(!template) {
+             onChecklistDataChange({});
+        }
+    };
+
+    const handleInputChange = (fieldId: string, value: string | boolean) => {
+        onChecklistDataChange({ ...checklistData, [fieldId]: value });
+    };
+    
+    const handleGeneratePdf = async () => {
+        if (!selectedTemplate) {
+             toast({ variant: "destructive", title: "Modelo não selecionado" });
+            return;
+        }
+         if (!mainFormData.serviceOrderNumber) {
+             toast({ variant: "destructive", title: "Dados incompletos", description: "Preencha o número da OS no formulário principal." });
+            return;
+        }
+        setIsGenerating(true);
+
+        try {
+            const pdfUrl = `${window.location.origin}${selectedTemplate.pdfUrl}`;
+            const existingPdfBytes = await fetch(pdfUrl).then(res => res.arrayBuffer());
+            const pdfDoc = await PDFDocument.load(existingPdfBytes);
+            const pages = pdfDoc.getPages();
+            const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+            
+            fields.forEach(field => {
+                const value = checklistData[field.id];
+                
+                if (value !== undefined && value !== null) {
+                    const pageToDraw = pages[field.page - 1] || pages[0];
+                    if (pageToDraw) {
+                        const pageHeight = pageToDraw.getHeight();
+                        if (field.type === 'text' && typeof value === 'string') {
+                            pageToDraw.drawText(value, { x: field.x, y: pageHeight - field.y - 10, font, size: 12, color: rgb(0, 0, 0) });
+                        } else if (field.type === 'checkbox' && value === true) {
+                            pageToDraw.drawText('X', { x: field.x + 2, y: pageHeight - field.y - 12, font, size: 14, color: rgb(0, 0, 0) });
+                        }
+                    }
+                }
+            });
+
+            const pdfBytes = await pdfDoc.save();
+
+            const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `${mainFormData.serviceOrderNumber}_checklist.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+            toast({ title: "PDF gerado com sucesso!" });
+
+        } catch (error) {
+            console.error("Error generating PDF:", error);
+            toast({ variant: "destructive", title: "Erro ao Gerar PDF" });
+        } finally {
+            setIsGenerating(false);
+        }
+    };
+
+    return (
+        <Card className="w-full">
+            <CardHeader>
+                <CardTitle>Checklist (Opcional)</CardTitle>
+                <CardDescription>
+                    Selecione um modelo para preencher e gerar um checklist em PDF.
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                 <div className="space-y-2">
+                    <Label>Modelo de Checklist</Label>
+                    <Select onValueChange={handleTemplateChange} value={selectedTemplate?.id || ""}>
+                        <SelectTrigger>
+                            <SelectValue placeholder={"Selecione um modelo..."} />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="none">Nenhum</SelectItem>
+                            {checklistTemplates.map(t => (
+                                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                {selectedTemplate && (
+                    <div className="space-y-6 pt-4 border-t">
+                        {fields.map(field => {
+                            const value = checklistData[field.id];
+                            const isAutoFilled = field.variableKey && value;
+                            
+                            return (
+                                <div key={field.id} className="space-y-2">
+                                    <Label htmlFor={`fill-${field.id}`} className="flex items-center gap-2">
+                                        {isAutoFilled && <LinkIcon className="h-4 w-4 text-blue-500" title="Preenchido automaticamente" />}
+                                        {field.name}
+                                    </Label>
+                                    {field.type === 'text' ? (
+                                        <Input 
+                                            id={`fill-${field.id}`} 
+                                            value={value !== undefined ? String(value) : ''}
+                                            onChange={(e) => handleInputChange(field.id, e.target.value)} 
+                                        />
+                                    ) : (
+                                        <div className="flex items-center space-x-2">
+                                            <input 
+                                                type="checkbox" 
+                                                id={`fill-${field.id}`} 
+                                                className="h-4 w-4" 
+                                                checked={!!value}
+                                                onChange={(e) => handleInputChange(field.id, e.target.checked)} 
+                                            />
+                                            <label htmlFor={`fill-${field.id}`} className="text-sm">Marcar</label>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                        {fields.length === 0 && (
+                             <p className="text-center text-muted-foreground pt-4 text-sm">Nenhum campo configurado para este modelo.</p>
+                        )}
+                    </div>
+                )}
+            </CardContent>
+            <CardFooter>
+                 <Button onClick={handleGeneratePdf} disabled={isGenerating || !selectedTemplate} className="w-full">
+                    <FileDown className="mr-2 h-4 w-4" />
+                    {isGenerating ? 'Gerando PDF...' : 'Gerar e Baixar PDF do Checklist'}
+                </Button>
+            </CardFooter>
+        </Card>
+    );
+}
+
 export default function ServiceOrderPage() {
   const [generatedText, setGeneratedText] = useState("");
+  const [osIsSaved, setOsIsSaved] = useState(false);
   const { toast } = useToast();
   const [symptomCodes, setSymptomCodes] = useState<CodeCategory>({ "TV/AV": [], "DA": [] });
   const [repairCodes, setRepairCodes] = useState<CodeCategory>({ "TV/AV": [], "DA": [] });
@@ -911,8 +1124,11 @@ export default function ServiceOrderPage() {
   const [assistantName, setAssistantName] = useState("");
   const [visitTemplate, setVisitTemplate] = useState("");
   const [activeRoutes, setActiveRoutes] = useState<Route[]>([]);
-  const [routeParts, setRouteParts] = useState<RoutePart[]>([]);
+  const [currentRouteStop, setCurrentRouteStop] = useState<RouteStop | null>(null);
   const [selectedParts, setSelectedParts] = useState<string[]>([]);
+  const [checklistTemplates, setChecklistTemplates] = useState<ChecklistTemplate[]>([]);
+  const [checklistData, setChecklistData] = useState<Record<string, string | boolean>>({});
+
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -936,15 +1152,26 @@ export default function ServiceOrderPage() {
     },
   });
 
+  const allFormValues = form.watch();
+
+  useEffect(() => {
+      localStorage.setItem('serviceOrderFormData', JSON.stringify(allFormValues));
+  }, [allFormValues]);
+
+   useEffect(() => {
+      localStorage.setItem('checklistFormData', JSON.stringify(checklistData));
+  }, [checklistData]);
+
   const watchedServiceType = form.watch("serviceType");
   const watchedEquipmentType = form.watch("equipmentType");
   const watchedTechnician = form.watch("technician");
   const watchedPreset = form.watch("presetId");
   const watchedServiceOrderNumber = form.watch("serviceOrderNumber");
+  const { resetField, setValue } = form;
 
   const fetchDynamicData = async () => {
     try {
-        const [ordersSnapshot, returnsSnapshot, indicatorsSnapshot, chargebacksSnapshot, counterBudgetsSnapshot, inHomeBudgetsSnapshot, activeRoutesSnapshot] = await Promise.all([
+        const [ordersSnapshot, returnsSnapshot, indicatorsSnapshot, chargebacksSnapshot, counterBudgetsSnapshot, inHomeBudgetsSnapshot, activeRoutesSnapshot, checklistsSnapshot] = await Promise.all([
             getDocs(collection(db, "serviceOrders")),
             getDocs(collection(db, "returns")),
             getDocs(collection(db, "indicators")),
@@ -952,6 +1179,7 @@ export default function ServiceOrderPage() {
             getDocs(collection(db, "counterBudgets")),
             getDocs(collection(db, "inHomeBudgets")),
             getDocs(query(collection(db, "routes"), where("isActive", "==", true))),
+            getDocs(collection(db, "checklistTemplates"))
         ]);
         
         const orders = ordersSnapshot.docs.map(doc => {
@@ -1019,6 +1247,9 @@ export default function ServiceOrderPage() {
         });
         setActiveRoutes(routesData);
 
+        const checklists = checklistsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChecklistTemplate));
+        setChecklistTemplates(checklists);
+
     } catch (error) {
         console.error("Error fetching dynamic data:", error);
         toast({
@@ -1068,80 +1299,81 @@ export default function ServiceOrderPage() {
     fetchInitialData().then(() => {
         fetchDynamicData();
     });
-  }, [toast]);
 
-  useEffect(() => {
-    const savedTechnician = localStorage.getItem("selectedTechnician");
-    if (savedTechnician) {
-      form.setValue("technician", savedTechnician);
-    }
-    const savedAssistant = localStorage.getItem("assistantName");
-    if (savedAssistant) {
-      setAssistantName(savedAssistant);
+    try {
+        const savedFormData = localStorage.getItem('serviceOrderFormData');
+        if (savedFormData) {
+            const parsedData = JSON.parse(savedFormData);
+            form.reset(parsedData);
+        }
+        const savedChecklistData = localStorage.getItem('checklistFormData');
+        if (savedChecklistData) {
+            setChecklistData(JSON.parse(savedChecklistData));
+        }
+        const savedAssistant = localStorage.getItem("assistantName");
+        if (savedAssistant) {
+            setAssistantName(savedAssistant);
+        }
+    } catch (error) {
+        console.error("Failed to parse data from localStorage", error);
     }
   }, [form]);
-
-  useEffect(() => {
-    if (watchedTechnician) {
-      localStorage.setItem("selectedTechnician", watchedTechnician);
-    }
-  }, [watchedTechnician]);
 
   useEffect(() => {
     localStorage.setItem("assistantName", assistantName);
   }, [assistantName]);
 
   useEffect(() => {
-    form.resetField("symptomCode");
-    form.resetField("repairCode");
-    form.resetField("presetId", { defaultValue: "none" });
-    form.resetField("replacedPart");
-    form.resetField("observations");
-  }, [watchedEquipmentType, form]);
+    resetField("symptomCode");
+    resetField("repairCode");
+    resetField("presetId", { defaultValue: "none" });
+    resetField("replacedPart");
+    resetField("observations");
+  }, [watchedEquipmentType, resetField]);
 
   useEffect(() => {
     const selectedPreset = presets.find(p => p.id === watchedPreset);
     if (selectedPreset) {
-      form.setValue("symptomCode", selectedPreset.symptomCode);
-      form.setValue("repairCode", selectedPreset.repairCode);
-      form.setValue("replacedPart", selectedPreset.replacedPart || "");
-      form.setValue("observations", selectedPreset.observations || "");
+      setValue("symptomCode", selectedPreset.symptomCode);
+      setValue("repairCode", selectedPreset.repairCode);
+      setValue("replacedPart", selectedPreset.replacedPart || "");
+      setValue("observations", selectedPreset.observations || "");
     } else if (watchedPreset === "none") {
-      form.setValue("symptomCode", "");
-      form.setValue("repairCode", "");
-      form.setValue("replacedPart", "");
-      form.setValue("observations", "");
+      setValue("symptomCode", "");
+      setValue("repairCode", "");
+      setValue("replacedPart", "");
+      setValue("observations", "");
     }
-  }, [watchedPreset, presets, form]);
+  }, [watchedPreset, presets, setValue]);
 
   useEffect(() => {
-    if (watchedServiceOrderNumber && activeRoutes.length > 0) {
-        let foundParts: RoutePart[] = [];
+    if (watchedServiceOrderNumber) {
+        let foundStop: RouteStop | null = null;
         for (const route of activeRoutes) {
             const stop = route.stops.find(s => s.serviceOrder === watchedServiceOrderNumber);
-            if (stop && stop.parts && stop.parts.length > 0) {
-                foundParts = stop.parts;
+            if (stop) {
+                foundStop = stop;
                 break;
             }
         }
-        setRouteParts(foundParts);
-        setSelectedParts([]); // Reset selections when OS changes
-        form.setValue("replacedPart", "");
-    } else {
-        setRouteParts([]);
+        setCurrentRouteStop(foundStop);
         setSelectedParts([]);
+        setValue("replacedPart", "");
+    } else {
+        setCurrentRouteStop(null);
     }
-  }, [watchedServiceOrderNumber, activeRoutes, form]);
+    setOsIsSaved(false);
+  }, [watchedServiceOrderNumber, activeRoutes, setValue]);
   
   useEffect(() => {
       const replacedPartText = selectedParts.join(', ');
-      form.setValue("replacedPart", replacedPartText);
-  }, [selectedParts, form]);
+      setValue("replacedPart", replacedPartText);
+  }, [selectedParts, setValue]);
 
 
   const onSubmit = async (data: FormValues) => {
-    // Generate text first
-    let technicianName = technicians.find(t => t.id === data.technician)?.name || '';
+    const tech = technicians.find(t => t.id === data.technician);
+    let technicianName = tech?.name || '';
     if (assistantName) {
       technicianName = `${technicianName} / ${assistantName}`;
     }
@@ -1193,7 +1425,6 @@ export default function ServiceOrderPage() {
     const text = [...baseTextParts, ...serviceSpecificParts, ...optionalParts].filter(Boolean).join('\n');
     setGeneratedText(text);
 
-    // Save to Firestore
     try {
         const newServiceOrder = {
             technicianId: data.technician,
@@ -1215,36 +1446,16 @@ export default function ServiceOrderPage() {
         };
 
         await addDoc(collection(db, "serviceOrders"), newServiceOrder);
-        
+        setOsIsSaved(true);
         toast({
             title: "OS Lançada com Sucesso!",
             description: `A ordem de serviço ${data.serviceOrderNumber} foi salva.`,
         });
 
-        fetchDynamicData(); // Refetch data for dashboard
-
-        const technicianBeforeReset = form.getValues("technician");
-        
-        form.reset({
-            technician: technicianBeforeReset, // Keep technician selected
-            serviceOrderNumber: "",
-            serviceType: "",
-            samsungRepairType: "",
-            samsungBudgetApproved: false,
-            samsungBudgetValue: "",
-            equipmentType: "", // Reset equipment type
-            presetId: "none",
-            symptomCode: "",
-            repairCode: "",
-            replacedPart: "",
-            observations: "",
-            defectFound: "",
-            partsRequested: "",
-            productCollectedOrInstalled: "",
-            cleaningPerformed: false,
-        });
+        fetchDynamicData();
 
     } catch (error) {
+        setOsIsSaved(false);
         console.error("Error adding service order: ", error);
         toast({
             variant: "destructive",
@@ -1271,10 +1482,50 @@ export default function ServiceOrderPage() {
         });
       });
   };
+  
+  const resetForm = () => {
+    const technicianBeforeReset = form.getValues("technician");
+    form.reset({
+        technician: technicianBeforeReset,
+        serviceOrderNumber: "",
+        serviceType: "",
+        samsungRepairType: "",
+        samsungBudgetApproved: false,
+        samsungBudgetValue: "",
+        equipmentType: "",
+        presetId: "none",
+        symptomCode: "",
+        repairCode: "",
+        replacedPart: "",
+        observations: "",
+        defectFound: "",
+        partsRequested: "",
+        productCollectedOrInstalled: "",
+        cleaningPerformed: false,
+    });
+    setGeneratedText("");
+    setOsIsSaved(false);
+    setChecklistData({});
+  }
+
+  const handleNewOS = () => {
+    resetForm();
+  }
+
+  const handleClearForm = () => {
+    resetForm();
+    localStorage.removeItem('serviceOrderFormData');
+    localStorage.removeItem('checklistFormData');
+    localStorage.removeItem('assistantName');
+    setAssistantName("");
+    form.reset({ technician: "" });
+    toast({ title: "Formulário Limpo", description: "Todos os dados foram removidos." });
+  }
 
   const filteredPresets = presets.filter(p => p.equipmentType === watchedEquipmentType);
   const serviceRequiresCodes = !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType);
   const showReplacedPart = !['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType);
+  const routeParts = currentRouteStop?.parts || [];
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -1282,11 +1533,23 @@ export default function ServiceOrderPage() {
         <main className="flex-grow p-4 sm:p-6 md:p-8">
             <div className="max-w-4xl mx-auto">
                 <Tabs defaultValue="os-form" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 mb-6">
-                        <TabsTrigger value="os-form">Lançar OS</TabsTrigger>
-                        <TabsTrigger value="dashboard">Desempenho</TabsTrigger>
-                        <TabsTrigger value="returns-ranking">Ranking</TabsTrigger>
-                        <TabsTrigger value="routes">Rotas</TabsTrigger>
+                    <TabsList className="grid w-full grid-cols-4 mb-6">
+                        <TabsTrigger value="os-form">
+                           <Wrench className="h-4 w-4 sm:mr-2" />
+                           <span className="hidden sm:inline">Lançar OS</span>
+                        </TabsTrigger>
+                        <TabsTrigger value="dashboard">
+                           <TrendingUp className="h-4 w-4 sm:mr-2" />
+                           <span className="hidden sm:inline">Desempenho</span>
+                        </TabsTrigger>
+                        <TabsTrigger value="returns-ranking">
+                           <Trophy className="h-4 w-4 sm:mr-2" />
+                           <span className="hidden sm:inline">Ranking</span>
+                        </TabsTrigger>
+                        <TabsTrigger value="routes">
+                           <RouteIcon className="h-4 w-4 sm:mr-2" />
+                           <span className="hidden sm:inline">Rotas</span>
+                        </TabsTrigger>
                     </TabsList>
                     <TabsContent value="os-form">
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -1571,23 +1834,31 @@ export default function ServiceOrderPage() {
                                                     <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
                                                 </FormItem>
                                             )}/>
-
+                                            
                                             <Button type="submit" className="w-full">Gerar Texto e Salvar OS</Button>
                                         </form>
                                     </Form>
                                 </CardContent>
                             </Card>
 
-                            <div className="lg:sticky lg:top-24 h-fit">
+                            <div className="lg:sticky lg:top-24 h-fit space-y-4">
                                 <Card className={`w-full transition-all duration-300 ${generatedText ? 'opacity-100' : 'opacity-50'}`}>
                                     <CardHeader className="flex flex-row items-center justify-between">
                                         <div>
                                             <CardTitle>Texto Gerado</CardTitle>
-                                            <CardDescription>Copie o texto abaixo.</CardDescription>
+                                            <CardDescription>Copie o texto abaixo ou clique em Nova OS.</CardDescription>
                                         </div>
-                                        <Button variant="ghost" size="icon" onClick={handleCopy} disabled={!generatedText}>
-                                            <Copy className="h-5 w-5" />
-                                        </Button>
+                                        <div className="flex gap-2">
+                                            <Button variant="ghost" size="icon" onClick={handleCopy} disabled={!generatedText}>
+                                                <Copy className="h-5 w-5" />
+                                            </Button>
+                                             <Button variant="outline" size="sm" onClick={handleNewOS} disabled={!generatedText}>
+                                                Nova OS
+                                            </Button>
+                                            <Button variant="destructive" size="sm" onClick={handleClearForm}>
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
                                     </CardHeader>
                                     <CardContent>
                                         {generatedText ? (
@@ -1599,6 +1870,15 @@ export default function ServiceOrderPage() {
                                         )}
                                     </CardContent>
                                 </Card>
+                                
+                                <ChecklistSection 
+                                    checklistTemplates={checklistTemplates}
+                                    routeStopData={currentRouteStop}
+                                    mainFormData={allFormValues}
+                                    checklistData={checklistData}
+                                    onChecklistDataChange={setChecklistData}
+                                    technicianName={technicians.find(t => t.id === watchedTechnician)?.name}
+                                />
                             </div>
                         </div>
                     </TabsContent>
@@ -1629,3 +1909,5 @@ export default function ServiceOrderPage() {
     </div>
   );
 }
+
+
