@@ -70,7 +70,7 @@ export function ScannerDialog({
             scannerRef.current = scanner;
 
             const handleSuccess = (decodedText: string, result: Html5QrcodeResult) => {
-                const isValid = /^\d{10}$/.test(decodedText);
+                const isValid = /^[a-zA-Z0-9]{15}$/.test(decodedText);
 
                 if (!isValid) {
                     if (scannerRef.current) {
@@ -84,7 +84,7 @@ export function ScannerDialog({
                     toast({
                         variant: "destructive",
                         title: "Código Inválido",
-                        description: "O código deve conter exatamente 10 dígitos numéricos.",
+                        description: "O código deve conter exatamente 15 caracteres alfanuméricos.",
                     });
                     return; 
                 }

@@ -204,6 +204,9 @@ export default function ChecklistsPage() {
         { name: "Checklist TV - NDF (Sem Defeito)", path: "/checklists/checklist_tv_NDF.pdf" },
         { name: "Checklist DTV IH - VOID", path: "/checklists/dtv-ih-void.pdf" },
         { name: "Checklist TV - VOID", path: "/checklists/checklists_tv_void.pdf" },
+        { name: "Checklist WSM Reparo", path: "/checklists/checklist_WSM_reparo.pdf" },
+        { name: "Checklist WSM NDF", path: "/checklists/checklist_WSM_ndf.pdf" },
+        { name: "Checklist WSM VOID", path: "/checklists/checklist_WSM_void.pdf" },
     ];
 
     useEffect(() => {
@@ -455,6 +458,12 @@ export default function ChecklistsPage() {
     </>
   );
 }
+
+    
+
+    
+
+
 
     
 

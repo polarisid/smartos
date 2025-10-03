@@ -38,7 +38,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, Percent, Link as LinkIcon, Trash2, TrendingUp, FileDown } from "lucide-react";
+import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine, FileDown } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
@@ -62,6 +62,13 @@ import React from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { ptBR } from 'date-fns/locale';
+import dynamic from "next/dynamic";
+
+const ScannerDialog = dynamic(
+  () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
+  { ssr: false }
+);
+
 
 type FieldWithPosition = ChecklistField & { x: number; y: number };
 
@@ -934,6 +941,8 @@ function ChecklistSection({
     const [selectedTemplate, setSelectedTemplate] = useState<ChecklistTemplate | null>(null);
     const [fields, setFields] = useState<FieldWithPosition[]>([]);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [scanTargetField, setScanTargetField] = useState<string | null>(null);
 
     useEffect(() => {
         if (selectedTemplate) {
@@ -978,6 +987,20 @@ function ChecklistSection({
 
     const handleInputChange = (fieldId: string, value: string | boolean) => {
         onChecklistDataChange({ ...checklistData, [fieldId]: value });
+    };
+
+    const handleOpenScanner = (fieldId: string) => {
+        setScanTargetField(fieldId);
+        setIsScannerOpen(true);
+    };
+
+    const handleScanSuccess = (decodedText: string) => {
+        if (scanTargetField) {
+            handleInputChange(scanTargetField, decodedText);
+        }
+        setIsScannerOpen(false);
+        setScanTargetField(null);
+        toast({ title: "Código lido com sucesso!" });
     };
     
     const handleGeneratePdf = async () => {
@@ -1035,75 +1058,90 @@ function ChecklistSection({
     };
 
     return (
-        <Card className="w-full">
-            <CardHeader>
-                <CardTitle>Checklist (Opcional)</CardTitle>
-                <CardDescription>
-                    Selecione um modelo para preencher e gerar um checklist em PDF.
-                </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-                 <div className="space-y-2">
-                    <Label>Modelo de Checklist</Label>
-                    <Select onValueChange={handleTemplateChange} value={selectedTemplate?.id || ""}>
-                        <SelectTrigger>
-                            <SelectValue placeholder={"Selecione um modelo..."} />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="none">Nenhum</SelectItem>
-                            {checklistTemplates.map(t => (
-                                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-
-                {selectedTemplate && (
-                    <div className="space-y-6 pt-4 border-t">
-                        {fields.map(field => {
-                            const value = checklistData[field.id];
-                            const isAutoFilled = field.variableKey && value;
-                            
-                            return (
-                                <div key={field.id} className="space-y-2">
-                                    <Label htmlFor={`fill-${field.id}`} className="flex items-center gap-2">
-                                        {isAutoFilled && <LinkIcon className="h-4 w-4 text-blue-500" title="Preenchido automaticamente" />}
-                                        {field.name}
-                                    </Label>
-                                    {field.type === 'text' ? (
-                                        <Input 
-                                            id={`fill-${field.id}`} 
-                                            value={value !== undefined ? String(value) : ''}
-                                            onChange={(e) => handleInputChange(field.id, e.target.value)} 
-                                        />
-                                    ) : (
-                                        <div className="flex items-center space-x-2">
-                                            <input 
-                                                type="checkbox" 
-                                                id={`fill-${field.id}`} 
-                                                className="h-4 w-4" 
-                                                checked={!!value}
-                                                onChange={(e) => handleInputChange(field.id, e.target.checked)} 
-                                            />
-                                            <label htmlFor={`fill-${field.id}`} className="text-sm">Marcar</label>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                        {fields.length === 0 && (
-                             <p className="text-center text-muted-foreground pt-4 text-sm">Nenhum campo configurado para este modelo.</p>
-                        )}
+        <>
+            <Card className="w-full">
+                <CardHeader>
+                    <CardTitle>Checklist (Opcional)</CardTitle>
+                    <CardDescription>
+                        Selecione um modelo para preencher e gerar um checklist em PDF.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                        <Label>Modelo de Checklist</Label>
+                        <Select onValueChange={handleTemplateChange} value={selectedTemplate?.id || ""}>
+                            <SelectTrigger>
+                                <SelectValue placeholder={"Selecione um modelo..."} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">Nenhum</SelectItem>
+                                {checklistTemplates.map(t => (
+                                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </div>
-                )}
-            </CardContent>
-            <CardFooter>
-                 <Button onClick={handleGeneratePdf} disabled={isGenerating || !selectedTemplate} className="w-full">
-                    <FileDown className="mr-2 h-4 w-4" />
-                    {isGenerating ? 'Gerando PDF...' : 'Gerar e Baixar PDF do Checklist'}
-                </Button>
-            </CardFooter>
-        </Card>
+
+                    {selectedTemplate && (
+                        <div className="space-y-6 pt-4 border-t">
+                            {fields.map(field => {
+                                const value = checklistData[field.id];
+                                const isAutoFilled = field.variableKey && value;
+                                const isSerialField = field.name.toLowerCase().includes('serial');
+                                
+                                return (
+                                    <div key={field.id} className="space-y-2">
+                                        <Label htmlFor={`fill-${field.id}`} className="flex items-center gap-2">
+                                            {isAutoFilled && <LinkIcon className="h-4 w-4 text-blue-500" title="Preenchido automaticamente" />}
+                                            {field.name}
+                                        </Label>
+                                        {field.type === 'text' ? (
+                                            <div className="flex items-center gap-2">
+                                                <Input 
+                                                    id={`fill-${field.id}`} 
+                                                    value={value !== undefined ? String(value) : ''}
+                                                    onChange={(e) => handleInputChange(field.id, e.target.value)} 
+                                                />
+                                                {isSerialField && (
+                                                    <Button type="button" size="icon" variant="outline" onClick={() => handleOpenScanner(field.id)}>
+                                                        <ScanLine className="h-4 w-4" />
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center space-x-2">
+                                                <input 
+                                                    type="checkbox" 
+                                                    id={`fill-${field.id}`} 
+                                                    className="h-4 w-4" 
+                                                    checked={!!value}
+                                                    onChange={(e) => handleInputChange(field.id, e.target.checked)} 
+                                                />
+                                                <label htmlFor={`fill-${field.id}`} className="text-sm">Marcar</label>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            {fields.length === 0 && (
+                                <p className="text-center text-muted-foreground pt-4 text-sm">Nenhum campo configurado para este modelo.</p>
+                            )}
+                        </div>
+                    )}
+                </CardContent>
+                <CardFooter>
+                    <Button onClick={handleGeneratePdf} disabled={isGenerating || !selectedTemplate} className="w-full">
+                        <FileDown className="mr-2 h-4 w-4" />
+                        {isGenerating ? 'Gerando PDF...' : 'Gerar e Baixar PDF do Checklist'}
+                    </Button>
+                </CardFooter>
+            </Card>
+            <ScannerDialog 
+                isOpen={isScannerOpen}
+                onClose={() => setIsScannerOpen(false)}
+                onScanSuccess={handleScanSuccess}
+            />
+        </>
     );
 }
 
@@ -1317,7 +1355,7 @@ export default function ServiceOrderPage() {
     } catch (error) {
         console.error("Failed to parse data from localStorage", error);
     }
-  }, [form]);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("assistantName", assistantName);
@@ -1533,21 +1571,21 @@ export default function ServiceOrderPage() {
         <main className="flex-grow p-4 sm:p-6 md:p-8">
             <div className="max-w-4xl mx-auto">
                 <Tabs defaultValue="os-form" className="w-full">
-                    <TabsList className="grid w-full grid-cols-4 mb-6">
-                        <TabsTrigger value="os-form">
-                           <Wrench className="h-4 w-4 sm:mr-2" />
+                    <TabsList className="mb-6 grid w-full grid-cols-4">
+                        <TabsTrigger value="os-form" className="flex items-center justify-center gap-2 sm:flex-row">
+                           <Wrench className="h-4 w-4" />
                            <span className="hidden sm:inline">Lançar OS</span>
                         </TabsTrigger>
-                        <TabsTrigger value="dashboard">
-                           <TrendingUp className="h-4 w-4 sm:mr-2" />
+                        <TabsTrigger value="dashboard" className="flex items-center justify-center gap-2 sm:flex-row">
+                           <TrendingUp className="h-4 w-4" />
                            <span className="hidden sm:inline">Desempenho</span>
                         </TabsTrigger>
-                        <TabsTrigger value="returns-ranking">
-                           <Trophy className="h-4 w-4 sm:mr-2" />
+                        <TabsTrigger value="returns-ranking" className="flex items-center justify-center gap-2 sm:flex-row">
+                           <Trophy className="h-4 w-4" />
                            <span className="hidden sm:inline">Ranking</span>
                         </TabsTrigger>
-                        <TabsTrigger value="routes">
-                           <RouteIcon className="h-4 w-4 sm:mr-2" />
+                        <TabsTrigger value="routes" className="flex items-center justify-center gap-2 sm:flex-row">
+                           <RouteIcon className="h-4 w-4" />
                            <span className="hidden sm:inline">Rotas</span>
                         </TabsTrigger>
                     </TabsList>
@@ -1909,5 +1947,7 @@ export default function ServiceOrderPage() {
     </div>
   );
 }
+
+
 
 
