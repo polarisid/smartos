@@ -38,7 +38,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine, FileDown } from "lucide-react";
+import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
@@ -1131,7 +1131,7 @@ function ChecklistSection({
                 </CardContent>
                 <CardFooter>
                     <Button onClick={handleGeneratePdf} disabled={isGenerating || !selectedTemplate} className="w-full">
-                        <FileDown className="mr-2 h-4 w-4" />
+                        <Download className="mr-2 h-4 w-4" />
                         {isGenerating ? 'Gerando PDF...' : 'Gerar e Baixar PDF do Checklist'}
                     </Button>
                 </CardFooter>
@@ -1163,7 +1163,7 @@ export default function ServiceOrderPage() {
   const [visitTemplate, setVisitTemplate] = useState("");
   const [activeRoutes, setActiveRoutes] = useState<Route[]>([]);
   const [currentRouteStop, setCurrentRouteStop] = useState<RouteStop | null>(null);
-  const [selectedParts, setSelectedParts] = useState<string[]>([]);
+  const [selectedParts, setSelectedParts] = useState<Record<string, number>>({});
   const [checklistTemplates, setChecklistTemplates] = useState<ChecklistTemplate[]>([]);
   const [checklistData, setChecklistData] = useState<Record<string, string | boolean>>({});
 
@@ -1191,6 +1191,19 @@ export default function ServiceOrderPage() {
   });
 
   const allFormValues = form.watch();
+
+   useEffect(() => {
+        try {
+            const savedFormData = localStorage.getItem('serviceOrderFormData');
+            if (savedFormData) {
+                const parsedData = JSON.parse(savedFormData);
+                form.reset(parsedData);
+            }
+        } catch (e) {
+            console.error("Failed to parse form data from localStorage", e);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); 
 
   useEffect(() => {
       localStorage.setItem('serviceOrderFormData', JSON.stringify(allFormValues));
@@ -1339,11 +1352,6 @@ export default function ServiceOrderPage() {
     });
 
     try {
-        const savedFormData = localStorage.getItem('serviceOrderFormData');
-        if (savedFormData) {
-            const parsedData = JSON.parse(savedFormData);
-            form.reset(parsedData);
-        }
         const savedChecklistData = localStorage.getItem('checklistFormData');
         if (savedChecklistData) {
             setChecklistData(JSON.parse(savedChecklistData));
@@ -1355,6 +1363,7 @@ export default function ServiceOrderPage() {
     } catch (error) {
         console.error("Failed to parse data from localStorage", error);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -1395,7 +1404,7 @@ export default function ServiceOrderPage() {
             }
         }
         setCurrentRouteStop(foundStop);
-        setSelectedParts([]);
+        setSelectedParts({});
         setValue("replacedPart", "");
     } else {
         setCurrentRouteStop(null);
@@ -1404,8 +1413,11 @@ export default function ServiceOrderPage() {
   }, [watchedServiceOrderNumber, activeRoutes, setValue]);
   
   useEffect(() => {
-      const replacedPartText = selectedParts.join(', ');
-      setValue("replacedPart", replacedPartText);
+    const replacedPartText = Object.entries(selectedParts)
+        .filter(([, qty]) => qty > 0)
+        .map(([code, qty]) => qty > 1 ? `${code} (x${qty})` : code)
+        .join(', ');
+    setValue("replacedPart", replacedPartText);
   }, [selectedParts, setValue]);
 
 
@@ -1560,6 +1572,17 @@ export default function ServiceOrderPage() {
     toast({ title: "Formulário Limpo", description: "Todos os dados foram removidos." });
   }
 
+  const handlePartQuantityChange = (partCode: string, quantity: number) => {
+    setSelectedParts(prev => {
+        const newParts = { ...prev, [partCode]: quantity };
+        if (quantity === 0) {
+            delete newParts[partCode];
+        }
+        return newParts;
+    });
+  };
+
+
   const filteredPresets = presets.filter(p => p.equipmentType === watchedEquipmentType);
   const serviceRequiresCodes = !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType);
   const showReplacedPart = !['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType);
@@ -1571,21 +1594,21 @@ export default function ServiceOrderPage() {
         <main className="flex-grow p-4 sm:p-6 md:p-8">
             <div className="max-w-4xl mx-auto">
                 <Tabs defaultValue="os-form" className="w-full">
-                    <TabsList className="mb-6 grid w-full grid-cols-4">
-                        <TabsTrigger value="os-form" className="flex items-center justify-center gap-2 sm:flex-row">
-                           <Wrench className="h-4 w-4" />
+                    <TabsList className="mb-6 h-auto justify-start md:h-10 md:grid md:w-full md:grid-cols-4">
+                        <TabsTrigger value="os-form" className="flex flex-1 items-center justify-center gap-2 px-2">
+                           <Wrench />
                            <span className="hidden sm:inline">Lançar OS</span>
                         </TabsTrigger>
-                        <TabsTrigger value="dashboard" className="flex items-center justify-center gap-2 sm:flex-row">
-                           <TrendingUp className="h-4 w-4" />
+                        <TabsTrigger value="dashboard" className="flex flex-1 items-center justify-center gap-2 px-2">
+                           <TrendingUp />
                            <span className="hidden sm:inline">Desempenho</span>
                         </TabsTrigger>
-                        <TabsTrigger value="returns-ranking" className="flex items-center justify-center gap-2 sm:flex-row">
-                           <Trophy className="h-4 w-4" />
+                        <TabsTrigger value="returns-ranking" className="flex flex-1 items-center justify-center gap-2 px-2">
+                           <Trophy />
                            <span className="hidden sm:inline">Ranking</span>
                         </TabsTrigger>
-                        <TabsTrigger value="routes" className="flex items-center justify-center gap-2 sm:flex-row">
-                           <RouteIcon className="h-4 w-4" />
+                        <TabsTrigger value="routes" className="flex flex-1 items-center justify-center gap-2 px-2">
+                           <RouteIcon />
                            <span className="hidden sm:inline">Rotas</span>
                         </TabsTrigger>
                     </TabsList>
@@ -1700,25 +1723,40 @@ export default function ServiceOrderPage() {
                                                         <Label className="font-semibold">Peças da Rota para esta OS</Label>
                                                         <p className="text-xs text-muted-foreground">Selecione as peças usadas</p>
                                                     </div>
-                                                    <div className="space-y-2 pt-2">
+                                                    <div className="space-y-3 pt-2">
                                                         {routeParts.map((part) => (
-                                                            <div key={part.code} className="flex items-center space-x-2">
-                                                                <Checkbox
-                                                                    id={`part-${part.code}`}
-                                                                    onCheckedChange={(checked) => {
-                                                                        setSelectedParts((prev) =>
-                                                                            checked
-                                                                                ? [...prev, part.code]
-                                                                                : prev.filter((p) => p !== part.code)
-                                                                        );
-                                                                    }}
-                                                                />
-                                                                <label
-                                                                    htmlFor={`part-${part.code}`}
-                                                                    className="text-sm font-mono leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                                                >
-                                                                    {part.code}
-                                                                </label>
+                                                            <div key={part.code} className="flex items-center justify-between gap-4">
+                                                                <div className="flex items-center gap-2">
+                                                                     <Checkbox
+                                                                        id={`part-${part.code}`}
+                                                                        checked={!!selectedParts[part.code] || (part.quantity > 1 && (selectedParts[part.code] || 0) > 0)}
+                                                                        onCheckedChange={(checked) => handlePartQuantityChange(part.code, checked ? part.quantity : 0)}
+                                                                    />
+                                                                    <label
+                                                                        htmlFor={`part-${part.code}`}
+                                                                        className="text-sm font-mono leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                                                    >
+                                                                        {part.code}
+                                                                    </label>
+                                                                </div>
+                                                                 {part.quantity > 1 ? (
+                                                                    <div className="flex items-center gap-2">
+                                                                        <Label htmlFor={`qty-${part.code}`} className="text-xs">Qtd:</Label>
+                                                                        <Select
+                                                                            value={String(selectedParts[part.code] || 0)}
+                                                                            onValueChange={(value) => handlePartQuantityChange(part.code, Number(value))}
+                                                                        >
+                                                                            <SelectTrigger className="h-8 w-20">
+                                                                                <SelectValue />
+                                                                            </SelectTrigger>
+                                                                            <SelectContent>
+                                                                                {[...Array(part.quantity + 1).keys()].map(qty => (
+                                                                                    <SelectItem key={qty} value={String(qty)}>{qty}</SelectItem>
+                                                                                ))}
+                                                                            </SelectContent>
+                                                                        </Select>
+                                                                    </div>
+                                                                ) : <span className="text-sm text-muted-foreground">x{part.quantity}</span>}
                                                             </div>
                                                         ))}
                                                     </div>
@@ -1884,19 +1922,11 @@ export default function ServiceOrderPage() {
                                     <CardHeader className="flex flex-row items-center justify-between">
                                         <div>
                                             <CardTitle>Texto Gerado</CardTitle>
-                                            <CardDescription>Copie o texto abaixo ou clique em Nova OS.</CardDescription>
+                                            <CardDescription>Copie o texto para a área de transferência.</CardDescription>
                                         </div>
-                                        <div className="flex gap-2">
-                                            <Button variant="ghost" size="icon" onClick={handleCopy} disabled={!generatedText}>
-                                                <Copy className="h-5 w-5" />
-                                            </Button>
-                                             <Button variant="outline" size="sm" onClick={handleNewOS} disabled={!generatedText}>
-                                                Nova OS
-                                            </Button>
-                                            <Button variant="destructive" size="sm" onClick={handleClearForm}>
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
-                                        </div>
+                                        <Button variant="ghost" size="icon" onClick={handleCopy} disabled={!generatedText}>
+                                            <Copy className="h-5 w-5" />
+                                        </Button>
                                     </CardHeader>
                                     <CardContent>
                                         {generatedText ? (
@@ -1907,6 +1937,15 @@ export default function ServiceOrderPage() {
                                             </div>
                                         )}
                                     </CardContent>
+                                     <CardFooter className="flex justify-end gap-2">
+                                        <Button variant="outline" size="sm" onClick={handleNewOS} disabled={!generatedText}>
+                                            Nova OS
+                                        </Button>
+                                        <Button variant="destructive" size="sm" onClick={handleClearForm}>
+                                            <Trash2 className="mr-2 h-4 w-4" />
+                                            Limpar Formulário
+                                        </Button>
+                                    </CardFooter>
                                 </Card>
                                 
                                 <ChecklistSection 
@@ -1947,6 +1986,11 @@ export default function ServiceOrderPage() {
     </div>
   );
 }
+
+
+
+
+
 
 
 
