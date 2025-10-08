@@ -70,25 +70,6 @@ export function ScannerDialog({
             scannerRef.current = scanner;
 
             const handleSuccess = (decodedText: string, result: Html5QrcodeResult) => {
-                const isValid = /^[a-zA-Z0-9]{15}$/.test(decodedText);
-
-                if (!isValid) {
-                    if (scannerRef.current) {
-                        try {
-                           (scannerRef.current as any).pause(true);
-                           setIsPaused(true);
-                        } catch (e) {
-                            console.error("Failed to pause scanner", e);
-                        }
-                    }
-                    toast({
-                        variant: "destructive",
-                        title: "Código Inválido",
-                        description: "O código deve conter exatamente 15 caracteres alfanuméricos.",
-                    });
-                    return; 
-                }
-
                 if (scannerRef.current) {
                     onScanSuccess(decodedText);
                      try {
