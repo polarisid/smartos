@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -18,22 +18,22 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Edit, Trash2, Home, DollarSign, Calendar as CalendarIcon, FileMinus, Save } from "lucide-react";
+import { PlusCircle, Edit, Trash2, Home, DollarSign, Calendar as CalendarIcon, FileMinus, Save, Filter, UserCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, Timestamp, getDoc } from "firebase/firestore";
-import { type InHomeBudget, type Technician, type Chargeback } from "@/lib/data";
+import { type InHomeBudget, type Technician, type Chargeback, type ServiceOrder } from "@/lib/data";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
-import { format } from "date-fns";
+import { format, isWithinInterval, startOfMonth, endOfMonth, getYear, getMonth, setYear, setMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 
 
-function BudgetsTab({ technicians }: { technicians: Technician[] }) {
+function BudgetsTab({ technicians, filteredBudgets }: { technicians: Technician[], filteredBudgets: InHomeBudget[] }) {
     const [budgets, setBudgets] = useState<InHomeBudget[]>([]);
     const [selectedBudget, setSelectedBudget] = useState<InHomeBudget | null>(null);
     const [dialogMode, setDialogMode] = useState<'add' | 'edit'>('add');
@@ -53,28 +53,10 @@ function BudgetsTab({ technicians }: { technicians: Technician[] }) {
     const { toast } = useToast();
 
     useEffect(() => {
-        const fetchBudgets = async () => {
-            setIsLoading(true);
-            try {
-                const budgetsSnapshot = await getDocs(collection(db, "inHomeBudgets"));
-                const budgetsData = budgetsSnapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return { 
-                        id: doc.id, 
-                        ...data,
-                        date: (data.date as Timestamp)?.toDate(),
-                    } as InHomeBudget;
-                }).sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0));
-                setBudgets(budgetsData);
-            } catch (error) {
-                console.error("Error fetching budgets:", error);
-                toast({ variant: "destructive", title: "Erro ao carregar dados", description: "Não foi possível buscar os orçamentos." });
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchBudgets();
-    }, [toast]);
+        setIsLoading(true);
+        setBudgets(filteredBudgets);
+        setIsLoading(false);
+    }, [filteredBudgets]);
     
     const handleOpenAddDialog = () => {
         setDialogMode('add');
@@ -132,18 +114,15 @@ function BudgetsTab({ technicians }: { technicians: Technician[] }) {
 
         try {
             if (dialogMode === 'add') {
-                const docRef = await addDoc(collection(db, "inHomeBudgets"), dataToSave);
-                const newBudget = { ...dataToSave, id: docRef.id };
-                setBudgets(prev => [newBudget, ...prev].sort((a,b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0)));
+                await addDoc(collection(db, "inHomeBudgets"), dataToSave);
                 toast({ title: "Orçamento registrado com sucesso!" });
             } else if (selectedBudget) {
                 const budgetRef = doc(db, "inHomeBudgets", selectedBudget.id);
                 await setDoc(budgetRef, dataToSave, { merge: true });
-                const updatedBudget = { ...dataToSave, id: selectedBudget.id };
-                setBudgets(prev => prev.map(p => p.id === selectedBudget.id ? updatedBudget : p).sort((a,b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0)));
                 toast({ title: "Orçamento atualizado com sucesso!" });
             }
             setIsFormDialogOpen(false);
+            // Parent component will refetch and pass down new props
         } catch (error) {
             console.error("Error saving budget:", error);
             toast({ variant: "destructive", title: "Erro ao Salvar", description: "Não foi possível salvar o registro de orçamento." });
@@ -176,7 +155,7 @@ function BudgetsTab({ technicians }: { technicians: Technician[] }) {
                     <div className="flex items-center justify-between">
                         <div>
                             <CardTitle className="flex items-center gap-2">
-                            <Home className="w-5 h-5" /><DollarSign className="w-5 h-5" /> Registros de Orçamento In-Home
+                            <Home className="w-5 h-5" /><DollarSign className="w-5 h-5" /> Registros Manuais de Orçamento
                             </CardTitle>
                             <CardDescription>Adicione manualmente orçamentos aprovados que contarão para a meta dos técnicos de campo.</CardDescription>
                         </div>
@@ -314,8 +293,63 @@ function BudgetsTab({ technicians }: { technicians: Technician[] }) {
     );
 }
 
+function FieldBudgetsTab({ technicians, filteredServiceOrders }: { technicians: Technician[], filteredServiceOrders: ServiceOrder[] }) {
+    const [isLoading, setIsLoading] = useState(true);
 
-function ChargebacksTab({ technicians }: { technicians: Technician[] }) {
+    useEffect(() => {
+        setIsLoading(false);
+    }, [filteredServiceOrders]);
+
+    if (isLoading) {
+        return <div className="text-center p-4">Carregando orçamentos de campo...</div>;
+    }
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                    <UserCheck /> Orçamentos Aprovados (Campo)
+                </CardTitle>
+                <CardDescription>Orçamentos registrados pelos técnicos durante as visitas.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Data</TableHead>
+                            <TableHead>Técnico</TableHead>
+                            <TableHead>OS</TableHead>
+                            <TableHead>ASC Job No.</TableHead>
+                            <TableHead>Valor (R$)</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {filteredServiceOrders.length > 0 ? (
+                            filteredServiceOrders.map(order => (
+                                <TableRow key={order.id}>
+                                    <TableCell>{format(order.date, 'dd/MM/yyyy')}</TableCell>
+                                    <TableCell className="font-medium">{technicians.find(t => t.id === order.technicianId)?.name || 'N/A'}</TableCell>
+                                    <TableCell className="font-mono">{order.serviceOrderNumber}</TableCell>
+                                    <TableCell className="font-mono">{(order as any).ascJobNumber || 'N/A'}</TableCell>
+                                    <TableCell className="font-mono text-green-600">
+                                        {order.samsungBudgetValue?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                    </TableCell>
+                                </TableRow>
+                            ))
+                        ) : (
+                            <TableRow>
+                                <TableCell colSpan={5} className="h-24 text-center">Nenhum orçamento de campo aprovado no período.</TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
+            </CardContent>
+        </Card>
+    );
+}
+
+
+function ChargebacksTab({ technicians, filteredChargebacks }: { technicians: Technician[], filteredChargebacks: Chargeback[] }) {
     const [chargebacks, setChargebacks] = useState<Chargeback[]>([]);
     const [selectedChargeback, setSelectedChargeback] = useState<Chargeback | null>(null);
     const [dialogMode, setDialogMode] = useState<'add' | 'edit'>('add');
@@ -335,29 +369,14 @@ function ChargebacksTab({ technicians }: { technicians: Technician[] }) {
     const { toast } = useToast();
 
     useEffect(() => {
-        const fetchChargebacks = async () => {
-            setIsLoading(true);
-            try {
-                const chargebacksSnapshot = await getDocs(collection(db, "chargebacks"));
-                const chargebacksData = chargebacksSnapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return { 
-                        id: doc.id, 
-                        ...data,
-                        date: (data.date as Timestamp)?.toDate(),
-                        technicianName: technicians.find(t => t.id === data.technicianId)?.name || 'N/A',
-                    } as Chargeback;
-                }).sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0));
-                setChargebacks(chargebacksData);
-            } catch (error) {
-                console.error("Error fetching chargebacks:", error);
-                toast({ variant: "destructive", title: "Erro ao carregar dados", description: "Não foi possível buscar os estornos." });
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchChargebacks();
-    }, [toast, technicians]);
+        setIsLoading(true);
+        const enrichedChargebacks = filteredChargebacks.map(c => ({
+            ...c,
+            technicianName: technicians.find(t => t.id === c.technicianId)?.name || 'N/A',
+        }));
+        setChargebacks(enrichedChargebacks);
+        setIsLoading(false);
+    }, [filteredChargebacks, technicians]);
 
     const handleOpenAddDialog = () => {
         setDialogMode('add');
@@ -402,22 +421,16 @@ function ChargebacksTab({ technicians }: { technicians: Technician[] }) {
         const dataToSave = { ...formData };
 
         try {
-            const technicianName = technicians.find(t => t.id === dataToSave.technicianId)?.name;
-            const fullDataToSave: Chargeback = { id: '', technicianName, ...dataToSave } as Chargeback;
-
             if (dialogMode === 'add') {
-                const docRef = await addDoc(collection(db, "chargebacks"), dataToSave);
-                fullDataToSave.id = docRef.id;
-                setChargebacks(prev => [...prev, fullDataToSave].sort((a,b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0)));
+                await addDoc(collection(db, "chargebacks"), dataToSave);
                 toast({ title: "Estorno registrado com sucesso!" });
             } else if (selectedChargeback) {
                 const chargebackRef = doc(db, "chargebacks", selectedChargeback.id);
                 await setDoc(chargebackRef, dataToSave, { merge: true });
-                fullDataToSave.id = selectedChargeback.id;
-                setChargebacks(prev => prev.map(p => p.id === selectedChargeback.id ? fullDataToSave : p).sort((a,b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0)));
                 toast({ title: "Estorno atualizado com sucesso!" });
             }
             setIsFormDialogOpen(false);
+             // Parent component will refetch and pass down new props
         } catch (error) {
             console.error("Error saving chargeback:", error);
             toast({ variant: "destructive", title: "Erro ao Salvar", description: "Não foi possível salvar o registro de estorno." });
@@ -663,24 +676,94 @@ function GoalManagement() {
 export default function InHomeManagementPage() {
     const { toast } = useToast();
     const [technicians, setTechnicians] = useState<Technician[]>([]);
+    const [allBudgets, setAllBudgets] = useState<InHomeBudget[]>([]);
+    const [allChargebacks, setAllChargebacks] = useState<Chargeback[]>([]);
+    const [allServiceOrders, setAllServiceOrders] = useState<ServiceOrder[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [selectedDate, setSelectedDate] = useState(new Date());
+
+    const years = Array.from({ length: 5 }, (_, i) => getYear(new Date()) - i);
+    const months = Array.from({ length: 12 }, (_, i) => ({
+        value: i,
+        label: new Date(0, i).toLocaleString('pt-BR', { month: 'long' }),
+    }));
+
 
     useEffect(() => {
-        const fetchTechs = async () => {
+        const fetchAllData = async () => {
             setIsLoading(true);
             try {
-                const techsSnapshot = await getDocs(collection(db, "technicians"));
+                const [techsSnapshot, budgetsSnapshot, chargebacksSnapshot, serviceOrdersSnapshot] = await Promise.all([
+                    getDocs(collection(db, "technicians")),
+                    getDocs(collection(db, "inHomeBudgets")),
+                    getDocs(collection(db, "chargebacks")),
+                    getDocs(collection(db, "serviceOrders")),
+                ]);
+                
                 const techs = techsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
                 setTechnicians(techs);
+
+                const budgetsData = budgetsSnapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return { 
+                        id: doc.id, 
+                        ...data,
+                        date: (data.date as Timestamp)?.toDate(),
+                    } as InHomeBudget;
+                });
+                setAllBudgets(budgetsData);
+                
+                const chargebacksData = chargebacksSnapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return { 
+                        id: doc.id, 
+                        ...data,
+                        date: (data.date as Timestamp)?.toDate(),
+                    } as Chargeback;
+                });
+                setAllChargebacks(chargebacksData);
+
+                const serviceOrdersData = serviceOrdersSnapshot.docs.map(doc => {
+                     const data = doc.data();
+                     return {
+                        id: doc.id,
+                        ...data,
+                        date: (data.date as Timestamp).toDate(),
+                    } as ServiceOrder;
+                });
+                setAllServiceOrders(serviceOrdersData);
+
             } catch (error) {
-                console.error("Error fetching technicians:", error);
-                toast({ variant: "destructive", title: "Erro ao carregar técnicos" });
+                console.error("Error fetching data:", error);
+                toast({ variant: "destructive", title: "Erro ao carregar dados" });
             } finally {
                 setIsLoading(false);
             }
         };
-        fetchTechs();
+        fetchAllData();
     }, [toast]);
+    
+    const filteredBudgets = useMemo(() => {
+        const start = startOfMonth(selectedDate);
+        const end = endOfMonth(selectedDate);
+        return allBudgets.filter(b => b.date && isWithinInterval(b.date, { start, end }))
+                         .sort((a, b) => b.date.getTime() - a.date.getTime());
+    }, [allBudgets, selectedDate]);
+
+    const filteredChargebacks = useMemo(() => {
+        const start = startOfMonth(selectedDate);
+        const end = endOfMonth(selectedDate);
+        return allChargebacks.filter(c => c.date && isWithinInterval(c.date, { start, end }))
+                             .sort((a, b) => b.date.getTime() - a.date.getTime());
+    }, [allChargebacks, selectedDate]);
+    
+    const filteredServiceOrders = useMemo(() => {
+        const start = startOfMonth(selectedDate);
+        const end = endOfMonth(selectedDate);
+        return allServiceOrders
+            .filter(so => so.date && isWithinInterval(so.date, { start, end }) && so.samsungBudgetApproved && so.serviceType === 'visita_orcamento_samsung')
+            .sort((a, b) => b.date.getTime() - a.date.getTime());
+    }, [allServiceOrders, selectedDate]);
     
     if (isLoading) {
         return <p className="text-center p-6">Carregando...</p>;
@@ -694,16 +777,58 @@ export default function InHomeManagementPage() {
 
             <GoalManagement />
 
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Filter />Filtro por Período</CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col sm:flex-row gap-4">
+                     <div className="flex-1 space-y-2">
+                        <Label>Mês</Label>
+                        <Select
+                            value={String(getMonth(selectedDate))}
+                            onValueChange={(value) => setSelectedDate(prev => setMonth(prev, Number(value)))}
+                        >
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                {months.map(month => (
+                                    <SelectItem key={month.value} value={String(month.value)}>
+                                        {month.label.charAt(0).toUpperCase() + month.label.slice(1)}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                     <div className="flex-1 space-y-2">
+                        <Label>Ano</Label>
+                        <Select
+                            value={String(getYear(selectedDate))}
+                            onValueChange={(value) => setSelectedDate(prev => setYear(prev, Number(value)))}
+                        >
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                {years.map(year => (
+                                    <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </CardContent>
+            </Card>
+
             <Tabs defaultValue="budgets">
-                <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="budgets">Registrar Orçamento</TabsTrigger>
+                <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="budgets">Lançamentos Manuais</TabsTrigger>
+                    <TabsTrigger value="field_budgets">Orçamentos de Campo</TabsTrigger>
                     <TabsTrigger value="chargebacks">Registrar Estorno</TabsTrigger>
                 </TabsList>
                 <TabsContent value="budgets" className="mt-6">
-                   <BudgetsTab technicians={technicians} />
+                   <BudgetsTab technicians={technicians} filteredBudgets={filteredBudgets} />
+                </TabsContent>
+                 <TabsContent value="field_budgets" className="mt-6">
+                   <FieldBudgetsTab technicians={technicians} filteredServiceOrders={filteredServiceOrders} />
                 </TabsContent>
                 <TabsContent value="chargebacks" className="mt-6">
-                   <ChargebacksTab technicians={technicians} />
+                   <ChargebacksTab technicians={technicians} filteredChargebacks={filteredChargebacks} />
                 </TabsContent>
             </Tabs>
         </div>

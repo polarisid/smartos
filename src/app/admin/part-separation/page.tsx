@@ -194,7 +194,7 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
     );
 }
 
-function MonthlyPartsSummary({ serviceOrders }: { serviceOrders: ServiceOrder[] }) {
+function MonthlyPartsSummary({ serviceOrders, routes }: { serviceOrders: ServiceOrder[], routes: Route[] }) {
     const [selectedDate, setSelectedDate] = useState(new Date());
 
     const monthlyUsedParts = useMemo(() => {
@@ -202,20 +202,47 @@ function MonthlyPartsSummary({ serviceOrders }: { serviceOrders: ServiceOrder[] 
         const end = endOfMonth(selectedDate);
 
         const osThisMonth = serviceOrders.filter(os => os.date && isWithinInterval(os.date, { start, end }));
+        
+        const osWarrantyTypeMap = new Map<string, string>();
+        routes.forEach(route => {
+            route.stops.forEach(stop => {
+                if (stop.warrantyType) {
+                    osWarrantyTypeMap.set(stop.serviceOrder, stop.warrantyType);
+                }
+            });
+        });
 
-        const partsCount: { [partCode: string]: number } = {};
+        const partsCount: { [partCode: string]: { lp: number, ow: number } } = {};
 
         osThisMonth.forEach(os => {
             if (os.replacedPart) {
                 const parts = os.replacedPart.split(',').map(p => p.trim()).filter(Boolean);
-                parts.forEach(partCode => {
-                    partsCount[partCode] = (partsCount[partCode] || 0) + 1;
+                parts.forEach(partCodeRaw => {
+                    const partCodeMatch = partCodeRaw.match(/^([a-zA-Z0-9-]+)/);
+                    const partCode = partCodeMatch ? partCodeMatch[0] : partCodeRaw;
+
+                    if (!partsCount[partCode]) {
+                        partsCount[partCode] = { lp: 0, ow: 0 };
+                    }
+                    const warrantyType = osWarrantyTypeMap.get(os.serviceOrderNumber) || os.samsungRepairType;
+                    if (warrantyType === 'LP') {
+                        partsCount[partCode].lp++;
+                    } else if (warrantyType === 'OW') {
+                        partsCount[partCode].ow++;
+                    }
                 });
             }
         });
 
-        return Object.entries(partsCount).map(([partCode, quantity]) => ({ "Código da Peça": partCode, "Quantidade Usada no Mês": quantity }));
-    }, [serviceOrders, selectedDate]);
+        return Object.entries(partsCount)
+            .map(([partCode, quantities]) => ({
+                "Código da Peça": partCode,
+                "Quantidade Usada (LP)": quantities.lp,
+                "Quantidade Usada (OW)": quantities.ow,
+            }))
+            .filter(item => item["Quantidade Usada (LP)"] > 0 || item["Quantidade Usada (OW)"] > 0);
+
+    }, [serviceOrders, routes, selectedDate]);
     
     const years = Array.from({ length: 5 }, (_, i) => getYear(new Date()) - i);
     const months = Array.from({ length: 12 }, (_, i) => ({
@@ -297,14 +324,16 @@ function MonthlyPartsSummary({ serviceOrders }: { serviceOrders: ServiceOrder[] 
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Código da Peça</TableHead>
-                                        <TableHead className="text-right">Quantidade Usada no Mês</TableHead>
+                                        <TableHead className="text-right">Qtd. Usada (LP)</TableHead>
+                                        <TableHead className="text-right">Qtd. Usada (OW)</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {monthlyUsedParts.map(item => (
                                         <TableRow key={item["Código da Peça"]}>
                                             <TableCell className="font-mono">{item["Código da Peça"]}</TableCell>
-                                            <TableCell className="text-right font-semibold">{item["Quantidade Usada no Mês"]}</TableCell>
+                                            <TableCell className="text-right font-semibold">{item["Quantidade Usada (LP)"]}</TableCell>
+                                            <TableCell className="text-right font-semibold">{item["Quantidade Usada (OW)"]}</TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -338,12 +367,20 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
 
             const usedParts: { [partCode: string]: { count: number; osNumbers: string[] } } = {};
             const routeStopOSNumbers = new Set(route.stops.map(s => s.serviceOrder));
-            
+            const createdAtDate = route.createdAt instanceof Timestamp ? route.createdAt.toDate() : route.createdAt;
+
             serviceOrders.forEach(os => {
-                const createdAtDate = route.createdAt instanceof Timestamp ? route.createdAt.toDate() : route.createdAt;
-                if (routeStopOSNumbers.has(os.serviceOrderNumber) && os.replacedPart && createdAtDate && isAfter(os.date, createdAtDate)) {
+                if (
+                    routeStopOSNumbers.has(os.serviceOrderNumber) && 
+                    os.replacedPart && 
+                    createdAtDate && 
+                    isAfter(os.date, createdAtDate)
+                ) {
                     const partsUsedInOS = os.replacedPart.split(',').map(p => p.trim());
-                    partsUsedInOS.forEach(partCode => {
+                    partsUsedInOS.forEach(partCodeRaw => {
+                        const partCodeMatch = partCodeRaw.match(/^([a-zA-Z0-9-]+)/);
+                        const partCode = partCodeMatch ? partCodeMatch[0] : partCodeRaw;
+
                         if (usedParts[partCode]) {
                             usedParts[partCode].count++;
                             if (!usedParts[partCode].osNumbers.includes(os.serviceOrderNumber)) {
@@ -363,14 +400,12 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
 
             const summary = Object.entries(plannedParts).map(([partCode, partData]) => {
                 const usedInfo = usedParts[partCode] || { count: 0, osNumbers: [] };
-                let status: 'usada' | 'extra' | 'nova' | 'parcial' = 'nova';
+                let status: 'usada' | 'nova' | 'parcial' = 'nova';
 
                 if (usedInfo.count === 0) {
                     status = 'nova';
-                } else if (usedInfo.count === partData.quantity) {
+                } else if (usedInfo.count >= partData.quantity) {
                     status = 'usada';
-                } else if (usedInfo.count > partData.quantity) {
-                    status = 'extra';
                 } else {
                     status = 'parcial';
                 }
@@ -379,7 +414,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                     partCode,
                     description: partData.description,
                     plannedQty: partData.quantity,
-                    usedQty: usedInfo.count,
+                    usedQty: Math.min(usedInfo.count, partData.quantity), // Cap at planned quantity
                     osNumbers: usedInfo.osNumbers,
                     status
                 };
@@ -464,10 +499,9 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
     };
 
 
-    const getStatusBadge = (status: 'usada' | 'extra' | 'nova' | 'parcial') => {
+    const getStatusBadge = (status: 'usada' | 'nova' | 'parcial') => {
         switch (status) {
             case 'usada': return <Badge variant="default" className="bg-green-600">Usada</Badge>;
-            case 'extra': return <Badge variant="destructive">A mais</Badge>;
             case 'nova': return <Badge variant="secondary">Nova</Badge>;
             case 'parcial': return <Badge variant="default">Parcial</Badge>;
         }
@@ -818,7 +852,7 @@ export default function PartSeparationPage() {
                             />
                         </TabsContent>
                          <TabsContent value="summary" className="mt-6">
-                           <MonthlyPartsSummary serviceOrders={serviceOrders} />
+                           <MonthlyPartsSummary serviceOrders={serviceOrders} routes={allRoutes} />
                            <PartsSummary routes={filteredRoutes} serviceOrders={serviceOrders} />
                         </TabsContent>
                     </Tabs>
@@ -835,3 +869,4 @@ export default function PartSeparationPage() {
 }
 
     
+

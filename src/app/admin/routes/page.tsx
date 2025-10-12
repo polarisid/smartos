@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen } from "lucide-react";
+import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen, Copy } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { db } from "@/lib/firebase";
@@ -210,6 +210,16 @@ function RouteFormDialog({
     const [technicianId, setTechnicianId] = useState<string | undefined>();
     const [driverId, setDriverId] = useState<string | undefined>("none");
     const [parsedStops, setParsedStops] = useState<RouteStop[]>([]);
+
+    const routeDataModel = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD";
+
+    const handleCopyModel = () => {
+        navigator.clipboard.writeText(routeDataModel);
+        toast({
+            title: "Modelo copiado!",
+            description: "O cabeçalho do modelo foi copiado para a área de transferência.",
+        });
+    };
 
     useEffect(() => {
         if (isOpen) {
@@ -456,7 +466,13 @@ function RouteFormDialog({
                             </div>
                         </div>
                         <div className="space-y-2">
-                             <Label htmlFor="route-text">Colar Dados da Rota</Label>
+                            <div className="flex justify-between items-center">
+                                <Label htmlFor="route-text">Colar Dados da Rota</Label>
+                                <Button type="button" variant="link" className="p-0 h-auto" onClick={handleCopyModel}>
+                                    <Copy className="mr-2 h-4 w-4" />
+                                    Copiar Modelo
+                                </Button>
+                            </div>
                              <Textarea 
                                 id="route-text"
                                 placeholder="Cole aqui os dados da sua planilha..."
@@ -948,5 +964,6 @@ export default function RoutesPage() {
         </>
     );
 }
+
 
 
