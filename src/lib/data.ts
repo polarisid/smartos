@@ -65,6 +65,15 @@ export type CounterBudget = {
   date: Date;
 }
 
+export type RefusedBudget = {
+  id: string;
+  technicianId: string;
+  technicianName?: string;
+  serviceOrderNumber: string;
+  reason: string;
+  date: Date;
+}
+
 export type InHomeBudget = {
   id: string;
   technicianId?: string; // Made optional

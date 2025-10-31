@@ -207,6 +207,12 @@ export default function ChecklistsPage() {
         { name: "Checklist WSM Reparo", path: "/checklists/checklist_WSM_reparo.pdf" },
         { name: "Checklist WSM NDF", path: "/checklists/checklist_WSM_ndf.pdf" },
         { name: "Checklist WSM VOID", path: "/checklists/checklist_WSM_void.pdf" },
+        { name: "Checklist REF VOID", path: "/checklists/checklist_REF_VOID.pdf" },
+        { name: "Checklist REF REPARO", path: "/checklists/checklist_REF_REPARO.pdf" },
+        { name: "Checklist REF NDF", path: "/checklists/checklist_REF_NDF.pdf" },
+        { name: "Checklist RAC VOID", path: "/checklists/checklist_RAC_VOID.pdf" },
+        { name: "Checklist RAC REPARO", path: "/checklists/checklist_RAC_REPARO.pdf" },
+        { name: "Checklist RAC NDF", path: "/checklists/checklist_RAC_NDF.pdf" },
     ];
 
     useEffect(() => {
@@ -464,6 +470,8 @@ export default function ChecklistsPage() {
     
 
 
+
+    
 
     
 

@@ -12,14 +12,20 @@ import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { type ChecklistTemplate, type ChecklistField, type RouteStop } from '@/lib/data';
-import { ArrowLeft, PlusCircle, Trash2, Save, Move, TestTube2, Link as LinkIcon } from 'lucide-react';
+import { ArrowLeft, PlusCircle, Trash2, Save, Move, TestTube2, Link as LinkIcon, ScanLine } from 'lucide-react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import dynamic from 'next/dynamic';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+
+const ScannerDialog = dynamic(
+  () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
+  { ssr: false }
+);
 
 
 type FieldWithPosition = ChecklistField & { x: number; y: number };
@@ -47,6 +53,8 @@ function TestChecklistDialog({ template, fields, isOpen, onOpenChange }: {
     const { toast } = useToast();
     const [isGenerating, setIsGenerating] = useState(false);
     const [formData, setFormData] = useState<Record<string, string | boolean>>({});
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [scanTargetField, setScanTargetField] = useState<string | null>(null);
     
     // Mock data for testing variable fields
     const mockRouteStop: Partial<RouteStop> & { currentDate?: string } = {
@@ -65,6 +73,20 @@ function TestChecklistDialog({ template, fields, isOpen, onOpenChange }: {
     
     const handleInputChange = (fieldId: string, value: string | boolean) => {
         setFormData(prev => ({ ...prev, [fieldId]: value }));
+    };
+
+    const handleOpenScanner = (fieldId: string) => {
+        setScanTargetField(fieldId);
+        setIsScannerOpen(true);
+    };
+
+    const handleScanSuccess = (decodedText: string) => {
+        if (scanTargetField) {
+            handleInputChange(scanTargetField, decodedText);
+        }
+        setIsScannerOpen(false);
+        setScanTargetField(null);
+        toast({ title: "Código lido com sucesso!" });
     };
 
     const handleGeneratePdf = async () => {
@@ -130,54 +152,70 @@ function TestChecklistDialog({ template, fields, isOpen, onOpenChange }: {
     if (!template) return null;
 
     return (
-         <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Testar Preenchimento: {template.name}</DialogTitle>
-                    <DialogDescription>
-                        Preencha os campos manuais para gerar um PDF de teste. Campos vinculados a variáveis usarão dados de exemplo.
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
-                    {fields.length === 0 ? <p>Nenhum campo configurado.</p> : fields.map(field => {
-                        if (field.variableKey) {
+        <>
+            <Dialog open={isOpen} onOpenChange={onOpenChange}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Testar Preenchimento: {template.name}</DialogTitle>
+                        <DialogDescription>
+                            Preencha os campos manuais para gerar um PDF de teste. Campos vinculados a variáveis usarão dados de exemplo.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
+                        {fields.length === 0 ? <p>Nenhum campo configurado.</p> : fields.map(field => {
+                            const isSerialField = field.name.toLowerCase().includes('serial');
+                            
+                            if (field.variableKey) {
+                                return (
+                                    <div key={field.id} className="space-y-2 p-3 rounded-lg bg-muted/50">
+                                        <Label className="flex items-center gap-2"><LinkIcon className="h-4 w-4 text-muted-foreground" /> {field.name}</Label>
+                                        <p className="text-sm text-muted-foreground">Vinculado à variável: <span className="font-semibold">{availableVariables.find(v => v.key === field.variableKey)?.label}</span></p>
+                                    </div>
+                                )
+                            }
                             return (
-                                <div key={field.id} className="space-y-2 p-3 rounded-lg bg-muted/50">
-                                    <Label className="flex items-center gap-2"><LinkIcon className="h-4 w-4 text-muted-foreground" /> {field.name}</Label>
-                                    <p className="text-sm text-muted-foreground">Vinculado à variável: <span className="font-semibold">{availableVariables.find(v => v.key === field.variableKey)?.label}</span></p>
+                                <div key={field.id} className="space-y-2">
+                                    <Label htmlFor={`test-${field.id}`}>{field.name} (Pág. {field.page})</Label>
+                                    {field.type === 'text' ? (
+                                        <div className="flex items-center gap-2">
+                                            <Input 
+                                                id={`test-${field.id}`}
+                                                onChange={(e) => handleInputChange(field.id, e.target.value)}
+                                            />
+                                            {isSerialField && (
+                                                <Button type="button" size="icon" variant="outline" onClick={() => handleOpenScanner(field.id)}>
+                                                    <ScanLine className="h-4 w-4" />
+                                                </Button>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center space-x-2">
+                                            <input 
+                                                type="checkbox"
+                                                id={`test-${field.id}`}
+                                                className="h-4 w-4"
+                                                onChange={(e) => handleInputChange(field.id, e.target.checked)}
+                                            />
+                                            <label htmlFor={`test-${field.id}`} className="text-sm">Marcar</label>
+                                        </div>
+                                    )}
                                 </div>
                             )
-                        }
-                        return (
-                            <div key={field.id} className="space-y-2">
-                                <Label htmlFor={`test-${field.id}`}>{field.name} (Pág. {field.page})</Label>
-                                {field.type === 'text' ? (
-                                    <Input 
-                                        id={`test-${field.id}`}
-                                        onChange={(e) => handleInputChange(field.id, e.target.value)}
-                                    />
-                                ) : (
-                                    <div className="flex items-center space-x-2">
-                                        <input 
-                                            type="checkbox"
-                                            id={`test-${field.id}`}
-                                            className="h-4 w-4"
-                                            onChange={(e) => handleInputChange(field.id, e.target.checked)}
-                                        />
-                                        <label htmlFor={`test-${field.id}`} className="text-sm">Marcar</label>
-                                    </div>
-                                )}
-                            </div>
-                        )
-                    })}
-                </div>
-                <DialogFooter>
-                    <Button onClick={handleGeneratePdf} disabled={isGenerating}>
-                        {isGenerating ? 'Gerando...' : 'Gerar PDF de Teste'}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+                        })}
+                    </div>
+                    <DialogFooter>
+                        <Button onClick={handleGeneratePdf} disabled={isGenerating}>
+                            {isGenerating ? 'Gerando...' : 'Gerar PDF de Teste'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <ScannerDialog
+                isOpen={isScannerOpen}
+                onClose={() => setIsScannerOpen(false)}
+                onScanSuccess={handleScanSuccess}
+            />
+        </>
     );
 }
 
@@ -257,7 +295,15 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
         setIsSubmitting(true);
         try {
             const templateRef = doc(db, 'checklistTemplates', template.id);
-            await updateDoc(templateRef, { fields: fields.map(({ x, y, ...rest }) => ({...rest, x, y})) });
+            // Sanitize fields before saving to avoid Firestore errors with 'undefined'
+            const fieldsToSave = fields.map(f => {
+                const fieldCopy: Partial<FieldWithPosition> = {...f};
+                if (fieldCopy.variableKey === undefined) {
+                    delete fieldCopy.variableKey;
+                }
+                return fieldCopy;
+            });
+            await updateDoc(templateRef, { fields: fieldsToSave });
             toast({ title: 'Campos salvos!', description: 'As posições e dados dos campos foram atualizados.' });
         } catch (error) {
             console.error('Error saving fields:', error);

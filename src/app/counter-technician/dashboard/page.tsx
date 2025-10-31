@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -7,11 +8,11 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, DollarSign, FileMinus, Target, CheckCircle, XCircle, TrendingUp } from "lucide-react";
+import { PlusCircle, DollarSign, FileMinus, Target, CheckCircle, XCircle, TrendingUp, ThumbsDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, Timestamp, query, where, getDoc, orderBy, limit, startAfter, DocumentSnapshot, endBefore } from "firebase/firestore";
-import { type Chargeback, type CounterBudget, type AppUser } from "@/lib/data";
+import { type Chargeback, type CounterBudget, type AppUser, type RefusedBudget } from "@/lib/data";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format, isWithinInterval, startOfMonth, endOfMonth, eachDayOfInterval, isWeekend } from 'date-fns';
@@ -191,6 +192,135 @@ function BudgetsTab({ appUser }: { appUser: AppUser | null }) {
                             </Button>
                         </CardFooter>
                     )}
+                </Card>
+            </div>
+        </div>
+    );
+}
+
+function RefusedBudgetsTab({ appUser }: { appUser: AppUser | null }) {
+    const { toast } = useToast();
+    const [refusedBudgets, setRefusedBudgets] = useState<RefusedBudget[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [formData, setFormData] = useState({ serviceOrderNumber: '', reason: '' });
+
+    const fetchRefusedBudgets = async () => {
+        if (!appUser) return;
+        setIsLoading(true);
+        try {
+            const q = query(collection(db, "refusedBudgets"), where("technicianId", "==", appUser.uid), orderBy("date", "desc"), limit(20));
+            const snapshot = await getDocs(q);
+            const data = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                date: (doc.data().date as Timestamp).toDate(),
+            } as RefusedBudget));
+            setRefusedBudgets(data);
+        } catch (error) {
+            console.error("Error fetching refused budgets:", error);
+            toast({ variant: "destructive", title: "Erro", description: "Não foi possível buscar as recusas." });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (appUser) {
+            fetchRefusedBudgets();
+        }
+    }, [appUser, toast]);
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const { id, value } = e.target;
+        setFormData(prev => ({ ...prev, [id]: value }));
+    };
+
+    const handleSave = async () => {
+        if (!appUser) {
+            toast({ variant: "destructive", title: "Erro", description: "Usuário não encontrado." });
+            return;
+        }
+        if (!formData.serviceOrderNumber || !formData.reason) {
+            toast({ variant: "destructive", title: "Campos obrigatórios", description: "OS e Motivo são obrigatórios." });
+            return;
+        }
+        setIsSubmitting(true);
+        try {
+            const dataToSave = {
+                ...formData,
+                technicianId: appUser.uid,
+                technicianName: appUser.name,
+                date: new Date()
+            };
+            await addDoc(collection(db, "refusedBudgets"), dataToSave);
+            toast({ title: "Recusa de orçamento salva com sucesso!" });
+            setFormData({ serviceOrderNumber: '', reason: '' });
+            await fetchRefusedBudgets(); // Refresh list
+        } catch (error) {
+            console.error("Error saving refused budget:", error);
+            toast({ variant: "destructive", title: "Erro ao Salvar", description: "Não foi possível salvar a recusa." });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    if (!appUser) {
+        return <Card><CardContent className="p-6 text-center text-destructive">Usuário não autenticado.</CardContent></Card>
+    }
+
+    return (
+        <div className="grid md:grid-cols-3 gap-6">
+            <div className="md:col-span-1">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Registrar Recusa de Orçamento</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="serviceOrderNumber">Nº da OS</Label>
+                            <Input id="serviceOrderNumber" value={formData.serviceOrderNumber} onChange={handleInputChange} placeholder="Número da OS" />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="reason">Motivo da Recusa</Label>
+                            <Textarea id="reason" value={formData.reason} onChange={handleInputChange} placeholder="Ex: Cliente achou caro" />
+                        </div>
+                        <Button onClick={handleSave} disabled={isSubmitting} className="w-full">
+                            <PlusCircle className="mr-2 h-4 w-4" /> {isSubmitting ? 'Salvando...' : 'Salvar Recusa'}
+                        </Button>
+                    </CardContent>
+                </Card>
+            </div>
+            <div className="md:col-span-2">
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <ThumbsDown /> Recusas Registradas
+                        </CardTitle>
+                        <CardDescription>Visualize as recusas de orçamento que você registrou.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        {isLoading ? <p className="text-center py-10">Carregando...</p> : (
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Data</TableHead>
+                                        <TableHead>OS</TableHead>
+                                        <TableHead>Motivo</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {refusedBudgets.map(item => (
+                                        <TableRow key={item.id}>
+                                            <TableCell>{format(item.date, 'dd/MM/yyyy')}</TableCell>
+                                            <TableCell className="font-mono">{item.serviceOrderNumber}</TableCell>
+                                            <TableCell>{item.reason}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        )}
+                    </CardContent>
                 </Card>
             </div>
         </div>
@@ -491,13 +621,17 @@ export default function CounterTechnicianDashboardPage() {
     return (
         <div className="flex flex-col gap-6">
             <Tabs defaultValue="budgets" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
+                <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="budgets">Orçamentos</TabsTrigger>
+                    <TabsTrigger value="refused">Recusas</TabsTrigger>
                     <TabsTrigger value="chargebacks">Estornos</TabsTrigger>
                     <TabsTrigger value="goal">Minha Meta</TabsTrigger>
                 </TabsList>
                 <TabsContent value="budgets" className="mt-6">
                     <BudgetsTab appUser={appUser} />
+                </TabsContent>
+                <TabsContent value="refused" className="mt-6">
+                    <RefusedBudgetsTab appUser={appUser} />
                 </TabsContent>
                 <TabsContent value="chargebacks" className="mt-6">
                     <ChargebacksTab appUser={appUser} />
