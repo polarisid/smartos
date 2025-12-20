@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useRef, use } from 'react';
@@ -20,7 +19,7 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import dynamic from 'next/dynamic';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
@@ -30,10 +29,11 @@ const ScannerDialog = dynamic(
 
 type FieldWithPosition = ChecklistField & { x: number; y: number };
 
-const availableVariables: { key: keyof RouteStop | 'currentDate', label: string }[] = [
+const availableVariables: { key: keyof RouteStop | 'currentDate' | 'serial', label: string }[] = [
     { key: 'serviceOrder', label: 'Número da OS' },
     { key: 'consumerName', label: 'Nome do Cliente' },
     { key: 'model', label: 'Modelo do Produto' },
+    { key: 'serial', label: 'Número de Série' },
     { key: 'city', label: 'Cidade' },
     { key: 'neighborhood', label: 'Bairro' },
     { key: 'requestDate', label: 'Data de Solicitação' },
@@ -57,10 +57,11 @@ function TestChecklistDialog({ template, fields, isOpen, onOpenChange }: {
     const [scanTargetField, setScanTargetField] = useState<string | null>(null);
     
     // Mock data for testing variable fields
-    const mockRouteStop: Partial<RouteStop> & { currentDate?: string } = {
+    const mockRouteStop: Partial<RouteStop> & { currentDate?: string, serial?: string } = {
         serviceOrder: "OS-TESTE-123",
         consumerName: "João da Silva Teste",
         model: "QN55Q80AAGXZD",
+        serial: "Y4HY3298Y293492I",
         city: "São Paulo",
         neighborhood: "Centro",
         requestDate: new Date().toLocaleDateString('pt-BR'),
@@ -298,7 +299,7 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
             // Sanitize fields before saving to avoid Firestore errors with 'undefined'
             const fieldsToSave = fields.map(f => {
                 const fieldCopy: Partial<FieldWithPosition> = {...f};
-                if (fieldCopy.variableKey === undefined) {
+                if (fieldCopy.variableKey === undefined || fieldCopy.variableKey === 'none') {
                     delete fieldCopy.variableKey;
                 }
                 return fieldCopy;

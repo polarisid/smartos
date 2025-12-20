@@ -55,14 +55,39 @@ export type ServiceOrder = {
   cleaningPerformed?: boolean;
 };
 
+export type BudgetItem = {
+  code: string;
+  description: string;
+  quantity: number;
+  value: number;
+}
+
 export type CounterBudget = {
   id: string;
   technicianId: string;
-  technicianName?: string;
-  serviceOrderNumber: string;
-  observations: string;
-  value: number;
-  date: Date;
+  technicianName: string;
+  date: Timestamp | Date;
+  
+  // Customer info
+  customerName: string;
+  customerCpf?: string;
+  customerPhone: string;
+  
+  // Product info
+  productModel: string;
+  productSerial?: string;
+  productDefect: string;
+  productObservations?: string;
+  
+  // Budget info
+  isWarranty: boolean;
+  budgetItems: BudgetItem[];
+  totalValue: number;
+
+  // Legacy fields (optional, for compatibility)
+  serviceOrderNumber?: string;
+  observations?: string;
+  value?: number;
 }
 
 export type RefusedBudget = {
@@ -72,7 +97,11 @@ export type RefusedBudget = {
   serviceOrderNumber: string;
   reason: string;
   date: Date;
+  customerName?: string;
+  productModel?: string;
+  totalValue?: number;
 }
+
 
 export type InHomeBudget = {
   id: string;
@@ -190,6 +219,7 @@ export type ChecklistTemplate = {
   name: string;
   pdfUrl: string;
   fields: ChecklistField[];
+  type?: 'counter' | 'field';
 }
 
 

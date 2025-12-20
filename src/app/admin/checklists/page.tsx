@@ -32,7 +32,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ClipboardList, PlusCircle, Edit, Trash2, TestTube2, FileDown, Copy } from "lucide-react";
+import { ClipboardList, PlusCircle, Edit, Trash2, TestTube2, FileDown, Copy, Store, HardHat } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type ChecklistTemplate, type ChecklistField } from "@/lib/data";
 import { db } from "@/lib/firebase";
@@ -42,7 +42,7 @@ import { useRouter } from "next/navigation";
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { pdfjs } from 'react-pdf';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
 
 type FieldWithPosition = ChecklistField & { x: number; y: number };
@@ -195,7 +195,7 @@ export default function ChecklistsPage() {
     
     const [selectedTemplate, setSelectedTemplate] = useState<ChecklistTemplate | null>(null);
     const [formMode, setFormMode] = useState<'add' | 'edit'>('add');
-    const [formData, setFormData] = useState<{ name: string; pdfUrl: string }>({ name: '', pdfUrl: '' });
+    const [formData, setFormData] = useState<{ name: string; pdfUrl: string; type: 'counter' | 'field' }>({ name: '', pdfUrl: '', type: 'field' });
     
     const availablePdfs = [
         { name: "Checklist TV/AV - INHOME", path: "/checklists/checklist-tv-av-inhome.pdf" },
@@ -213,6 +213,7 @@ export default function ChecklistsPage() {
         { name: "Checklist RAC VOID", path: "/checklists/checklist_RAC_VOID.pdf" },
         { name: "Checklist RAC REPARO", path: "/checklists/checklist_RAC_REPARO.pdf" },
         { name: "Checklist RAC NDF", path: "/checklists/checklist_RAC_NDF.pdf" },
+        { name: "Checklist CI DTV", path: "/checklists/checklist_CI_DTV.pdf" },
     ];
 
     useEffect(() => {
@@ -235,14 +236,14 @@ export default function ChecklistsPage() {
     const handleOpenAddDialog = () => {
         setFormMode('add');
         setSelectedTemplate(null);
-        setFormData({ name: '', pdfUrl: '' });
+        setFormData({ name: '', pdfUrl: '', type: 'field' });
         setIsFormOpen(true);
     };
 
     const handleOpenEditDialog = (template: ChecklistTemplate) => {
         setFormMode('edit');
         setSelectedTemplate(template);
-        setFormData({ name: template.name, pdfUrl: template.pdfUrl });
+        setFormData({ name: template.name, pdfUrl: template.pdfUrl, type: template.type || 'field' });
         setIsFormOpen(true);
     };
 
@@ -267,6 +268,7 @@ export default function ChecklistsPage() {
                 const docData = { 
                     name: formData.name, 
                     pdfUrl: formData.pdfUrl,
+                    type: formData.type,
                     fields: [] 
                 };
                 const newDocRef = await addDoc(collection(db, "checklistTemplates"), docData);
@@ -276,8 +278,8 @@ export default function ChecklistsPage() {
 
             } else if (selectedTemplate) {
                  const docRef = doc(db, "checklistTemplates", selectedTemplate.id);
-                 const updatedData = { ...selectedTemplate, name: formData.name, pdfUrl: formData.pdfUrl };
-                 await setDoc(docRef, { name: formData.name, pdfUrl: formData.pdfUrl }, { merge: true });
+                 const updatedData = { ...selectedTemplate, name: formData.name, pdfUrl: formData.pdfUrl, type: formData.type };
+                 await setDoc(docRef, { name: formData.name, pdfUrl: formData.pdfUrl, type: formData.type }, { merge: true });
                  setTemplates(prev => prev.map(t => t.id === selectedTemplate.id ? updatedData : t));
                  toast({ title: "Modelo atualizado!", description: "Os dados do modelo foram alterados." });
             }
@@ -315,6 +317,7 @@ export default function ChecklistsPage() {
                 name: `Cópia de ${template.name}`,
                 pdfUrl: template.pdfUrl,
                 fields: template.fields || [],
+                type: template.type || 'field',
             };
             const newDocRef = await addDoc(collection(db, "checklistTemplates"), docData);
             setTemplates(prev => [...prev, { id: newDocRef.id, ...docData }]);
@@ -360,6 +363,7 @@ export default function ChecklistsPage() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Nome do Modelo</TableHead>
+                                    <TableHead>Tipo</TableHead>
                                     <TableHead className="text-right">Ações</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -367,6 +371,12 @@ export default function ChecklistsPage() {
                                 {templates.map(template => (
                                     <TableRow key={template.id}>
                                         <TableCell className="font-medium">{template.name}</TableCell>
+                                        <TableCell>
+                                            <div className="flex items-center gap-2 text-muted-foreground">
+                                                {template.type === 'counter' ? <Store className="h-4 w-4" /> : <HardHat className="h-4 w-4" />}
+                                                <span>{template.type === 'counter' ? 'Balcão' : 'Campo'}</span>
+                                            </div>
+                                        </TableCell>
                                         <TableCell className="text-right">
                                             <Button variant="outline" size="sm" onClick={() => handleOpenFieldsDialog(template)}>
                                                 <Edit className="mr-2 h-4 w-4" /> Editar Campos
@@ -429,6 +439,21 @@ export default function ChecklistsPage() {
                             </SelectContent>
                         </Select>
                     </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="type">Tipo de Checklist</Label>
+                        <Select 
+                            value={formData.type} 
+                            onValueChange={(value) => setFormData(prev => ({...prev, type: value as 'counter' | 'field'}))}
+                        >
+                            <SelectTrigger>
+                                <SelectValue placeholder="Selecione um tipo" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="field">Campo (Técnico Externo)</SelectItem>
+                                <SelectItem value="counter">Balcão (Técnico Interno)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => setIsFormOpen(false)}>Cancelar</Button>
@@ -464,15 +489,3 @@ export default function ChecklistsPage() {
     </>
   );
 }
-
-    
-
-    
-
-
-
-    
-
-    
-
-    

@@ -1,5 +1,3 @@
-
-
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
@@ -72,10 +70,11 @@ const ScannerDialog = dynamic(
 
 type FieldWithPosition = ChecklistField & { x: number; y: number };
 
-const availableVariables: { key: keyof RouteStop | 'currentDate' | 'technicianName', label: string }[] = [
+const availableVariables: { key: keyof RouteStop | 'currentDate' | 'technicianName' | 'serial', label: string }[] = [
     { key: 'serviceOrder', label: 'Número da OS' },
     { key: 'consumerName', label: 'Nome do Cliente' },
     { key: 'model', label: 'Modelo do Produto' },
+    { key: 'serial', label: 'Número de Série' },
     { key: 'city', label: 'Cidade' },
     { key: 'neighborhood', label: 'Bairro' },
     { key: 'requestDate', label: 'Data de Solicitação' },
@@ -1986,13 +1985,3 @@ export default function ServiceOrderPage() {
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
