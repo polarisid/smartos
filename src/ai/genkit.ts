@@ -5,3 +5,5 @@
 //   plugins: [googleAI()],
 //   model: 'gemini-1.5-flash-latest',
 // });
+
+// Genkit has been temporarily removed to resolve deployment issues.
