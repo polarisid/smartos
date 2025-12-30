@@ -574,62 +574,46 @@ export default function CounterTechnicianDashboardPage() {
         }
         setIsSubmitting(true);
         try {
-            const doc = new jsPDF();
+            const pdfDoc = new jsPDF();
     
-            // Carregar a imagem de cabeçalho
-            const imgResponse = await fetch('/checklists/oficial.pdf');
-            if (imgResponse.ok) {
-                // Se o "oficial.pdf" for uma imagem ou um PDF de uma página com um cabeçalho,
-                // a lógica para extrair e adicionar a imagem seria mais complexa.
-                // Uma abordagem mais simples é ter o cabeçalho como uma imagem JPG/PNG.
-                // Supondo que temos uma `header.jpg` em `public/`.
-                // const headerImg = await fetch('/header.jpg').then(res => res.blob());
-                // const reader = new FileReader();
-                // reader.readAsDataURL(headerImg);
-                // reader.onloadend = () => {
-                //     const base64data = reader.result;
-                //     doc.addImage(base64data, 'JPEG', 0, 0, 210, 50); // Ajuste as dimensões
-                // }
-            }
-            
             // Textos - simulando um cabeçalho
-            doc.setFontSize(18);
-            doc.setFont("helvetica", "bold");
-            doc.text("Orçamento de Serviço", 105, 20, { align: 'center' });
+            pdfDoc.setFontSize(18);
+            pdfDoc.setFont("helvetica", "bold");
+            pdfDoc.text("Orçamento de Serviço", 105, 20, { align: 'center' });
     
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "normal");
-            doc.text(`Data: ${new Date().toLocaleDateString('pt-BR')}`, 190, 30, { align: 'right' });
+            pdfDoc.setFontSize(10);
+            pdfDoc.setFont("helvetica", "normal");
+            pdfDoc.text(`Data: ${new Date().toLocaleDateString('pt-BR')}`, 190, 30, { align: 'right' });
     
             // Dados do Cliente e Produto
-            doc.setFontSize(12);
-            doc.setFont("helvetica", "bold");
-            doc.text("Dados do Cliente", 14, 40);
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "normal");
-            doc.text(`Nome: ${customerName}`, 14, 48);
-            doc.text(`Telefone: ${customerPhone}`, 14, 54);
-            doc.text(`CPF: ${customerCpf}`, 14, 60);
+            pdfDoc.setFontSize(12);
+            pdfDoc.setFont("helvetica", "bold");
+            pdfDoc.text("Dados do Cliente", 14, 40);
+            pdfDoc.setFontSize(10);
+            pdfDoc.setFont("helvetica", "normal");
+            pdfDoc.text(`Nome: ${customerName}`, 14, 48);
+            pdfDoc.text(`Telefone: ${customerPhone}`, 14, 54);
+            pdfDoc.text(`CPF: ${customerCpf}`, 14, 60);
     
-            doc.setFontSize(12);
-            doc.setFont("helvetica", "bold");
-            doc.text("Dados do Produto", 14, 75);
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "normal");
-            doc.text(`Modelo: ${productModel}`, 14, 83);
-            doc.text(`Nº de Série: ${productSerial}`, 14, 89);
-            doc.text(`Defeito Relatado: ${productDefect}`, 14, 95);
+            pdfDoc.setFontSize(12);
+            pdfDoc.setFont("helvetica", "bold");
+            pdfDoc.text("Dados do Produto", 14, 75);
+            pdfDoc.setFontSize(10);
+            pdfDoc.setFont("helvetica", "normal");
+            pdfDoc.text(`Modelo: ${productModel}`, 14, 83);
+            pdfDoc.text(`Nº de Série: ${productSerial}`, 14, 89);
+            pdfDoc.text(`Defeito Relatado: ${productDefect}`, 14, 95);
     
             // Tabela de Itens do Orçamento
             const tableBody = budgetItems.map(item => [
                 item.code, 
                 item.description, 
                 item.quantity.toString(),
-                item.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
-                (item.quantity * item.value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                (item.value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+                (item.quantity * (item.value || 0)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
             ]);
     
-            (doc as any).autoTable({
+            (pdfDoc as any).autoTable({
                  head: [['Cód', 'Descrição', 'Qtd', 'Vlr. Unit.', 'Vlr. Total']],
                  body: tableBody,
                  startY: 110,
@@ -637,13 +621,13 @@ export default function CounterTechnicianDashboardPage() {
             });
             
             // Total
-            const finalY = (doc as any).lastAutoTable.finalY || 150;
-            doc.setFontSize(14);
-            doc.setFont("helvetica", "bold");
-            doc.text("Total do Orçamento:", 14, finalY + 15);
-            doc.text(totalBudgetValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), 196, finalY + 15, { align: 'right' });
+            const finalY = (pdfDoc as any).lastAutoTable.finalY || 150;
+            pdfDoc.setFontSize(14);
+            pdfDoc.setFont("helvetica", "bold");
+            pdfDoc.text("Total do Orçamento:", 14, finalY + 15);
+            pdfDoc.text(totalBudgetValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), 196, finalY + 15, { align: 'right' });
     
-            doc.save(`orcamento_${customerName.replace(/\s/g, '_')}.pdf`);
+            pdfDoc.save(`orcamento_${customerName.replace(/\s/g, '_')}.pdf`);
             toast({ title: "PDF do orçamento gerado!" });
 
         } catch (error) {
@@ -834,8 +818,8 @@ export default function CounterTechnicianDashboardPage() {
                                                 <TableCell className="font-mono">{item.code}</TableCell>
                                                 <TableCell>{item.description}</TableCell>
                                                 <TableCell>{item.quantity}</TableCell>
-                                                <TableCell>{item.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</TableCell>
-                                                <TableCell>{(item.quantity * item.value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</TableCell>
+                                                <TableCell>{(item.value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</TableCell>
+                                                <TableCell>{(item.quantity * (item.value || 0)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</TableCell>
                                                 <TableCell>
                                                     <Button variant="destructive" size="icon" onClick={() => handleRemoveBudgetItem(index)}><Trash2 className="h-4 w-4"/></Button>
                                                 </TableCell>
