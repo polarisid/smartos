@@ -116,11 +116,6 @@ export default function AdminLoginPage() {
               Voltar para a página inicial
             </Link>
           </p>
-          <p>
-            <Link href="/counter-technician/login" className="underline">
-              Acessar como Técnico de Balcão
-            </Link>
-          </p>
         </div>
       </CardContent>
     </Card>

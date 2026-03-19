@@ -48,6 +48,7 @@ export type ServiceOrder = {
   partsRequested?: string;
 
   productCollectedOrInstalled?: string;
+  collectionType?: 'reparo' | 'rma' | 'eco' | 'descarte';
 
   replacedPart?: string;
   observations?: string;
@@ -185,6 +186,7 @@ export type RouteStop = {
     observations?: string;
     technicianName?: string;
     stopType?: 'padrao' | 'coleta' | 'entrega';
+    collectionType?: 'reparo' | 'rma' | 'eco' | 'descarte';
 }
 
 export type Route = {

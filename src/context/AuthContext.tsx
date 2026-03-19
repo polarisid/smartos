@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
@@ -50,6 +49,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 } else {
                     setAppUser(null); // User exists in Auth but not in Firestore users collection
                 }
+                setLoading(false);
+            }, (error) => {
+                console.error("AuthContext: Error fetching user document:", error);
+                setAppUser(null);
                 setLoading(false);
             });
             return () => unsubscribeFirestore();
