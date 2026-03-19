@@ -26,7 +26,7 @@ import { collection, getDocs, doc, updateDoc, deleteDoc } from "firebase/firesto
 import { type AppUser } from "@/lib/data";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/context/AuthContext";
-import { Alert, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 
 export default function UsersPage() {
@@ -109,10 +109,12 @@ export default function UsersPage() {
         if (!selectedUser) return;
         setIsSubmitting(true);
         try {
+            // This just deletes the Firestore document, not the Auth user.
+            // For a full user deletion, you would need a Cloud Function.
             await deleteDoc(doc(db, "users", selectedUser.uid));
             
             setUsers(prev => prev.filter(u => u.uid !== selectedUser.uid));
-            toast({ title: "Usuário removido com sucesso." });
+            toast({ title: "Usuário removido com sucesso.", description: "O acesso do usuário foi removido, mas a conta de login ainda existe." });
             setIsDeleteDialogOpen(false);
         } catch (error) {
             console.error("Error deleting user:", error);
@@ -302,8 +304,7 @@ export default function UsersPage() {
                     <AlertDialogHeader>
                         <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Esta ação removerá o registro do usuário <span className="font-bold mx-1">{selectedUser?.name}</span> do sistema.
-                            A conta de login (Firebase Auth) não será removida.
+                            Esta ação removerá o registro do usuário <span className="font-bold mx-1">{selectedUser?.name}</span> e suas permissões do sistema. A conta de autenticação (login e senha) não será removida.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

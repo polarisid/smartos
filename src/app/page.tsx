@@ -1,11 +1,12 @@
+
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format, isAfter, startOfMonth, startOfYear, subDays, differenceInDays } from "date-fns";
-import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator, type Route, type RouteStop, type Chargeback, type CounterBudget, type InHomeBudget, type RoutePart, type ChecklistTemplate, type ChecklistField } from "@/lib/data";
+import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator, type Route, type RouteStop, type Chargeback, type RoutePart, type ChecklistTemplate, type ChecklistField } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -36,7 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine } from "lucide-react";
+import { AlertTriangle, Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
@@ -61,6 +62,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { ptBR } from 'date-fns/locale';
 import dynamic from "next/dynamic";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useSearchParams } from "next/navigation";
 
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
@@ -104,6 +107,7 @@ const formSchema = z.object({
   defectFound: z.string().optional(),
   partsRequested: z.string().optional(),
   productCollectedOrInstalled: z.string().optional(),
+  collectionType: z.string().optional(),
   cleaningPerformed: z.boolean().optional(),
 }).superRefine((data, ctx) => {
   const serviceRequiresCodes = !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(data.serviceType);
@@ -128,7 +132,7 @@ const formSchema = z.object({
     }
   }
 
-  if (['coleta_eco_rma', 'instalacao_inicial'].includes(data.serviceType)) {
+  if (data.serviceType === 'coleta_eco_rma') {
     if (!data.productCollectedOrInstalled || data.productCollectedOrInstalled.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -136,11 +140,138 @@ const formSchema = z.object({
         path: ["productCollectedOrInstalled"],
       });
     }
+    if (!data.collectionType) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Selecione o tipo de coleta.",
+        path: ["collectionType"],
+      });
+    }
+  }
+
+  if (data.serviceType === 'instalacao_inicial') {
+      if (!data.productCollectedOrInstalled || data.productCollectedOrInstalled.length === 0) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Este campo é obrigatório para este tipo de atendimento.",
+            path: ["productCollectedOrInstalled"],
+        });
+    }
   }
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
+function PermissionErrorDisplay() {
+  const searchParams = useSearchParams();
+  const permissionError = searchParams.get('error') === 'permission_denied';
+
+  if (!permissionError) {
+    return null;
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto mt-4 w-full px-4 sm:px-6 md:px-8">
+        <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Acesso ao Painel de Admin Negado</AlertTitle>
+            <AlertDescription>
+                Você foi redirecionado porque sua conta não tem permissão de administrador. 
+                Para obter acesso, você precisa criar uma conta de administrador para esta operação.
+                <br />
+                <Button asChild variant="link" className="p-0 h-auto mt-2 text-white font-bold underline">
+                    <Link href="/setup">Clique aqui para ir à página de configuração e criar um administrador.</Link>
+                </Button>
+            </AlertDescription>
+        </Alert>
+    </div>
+  );
+}
+
+function FirebaseSetupPrompt() {
+  const { toast } = useToast();
+
+  const handleCopy = (text: string, title: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title });
+  };
+
+  return (
+    <Card className="max-w-2xl mx-auto my-8 border-destructive">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-3">
+          <AlertTriangle className="h-8 w-8 text-destructive" />
+          <span>Configuração do Banco de Dados Necessária</span>
+        </CardTitle>
+        <CardDescription>
+          Seu aplicativo não está conectado a um banco de dados Firebase. Escolha uma das opções abaixo para configurar.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Tabs defaultValue="new-project">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="new-project">1. Nova Operação</TabsTrigger>
+            <TabsTrigger value="existing-project">2. Usar Projeto Existente</TabsTrigger>
+          </TabsList>
+          <TabsContent value="new-project" className="mt-4">
+            <Card className="border-green-500/50">
+              <CardHeader>
+                <CardTitle>Criar uma Nova Operação (Recomendado)</CardTitle>
+                <CardDescription>
+                  Ideal para um novo ambiente ou para começar do zero. O assistente criará e configurará um novo projeto Firebase para você.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm mb-4">
+                  Para iniciar a configuração, basta pedir ao assistente:
+                </p>
+                <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
+                    <code className="text-sm font-semibold">configurar o Firebase</code>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleCopy("configurar o Firebase", "Comando copiado!")}>
+                        <Copy className="h-4 w-4" />
+                    </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="existing-project" className="mt-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Conectar a um Projeto Existente</CardTitle>
+                  <CardDescription>
+                    Se você já possui um projeto Firebase (ex: um clone da operação original) e deseja usá-lo, informe o ID do projeto ao assistente.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="projectId">ID do Projeto Firebase</Label>
+                        <Input id="projectId" placeholder="seu-id-de-projeto-aqui" disabled />
+                        <p className="text-xs text-muted-foreground">Você pode encontrar o ID do Projeto nas configurações do seu projeto no Console do Firebase.</p>
+                    </div>
+                     <p className="text-sm">
+                        Para conectar, peça ao assistente (substituindo o texto em colchetes):
+                    </p>
+                     <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
+                        <code className="text-sm font-semibold">conectar ao projeto [ID do seu projeto]</code>
+                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleCopy("conectar ao projeto [ID do seu projeto]", "Comando copiado!")}>
+                            <Copy className="h-4 w-4" />
+                        </Button>
+                    </div>
+                     <Alert className="mt-4">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>Atenção</AlertTitle>
+                        <AlertDescription>
+                            Esta opção <strong>não</strong> clona os dados do banco de dados. Ela apenas conecta a aplicação a um projeto Firebase já existente. A clonagem de dados deve ser feita manually através do Console do Firebase (Importar/Exportar).
+                        </AlertDescription>
+                    </Alert>
+                </CardContent>
+              </Card>
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+    </Card>
+  );
+}
 
 function Header() {
     const [installPromptEvent, setInstallPromptEvent] = useState<any>(null);
@@ -197,14 +328,12 @@ function Header() {
     );
 }
 
-function PerformanceDashboard({ technicians, serviceOrders, returns, indicators, chargebacks, counterBudgets, inHomeBudgets }: { 
+function PerformanceDashboard({ technicians, serviceOrders, returns, indicators, chargebacks }: { 
     technicians: Technician[], 
     serviceOrders: ServiceOrder[], 
     returns: Return[],
     indicators: Indicator[],
-    chargebacks: Chargeback[],
-    counterBudgets: CounterBudget[],
-    inHomeBudgets: InHomeBudget[]
+    chargebacks: Chargeback[]
 }) {
     const now = new Date();
     const startOfCurrentMonth = startOfMonth(now);
@@ -219,14 +348,6 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators,
 
     const chargebacksThisMonth = chargebacks.filter(c =>
         c.date && isAfter(c.date, startOfCurrentMonth)
-    );
-
-    const counterBudgetsThisMonth = counterBudgets.filter(cb =>
-        cb.date && isAfter(cb.date, startOfCurrentMonth)
-    );
-
-    const inHomeBudgetsThisMonth = inHomeBudgets.filter(ihb =>
-        ihb.date && isAfter(ihb.date, startOfCurrentMonth)
     );
     
     const serviceTypeConfig: Record<string, { label: string; icon: React.ElementType }> = {
@@ -250,14 +371,6 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators,
             c.technicianId === tech.id
         );
 
-        const techCounterBudgetsThisMonth = counterBudgetsThisMonth.filter(cb =>
-            cb.technicianId === tech.id
-        );
-        
-        const techInHomeBudgetsThisMonth = inHomeBudgetsThisMonth.filter(ihb =>
-            ihb.technicianId === tech.id
-        );
-
         const osCount = techOrdersThisMonth.length;
         const cleaningsCount = techOrdersThisMonth.filter(os => os.cleaningPerformed).length;
         
@@ -276,7 +389,7 @@ function PerformanceDashboard({ technicians, serviceOrders, returns, indicators,
                 return total + os.samsungBudgetValue;
             }
             return total;
-        }, 0) + techCounterBudgetsThisMonth.reduce((total, cb) => total + cb.value, 0) + techInHomeBudgetsThisMonth.reduce((total, ihb) => total + ihb.value, 0);
+        }, 0);
 
         const totalChargebacks = techChargebacksThisMonth.reduce((total, c) => total + c.value, 0);
 
@@ -1154,8 +1267,6 @@ export default function ServiceOrderPage() {
   const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
   const [returns, setReturns] = useState<Return[]>([]);
   const [chargebacks, setChargebacks] = useState<Chargeback[]>([]);
-  const [counterBudgets, setCounterBudgets] = useState<CounterBudget[]>([]);
-  const [inHomeBudgets, setInHomeBudgets] = useState<InHomeBudget[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [indicators, setIndicators] = useState<Indicator[]>([]);
   const [assistantName, setAssistantName] = useState("");
@@ -1165,7 +1276,7 @@ export default function ServiceOrderPage() {
   const [selectedParts, setSelectedParts] = useState<Record<string, number>>({});
   const [checklistTemplates, setChecklistTemplates] = useState<ChecklistTemplate[]>([]);
   const [checklistData, setChecklistData] = useState<Record<string, string | boolean>>({});
-
+  const [dataFetchError, setDataFetchError] = useState(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -1185,6 +1296,7 @@ export default function ServiceOrderPage() {
       defectFound: "",
       partsRequested: "",
       productCollectedOrInstalled: "",
+      collectionType: "",
       cleaningPerformed: false,
     },
   });
@@ -1221,13 +1333,11 @@ export default function ServiceOrderPage() {
 
   const fetchDynamicData = async () => {
     try {
-        const [ordersSnapshot, returnsSnapshot, indicatorsSnapshot, chargebacksSnapshot, counterBudgetsSnapshot, inHomeBudgetsSnapshot, activeRoutesSnapshot, checklistsSnapshot] = await Promise.all([
+        const [ordersSnapshot, returnsSnapshot, indicatorsSnapshot, chargebacksSnapshot, activeRoutesSnapshot, checklistsSnapshot] = await Promise.all([
             getDocs(collection(db, "serviceOrders")),
             getDocs(collection(db, "returns")),
             getDocs(collection(db, "indicators")),
             getDocs(collection(db, "chargebacks")),
-            getDocs(collection(db, "counterBudgets")),
-            getDocs(collection(db, "inHomeBudgets")),
             getDocs(query(collection(db, "routes"), where("isActive", "==", true))),
             getDocs(collection(db, "checklistTemplates"))
         ]);
@@ -1262,26 +1372,6 @@ export default function ServiceOrderPage() {
         });
         setChargebacks(chargebacksData);
         
-        const counterBudgetsData = counterBudgetsSnapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                ...data,
-                date: (data.date as Timestamp).toDate(),
-            } as CounterBudget;
-        });
-        setCounterBudgets(counterBudgetsData);
-
-        const inHomeBudgetsData = inHomeBudgetsSnapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                ...data,
-                date: (data.date as Timestamp).toDate(),
-            } as InHomeBudget;
-        });
-        setInHomeBudgets(inHomeBudgetsData);
-
         const indicatorsData = indicatorsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Indicator));
         setIndicators(indicatorsData);
 
@@ -1299,19 +1389,16 @@ export default function ServiceOrderPage() {
 
         const checklists = checklistsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChecklistTemplate));
         setChecklistTemplates(checklists);
+        setDataFetchError(false);
 
     } catch (error) {
         console.error("Error fetching dynamic data:", error);
-        toast({
-            variant: "destructive",
-            title: "Erro ao buscar dados dinâmicos",
-            description: "Não foi possível carregar os dados mais recentes.",
-        });
+        setDataFetchError(true);
     }
   };
 
   useEffect(() => {
-    const fetchInitialData = async () => {
+    const fetchInitialData = async (): Promise<boolean> => {
         try {
             const [symptomsDoc, repairsDoc, techsSnapshot, presetsSnapshot, templateDoc] = await Promise.all([
                 getDoc(doc(db, "codes", "symptoms")),
@@ -1335,19 +1422,18 @@ export default function ServiceOrderPage() {
             } else {
                 setVisitTemplate(`Olá, bom dia! Somos da assistência técnica autorizada Samsung. Referente ao seu atendimento da ordem de serviço {{serviceOrder}}, para o cliente {{consumerName}} na cidade de {{city}}. Poderia me confirmar a sua localização?`);
             }
-
+            return true;
         } catch (error) {
             console.error("Error fetching initial data:", error);
-            toast({
-                variant: "destructive",
-                title: "Erro ao carregar dados",
-                description: "Não foi possível buscar alguns dados. A página pode não funcionar corretamente.",
-            });
+            setDataFetchError(true);
+            return false;
         }
     };
     
-    fetchInitialData().then(() => {
-        fetchDynamicData();
+    fetchInitialData().then((success) => {
+        if(success) {
+            fetchDynamicData();
+        }
     });
 
     try {
@@ -1429,11 +1515,13 @@ export default function ServiceOrderPage() {
     const today = format(new Date(), "dd/MM/yyyy");
 
     let serviceDetails = '';
+    const collectionTypeLabel = data.collectionType ? data.collectionType.charAt(0).toUpperCase() + data.collectionType.slice(1) : '';
+
     const serviceTypeLabels: Record<string, string> = {
         reparo_samsung: `Reparo Samsung - ${data.samsungRepairType || ''}`,
         visita_orcamento_samsung: `Visita orçamento Samsung - Aprovado: ${data.samsungBudgetApproved ? 'Sim' : 'Não'}${data.samsungBudgetApproved && data.samsungBudgetValue ? `, Valor: R$ ${data.samsungBudgetValue}` : ''}`,
         visita_assurant: 'Visita Assurant',
-        coleta_eco_rma: 'Coleta Eco /RMA',
+        coleta_eco_rma: `Coleta - ${collectionTypeLabel}`,
         instalacao_inicial: 'Instalação Inicial',
     };
     serviceDetails = serviceTypeLabels[data.serviceType] || data.serviceType;
@@ -1475,11 +1563,11 @@ export default function ServiceOrderPage() {
     setGeneratedText(text);
 
     try {
-        const newServiceOrder = {
+        const newServiceOrder: Partial<ServiceOrder> = {
             technicianId: data.technician,
             serviceOrderNumber: data.serviceOrderNumber,
-            serviceType: data.serviceType,
-            equipmentType: data.equipmentType,
+            serviceType: data.serviceType as any,
+            equipmentType: data.equipmentType as any,
             date: new Date(),
             samsungRepairType: data.samsungRepairType || '',
             samsungBudgetApproved: data.samsungBudgetApproved || false,
@@ -1491,6 +1579,7 @@ export default function ServiceOrderPage() {
             defectFound: data.defectFound || '',
             partsRequested: data.partsRequested || '',
             productCollectedOrInstalled: data.productCollectedOrInstalled || '',
+            collectionType: data.collectionType as any,
             cleaningPerformed: data.cleaningPerformed || false,
         };
 
@@ -1550,6 +1639,7 @@ export default function ServiceOrderPage() {
         defectFound: "",
         partsRequested: "",
         productCollectedOrInstalled: "",
+        collectionType: "",
         cleaningPerformed: false,
     });
     setGeneratedText("");
@@ -1587,9 +1677,23 @@ export default function ServiceOrderPage() {
   const showReplacedPart = !['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType);
   const routeParts = currentRouteStop?.parts || [];
 
+  if (dataFetchError) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Header />
+        <main className="flex-grow p-4 sm:p-6 md:p-8">
+          <FirebaseSetupPrompt />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
         <Header />
+        <Suspense fallback={null}>
+          <PermissionErrorDisplay />
+        </Suspense>
         <main className="flex-grow p-4 sm:p-6 md:p-8">
             <div className="max-w-4xl mx-auto">
                 <Tabs defaultValue="os-form" className="w-full">
@@ -1785,6 +1889,28 @@ export default function ServiceOrderPage() {
                                                 )}
                                             />
 
+                                            {watchedServiceType === 'coleta_eco_rma' && (
+                                                <FormField control={form.control} name="collectionType" render={({ field }) => (
+                                                    <FormItem className="pl-4 border-l-2 border-primary/50">
+                                                        <FormLabel>Tipo de Coleta</FormLabel>
+                                                        <Select onValueChange={field.onChange} value={field.value || ""}>
+                                                            <FormControl>
+                                                                <SelectTrigger>
+                                                                    <SelectValue placeholder="Selecione o tipo de coleta" />
+                                                                </SelectTrigger>
+                                                            </FormControl>
+                                                            <SelectContent>
+                                                                <SelectItem value="reparo">Reparo</SelectItem>
+                                                                <SelectItem value="rma">RMA</SelectItem>
+                                                                <SelectItem value="eco">Eco</SelectItem>
+                                                                <SelectItem value="descarte">Descarte</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}/>
+                                            )}
+
                                             {watchedServiceType === 'reparo_samsung' && (
                                                 <FormField control={form.control} name="samsungRepairType" render={({ field }) => (
                                                     <FormItem className="pl-4 border-l-2 border-primary/50">
@@ -1822,6 +1948,16 @@ export default function ServiceOrderPage() {
                                                 </div>
                                             )}
                                             
+                                            {['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType) ? (
+                                                <FormField control={form.control} name="productCollectedOrInstalled" render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Produto Coletado/Instalado</FormLabel>
+                                                        <FormControl><Input placeholder="Descreva o produto" {...field} value={field.value || ''} /></FormControl>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}/>
+                                            ) : null}
+
                                             {serviceRequiresCodes ? (
                                                 <>
                                                     <FormField control={form.control} name="symptomCode" render={({ field }) => (
@@ -1870,14 +2006,6 @@ export default function ServiceOrderPage() {
                                                         </FormItem>
                                                     )}/>
                                                 </>
-                                            ) : ['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType) ? (
-                                                <FormField control={form.control} name="productCollectedOrInstalled" render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>Produto Coletado/Instalado</FormLabel>
-                                                        <FormControl><Input placeholder="Descreva o produto" {...field} value={field.value || ''} /></FormControl>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}/>
                                             ) : null}
                                             
                                             {showReplacedPart && (
@@ -1965,8 +2093,6 @@ export default function ServiceOrderPage() {
                             returns={returns} 
                             indicators={indicators}
                             chargebacks={chargebacks}
-                            counterBudgets={counterBudgets}
-                            inHomeBudgets={inHomeBudgets}
                         />
                     </TabsContent>
                     <TabsContent value="returns-ranking">
@@ -1980,8 +2106,9 @@ export default function ServiceOrderPage() {
         </main>
         <footer className="bg-card border-t p-4 text-center text-xs text-muted-foreground">
             <p>SmartService OS - Feito com ❤️ para simplificar sua vida.</p>
-            <Link href="/counter-technician/login" className="text-primary hover:underline">Acesso Técnico Balcão</Link>
         </footer>
     </div>
   );
 }
+
+    

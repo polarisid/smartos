@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -17,67 +16,37 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Edit, Trash2, History, Calendar as CalendarIcon } from "lucide-react";
+import { PlusCircle, Edit, Trash2, FileMinus, Calendar as CalendarIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, Timestamp, getDoc } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, Timestamp } from "firebase/firestore";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { type Return, type Technician, type ServiceOrder } from "@/lib/data";
+import { type Chargeback, type Technician } from "@/lib/data";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 
-type FormData = Omit<Return, 'id' | 'technicianName'>;
+type FormData = Omit<Chargeback, 'id' | 'technicianName'>;
 
-export async function triggerWebhook(payload: any) {
-    try {
-        const configDoc = await getDoc(doc(db, "configs", "webhook"));
-        if (!configDoc.exists()) {
-            console.log("Webhook URL not configured.");
-            return;
-        }
-        const webhookUrl = configDoc.data().url;
-        if (!webhookUrl) {
-            console.log("Webhook URL is empty.");
-            return;
-        }
-
-        await fetch(webhookUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload),
-        });
-    } catch (error) {
-        console.error("Failed to trigger webhook:", error);
-        // Do not block user flow, just log the error
-    }
-}
-
-
-export default function ReturnsPage() {
-    const [returns, setReturns] = useState<Return[]>([]);
+export default function ChargebacksPage() {
+    const [chargebacks, setChargebacks] = useState<Chargeback[]>([]);
     const [technicians, setTechnicians] = useState<Technician[]>([]);
-    const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
 
-    const [selectedReturn, setSelectedReturn] = useState<Return | null>(null);
+    const [selectedChargeback, setSelectedChargeback] = useState<Chargeback | null>(null);
     const [dialogMode, setDialogMode] = useState<'add' | 'edit'>('add');
     const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     
     const [formData, setFormData] = useState<Partial<FormData>>({
         technicianId: '',
-        originalServiceOrder: '',
-        originalReplacedPart: '',
-        returnServiceOrder: '',
-        returnReplacedPart: '',
-        productModel: '',
-        daysToReturn: 0,
-        returnDate: new Date(),
+        serviceOrderNumber: '',
+        value: 0,
+        reason: '',
+        date: new Date(),
     });
 
     const [isLoading, setIsLoading] = useState(true);
@@ -88,28 +57,24 @@ export default function ReturnsPage() {
         const fetchData = async () => {
             setIsLoading(true);
             try {
-                const [returnsSnapshot, techsSnapshot, ordersSnapshot] = await Promise.all([
-                    getDocs(collection(db, "returns")),
+                const [chargebacksSnapshot, techsSnapshot] = await Promise.all([
+                    getDocs(collection(db, "chargebacks")),
                     getDocs(collection(db, "technicians")),
-                    getDocs(collection(db, "serviceOrders")),
                 ]);
                 
                 const techs = techsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
                 setTechnicians(techs);
-
-                const orders = ordersSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id, date: (doc.data().date as Timestamp).toDate() } as ServiceOrder));
-                setServiceOrders(orders);
                 
-                const returnsData = returnsSnapshot.docs.map(doc => {
+                const chargebacksData = chargebacksSnapshot.docs.map(doc => {
                     const data = doc.data();
                     return { 
                         id: doc.id, 
                         ...data,
-                        returnDate: (data.returnDate as Timestamp)?.toDate(),
+                        date: (data.date as Timestamp)?.toDate(),
                         technicianName: techs.find(t => t.id === data.technicianId)?.name || 'N/A',
-                    } as Return;
-                }).sort((a, b) => (b.returnDate?.getTime() || 0) - (a.returnDate?.getTime() || 0));
-                setReturns(returnsData);
+                    } as Chargeback;
+                }).sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0));
+                setChargebacks(chargebacksData);
 
             } catch (error) {
                 console.error("Error fetching data:", error);
@@ -123,28 +88,26 @@ export default function ReturnsPage() {
 
     const handleOpenAddDialog = () => {
         setDialogMode('add');
-        setSelectedReturn(null);
-        setFormData({ technicianId: '', originalServiceOrder: '', originalReplacedPart: '', returnServiceOrder: '', returnReplacedPart: '', productModel: '', daysToReturn: 0, returnDate: new Date() });
+        setSelectedChargeback(null);
+        setFormData({ technicianId: '', serviceOrderNumber: '', value: 0, reason: '', date: new Date() });
         setIsFormDialogOpen(true);
     };
 
-    const handleOpenEditDialog = (item: Return) => {
+    const handleOpenEditDialog = (item: Chargeback) => {
         setDialogMode('edit');
-        setSelectedReturn(item);
-        setFormData({
-            ...item
-        });
+        setSelectedChargeback(item);
+        setFormData({ ...item });
         setIsFormDialogOpen(true);
     };
 
-    const handleOpenDeleteDialog = (item: Return) => {
-        setSelectedReturn(item);
+    const handleOpenDeleteDialog = (item: Chargeback) => {
+        setSelectedChargeback(item);
         setIsDeleteDialogOpen(true);
     };
 
-    const handleFormInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFormInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const { id, value, type } = e.target;
-        setFormData(prev => ({ ...prev, [id]: type === 'number' ? parseInt(value) || 0 : value }));
+        setFormData(prev => ({ ...prev, [id]: type === 'number' ? parseFloat(value) || 0 : value }));
     };
 
     const handleFormSelectChange = (id: string, value: any) => {
@@ -152,62 +115,51 @@ export default function ReturnsPage() {
     };
 
     const handleSave = async () => {
-        if (!formData.technicianId || !formData.originalServiceOrder || !formData.returnServiceOrder || !formData.productModel || !formData.returnDate) {
-            toast({ variant: "destructive", title: "Campos obrigatórios", description: "Todos os campos, exceto peças trocadas, são obrigatórios." });
+        if (!formData.technicianId || !formData.serviceOrderNumber || !formData.date || formData.value === undefined) {
+            toast({ variant: "destructive", title: "Campos obrigatórios", description: "Técnico, OS, data e valor são obrigatórios." });
             return;
         }
 
         setIsSubmitting(true);
-        const dataToSave = { ...formData };
+        const dataToSave = { ...formData, value: Number(formData.value) };
         const technician = technicians.find(t => t.id === dataToSave.technicianId);
 
         try {
             const technicianName = technician?.name;
-            const fullDataToSave: Return = { id: '', technicianName, ...dataToSave } as Return;
+            const fullDataToSave: Chargeback = { id: '', technicianName, ...dataToSave } as Chargeback;
 
             if (dialogMode === 'add') {
-                const docRef = await addDoc(collection(db, "returns"), dataToSave);
+                const docRef = await addDoc(collection(db, "chargebacks"), dataToSave);
                 fullDataToSave.id = docRef.id;
-                setReturns(prev => [...prev, fullDataToSave].sort((a,b) => (b.returnDate?.getTime() || 0) - (a.returnDate?.getTime() || 0)));
-                toast({ title: "Retorno registrado com sucesso!" });
-
-                // Trigger webhook for new return
-                await triggerWebhook({
-                    event: 'new_return',
-                    technicianName: technician?.name,
-                    technicianPhone: technician?.phone,
-                    returnServiceOrder: dataToSave.returnServiceOrder,
-                    originalServiceOrder: dataToSave.originalServiceOrder,
-                    daysToReturn: dataToSave.daysToReturn,
-                    productModel: dataToSave.productModel,
-                });
-            } else if (selectedReturn) {
-                const returnRef = doc(db, "returns", selectedReturn.id);
-                await setDoc(returnRef, dataToSave, { merge: true });
-                fullDataToSave.id = selectedReturn.id;
-                setReturns(prev => prev.map(p => p.id === selectedReturn.id ? fullDataToSave : p).sort((a,b) => (b.returnDate?.getTime() || 0) - (a.returnDate?.getTime() || 0)));
-                toast({ title: "Retorno atualizado com sucesso!" });
+                setChargebacks(prev => [...prev, fullDataToSave].sort((a,b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0)));
+                toast({ title: "Estorno registrado com sucesso!" });
+            } else if (selectedChargeback) {
+                const chargebackRef = doc(db, "chargebacks", selectedChargeback.id);
+                await setDoc(chargebackRef, dataToSave, { merge: true });
+                fullDataToSave.id = selectedChargeback.id;
+                setChargebacks(prev => prev.map(p => p.id === selectedChargeback.id ? fullDataToSave : p).sort((a,b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0)));
+                toast({ title: "Estorno atualizado com sucesso!" });
             }
             setIsFormDialogOpen(false);
         } catch (error) {
-            console.error("Error saving return:", error);
-            toast({ variant: "destructive", title: "Erro ao Salvar", description: "Não foi possível salvar o registro de retorno." });
+            console.error("Error saving chargeback:", error);
+            toast({ variant: "destructive", title: "Erro ao Salvar", description: "Não foi possível salvar o registro de estorno." });
         } finally {
             setIsSubmitting(false);
         }
     };
 
     const handleDelete = async () => {
-        if (!selectedReturn) return;
+        if (!selectedChargeback) return;
         setIsSubmitting(true);
         try {
-            await deleteDoc(doc(db, "returns", selectedReturn.id));
-            setReturns(prev => prev.filter(p => p.id !== selectedReturn.id));
-            toast({ title: "Retorno excluído com sucesso!" });
+            await deleteDoc(doc(db, "chargebacks", selectedChargeback.id));
+            setChargebacks(prev => prev.filter(p => p.id !== selectedChargeback.id));
+            toast({ title: "Estorno excluído com sucesso!" });
             setIsDeleteDialogOpen(false);
-            setSelectedReturn(null);
+            setSelectedChargeback(null);
         } catch (error) {
-            console.error("Error deleting return:", error);
+            console.error("Error deleting chargeback:", error);
             toast({ variant: "destructive", title: "Erro ao Excluir", description: "Não foi possível excluir o registro." });
         } finally {
             setIsSubmitting(false);
@@ -218,44 +170,42 @@ export default function ReturnsPage() {
         <>
             <div className="flex flex-col gap-6 p-4 sm:p-6">
                 <div className="flex items-center justify-between">
-                    <h1 className="text-2xl font-bold">Gerenciar Retornos</h1>
+                    <h1 className="text-2xl font-bold">Gerenciar Estornos</h1>
                     <Button onClick={handleOpenAddDialog}>
-                        <PlusCircle className="mr-2 h-4 w-4" /> Registrar Retorno
+                        <PlusCircle className="mr-2 h-4 w-4" /> Registrar Estorno
                     </Button>
                 </div>
 
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                           <History /> Registros de Retorno
+                           <FileMinus /> Registros de Estorno (Chargeback)
                         </CardTitle>
-                        <CardDescription>Adicione e gerencie os retornos de serviço dos técnicos.</CardDescription>
+                        <CardDescription>Adicione e gerencie os estornos de faturamento dos técnicos.</CardDescription>
                     </CardHeader>
                     <CardContent>
                         {isLoading ? (
-                            <div className="text-center p-4">Carregando retornos...</div>
+                            <div className="text-center p-4">Carregando estornos...</div>
                         ) : (
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>Data Retorno</TableHead>
+                                        <TableHead>Data</TableHead>
                                         <TableHead>Técnico</TableHead>
-                                        <TableHead>OS Original</TableHead>
-                                        <TableHead>OS Retorno</TableHead>
-                                        <TableHead>Modelo</TableHead>
-                                        <TableHead>Dias</TableHead>
+                                        <TableHead>OS</TableHead>
+                                        <TableHead>Valor</TableHead>
+                                        <TableHead>Motivo</TableHead>
                                         <TableHead className="text-right w-[220px]">Ações</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {returns.map((item) => (
+                                    {chargebacks.map((item) => (
                                         <TableRow key={item.id}>
-                                            <TableCell>{item.returnDate ? format(item.returnDate, 'dd/MM/yyyy') : 'N/A'}</TableCell>
+                                            <TableCell>{item.date ? format(item.date, 'dd/MM/yyyy') : 'N/A'}</TableCell>
                                             <TableCell className="font-medium">{item.technicianName}</TableCell>
-                                            <TableCell className="font-mono">{item.originalServiceOrder}</TableCell>
-                                            <TableCell className="font-mono">{item.returnServiceOrder}</TableCell>
-                                            <TableCell>{item.productModel}</TableCell>
-                                            <TableCell>{item.daysToReturn}</TableCell>
+                                            <TableCell className="font-mono">{item.serviceOrderNumber}</TableCell>
+                                            <TableCell className="font-mono text-destructive">-{item.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</TableCell>
+                                            <TableCell className="text-sm text-muted-foreground">{item.reason}</TableCell>
                                             <TableCell className="text-right">
                                                 <Button variant="outline" size="sm" onClick={() => handleOpenEditDialog(item)}>
                                                     <Edit className="mr-2 h-4 w-4" /> Editar
@@ -276,26 +226,26 @@ export default function ReturnsPage() {
             <Dialog open={isFormDialogOpen} onOpenChange={setIsFormDialogOpen}>
                 <DialogContent className="sm:max-w-lg">
                     <DialogHeader>
-                        <DialogTitle>{dialogMode === 'add' ? 'Registrar Novo Retorno' : 'Editar Retorno'}</DialogTitle>
+                        <DialogTitle>{dialogMode === 'add' ? 'Registrar Novo Estorno' : 'Editar Estorno'}</DialogTitle>
                         <DialogDescription>
-                            Preencha os detalhes do retorno de serviço.
+                            Preencha os detalhes do estorno.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                          <div className="space-y-2">
-                            <Label htmlFor="returnDate">Data do Retorno</Label>
+                            <Label htmlFor="date">Data do Estorno</Label>
                              <Popover>
                                 <PopoverTrigger asChild>
                                 <Button
                                     variant={"outline"}
                                     className={cn(
                                     "w-full justify-start text-left font-normal",
-                                    !formData.returnDate && "text-muted-foreground"
+                                    !formData.date && "text-muted-foreground"
                                     )}
                                 >
                                     <CalendarIcon className="mr-2 h-4 w-4" />
-                                    {formData.returnDate ? (
-                                        format(formData.returnDate, "PPP", { locale: ptBR })
+                                    {formData.date ? (
+                                        format(formData.date, "PPP", { locale: ptBR })
                                         ) : (
                                         <span>Selecione uma data</span>
                                     )}
@@ -305,15 +255,15 @@ export default function ReturnsPage() {
                                 <Calendar
                                     locale={ptBR}
                                     mode="single"
-                                    selected={formData.returnDate}
-                                    onSelect={(date) => handleFormSelectChange('returnDate', date)}
+                                    selected={formData.date}
+                                    onSelect={(date) => handleFormSelectChange('date', date)}
                                     initialFocus
                                 />
                                 </PopoverContent>
                             </Popover>
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="technicianId">Técnico Responsável</Label>
+                            <Label htmlFor="technicianId">Técnico</Label>
                             <Select value={formData.technicianId} onValueChange={(v) => handleFormSelectChange('technicianId', v)}>
                                 <SelectTrigger><SelectValue placeholder="Selecione um técnico" /></SelectTrigger>
                                 <SelectContent>
@@ -322,28 +272,16 @@ export default function ReturnsPage() {
                             </Select>
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="productModel">Modelo do Produto</Label>
-                            <Input id="productModel" value={formData.productModel || ''} onChange={handleFormInputChange} placeholder="Ex: QN55Q80AAGXZD" />
+                            <Label htmlFor="serviceOrderNumber">Nº da OS</Label>
+                            <Input id="serviceOrderNumber" value={formData.serviceOrderNumber || ''} onChange={handleFormInputChange} placeholder="Número da OS original" />
                         </div>
                          <div className="space-y-2">
-                            <Label htmlFor="daysToReturn">Dias para Retorno</Label>
-                            <Input id="daysToReturn" type="number" value={formData.daysToReturn || 0} onChange={handleFormInputChange} placeholder="Nº de dias" />
+                            <Label htmlFor="value">Valor do Estorno (R$)</Label>
+                            <Input id="value" type="number" value={formData.value || 0} onChange={handleFormInputChange} placeholder="Ex: 50.00" />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="originalServiceOrder">OS Original</Label>
-                            <Input id="originalServiceOrder" value={formData.originalServiceOrder || ''} onChange={handleFormInputChange} placeholder="Número da primeira OS" />
-                        </div>
-                         <div className="space-y-2">
-                            <Label htmlFor="originalReplacedPart">Peça Trocada (Original - Opcional)</Label>
-                            <Input id="originalReplacedPart" value={formData.originalReplacedPart || ''} onChange={handleFormInputChange} placeholder="Peça trocada no primeiro atendimento" />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="returnServiceOrder">OS de Retorno</Label>
-                            <Input id="returnServiceOrder" value={formData.returnServiceOrder || ''} onChange={handleFormInputChange} placeholder="Número da OS de retorno" />
-                        </div>
-                         <div className="space-y-2">
-                            <Label htmlFor="returnReplacedPart">Peça Trocada (Retorno - Opcional)</Label>
-                            <Input id="returnReplacedPart" value={formData.returnReplacedPart || ''} onChange={handleFormInputChange} placeholder="Peça trocada no retorno" />
+                            <Label htmlFor="reason">Motivo</Label>
+                            <Textarea id="reason" value={formData.reason || ''} onChange={handleFormInputChange} placeholder="Descreva o motivo do estorno" />
                         </div>
                     </div>
                     <DialogFooter>
@@ -360,8 +298,8 @@ export default function ReturnsPage() {
                     <AlertDialogHeader>
                         <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Esta ação não pode ser desfeita. Isso excluirá permanentemente o registro de retorno da OS
-                            <span className="font-bold mx-1">{selectedReturn?.returnServiceOrder}</span>.
+                            Esta ação não pode ser desfeita. Isso excluirá permanentemente o registro de estorno da OS
+                            <span className="font-bold mx-1">{selectedChargeback?.serviceOrderNumber}</span>.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

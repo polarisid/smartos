@@ -1,4 +1,3 @@
-
 "use client"
 
 import * as React from "react"
@@ -90,19 +89,14 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
                                 <Link href="/admin/presets"><Bookmark /> <span>Presets</span></Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
-                         <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/inhome-budgets')} tooltip="Lançamentos In-Home">
-                                <Link href="/admin/inhome-budgets"><Home className="w-4 h-4" /> <span>Lançamentos In-Home</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                         <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/counter-budgets')} tooltip="Orçamentos Balcão">
-                                <Link href="/admin/counter-budgets"><DollarSign /> <span>Orçamentos Balcão</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
                         <SidebarMenuItem>
                             <SidebarMenuButton asChild isActive={isActive('/admin/returns')} tooltip="Retornos">
                                 <Link href="/admin/returns"><History /> <span>Retornos</span></Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                            <SidebarMenuButton asChild isActive={isActive('/admin/chargebacks')} tooltip="Estornos">
+                                <Link href="/admin/chargebacks"><FileMinus /> <span>Estornos</span></Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                         <SidebarMenuItem>
@@ -111,8 +105,8 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                          <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/part-separation')} tooltip="Separação de Peças">
-                                <Link href="/admin/part-separation"><PackageSearch /> <span>Separação de Peças</span></Link>
+                            <SidebarMenuButton asChild isActive={isActive('/admin/part-separation')} tooltip="Conferência de Peças">
+                                <Link href="/admin/part-separation"><PackageSearch /> <span>Conferência de Peças</span></Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                         <SidebarMenuItem>
@@ -159,31 +153,36 @@ export default function AdminLayout({
   const pathname = usePathname();
 
   useEffect(() => {
-    if (loading) return;
-    if (pathname === '/admin/login') return;
+    // Don't do anything while loading or on the login page itself.
+    if (loading || pathname === '/admin/login') return;
 
+    // If loading is done and there's no user, redirect to login.
     if (!user) {
       router.push('/admin/login');
       return;
     }
     
-    if (appUser && appUser.role !== 'admin') {
-      router.push('/'); // Or a dedicated "access-denied" page
+    // If loading is done and there IS a user, but they are not an admin
+    // (either no appUser doc or role is not 'admin'), redirect to the home page with an error.
+    if (!appUser || appUser.role !== 'admin') {
+      router.push('/?error=permission_denied');
     }
-
   }, [user, appUser, loading, router, pathname]);
 
   if (loading) {
-      return <div className="min-h-screen flex items-center justify-center"><p>Verificando permissões...</p></div>
+    return <div className="min-h-screen flex items-center justify-center"><p>Verificando permissões...</p></div>
   }
 
   if (pathname === '/admin/login') {
     return <main className="min-h-screen flex items-center justify-center p-4">{children}</main>
   }
   
-  if (!user || appUser?.role !== 'admin') {
-      return null;
+  // If the user is an admin, show the content.
+  if (user && appUser?.role === 'admin') {
+    return <AdminSidebar>{children}</AdminSidebar>
   }
 
-  return <AdminSidebar>{children}</AdminSidebar>
+  // In all other cases (e.g., redirecting, or a non-admin somehow gets here),
+  // show the loading message to prevent a blank screen.
+  return <div className="min-h-screen flex items-center justify-center"><p>Verificando permissões...</p></div>;
 }

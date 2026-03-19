@@ -210,6 +210,19 @@ function RouteFormDialog({
     const [technicianId, setTechnicianId] = useState<string | undefined>();
     const [driverId, setDriverId] = useState<string | undefined>("none");
     const [parsedStops, setParsedStops] = useState<RouteStop[]>([]);
+    
+    const [manualStopData, setManualStopData] = useState({
+        serviceOrder: '',
+        ascJobNumber: '',
+        consumerName: '',
+        city: '',
+        neighborhood: '',
+        model: '',
+        ts: '',
+        warrantyType: '',
+        stopType: 'padrao' as 'padrao' | 'coleta' | 'entrega',
+        collectionType: '' as 'reparo' | 'rma' | 'eco' | 'descarte' | '',
+    });
 
     const routeDataModel = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD";
 
@@ -270,6 +283,79 @@ function RouteFormDialog({
             newStops[index].stopType = type;
             return newStops;
         });
+    };
+
+    const handleManualStopInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setManualStopData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleManualStopSelectChange = (value: 'padrao' | 'coleta' | 'entrega') => {
+        setManualStopData(prev => ({ ...prev, stopType: value, collectionType: value === 'coleta' ? prev.collectionType : '' }));
+    };
+    
+    const handleAddManualStop = () => {
+        const { serviceOrder, consumerName, city, model, stopType, collectionType } = manualStopData;
+
+        if (!serviceOrder.trim() || !consumerName.trim() || !city.trim() || !model.trim()) {
+            toast({
+                variant: "destructive",
+                title: "Campos Obrigatórios",
+                description: "OS, Nome do Cliente, Cidade e Modelo são obrigatórios para adicionar uma parada manual."
+            });
+            return;
+        }
+
+        if (stopType === 'coleta' && !collectionType) {
+            toast({
+                variant: "destructive",
+                title: "Campo Obrigatório",
+                description: "Selecione o tipo de coleta."
+            });
+            return;
+        }
+
+        if (parsedStops.some(stop => stop.serviceOrder === serviceOrder.trim())) {
+            toast({
+                variant: "destructive",
+                title: "OS Duplicada",
+                description: "Esta ordem de serviço já está na rota."
+            });
+            return;
+        }
+
+        const newStop: RouteStop = {
+            serviceOrder: manualStopData.serviceOrder.trim(),
+            ascJobNumber: manualStopData.ascJobNumber.trim(),
+            consumerName: manualStopData.consumerName.trim(),
+            city: manualStopData.city.trim(),
+            neighborhood: manualStopData.neighborhood.trim(),
+            model: manualStopData.model.trim(),
+            ts: manualStopData.ts.trim(),
+            warrantyType: manualStopData.warrantyType.trim(),
+            stopType: manualStopData.stopType,
+            collectionType: manualStopData.stopType === 'coleta' ? manualStopData.collectionType : undefined,
+            state: '',
+            turn: '',
+            tat: '',
+            requestDate: '',
+            firstVisitDate: '',
+            productType: '',
+            statusComment: '',
+            parts: [],
+        };
+
+        setParsedStops(currentStops => [...currentStops, newStop]);
+        setManualStopData({
+            serviceOrder: '', ascJobNumber: '', consumerName: '', city: '',
+            neighborhood: '', model: '', ts: '', warrantyType: '', stopType: 'padrao',
+            collectionType: ''
+        });
+        toast({ title: "Parada adicionada!", description: `A OS ${serviceOrder} foi adicionada à pré-visualização.` });
+    };
+
+    const handleRemoveStop = (index: number) => {
+        setParsedStops(currentStops => currentStops.filter((_, i) => i !== index));
     };
 
     const handleSave = async () => {
@@ -494,11 +580,12 @@ function RouteFormDialog({
                                         <TableHead>OS</TableHead>
                                         <TableHead>Tipo</TableHead>
                                         <TableHead>Peças</TableHead>
+                                        <TableHead className="w-10"></TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {parsedStops.length > 0 ? parsedStops.map((stop, index) => (
-                                        <TableRow key={index}>
+                                        <TableRow key={stop.serviceOrder}>
                                             <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
                                             <TableCell>
                                                 <Select value={stop.stopType || 'padrao'} onValueChange={(v) => handleStopTypeChange(index, v as any)}>
@@ -523,16 +610,92 @@ function RouteFormDialog({
                                                     <span className="text-xs text-muted-foreground">Nenhuma</span>
                                                 )}
                                             </TableCell>
+                                             <TableCell>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    onClick={() => handleRemoveStop(index)}
+                                                >
+                                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                                </Button>
+                                            </TableCell>
                                         </TableRow>
                                     )) : (
                                         <TableRow>
-                                            <TableCell colSpan={3} className="h-24 text-center">
+                                            <TableCell colSpan={4} className="h-24 text-center">
                                                 A pré-visualização aparecerá aqui.
                                             </TableCell>
                                         </TableRow>
                                     )}
                                 </TableBody>
                             </Table>
+                        </div>
+                        <div className="space-y-4 border-t pt-4 mt-4 bg-muted/50 p-4 rounded-lg">
+                            <Label className="font-semibold">Adicionar Parada Manualmente</Label>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                                <div className="space-y-1 col-span-2 sm:col-span-1">
+                                    <Label htmlFor="manual-serviceOrder" className="text-xs">Nº da OS *</Label>
+                                    <Input id="manual-serviceOrder" name="serviceOrder" value={manualStopData.serviceOrder} onChange={handleManualStopInputChange} placeholder="Obrigatório"/>
+                                </div>
+                                <div className="space-y-1 col-span-2 sm:col-span-1">
+                                    <Label htmlFor="manual-ascJobNumber" className="text-xs">ASC Job No.</Label>
+                                    <Input id="manual-ascJobNumber" name="ascJobNumber" value={manualStopData.ascJobNumber} onChange={handleManualStopInputChange} />
+                                </div>
+                                <div className="space-y-1 col-span-2">
+                                    <Label htmlFor="manual-consumerName" className="text-xs">Nome Cliente *</Label>
+                                    <Input id="manual-consumerName" name="consumerName" value={manualStopData.consumerName} onChange={handleManualStopInputChange} placeholder="Obrigatório" />
+                                </div>
+                                <div className="space-y-1 col-span-2 sm:col-span-1">
+                                    <Label htmlFor="manual-city" className="text-xs">Cidade *</Label>
+                                    <Input id="manual-city" name="city" value={manualStopData.city} onChange={handleManualStopInputChange} placeholder="Obrigatório"/>
+                                </div>
+                                <div className="space-y-1 col-span-2 sm:col-span-1">
+                                    <Label htmlFor="manual-neighborhood" className="text-xs">Bairro</Label>
+                                    <Input id="manual-neighborhood" name="neighborhood" value={manualStopData.neighborhood} onChange={handleManualStopInputChange} />
+                                </div>
+                                <div className="space-y-1 col-span-2 sm:col-span-1">
+                                    <Label htmlFor="manual-model" className="text-xs">Modelo *</Label>
+                                    <Input id="manual-model" name="model" value={manualStopData.model} onChange={handleManualStopInputChange} placeholder="Obrigatório"/>
+                                </div>
+                                <div className="space-y-1 col-span-2 sm:col-span-1">
+                                    <Label htmlFor="manual-ts" className="text-xs">TS</Label>
+                                    <Input id="manual-ts" name="ts" value={manualStopData.ts} onChange={handleManualStopInputChange} />
+                                </div>
+                                <div className="space-y-1 col-span-2 sm:col-span-1">
+                                    <Label htmlFor="manual-warrantyType" className="text-xs">OW/LP</Label>
+                                    <Input id="manual-warrantyType" name="warrantyType" value={manualStopData.warrantyType} onChange={handleManualStopInputChange} />
+                                </div>
+                                <div className="space-y-1 col-span-2 sm:col-span-1">
+                                    <Label htmlFor="manual-stopType" className="text-xs">Tipo *</Label>
+                                    <Select value={manualStopData.stopType} onValueChange={handleManualStopSelectChange}>
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="padrao">Padrão</SelectItem>
+                                            <SelectItem value="coleta">Coleta</SelectItem>
+                                            <SelectItem value="entrega">Entrega</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                {manualStopData.stopType === 'coleta' && (
+                                    <div className="space-y-1 col-span-2 sm:col-span-1">
+                                        <Label htmlFor="manual-collectionType" className="text-xs">Tipo de Coleta *</Label>
+                                        <Select 
+                                            value={manualStopData.collectionType} 
+                                            onValueChange={(v) => setManualStopData(prev => ({ ...prev, collectionType: v as any}))}
+                                        >
+                                            <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="reparo">Reparo</SelectItem>
+                                                <SelectItem value="rma">RMA</SelectItem>
+                                                <SelectItem value="eco">Eco</SelectItem>
+                                                <SelectItem value="descarte">Descarte</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
+                            </div>
+                            <Button type="button" onClick={handleAddManualStop} className="w-full">Adicionar Parada à Rota</Button>
                         </div>
                     </div>
                 </div>
@@ -563,12 +726,36 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
         }
     };
 
+    const stopTypeLabels = {
+        padrao: 'Padrão',
+        coleta: 'Coleta',
+        entrega: 'Entrega'
+    };
+
+    const collectionTypeLabels = {
+        reparo: 'Reparo',
+        rma: 'RMA',
+        eco: 'Eco',
+        descarte: 'Descarte'
+    } as const;
+
+    const getStopTypeDisplay = () => {
+        const base = stopTypeLabels[stop.stopType || 'padrao'];
+        if (stop.stopType === 'coleta' && stop.collectionType) {
+            const collectionLabel = collectionTypeLabels[stop.collectionType];
+            return `${base} (${collectionLabel})`;
+        }
+        return base;
+    };
+
+
     return (
         <React.Fragment>
             <CollapsibleTrigger asChild>
                 <TableRow className={cn("cursor-pointer", getRowClass())}>
                     <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
                     <TableCell className="font-mono">{stop.ascJobNumber}</TableCell>
+                    <TableCell>{getStopTypeDisplay()}</TableCell>
                     <TableCell>{stop.city}</TableCell>
                     <TableCell>{stop.neighborhood}</TableCell>
                     <TableCell>{stop.model}</TableCell>
@@ -594,7 +781,7 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
             </CollapsibleTrigger>
             <CollapsibleContent asChild>
                 <tr className="bg-muted/50">
-                    <TableCell colSpan={9} className="p-2">
+                    <TableCell colSpan={10} className="p-2">
                             <div className="p-2 bg-background/50 rounded space-y-2">
                             <div>
                                 <p className="font-semibold text-xs mb-1">Nome Consumidor:</p>
@@ -923,6 +1110,7 @@ export default function RoutesPage() {
                                 <TableRow>
                                     <TableHead>OS</TableHead>
                                     <TableHead>ASC Job No.</TableHead>
+                                    <TableHead>Tipo</TableHead>
                                     <TableHead>Cidade</TableHead>
                                     <TableHead>Bairro</TableHead>
                                     <TableHead>Modelo</TableHead>
@@ -964,6 +1152,9 @@ export default function RoutesPage() {
         </>
     );
 }
+
+
+
 
 
 
