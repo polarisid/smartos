@@ -65,6 +65,9 @@ import dynamic from "next/dynamic";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useSearchParams } from "next/navigation";
 
+import { PerformanceDashboard } from "@/components/dashboard/PerformanceDashboard";
+import { ReturnsRanking } from "@/components/dashboard/ReturnsRanking";
+
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
   { ssr: false }
@@ -305,10 +308,10 @@ function Header() {
     };
     
     return (
-        <header className="bg-card border-b p-4 flex justify-between items-center sticky top-0 z-40">
-            <Link href="/" className="flex items-center gap-3 text-primary">
-                <Wrench className="w-6 h-6 sm:w-7 sm:h-7" />
-                <h1 className="text-xl sm:text-2xl font-bold text-foreground">SmartService OS</h1>
+        <header className="glass border-b p-3 md:p-4 flex justify-between items-center sticky top-0 z-40">
+            <Link href="/" className="flex items-center gap-2 md:gap-3 text-primary">
+                <Wrench className="w-5 h-5 md:w-6 md:h-6" />
+                <h1 className="text-lg md:text-xl font-bold text-foreground tracking-tight">SmartService OS</h1>
             </Link>
             <div className="flex items-center gap-2">
                  {installPromptEvent && (
@@ -327,385 +330,6 @@ function Header() {
         </header>
     );
 }
-
-function PerformanceDashboard({ technicians, serviceOrders, returns, indicators, chargebacks }: { 
-    technicians: Technician[], 
-    serviceOrders: ServiceOrder[], 
-    returns: Return[],
-    indicators: Indicator[],
-    chargebacks: Chargeback[]
-}) {
-    const now = new Date();
-    const startOfCurrentMonth = startOfMonth(now);
-
-    const serviceOrdersThisMonth = serviceOrders.filter(os =>
-        isAfter(os.date, startOfCurrentMonth)
-    );
-
-    const returnsThisMonth = returns.filter(r =>
-        r.returnDate && isAfter(r.returnDate, startOfCurrentMonth)
-    );
-
-    const chargebacksThisMonth = chargebacks.filter(c =>
-        c.date && isAfter(c.date, startOfCurrentMonth)
-    );
-    
-    const serviceTypeConfig: Record<string, { label: string; icon: React.ElementType }> = {
-        reparo_samsung: { label: "Reparo Samsung", icon: Wrench },
-        visita_orcamento_samsung: { label: "Visita Orçamento Samsung", icon: ClipboardCheck },
-        visita_assurant: { label: "Visita Assurant", icon: ShieldCheck },
-        coleta_eco_rma: { label: "Coleta Eco /RMA", icon: Package },
-        instalacao_inicial: { label: "Instalação Inicial", icon: PackageOpen },
-    };
-
-    const performanceData = technicians.map(tech => {
-        const techOrdersThisMonth = serviceOrdersThisMonth.filter(os =>
-            os.technicianId === tech.id
-        );
-
-        const techReturnsThisMonth = returnsThisMonth.filter(r => 
-            r.technicianId === tech.id
-        );
-
-        const techChargebacksThisMonth = chargebacksThisMonth.filter(c =>
-            c.technicianId === tech.id
-        );
-
-        const osCount = techOrdersThisMonth.length;
-        const cleaningsCount = techOrdersThisMonth.filter(os => os.cleaningPerformed).length;
-        
-        const osCountByType = techOrdersThisMonth.reduce((acc, os) => {
-            const type = os.serviceType;
-            acc[type] = (acc[type] || 0) + 1;
-            return acc;
-        }, {} as Record<string, number>);
-
-        const budgetVisitOrders = techOrdersThisMonth.filter(os => os.serviceType === 'visita_orcamento_samsung');
-        const approvedBudgets = budgetVisitOrders.filter(os => os.samsungBudgetApproved).length;
-        const conversionRate = budgetVisitOrders.length > 0 ? (approvedBudgets / budgetVisitOrders.length) * 100 : 0;
-        
-        const grossRevenue = techOrdersThisMonth.reduce((total, os) => {
-            if (os.serviceType === 'visita_orcamento_samsung' && os.samsungBudgetApproved && os.samsungBudgetValue) {
-                return total + os.samsungBudgetValue;
-            }
-            return total;
-        }, 0);
-
-        const totalChargebacks = techChargebacksThisMonth.reduce((total, c) => total + c.value, 0);
-
-        const netRevenue = grossRevenue - totalChargebacks;
-
-        const goal = tech.goal || 0;
-        const progress = goal > 0 ? Math.min((netRevenue / goal) * 100, 100) : 0;
-
-        return {
-            ...tech,
-            revenue: netRevenue,
-            goal,
-            progress,
-            osCount,
-            osCountByType,
-            returnCount: techReturnsThisMonth.length,
-            cleaningsCount,
-            conversionRate,
-        };
-    }).sort((a, b) => (b.goal > 0 ? (b.revenue / b.goal) : 0) - (a.goal > 0 ? (a.revenue / a.goal) : 0));
-
-    const osByServiceType = serviceOrdersThisMonth.reduce((acc, os) => {
-        if (!acc[os.serviceType]) {
-            acc[os.serviceType] = 0;
-        }
-        acc[os.serviceType]++;
-        return acc;
-    }, {} as Record<ServiceOrder['serviceType'], number>);
-
-    const getGoalDisplay = (indicator: Indicator) => {
-        if (indicator.goalType === 'percentage') {
-            return `${indicator.goalValue}%`
-        }
-        return indicator.goalDescription || '-';
-    };
-
-    const checkIsOnTarget = (indicator: Indicator): boolean => {
-        if (indicator.goalType !== 'percentage' || indicator.goalValue === undefined || indicator.currentValue === undefined) {
-            return true; // Cannot determine, so assume it's on target
-        }
-        if (indicator.evaluationLogic === 'above_is_better') {
-            return indicator.currentValue >= indicator.goalValue;
-        }
-        if (indicator.evaluationLogic === 'below_is_better') {
-            return indicator.currentValue <= indicator.goalValue;
-        }
-        return true;
-    };
-
-
-    return (
-        <div className="space-y-6">
-            <Card>
-                <CardHeader>
-                    <CardTitle>Desempenho do Mês</CardTitle>
-                    <CardDescription>
-                        Acompanhe o faturamento, OS e retornos dos técnicos em relação às suas metas mensais.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-6 md:grid-cols-2">
-                    {performanceData.map(tech => (
-                        <Card key={tech.id}>
-                            <CardHeader className="pb-4">
-                                <CardTitle className="text-lg">{tech.name}</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div className="space-y-2">
-                                    <Progress value={tech.progress} />
-                                    <div className="flex justify-between text-sm text-muted-foreground">
-                                        <span>
-                                            {tech.revenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                        </span>
-                                        <span className="font-semibold text-foreground">
-                                            Meta: {tech.goal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                        </span>
-                                    </div>
-                                </div>
-                                 <div className="border-t pt-4 space-y-1">
-                                     <Collapsible>
-                                        <CollapsibleTrigger className="w-full">
-                                            <div className="flex justify-between items-center text-sm py-1">
-                                                <div className="flex items-center gap-2 text-muted-foreground">
-                                                    <ClipboardCheck className="h-4 w-4" />
-                                                    <span>Total de OS</span>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-bold">{tech.osCount}</span>
-                                                    <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
-                                                </div>
-                                            </div>
-                                        </CollapsibleTrigger>
-                                        <CollapsibleContent className="text-sm pl-6 mt-1 space-y-1">
-                                            {Object.entries(tech.osCountByType).map(([type, count]) => {
-                                                const Icon = serviceTypeConfig[type]?.icon || Wrench;
-                                                const label = serviceTypeConfig[type]?.label || type;
-                                                return (
-                                                     <div key={type} className="flex justify-between items-center text-xs">
-                                                         <div className="flex items-center gap-2 text-muted-foreground">
-                                                            <Icon className="h-3 w-3" />
-                                                            <span>{label}</span>
-                                                        </div>
-                                                        <span className="font-bold">{count}</span>
-                                                     </div>
-                                                )
-                                            })}
-                                        </CollapsibleContent>
-                                     </Collapsible>
-                                    <div className="flex justify-between items-center text-sm py-1">
-                                        <div className="flex items-center gap-2 text-muted-foreground">
-                                            <History className="h-4 w-4" />
-                                            <span>Total de Retornos</span>
-                                        </div>
-                                        <span className="font-bold">{tech.returnCount}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-sm py-1">
-                                        <div className="flex items-center gap-2 text-muted-foreground">
-                                            <Sparkles className="h-4 w-4" />
-                                            <span>Total de Limpezas</span>
-                                        </div>
-                                        <span className="font-bold">{tech.cleaningsCount}</span>
-                                    </div>
-                                     <div className="flex justify-between items-center text-sm py-1">
-                                        <div className="flex items-center gap-2 text-muted-foreground">
-                                            <Percent className="h-4 w-4" />
-                                            <span>Taxa de Conversão</span>
-                                        </div>
-                                        <span className="font-bold">{tech.conversionRate.toFixed(1)}%</span>
-                                    </div>
-                                 </div>
-                            </CardContent>
-                        </Card>
-                    ))}
-                </CardContent>
-            </Card>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <ListTree className="h-5 w-5" />
-                            <span>OS por Atendimento no Mês</span>
-                        </CardTitle>
-                        <CardDescription>Distribuição das ordens de serviço por tipo no mês corrente.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="grid gap-4">
-                        {Object.entries(serviceTypeConfig).map(([type, config]) => {
-                            const count = osByServiceType[type as keyof typeof osByServiceType] || 0;
-                            if (!config) return null; // Safeguard if a type is in data but not config
-                            const Icon = config.icon;
-                            return (
-                                <div key={type} className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2 text-muted-foreground">
-                                        <Icon className="h-4 w-4" />
-                                        <span>{config.label}</span>
-                                    </div>
-                                    <span className="font-bold">{count}</span>
-                                </div>
-                            )
-                        })}
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                           <Target className="h-5 w-5" /> Indicadores da Equipe
-                        </CardTitle>
-                        <CardDescription>Resultados da equipe em relação às metas definidas.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="grid gap-4">
-                         {indicators.length > 0 ? indicators.map(indicator => {
-                            const isOnTarget = checkIsOnTarget(indicator);
-                            return (
-                                <Collapsible key={indicator.id} className={cn(
-                                    "rounded-lg border p-3 transition-colors",
-                                    !isOnTarget && "border-destructive/50 bg-destructive/10"
-                                )}>
-                                    <CollapsibleTrigger className="w-full">
-                                        <div className="flex flex-col gap-2">
-                                            <div className="flex items-center justify-between text-sm font-medium">
-                                                <span>{indicator.name}</span>
-                                                <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
-                                            </div>
-                                            <div className="flex items-center justify-between text-sm">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-muted-foreground">Resultado:</span>
-                                                    <span className="font-bold">{indicator.currentValue ?? 0}{indicator.goalType === 'percentage' ? '%' : ''}</span>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-muted-foreground">Meta:</span>
-                                                    <span className="font-bold">{getGoalDisplay(indicator)}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </CollapsibleTrigger>
-                                    <CollapsibleContent>
-                                        {indicator.description && <p className="text-xs text-muted-foreground pt-2 mt-2 border-t">{indicator.description}</p>}
-                                    </CollapsibleContent>
-                                </Collapsible>
-                            )
-                         }) : (
-                            <p className="text-sm text-muted-foreground text-center">Nenhum indicador de equipe cadastrado.</p>
-                        )}
-                    </CardContent>
-                </Card>
-            </div>
-        </div>
-    );
-}
-
-function ReturnsRanking({ technicians, returns }: { technicians: Technician[], returns: Return[] }) {
-    const now = new Date();
-    const startOfCurrentYear = startOfYear(now);
-    
-    const returnsThisYear = returns.filter(r => r.returnDate && isAfter(r.returnDate, startOfCurrentYear));
-
-    const returnsByTechnician = technicians.map(tech => {
-        const techReturns = returnsThisYear.filter(r => r.technicianId === tech.id);
-        const returnCount = techReturns.length;
-        const totalDaysToReturn = techReturns.reduce((acc, r) => acc + r.daysToReturn, 0);
-        const averageDaysToReturn = returnCount > 0 ? totalDaysToReturn / returnCount : 0;
-        
-        return {
-            ...tech,
-            returnCount,
-            averageDaysToReturn,
-            returns: techReturns,
-        };
-    }).sort((a, b) => {
-        if (a.returnCount !== b.returnCount) {
-            return a.returnCount - b.returnCount;
-        }
-        return b.averageDaysToReturn - a.averageDaysToReturn;
-    });
-
-    const getTrophyColor = (rank: number) => {
-        if (rank === 0) return "text-yellow-500";
-        if (rank === 1) return "text-gray-400";
-        if (rank === 2) return "text-yellow-800";
-        return "text-muted-foreground";
-    };
-
-    return (
-        <Card>
-            <CardHeader>
-                <CardTitle>Ranking Anual de Retornos</CardTitle>
-                <CardDescription>Técnicos com a menor quantidade de retornos no ano corrente. Clique no nome para ver os detalhes.</CardDescription>
-            </CardHeader>
-            <CardContent>
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead className="w-[100px]">Posição</TableHead>
-                            <TableHead>Técnico</TableHead>
-                            <TableHead className="text-center">Retornos (Ano)</TableHead>
-                            <TableHead className="text-right">Média de Dias p/ Retorno</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {returnsByTechnician.map((tech, index) => (
-                            <TableRow key={tech.id}>
-                                <TableCell className="font-bold text-lg flex items-center gap-2">
-                                    <Trophy className={`h-5 w-5 ${getTrophyColor(index)}`} />
-                                    <span>#{index + 1}</span>
-                                </TableCell>
-                                <TableCell>
-                                    <Dialog>
-                                        <DialogTrigger asChild>
-                                            <Button variant="link" className="font-medium p-0 h-auto" disabled={tech.returnCount === 0}>
-                                                {tech.name}
-                                            </Button>
-                                        </DialogTrigger>
-                                        <DialogContent className="max-w-3xl">
-                                            <DialogHeader>
-                                                <DialogTitle>Retornos de {tech.name}</DialogTitle>
-                                                <DialogDescription>
-                                                    Detalhes dos retornos do técnico no ano corrente.
-                                                </DialogDescription>
-                                            </DialogHeader>
-                                            <div className="max-h-[60vh] overflow-y-auto">
-                                                <Table>
-                                                    <TableHeader>
-                                                        <TableRow>
-                                                            <TableHead>Data</TableHead>
-                                                            <TableHead>OS Original</TableHead>
-                                                            <TableHead>OS Retorno</TableHead>
-                                                            <TableHead>Modelo</TableHead>
-                                                            <TableHead className="text-right">Dias</TableHead>
-                                                        </TableRow>
-                                                    </TableHeader>
-                                                    <TableBody>
-                                                        {tech.returns.map((r, i) => (
-                                                            <TableRow key={i}>
-                                                                <TableCell>{r.returnDate ? format(r.returnDate, 'dd/MM/yyyy') : 'N/A'}</TableCell>
-                                                                <TableCell className="font-mono">{r.originalServiceOrder}</TableCell>
-                                                                <TableCell className="font-mono">{r.returnServiceOrder}</TableCell>
-                                                                <TableCell>{r.productModel}</TableCell>
-                                                                <TableCell className="text-right">{r.daysToReturn}</TableCell>
-                                                            </TableRow>
-                                                        ))}
-                                                    </TableBody>
-                                                </Table>
-                                            </div>
-                                        </DialogContent>
-                                    </Dialog>
-                                </TableCell>
-                                <TableCell className="text-center font-mono font-semibold">{tech.returnCount}</TableCell>
-                                <TableCell className="text-right font-mono font-semibold">{Math.round(tech.averageDaysToReturn)} dias</TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-            </CardContent>
-        </Card>
-    );
-}
-
 
 function SearchableSelect({
   options,
@@ -778,6 +402,114 @@ function SearchableSelect({
     </Popover>
   )
 }
+
+
+function MobileRouteStopCard({ stop, index, serviceOrders, routeCreatedAt, visitTemplate }: { 
+    stop: RouteStop, 
+    index: number, 
+    serviceOrders: ServiceOrder[], 
+    routeCreatedAt: Date | Timestamp,
+    visitTemplate: string
+}) {
+    const { toast } = useToast();
+    const createdAtAsDate = routeCreatedAt instanceof Timestamp ? routeCreatedAt.toDate() : routeCreatedAt;
+    const isCompleted = serviceOrders.some(os => 
+        os.serviceOrderNumber === stop.serviceOrder && 
+        isAfter(os.date, createdAtAsDate)
+    );
+
+    const handleCopyVisitText = () => {
+        let textToCopy = visitTemplate
+            .replace(/{{consumerName}}/g, stop.consumerName.split(' ')[0])
+            .replace(/{{serviceOrder}}/g, stop.serviceOrder)
+            .replace(/{{city}}/g, stop.city);
+        
+        navigator.clipboard.writeText(textToCopy);
+        toast({ title: "Texto copiado!", description: "O anúncio de visita foi copiado." });
+    };
+
+    const getCardClass = () => {
+        if (isCompleted) return "border-green-300 bg-green-50 dark:bg-green-900/20";
+        switch (stop.stopType) {
+            case 'coleta': return 'border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20';
+            case 'entrega': return 'border-blue-300 bg-blue-50 dark:bg-blue-900/20';
+            default: return '';
+        }
+    };
+
+    const stopTypeLabels = {
+        padrao: 'Padrão',
+        coleta: 'Coleta',
+        entrega: 'Entrega'
+    };
+
+    return (
+        <Card className={cn("overflow-hidden border", getCardClass())}>
+            <div className="p-3 space-y-2.5">
+                <div className="flex justify-between items-start">
+                    <div>
+                        <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{stopTypeLabels[stop.stopType || 'padrao']}</span>
+                            {stop.ts && <span className="text-[9px] font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded">{stop.ts}</span>}
+                            {stop.warrantyType && <span className="text-[9px] font-bold bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded">{stop.warrantyType}</span>}
+                            {stop.ascJobNumber && <span className="text-[9px] font-bold bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{stop.ascJobNumber}</span>}
+                        </div>
+                        <p className={cn("font-mono font-black text-lg tracking-tight text-foreground leading-none", isCompleted && "line-through opacity-60")}>{stop.serviceOrder}</p>
+                    </div>
+                    {isCompleted && <div className="text-[10px] bg-green-200 text-green-800 px-2 py-0.5 rounded-full font-bold uppercase mt-1">Concluída</div>}
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2 text-sm bg-background/60 p-2 rounded border border-border/40">
+                    <div>
+                        <p className="text-[9px] uppercase font-bold text-muted-foreground">Local</p>
+                        <p className="text-xs font-semibold leading-tight line-clamp-1">{stop.city} - {stop.neighborhood}</p>
+                    </div>
+                    <div>
+                        <p className="text-[9px] uppercase font-bold text-muted-foreground">Produto</p>
+                        <p className="text-xs font-semibold leading-tight line-clamp-1">{stop.model}</p>
+                    </div>
+                </div>
+
+                {stop.parts && stop.parts.length > 0 && (
+                    <div className="pt-1">
+                        <div className="flex flex-wrap gap-1.5">
+                            {stop.parts.map((part, pIndex) => (
+                                <div key={pIndex} className="bg-background border shadow-sm rounded flex items-center px-1.5 py-0.5 font-mono text-[10px] font-bold">
+                                    {part.code} <span className="text-primary ml-1 opacity-80">x{part.quantity}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                <Collapsible>
+                    <CollapsibleTrigger asChild>
+                        <Button variant="ghost" size="sm" className="w-full h-7 text-[10px] uppercase font-bold text-muted-foreground hover:bg-transparent border-t border-transparent hover:border-border/50 mt-1 rounded-none">
+                            <span className="flex items-center">Menu Expandido <ChevronDown className="h-3 w-3 ml-1 transition-transform [&[data-state=open]]:rotate-180" /></span>
+                        </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="pt-3 mt-1 border-t border-border/50 space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Consumidor:</p>
+                                <p className="text-xs font-medium line-clamp-1">{stop.consumerName || "N/A"}</p>
+                            </div>
+                            <div>
+                                <p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Status Comment:</p>
+                                <p className="text-[11px] font-medium leading-tight line-clamp-2">{stop.statusComment || "N/A"}</p>
+                            </div>
+                        </div>
+                        <Button size="sm" variant="default" className="w-full mt-2 font-bold h-9 bg-primary" onClick={handleCopyVisitText}>
+                            <MessageSquare className="mr-2 h-4 w-4" />
+                            Copiar Anúncio de Visita
+                        </Button>
+                    </CollapsibleContent>
+                </Collapsible>
+            </div>
+        </Card>
+    );
+}
+
 
 function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt, visitTemplate }: { 
     stop: RouteStop, 
@@ -990,7 +722,7 @@ function RoutesTab({ serviceOrders, visitTemplate, activeRoutes }: { serviceOrde
                                 <DialogTrigger asChild>
                                     <Button variant="outline"><Eye className="mr-2 h-4 w-4" /> Ver Detalhes da Rota</Button>
                                 </DialogTrigger>
-                                <DialogContent className="max-w-6xl">
+                                <DialogContent className="max-w-6xl w-[95vw] md:w-full p-2 md:p-6 bg-muted md:bg-background">
                                     <DialogHeader>
                                         <DialogTitle>Detalhes da Rota: {route.name}</DialogTitle>
                                         <DialogDescription>
@@ -1003,7 +735,14 @@ function RoutesTab({ serviceOrders, visitTemplate, activeRoutes }: { serviceOrde
                                         </div>
                                     </DialogHeader>
                                     <div className="max-h-[70vh] overflow-y-auto">
-                                        <Table>
+                                        
+        <div className="md:hidden space-y-4 py-2">
+            {route.stops.map((stop, index) => (
+                <MobileRouteStopCard key={index} stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={(route.createdAt as Date)} visitTemplate={visitTemplate} />
+            ))}
+        </div>
+        <div className="hidden md:block overflow-x-auto">
+            <Table>
                                             <TableHeader>
                                                 <TableRow>
                                                     <TableHead>OS</TableHead>
@@ -1023,6 +762,8 @@ function RoutesTab({ serviceOrders, visitTemplate, activeRoutes }: { serviceOrde
                                                 ))}
                                             </TableBody>
                                         </Table>
+        </div>
+        
                                     </div>
                                 </DialogContent>
                             </Dialog>
@@ -1694,10 +1435,10 @@ export default function ServiceOrderPage() {
         <Suspense fallback={null}>
           <PermissionErrorDisplay />
         </Suspense>
-        <main className="flex-grow p-4 sm:p-6 md:p-8">
+        <main className="flex-grow p-3 sm:p-6 md:p-8">
             <div className="max-w-4xl mx-auto">
                 <Tabs defaultValue="os-form" className="w-full">
-                    <TabsList className="mb-6 h-auto justify-start md:h-10 md:grid md:w-full md:grid-cols-4">
+                    <TabsList className="mb-3 md:mb-6 h-auto justify-start md:h-10 md:grid md:w-full md:grid-cols-4">
                         <TabsTrigger value="os-form" className="flex flex-1 items-center justify-center gap-2 px-2">
                            <Wrench />
                            <span className="hidden sm:inline">Lançar OS</span>
@@ -1717,16 +1458,16 @@ export default function ServiceOrderPage() {
                     </TabsList>
                     <TabsContent value="os-form">
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                            <Card className="w-full">
-                                <CardHeader>
-                                    <CardTitle>Lançamento Rápido de OS</CardTitle>
-                                    <CardDescription>
+                            <Card className="w-full border-none shadow-none bg-transparent md:border-solid md:shadow-sm md:bg-card">
+                                <CardHeader className="px-1 pt-0 pb-3 md:p-6">
+                                    <CardTitle className="text-[22px] md:text-2xl tracking-tight leading-none">Lançamento Rápido de OS</CardTitle>
+                                    <CardDescription className="text-xs md:text-sm mt-1 leading-tight text-muted-foreground/80 md:text-muted-foreground">
                                         Preencha os campos abaixo para gerar o texto da ordem de serviço.
                                     </CardDescription>
                                 </CardHeader>
-                                <CardContent>
+                                <CardContent className="px-1 md:px-6">
                                     <Form {...form}>
-                                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 md:space-y-5">
                                             <FormField control={form.control} name="equipmentType" render={({ field }) => (
                                                 <FormItem>
                                                     <FormLabel>Tipo de Aparelho</FormLabel>
@@ -1771,39 +1512,41 @@ export default function ServiceOrderPage() {
                                                 )}
                                             />
 
-                                            <FormField
-                                                control={form.control}
-                                                name="technician"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>Técnico</FormLabel>
-                                                        <Select onValueChange={field.onChange} value={field.value}>
-                                                            <FormControl>
-                                                                <SelectTrigger>
-                                                                    <SelectValue placeholder="Selecione o técnico" />
-                                                                </SelectTrigger>
-                                                            </FormControl>
-                                                            <SelectContent>
-                                                                {technicians.map((tech) => (
-                                                                    <SelectItem key={tech.id} value={tech.id}>
-                                                                        {tech.name}
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}
-                                            />
-                                            
-                                            <div className="space-y-2">
-                                                <Label htmlFor="assistant">Auxiliar (Opcional)</Label>
-                                                <Input
-                                                    id="assistant"
-                                                    placeholder="Digite o nome do auxiliar"
-                                                    value={assistantName}
-                                                    onChange={(e) => setAssistantName(e.target.value)}
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <FormField
+                                                    control={form.control}
+                                                    name="technician"
+                                                    render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel>Técnico</FormLabel>
+                                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                                <FormControl>
+                                                                    <SelectTrigger>
+                                                                        <SelectValue placeholder="Técnico" />
+                                                                    </SelectTrigger>
+                                                                </FormControl>
+                                                                <SelectContent>
+                                                                    {technicians.map((tech) => (
+                                                                        <SelectItem key={tech.id} value={tech.id}>
+                                                                            {tech.name}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}
                                                 />
+                                                
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="assistant" className="line-clamp-1">Auxiliar (Opcional)</Label>
+                                                    <Input
+                                                        id="assistant"
+                                                        placeholder="Nome"
+                                                        value={assistantName}
+                                                        onChange={(e) => setAssistantName(e.target.value)}
+                                                    />
+                                                </div>
                                             </div>
 
                                             <FormField
@@ -2104,7 +1847,7 @@ export default function ServiceOrderPage() {
                 </Tabs>
             </div>
         </main>
-        <footer className="bg-card border-t p-4 text-center text-xs text-muted-foreground">
+        <footer className="glass border-t p-4 text-center text-xs text-muted-foreground">
             <p>SmartService OS - Feito com ❤️ para simplificar sua vida.</p>
         </footer>
     </div>
