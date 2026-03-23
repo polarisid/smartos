@@ -334,7 +334,6 @@ function RouteFormDialog({
             ts: manualStopData.ts.trim(),
             warrantyType: manualStopData.warrantyType.trim(),
             stopType: manualStopData.stopType,
-            collectionType: (manualStopData.stopType === 'coleta' && manualStopData.collectionType !== '') ? (manualStopData.collectionType as 'reparo' | 'rma' | 'eco' | 'descarte') : undefined,
             state: '',
             turn: '',
             tat: '',
@@ -344,6 +343,10 @@ function RouteFormDialog({
             statusComment: '',
             parts: [],
         };
+
+        if (manualStopData.stopType === 'coleta' && manualStopData.collectionType !== '') {
+            newStop.collectionType = manualStopData.collectionType as 'reparo' | 'rma' | 'eco' | 'descarte';
+        }
 
         setParsedStops(currentStops => [...currentStops, newStop]);
         setManualStopData({
@@ -985,8 +988,9 @@ export default function RoutesPage() {
                                 </TableHeader>
                                 <TableBody>
                                     {filteredRoutes.map(route => {
-                                            const totalStops = route.stops.length;
-                                            const completedStopsCount = route.stops.filter(stop => 
+                                            const stops = route.stops || [];
+                                            const totalStops = stops.length;
+                                            const completedStopsCount = stops.filter(stop => 
                                                 serviceOrders.some(os => 
                                                     os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt as Date)
                                                 )
@@ -1008,7 +1012,7 @@ export default function RoutesPage() {
                                                     <span>{route.driverName || 'N/A'}</span>
                                                 </div>
                                             </TableCell>
-                                            <TableCell>{route.stops.length}</TableCell>
+                                            <TableCell>{totalStops}</TableCell>
                                             <TableCell className="w-[200px]">
                                                     <div className="flex flex-col gap-1">
                                                         <Progress value={progress} />
@@ -1032,8 +1036,9 @@ export default function RoutesPage() {
                             {/* Mobile Card View */}
                             <div className="md:hidden space-y-4">
                                 {filteredRoutes.map(route => {
-                                        const totalStops = route.stops.length;
-                                        const completedStopsCount = route.stops.filter(stop => 
+                                        const stops = route.stops || [];
+                                        const totalStops = stops.length;
+                                        const completedStopsCount = stops.filter(stop => 
                                             serviceOrders.some(os => 
                                                 os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt as Date)
                                             )
