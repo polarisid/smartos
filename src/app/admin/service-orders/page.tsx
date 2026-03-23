@@ -185,6 +185,8 @@ export default function ServiceOrdersPage() {
             // We keep original technicianId and date
             const updatedData: Partial<ServiceOrder> = {
                 ...data,
+                equipmentType: data.equipmentType as "TV/AV" | "DA",
+                serviceType: data.serviceType as any,
                 samsungBudgetValue: data.samsungBudgetValue ? parseFloat(data.samsungBudgetValue) : 0
             };
             

@@ -1,0 +1,12 @@
+﻿types/app/admin/dashboard/page.ts(2,24): error TS2307: Cannot find module '../../../../../src/app/admin/dashboard/page.js' or its corresponding type declarations.
+types/app/admin/dashboard/page.ts(5,29): error TS2307: Cannot find module '../../../../../src/app/admin/dashboard/page.js' or its corresponding type declarations.
+types/app/admin/layout.ts(2,24): error TS2307: Cannot find module '../../../../src/app/admin/layout.js' or its corresponding type declarations.
+types/app/admin/layout.ts(5,29): error TS2307: Cannot find module '../../../../src/app/admin/layout.js' or its corresponding type declarations.
+types/app/admin/login/page.ts(2,24): error TS2307: Cannot find module '../../../../../src/app/admin/login/page.js' or its corresponding type declarations.
+types/app/admin/login/page.ts(5,29): error TS2307: Cannot find module '../../../../../src/app/admin/login/page.js' or its corresponding type declarations.
+types/app/admin/routes/page.ts(2,24): error TS2307: Cannot find module '../../../../../src/app/admin/routes/page.js' or its corresponding type declarations.
+types/app/admin/routes/page.ts(5,29): error TS2307: Cannot find module '../../../../../src/app/admin/routes/page.js' or its corresponding type declarations.
+types/app/layout.ts(2,24): error TS2307: Cannot find module '../../../src/app/layout.js' or its corresponding type declarations.
+types/app/layout.ts(5,29): error TS2307: Cannot find module '../../../src/app/layout.js' or its corresponding type declarations.
+types/app/page.ts(2,24): error TS2307: Cannot find module '../../../src/app/page.js' or its corresponding type declarations.
+types/app/page.ts(5,29): error TS2307: Cannot find module '../../../src/app/page.js' or its corresponding type declarations.

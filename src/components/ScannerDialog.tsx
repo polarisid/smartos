@@ -11,7 +11,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import type { Html5QrcodeScanner, Html5QrcodeError, Html5QrcodeResult, Html5Qrcode } from 'html5-qrcode';
+import type { Html5QrcodeScanner, Html5QrcodeResult, Html5Qrcode } from 'html5-qrcode';
 import { useToast } from '@/hooks/use-toast';
 import { RefreshCw } from 'lucide-react';
 
@@ -82,12 +82,12 @@ export function ScannerDialog({
                 }
             };
 
-            const handleError = (errorMessage: string, error: Html5QrcodeError) => {
+            const handleError = (errorMessage: string, error: any) => {
                 // This will be called for non-fatal errors (e.g., QR code not found), we can ignore them.
             };
             
             const scannerElement = document.getElementById(scannerId);
-            if (scannerElement && !scannerRef.current.isScanning) {
+            if (scannerElement) {
                 scanner.render(handleSuccess, handleError);
             }
         };

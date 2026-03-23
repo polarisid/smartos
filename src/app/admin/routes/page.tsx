@@ -148,8 +148,8 @@ function parseRouteText(text: string): RouteStop[] {
             productType: columns[headerIndices.productType]?.trim() || '',
             statusComment: columns[headerIndices.statusComment]?.trim() || '',
             parts: parts,
-            stopType: 'padrao', // Default value
-        };
+            stopType: 'padrao' as const, // Default value
+        } as RouteStop;
     }).filter((stop): stop is RouteStop => stop !== null);
 }
 
@@ -334,7 +334,7 @@ function RouteFormDialog({
             ts: manualStopData.ts.trim(),
             warrantyType: manualStopData.warrantyType.trim(),
             stopType: manualStopData.stopType,
-            collectionType: manualStopData.stopType === 'coleta' ? manualStopData.collectionType : undefined,
+            collectionType: (manualStopData.stopType === 'coleta' && manualStopData.collectionType !== '') ? (manualStopData.collectionType as 'reparo' | 'rma' | 'eco' | 'descarte') : undefined,
             state: '',
             turn: '',
             tat: '',
@@ -839,7 +839,7 @@ export default function RoutesPage() {
                          createdAt: createdAtDate
                     } as Route
                 })
-                .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
+                .sort((a, b) => ((b.createdAt as Date)?.getTime() || 0) - ((a.createdAt as Date)?.getTime() || 0));
             setAllRoutes(routesData);
 
             const ordersData = ordersSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id, date: (doc.data().date as Timestamp).toDate() } as ServiceOrder));
@@ -988,7 +988,7 @@ export default function RoutesPage() {
                                             const totalStops = route.stops.length;
                                             const completedStopsCount = route.stops.filter(stop => 
                                                 serviceOrders.some(os => 
-                                                    os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt)
+                                                    os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt as Date)
                                                 )
                                             ).length;
                                             const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
@@ -1035,7 +1035,7 @@ export default function RoutesPage() {
                                         const totalStops = route.stops.length;
                                         const completedStopsCount = route.stops.filter(stop => 
                                             serviceOrders.some(os => 
-                                                os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt)
+                                                os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt as Date)
                                             )
                                         ).length;
                                         const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;

@@ -461,8 +461,9 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                 stop.parts.forEach(part => {
                     const osRecord = serviceOrders.find(os => 
                         os.serviceOrderNumber === stop.serviceOrder && 
-                        route.createdAt && 
-                        isAfter(os.date, route.createdAt)
+                        os.serviceOrderNumber === stop.serviceOrder && 
+                        createdAtDate && 
+                        isAfter(os.date, createdAtDate)
                     );
 
                     let status = "Nova"; // Default status
@@ -739,7 +740,7 @@ export default function PartSeparationPage() {
         const createdAtDate = route.createdAt instanceof Date ? route.createdAt : (route.createdAt as unknown as Timestamp).toDate();
         doc.text(`Data de Criação: ${createdAtDate.toLocaleDateString('pt-BR')}`, 14, 26);
 
-        type Row = (string | number)[];
+        type Row = any[];
         const tableBody: Row[] = [];
         
         route.stops.forEach(stop => {

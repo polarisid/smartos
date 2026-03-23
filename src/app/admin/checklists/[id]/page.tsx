@@ -105,7 +105,8 @@ function TestChecklistDialog({ template, fields, isOpen, onOpenChange }: {
                 
                 // If a variable is linked, use mock data. Otherwise, use form data.
                 if (field.variableKey) {
-                    value = mockRouteStop[field.variableKey as keyof typeof mockRouteStop] || `[${'field.variableKey'}]`;
+                    const mockVal = mockRouteStop[field.variableKey as keyof typeof mockRouteStop] as any;
+                    value = mockVal !== undefined && mockVal !== null ? String(mockVal) : `[${field.variableKey}]`;
                 }
 
                 if (value !== undefined && value !== null) {
@@ -134,7 +135,7 @@ function TestChecklistDialog({ template, fields, isOpen, onOpenChange }: {
 
             const pdfBytes = await pdfDoc.save();
 
-            const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+            const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
             link.download = `teste_${template.name.replace(/\s+/g, '_')}.pdf`;

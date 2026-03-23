@@ -37,7 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { AlertTriangle, Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine } from "lucide-react";
+import { AlertTriangle, Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine, QrCode } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
@@ -67,6 +67,7 @@ import { useSearchParams } from "next/navigation";
 
 import { PerformanceDashboard } from "@/components/dashboard/PerformanceDashboard";
 import { ReturnsRanking } from "@/components/dashboard/ReturnsRanking";
+import { PartScannerClipboard } from "@/components/PartScannerClipboard";
 
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
@@ -658,7 +659,7 @@ function RoutesTab({ serviceOrders, visitTemplate, activeRoutes }: { serviceOrde
                 const totalStops = route.stops.length;
                 const completedStopsCount = route.stops.filter(stop => 
                     serviceOrders.some(os => 
-                        os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt)
+                        os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt as Date)
                     )
                 ).length;
                 const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
@@ -892,7 +893,7 @@ function ChecklistSection({
 
             const pdfBytes = await pdfDoc.save();
 
-            const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+            const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
             link.download = `${mainFormData.serviceOrderNumber}_checklist.pdf`;
@@ -945,7 +946,7 @@ function ChecklistSection({
                                 return (
                                     <div key={field.id} className="space-y-2">
                                         <Label htmlFor={`fill-${field.id}`} className="flex items-center gap-2">
-                                            {isAutoFilled && <LinkIcon className="h-4 w-4 text-blue-500" title="Preenchido automaticamente" />}
+                                            {isAutoFilled && <span title="Preenchido automaticamente"><LinkIcon className="h-4 w-4 text-blue-500" /></span>}
                                             {field.name}
                                         </Label>
                                         {field.type === 'text' ? (
@@ -1438,7 +1439,7 @@ export default function ServiceOrderPage() {
         <main className="flex-grow p-3 sm:p-6 md:p-8">
             <div className="max-w-4xl mx-auto">
                 <Tabs defaultValue="os-form" className="w-full">
-                    <TabsList className="mb-3 md:mb-6 h-auto justify-start md:h-10 md:grid md:w-full md:grid-cols-4">
+                    <TabsList className="mb-3 md:mb-6 h-auto justify-start md:h-10 md:grid md:w-full md:grid-cols-5">
                         <TabsTrigger value="os-form" className="flex flex-1 items-center justify-center gap-2 px-2">
                            <Wrench />
                            <span className="hidden sm:inline">Lançar OS</span>
@@ -1454,6 +1455,10 @@ export default function ServiceOrderPage() {
                         <TabsTrigger value="routes" className="flex flex-1 items-center justify-center gap-2 px-2">
                            <RouteIcon />
                            <span className="hidden sm:inline">Rotas</span>
+                        </TabsTrigger>
+                        <TabsTrigger value="scanner" className="flex flex-1 items-center justify-center gap-2 px-2">
+                           <QrCode />
+                           <span className="hidden sm:inline">Scanner</span>
                         </TabsTrigger>
                     </TabsList>
                     <TabsContent value="os-form">
@@ -1843,6 +1848,9 @@ export default function ServiceOrderPage() {
                     </TabsContent>
                     <TabsContent value="routes">
                         <RoutesTab serviceOrders={serviceOrders} visitTemplate={visitTemplate} activeRoutes={activeRoutes} />
+                    </TabsContent>
+                    <TabsContent value="scanner">
+                        <PartScannerClipboard />
                     </TabsContent>
                 </Tabs>
             </div>

@@ -1,0 +1,51 @@
+﻿src/app/admin/checklists/[id]/page.tsx(108,21): error TS2322: Type 'string | RoutePart[]' is not assignable to type 'string | boolean | null | undefined'.
+  Type 'RoutePart[]' is not assignable to type 'string | boolean | null | undefined'.
+src/app/admin/layout.tsx(18,3): error TS2459: Module '"@/components/ui/sidebar"' declares 'SheetHeader' locally, but it is not exported.
+src/app/admin/layout.tsx(19,3): error TS2459: Module '"@/components/ui/sidebar"' declares 'SheetTitle' locally, but it is not exported.
+src/app/admin/part-separation/page.tsx(465,42): error TS2345: Argument of type 'Date | Timestamp' is not assignable to parameter of type 'string | number | Date'.
+  Type 'Timestamp' is not assignable to type 'string | number | Date'.
+    Type 'Timestamp' is missing the following properties from type 'Date': toDateString, toTimeString, toLocaleDateString, toLocaleTimeString, and 36 more.
+src/app/admin/part-separation/page.tsx(751,29): error TS2322: Type '{ content: string; rowSpan: number; styles: { valign: string; }; }' is not assignable to type 'string | number'.
+src/app/admin/part-separation/page.tsx(752,29): error TS2322: Type '{ content: string; rowSpan: number; styles: { valign: string; }; }' is not assignable to type 'string | number'.
+src/app/admin/routes/page.tsx(108,5): error TS2322: Type '({ serviceOrder: string; ascJobNumber: string; consumerName: string; city: string; neighborhood: string; state: string; model: string; turn: string; tat: string; requestDate: string; firstVisitDate: string; ... 5 more ...; stopType: string; } | null)[]' is not assignable to type 'RouteStop[]'.
+  Type '{ serviceOrder: string; ascJobNumber: string; consumerName: string; city: string; neighborhood: string; state: string; model: string; turn: string; tat: string; requestDate: string; firstVisitDate: string; ... 5 more ...; stopType: string; } | null' is not assignable to type 'RouteStop'.
+    Type 'null' is not assignable to type 'RouteStop'.
+src/app/admin/routes/page.tsx(153,31): error TS2677: A type predicate's type must be assignable to its parameter's type.
+  Type 'RouteStop' is not assignable to type '{ serviceOrder: string; ascJobNumber: string; consumerName: string; city: string; neighborhood: string; state: string; model: string; turn: string; tat: string; requestDate: string; firstVisitDate: string; ... 5 more ...; stopType: string; }'.
+    Types of property 'stopType' are incompatible.
+      Type 'string | undefined' is not assignable to type 'string'.
+        Type 'undefined' is not assignable to type 'string'.
+src/app/admin/routes/page.tsx(337,13): error TS2322: Type '"" | "reparo" | "rma" | "eco" | "descarte" | undefined' is not assignable to type '"reparo" | "rma" | "eco" | "descarte" | undefined'.
+  Type '""' is not assignable to type '"reparo" | "rma" | "eco" | "descarte" | undefined'.
+src/app/admin/routes/page.tsx(842,47): error TS2339: Property 'getTime' does not exist on type 'Date | Timestamp'.
+  Property 'getTime' does not exist on type 'Timestamp'.
+src/app/admin/routes/page.tsx(842,79): error TS2339: Property 'getTime' does not exist on type 'Date | Timestamp'.
+  Property 'getTime' does not exist on type 'Timestamp'.
+src/app/admin/routes/page.tsx(991,136): error TS2345: Argument of type 'Date | Timestamp' is not assignable to parameter of type 'string | number | Date'.
+  Type 'Timestamp' is not assignable to type 'string | number | Date'.
+    Type 'Timestamp' is missing the following properties from type 'Date': toDateString, toTimeString, toLocaleDateString, toLocaleTimeString, and 36 more.
+src/app/admin/routes/page.tsx(1038,132): error TS2345: Argument of type 'Date | Timestamp' is not assignable to parameter of type 'string | number | Date'.
+  Type 'Timestamp' is not assignable to type 'string | number | Date'.
+    Type 'Timestamp' is missing the following properties from type 'Date': toDateString, toTimeString, toLocaleDateString, toLocaleTimeString, and 36 more.
+src/app/admin/service-orders/page.tsx(186,19): error TS2322: Type '{ samsungBudgetValue: number; serviceOrderNumber: string; serviceType: string; equipmentType: string; replacedPart?: string | undefined; observations?: string | undefined; samsungRepairType?: string | undefined; ... 6 more ...; cleaningPerformed?: boolean | undefined; }' is not assignable to type 'Partial<ServiceOrder>'.
+  Types of property 'equipmentType' are incompatible.
+    Type 'string' is not assignable to type '"TV/AV" | "DA" | undefined'.
+src/app/page.tsx(661,108): error TS2345: Argument of type 'Date | Timestamp' is not assignable to parameter of type 'string | number | Date'.
+  Type 'Timestamp' is not assignable to type 'string | number | Date'.
+    Type 'Timestamp' is missing the following properties from type 'Date': toDateString, toTimeString, toLocaleDateString, toLocaleTimeString, and 36 more.
+src/app/page.tsx(948,106): error TS2322: Type '{ className: string; title: string; }' is not assignable to type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+  Property 'title' does not exist on type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+src/components/ScannerDialog.tsx(14,35): error TS2724: '"html5-qrcode"' has no exported member named 'Html5QrcodeError'. Did you mean 'Html5Qrcode'?
+src/components/ScannerDialog.tsx(90,55): error TS2339: Property 'isScanning' does not exist on type 'Html5QrcodeScanner'.
+types/app/admin/dashboard/page.ts(2,24): error TS2307: Cannot find module '../../../../../src/app/admin/dashboard/page.js' or its corresponding type declarations.
+types/app/admin/dashboard/page.ts(5,29): error TS2307: Cannot find module '../../../../../src/app/admin/dashboard/page.js' or its corresponding type declarations.
+types/app/admin/layout.ts(2,24): error TS2307: Cannot find module '../../../../src/app/admin/layout.js' or its corresponding type declarations.
+types/app/admin/layout.ts(5,29): error TS2307: Cannot find module '../../../../src/app/admin/layout.js' or its corresponding type declarations.
+types/app/admin/login/page.ts(2,24): error TS2307: Cannot find module '../../../../../src/app/admin/login/page.js' or its corresponding type declarations.
+types/app/admin/login/page.ts(5,29): error TS2307: Cannot find module '../../../../../src/app/admin/login/page.js' or its corresponding type declarations.
+types/app/admin/routes/page.ts(2,24): error TS2307: Cannot find module '../../../../../src/app/admin/routes/page.js' or its corresponding type declarations.
+types/app/admin/routes/page.ts(5,29): error TS2307: Cannot find module '../../../../../src/app/admin/routes/page.js' or its corresponding type declarations.
+types/app/layout.ts(2,24): error TS2307: Cannot find module '../../../src/app/layout.js' or its corresponding type declarations.
+types/app/layout.ts(5,29): error TS2307: Cannot find module '../../../src/app/layout.js' or its corresponding type declarations.
+types/app/page.ts(2,24): error TS2307: Cannot find module '../../../src/app/page.js' or its corresponding type declarations.
+types/app/page.ts(5,29): error TS2307: Cannot find module '../../../src/app/page.js' or its corresponding type declarations.
