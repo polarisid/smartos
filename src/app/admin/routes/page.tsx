@@ -36,7 +36,7 @@ import { ptBR } from "date-fns/locale";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import React from "react";
 import { Progress } from "@/components/ui/progress";
-import { triggerWebhook } from "@/app/admin/returns/page";
+import { triggerWebhook } from "@/lib/webhook";
 
 
 function parseRouteText(text: string): RouteStop[] {

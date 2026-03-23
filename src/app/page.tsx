@@ -37,7 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { AlertTriangle, Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine, QrCode } from "lucide-react";
+import { AlertTriangle, Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine, QrCode, XCircle } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
@@ -56,7 +56,22 @@ import {
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import React from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
@@ -405,12 +420,15 @@ function SearchableSelect({
 }
 
 
-function MobileRouteStopCard({ stop, index, serviceOrders, routeCreatedAt, visitTemplate }: { 
+function MobileRouteStopCard({ stop, index, serviceOrders, routeCreatedAt, visitTemplate, blockedOrders, onBlock, onUnblock }: { 
     stop: RouteStop, 
     index: number, 
     serviceOrders: ServiceOrder[], 
     routeCreatedAt: Date | Timestamp,
-    visitTemplate: string
+    visitTemplate: string,
+    blockedOrders: Record<string, string>,
+    onBlock: (serviceOrder: string, reason: string) => void,
+    onUnblock: (serviceOrder: string) => void,
 }) {
     const { toast } = useToast();
     const createdAtAsDate = routeCreatedAt instanceof Timestamp ? routeCreatedAt.toDate() : routeCreatedAt;
@@ -418,18 +436,21 @@ function MobileRouteStopCard({ stop, index, serviceOrders, routeCreatedAt, visit
         os.serviceOrderNumber === stop.serviceOrder && 
         isAfter(os.date, createdAtAsDate)
     );
+    const isBlocked = !!blockedOrders[stop.serviceOrder];
+    const blockReason = blockedOrders[stop.serviceOrder] || "";
+    const [pendingReason, setPendingReason] = useState(blockReason);
 
     const handleCopyVisitText = () => {
         let textToCopy = visitTemplate
             .replace(/{{consumerName}}/g, stop.consumerName.split(' ')[0])
             .replace(/{{serviceOrder}}/g, stop.serviceOrder)
             .replace(/{{city}}/g, stop.city);
-        
         navigator.clipboard.writeText(textToCopy);
         toast({ title: "Texto copiado!", description: "O anúncio de visita foi copiado." });
     };
 
     const getCardClass = () => {
+        if (isBlocked) return "border-red-400 bg-red-50 dark:bg-red-900/20";
         if (isCompleted) return "border-green-300 bg-green-50 dark:bg-green-900/20";
         switch (stop.stopType) {
             case 'coleta': return 'border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20';
@@ -457,7 +478,10 @@ function MobileRouteStopCard({ stop, index, serviceOrders, routeCreatedAt, visit
                         </div>
                         <p className={cn("font-mono font-black text-lg tracking-tight text-foreground leading-none", isCompleted && "line-through opacity-60")}>{stop.serviceOrder}</p>
                     </div>
-                    {isCompleted && <div className="text-[10px] bg-green-200 text-green-800 px-2 py-0.5 rounded-full font-bold uppercase mt-1">Concluída</div>}
+                    <div className="flex flex-col items-end gap-1">
+                        {isCompleted && <div className="text-[10px] bg-green-200 text-green-800 px-2 py-0.5 rounded-full font-bold uppercase">Concluída</div>}
+                        {isBlocked && <div className="text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1"><XCircle className="h-3 w-3"/>Bloqueada</div>}
+                    </div>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-2 text-sm bg-background/60 p-2 rounded border border-border/40">
@@ -483,6 +507,13 @@ function MobileRouteStopCard({ stop, index, serviceOrders, routeCreatedAt, visit
                     </div>
                 )}
 
+                {isBlocked && (
+                    <div className="bg-red-100 dark:bg-red-900/30 border border-red-300 rounded p-2">
+                        <p className="text-[10px] uppercase font-bold text-red-700 dark:text-red-400 mb-0.5">Motivo do Bloqueio:</p>
+                        <p className="text-xs text-red-800 dark:text-red-300 font-medium leading-tight">{blockReason}</p>
+                    </div>
+                )}
+
                 <Collapsible>
                     <CollapsibleTrigger asChild>
                         <Button variant="ghost" size="sm" className="w-full h-7 text-[10px] uppercase font-bold text-muted-foreground hover:bg-transparent border-t border-transparent hover:border-border/50 mt-1 rounded-none">
@@ -500,10 +531,59 @@ function MobileRouteStopCard({ stop, index, serviceOrders, routeCreatedAt, visit
                                 <p className="text-[11px] font-medium leading-tight line-clamp-2">{stop.statusComment || "N/A"}</p>
                             </div>
                         </div>
-                        <Button size="sm" variant="default" className="w-full mt-2 font-bold h-9 bg-primary" onClick={handleCopyVisitText}>
+                        <Button size="sm" variant="default" className="w-full font-bold h-9 bg-primary" onClick={handleCopyVisitText}>
                             <MessageSquare className="mr-2 h-4 w-4" />
                             Copiar Anúncio de Visita
                         </Button>
+                        {/* Block/Unblock button */}
+                        {isBlocked ? (
+                            <Button 
+                                size="sm" 
+                                variant="outline" 
+                                className="w-full font-bold h-9 border-red-400 text-red-600 hover:bg-red-50"
+                                onClick={() => onUnblock(stop.serviceOrder)}
+                            >
+                                <XCircle className="mr-2 h-4 w-4" />
+                                Desbloquear Ordem
+                            </Button>
+                        ) : (
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button 
+                                        size="sm" 
+                                        variant="outline" 
+                                        className="w-full font-bold h-9 border-red-400 text-red-600 hover:bg-red-50"
+                                        onClick={() => setPendingReason("")}
+                                    >
+                                        <XCircle className="mr-2 h-4 w-4" />
+                                        Marcar como Impossível
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Motivo do Bloqueio</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            OS <strong>{stop.serviceOrder}</strong> — explique por que esta ordem não pode ser realizada.
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <Textarea
+                                        placeholder="Ex: Cliente ausente, endereço incorreto, produto quebrado..."
+                                        value={pendingReason}
+                                        onChange={(e) => setPendingReason(e.target.value)}
+                                        className="min-h-[100px] mt-2"
+                                    />
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                        <AlertDialogAction
+                                            className="bg-red-600 hover:bg-red-700"
+                                            onClick={() => { if (pendingReason.trim()) onBlock(stop.serviceOrder, pendingReason.trim()); }}
+                                        >
+                                            Confirmar Bloqueio
+                                        </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                        )}
                     </CollapsibleContent>
                 </Collapsible>
             </div>
@@ -611,6 +691,35 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt, visitTemp
 function RoutesTab({ serviceOrders, visitTemplate, activeRoutes }: { serviceOrders: ServiceOrder[], visitTemplate: string, activeRoutes: Route[] }) {
     const { toast } = useToast();
     const [isLoading, setIsLoading] = useState(true);
+    const [blockedOrders, setBlockedOrders] = useState<Record<string, string>>({});
+    const [isBlocksLoaded, setIsBlocksLoaded] = useState(false);
+
+    useEffect(() => {
+        try {
+            const saved = localStorage.getItem("blocked_route_orders");
+            if (saved) setBlockedOrders(JSON.parse(saved));
+        } catch (e) { console.error("Failed to load blocked orders", e); }
+        setIsBlocksLoaded(true);
+    }, []);
+
+    useEffect(() => {
+        if (!isBlocksLoaded) return;
+        localStorage.setItem("blocked_route_orders", JSON.stringify(blockedOrders));
+    }, [blockedOrders, isBlocksLoaded]);
+
+    const handleBlock = (serviceOrder: string, reason: string) => {
+        setBlockedOrders(prev => ({ ...prev, [serviceOrder]: reason }));
+        toast({ title: "Ordem bloqueada", description: `A OS ${serviceOrder} foi marcada como impossível.` });
+    };
+
+    const handleUnblock = (serviceOrder: string) => {
+        setBlockedOrders(prev => {
+            const next = { ...prev };
+            delete next[serviceOrder];
+            return next;
+        });
+        toast({ title: "Ordem desbloqueada", description: `A OS ${serviceOrder} foi removida da lista de bloqueios.` });
+    };
 
     useEffect(() => {
         if(activeRoutes.length > 0 || activeRoutes.length === 0){
@@ -739,7 +848,7 @@ function RoutesTab({ serviceOrders, visitTemplate, activeRoutes }: { serviceOrde
                                         
         <div className="md:hidden space-y-4 py-2">
             {route.stops.map((stop, index) => (
-                <MobileRouteStopCard key={index} stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={(route.createdAt as Date)} visitTemplate={visitTemplate} />
+                <MobileRouteStopCard key={index} stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={(route.createdAt as Date)} visitTemplate={visitTemplate} blockedOrders={blockedOrders} onBlock={handleBlock} onUnblock={handleUnblock} />
             ))}
         </div>
         <div className="hidden md:block overflow-x-auto">

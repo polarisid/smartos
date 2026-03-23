@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { PlusCircle, Edit, Trash2, History, Calendar as CalendarIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, Timestamp, getDoc } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, Timestamp } from "firebase/firestore";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type Return, type Technician, type ServiceOrder } from "@/lib/data";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -30,33 +30,9 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
+import { triggerWebhook } from "@/lib/webhook";
+
 type FormData = Omit<Return, 'id' | 'technicianName'>;
-
-export async function triggerWebhook(payload: any) {
-    try {
-        const configDoc = await getDoc(doc(db, "configs", "webhook"));
-        if (!configDoc.exists()) {
-            console.log("Webhook URL not configured.");
-            return;
-        }
-        const webhookUrl = configDoc.data().url;
-        if (!webhookUrl) {
-            console.log("Webhook URL is empty.");
-            return;
-        }
-
-        await fetch(webhookUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload),
-        });
-    } catch (error) {
-        console.error("Failed to trigger webhook:", error);
-        // Do not block user flow, just log the error
-    }
-}
 
 
 export default function ReturnsPage() {
