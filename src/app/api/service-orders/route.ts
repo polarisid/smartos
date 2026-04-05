@@ -3,13 +3,16 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, Timestamp, query, where } from 'firebase/firestore';
 import { type ServiceOrder, type Route, type Technician } from '@/lib/data';
+import { subMonths } from 'date-fns';
 
 export async function GET() {
   try {
-    // Fetch all necessary data from Firestore in parallel
+    const sixMonthsAgo = subMonths(new Date(), 6);
+    // Fetch only recent service orders (last 6 months) + active routes + technicians in parallel
     const activeRoutesQuery = query(collection(db, "routes"), where("isActive", "==", true));
+    const ordersQuery = query(collection(db, "serviceOrders"), where("date", ">=", sixMonthsAgo));
     const [ordersSnapshot, activeRoutesSnapshot, techniciansSnapshot] = await Promise.all([
-      getDocs(collection(db, "serviceOrders")),
+      getDocs(ordersQuery),
       getDocs(activeRoutesQuery),
       getDocs(collection(db, "technicians"))
     ]);

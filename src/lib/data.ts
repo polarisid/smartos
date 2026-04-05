@@ -54,6 +54,8 @@ export type ServiceOrder = {
   observations?: string;
 
   cleaningPerformed?: boolean;
+  isFinalized?: boolean;
+  pendingReason?: string;
 };
 
 export type BudgetItem = {
@@ -187,6 +189,7 @@ export type RouteStop = {
     technicianName?: string;
     stopType?: 'padrao' | 'coleta' | 'entrega';
     collectionType?: 'reparo' | 'rma' | 'eco' | 'descarte';
+    addressDetails?: string;
 }
 
 export type Route = {
@@ -249,6 +252,8 @@ export const serviceOrders: ServiceOrder[] = [
   { id: 'os11', technicianId: '4', serviceOrderNumber: 'OS-011', date: new Date(new Date().setDate(today.getDate() - 20)), equipmentType: 'DA', serviceType: 'visita_orcamento_samsung', samsungBudgetApproved: false },
 ];
 
+export type CodeItem = { code: string; description: string; };
+export type CodeCategory = { "TV/AV": CodeItem[]; "DA": CodeItem[]; };
 
 export const symptomCodes = {
   'TV/AV': [

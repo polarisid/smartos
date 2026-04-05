@@ -18,25 +18,28 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen, Copy } from "lucide-react";
+import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen, Copy, ArrowUp, ArrowDown, FileDown, Loader2, ArrowRightLeft, MapPin } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, getDocs, doc, deleteDoc, Timestamp, setDoc, writeBatch, getDoc } from "firebase/firestore";
+import { collection, addDoc, getDocs, doc, deleteDoc, Timestamp, setDoc, writeBatch, getDoc, query, where, orderBy, limit, startAfter, QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
+import { useAppData } from "@/context/AppDataContext";
 import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart, type Driver } from "@/lib/data";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { format, isAfter } from "date-fns";
+import { format, isAfter, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import React from "react";
 import { Progress } from "@/components/ui/progress";
 import { triggerWebhook } from "@/lib/webhook";
+import * as XLSX from 'xlsx';
 
 
 function parseRouteText(text: string): RouteStop[] {
@@ -222,7 +225,9 @@ function RouteFormDialog({
         warrantyType: '',
         stopType: 'padrao' as 'padrao' | 'coleta' | 'entrega',
         collectionType: '' as 'reparo' | 'rma' | 'eco' | 'descarte' | '',
+        addressDetails: '',
     });
+    const [manualPartsText, setManualPartsText] = useState("");
 
     const routeDataModel = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD";
 
@@ -285,6 +290,22 @@ function RouteFormDialog({
         });
     };
 
+    const handleTurnChange = (index: number, value: string) => {
+        setParsedStops(currentStops => {
+            const newStops = [...currentStops];
+            newStops[index].turn = value;
+            return newStops;
+        });
+    };
+
+    const handleDateChange = (index: number, value: string) => {
+        setParsedStops(currentStops => {
+            const newStops = [...currentStops];
+            newStops[index].firstVisitDate = value;
+            return newStops;
+        });
+    };
+
     const handleManualStopInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setManualStopData(prev => ({ ...prev, [name]: value }));
@@ -342,7 +363,23 @@ function RouteFormDialog({
             productType: '',
             statusComment: '',
             parts: [],
+            addressDetails: manualStopData.addressDetails.trim() || undefined,
         };
+
+        if (manualPartsText.trim()) {
+            manualPartsText.split(',').forEach(p => {
+                const str = p.trim();
+                if (!str) return;
+                const qtyMatch = str.match(/x(\d+)$/i);
+                let qty = 1;
+                let code = str;
+                if (qtyMatch) {
+                    qty = parseInt(qtyMatch[1], 10);
+                    code = str.replace(/x\d+$/i, '').trim();
+                }
+                newStop.parts!.push({ code, quantity: qty, description: "Peça Adicionada Manualmente" });
+            });
+        }
 
         if (manualStopData.stopType === 'coleta' && manualStopData.collectionType !== '') {
             newStop.collectionType = manualStopData.collectionType as 'reparo' | 'rma' | 'eco' | 'descarte';
@@ -352,13 +389,101 @@ function RouteFormDialog({
         setManualStopData({
             serviceOrder: '', ascJobNumber: '', consumerName: '', city: '',
             neighborhood: '', model: '', ts: '', warrantyType: '', stopType: 'padrao',
-            collectionType: ''
+            collectionType: '', addressDetails: ''
         });
+        setManualPartsText("");
         toast({ title: "Parada adicionada!", description: `A OS ${serviceOrder} foi adicionada à pré-visualização.` });
+    };
+
+    const handleMoveStop = (index: number, direction: 'up' | 'down') => {
+        setParsedStops(currentStops => {
+            const newStops = [...currentStops];
+            if (direction === 'up' && index > 0) {
+                [newStops[index - 1], newStops[index]] = [newStops[index], newStops[index - 1]];
+            } else if (direction === 'down' && index < newStops.length - 1) {
+                [newStops[index + 1], newStops[index]] = [newStops[index], newStops[index + 1]];
+            }
+            return newStops;
+        });
     };
 
     const handleRemoveStop = (index: number) => {
         setParsedStops(currentStops => currentStops.filter((_, i) => i !== index));
+    };
+
+    // --- Reallocate stop ---
+    const [isReallocateOpen, setIsReallocateOpen] = useState(false);
+    const [stopToReallocate, setStopToReallocate] = useState<{ stop: RouteStop; index: number } | null>(null);
+    const [availableRoutes, setAvailableRoutes] = useState<Route[]>([]);
+    const [targetRouteId, setTargetRouteId] = useState<string>("");
+    const [isLoadingRoutes, setIsLoadingRoutes] = useState(false);
+    const [isReallocating, setIsReallocating] = useState(false);
+
+    const handleOpenReallocate = async (stop: RouteStop, index: number) => {
+        setStopToReallocate({ stop, index });
+        setTargetRouteId("");
+        setIsReallocateOpen(true);
+        setIsLoadingRoutes(true);
+        try {
+            // Load active routes excluding current one
+            const snap = await getDocs(query(
+                collection(db, "routes"),
+                where("isActive", "==", true),
+                orderBy("createdAt", "desc")
+            ));
+            const routes = snap.docs
+                .map(d => ({ id: d.id, ...d.data() } as Route))
+                .filter(r => r.id !== initialData?.id);
+            setAvailableRoutes(routes);
+        } catch (e) {
+            toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar as rotas disponíveis." });
+        } finally {
+            setIsLoadingRoutes(false);
+        }
+    };
+
+    const handleConfirmReallocate = async () => {
+        if (!stopToReallocate || !targetRouteId || !initialData) return;
+        setIsReallocating(true);
+        try {
+            const targetRoute = availableRoutes.find(r => r.id === targetRouteId);
+            if (!targetRoute) throw new Error("Rota destino não encontrada.");
+
+            // The stop carries ALL its data: parts, tracking codes, etc.
+            const stopToMove = stopToReallocate.stop;
+
+            // Check for duplicate in target route
+            if ((targetRoute.stops || []).some(s => s.serviceOrder === stopToMove.serviceOrder)) {
+                toast({ variant: "destructive", title: "OS Duplicada", description: `A OS ${stopToMove.serviceOrder} já existe na rota destino.` });
+                return;
+            }
+
+            const batch = writeBatch(db);
+
+            // Remove from current route
+            const newCurrentStops = parsedStops.filter((_, i) => i !== stopToReallocate.index);
+            batch.update(doc(db, "routes", initialData.id), { stops: newCurrentStops });
+
+            // Add to target route (appended at end, preserving all data)
+            const newTargetStops = [...(targetRoute.stops || []), stopToMove];
+            batch.update(doc(db, "routes", targetRouteId), { stops: newTargetStops });
+
+            await batch.commit();
+
+            // Update local state
+            setParsedStops(newCurrentStops);
+            setIsReallocateOpen(false);
+            setStopToReallocate(null);
+
+            toast({
+                title: "Atendimento realocado!",
+                description: `OS ${stopToMove.serviceOrder} movida para "${targetRoute.name}" com todas as peças e rastreios preservados.`
+            });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Erro ao Realocar", description: e.message || "Não foi possível realocar o atendimento." });
+        } finally {
+            setIsReallocating(false);
+        }
     };
 
     const handleSave = async () => {
@@ -378,21 +503,33 @@ function RouteFormDialog({
             let stopsToSave: RouteStop[] = parsedStops;
 
             if (mode === 'edit' && initialData) {
-                 stopsToSave = parsedStops.map(newStop => {
-                    const existingStop = initialData.stops.find(s => s.serviceOrder === newStop.serviceOrder);
-                    if (existingStop && existingStop.parts) {
-                        const newParts = (newStop.parts || []).map(newPart => {
-                             const existingPart = (existingStop.parts || []).find(p => p.code === newPart.code);
-                             if (existingPart) {
-                                 return { ...newPart, trackingCode: existingPart.trackingCode || '' };
-                             }
-                             return newPart;
-                        });
-                        return { ...newStop, parts: newParts };
-                    }
-                    return newStop;
-                 });
-            }
+                  stopsToSave = parsedStops.map(newStop => {
+                     const existingStop = initialData.stops.find(s => s.serviceOrder === newStop.serviceOrder);
+                     if (existingStop) {
+                         const newParts = (newStop.parts || []).map(newPart => {
+                              const existingPart = (existingStop.parts || []).find(p => p.code === newPart.code);
+                              if (existingPart) {
+                                  // Mantenha todas as propriedades da peça (status de uso, tracking, etc)
+                                  return { 
+                                      ...existingPart, 
+                                      ...newPart, 
+                                      trackingCode: newPart.trackingCode ? newPart.trackingCode : (existingPart.trackingCode || ''),
+                                      description: newPart.description ? newPart.description : (existingPart.description || '')
+                                  };
+                              }
+                              return newPart;
+                         });
+                         return { 
+                             ...existingStop, 
+                             ...newStop, 
+                             // Restaurar statusComment se a planilha vier em branco e apagar o comentário do técnico
+                             statusComment: newStop.statusComment ? newStop.statusComment : (existingStop.statusComment || ''),
+                             parts: newParts 
+                         };
+                     }
+                     return newStop;
+                  });
+             }
 
 
             const dataToSave = {
@@ -450,6 +587,7 @@ function RouteFormDialog({
     };
     
     return (
+        <>
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-4xl">
                 <DialogHeader>
@@ -583,7 +721,10 @@ function RouteFormDialog({
                                         <TableHead>OS</TableHead>
                                         <TableHead>Tipo</TableHead>
                                         <TableHead>Peças</TableHead>
-                                        <TableHead className="w-10"></TableHead>
+                                        <TableHead>Agendamento</TableHead>
+                                        <TableHead>Turno</TableHead>
+                                        <TableHead className="w-[60px] text-center">Local</TableHead>
+                                        <TableHead className="w-[150px] text-right">Ações</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -613,15 +754,68 @@ function RouteFormDialog({
                                                     <span className="text-xs text-muted-foreground">Nenhuma</span>
                                                 )}
                                             </TableCell>
-                                             <TableCell>
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    onClick={() => handleRemoveStop(index)}
-                                                >
-                                                    <Trash2 className="h-4 w-4 text-destructive" />
-                                                </Button>
+                                            <TableCell>
+                                                <Input 
+                                                    className="h-8 text-xs w-[110px]" 
+                                                    value={stop.firstVisitDate || stop.requestDate || ''} 
+                                                    onChange={(e) => handleDateChange(index, e.target.value)} 
+                                                    placeholder="dd/mm/aaaa"
+                                                />
+                                            </TableCell>
+                                            <TableCell>
+                                                <Input 
+                                                    className="h-8 text-xs w-[80px]" 
+                                                    value={stop.turn || ''} 
+                                                    onChange={(e) => handleTurnChange(index, e.target.value)} 
+                                                    placeholder="Turno"
+                                                />
+                                            </TableCell>
+                                            <TableCell className="text-center">
+                                                <Popover>
+                                                    <PopoverTrigger asChild>
+                                                        <Button variant="ghost" size="icon" className={cn("h-8 w-8", stop.addressDetails ? "text-emerald-500 bg-emerald-50 dark:bg-emerald-950" : "text-muted-foreground")} title="Editar Detalhes do Endereço">
+                                                            <MapPin className="h-4 w-4" />
+                                                        </Button>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent className="w-80">
+                                                        <div className="space-y-2">
+                                                            <h4 className="font-medium leading-none">Endereço Detalhado</h4>
+                                                            <p className="text-xs text-muted-foreground">
+                                                                Preencha para ter mais exatidão no Mapa.
+                                                            </p>
+                                                            <Textarea 
+                                                                placeholder="Rua Exata, Nº, Bloco, Apto, Condomínio, Referência..."
+                                                                value={stop.addressDetails || ''}
+                                                                onChange={(e) => {
+                                                                    setParsedStops(currentStops => {
+                                                                        const newStops = [...currentStops];
+                                                                        newStops[index].addressDetails = e.target.value;
+                                                                        return newStops;
+                                                                    });
+                                                                }}
+                                                                className="h-24 text-sm"
+                                                            />
+                                                        </div>
+                                                    </PopoverContent>
+                                                </Popover>
+                                            </TableCell>
+                                             <TableCell className="text-right">
+                                                <div className="flex items-center justify-end gap-1">
+                                                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleMoveStop(index, 'up')} disabled={index === 0}>
+                                                        <ArrowUp className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleMoveStop(index, 'down')} disabled={index === parsedStops.length - 1}>
+                                                        <ArrowDown className="h-4 w-4" />
+                                                    </Button>
+                                                    {mode === 'edit' && (
+                                                        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Realocar para outra rota" onClick={() => handleOpenReallocate(stop, index)}>
+                                                            <ArrowRightLeft className="h-4 w-4 text-blue-500" />
+                                                        </Button>
+                                                    )}
+                                                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleRemoveStop(index)}>
+                                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                                    </Button>
+                                                </div>
                                             </TableCell>
                                         </TableRow>
                                     )) : (
@@ -697,6 +891,10 @@ function RouteFormDialog({
                                         </Select>
                                     </div>
                                 )}
+                                <div className="space-y-1 col-span-2">
+                                    <Label htmlFor="manual-addressDetails" className="text-xs">Endereço Detalhado (Opcional)</Label>
+                                    <Input id="manual-addressDetails" name="addressDetails" value={manualStopData.addressDetails} onChange={handleManualStopInputChange} placeholder="Rua, Nº, Apto, Condomínio, Referência..." />
+                                </div>
                             </div>
                             <Button type="button" onClick={handleAddManualStop} className="w-full">Adicionar Parada à Rota</Button>
                         </div>
@@ -710,18 +908,97 @@ function RouteFormDialog({
                 </DialogFooter>
             </DialogContent>
         </Dialog>
+
+        {/* Reallocate Stop Dialog */}
+        <Dialog open={isReallocateOpen} onOpenChange={(open) => { if (!isReallocating) setIsReallocateOpen(open); }}>
+            <DialogContent className="max-w-md">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <ArrowRightLeft className="h-5 w-5 text-blue-500" />
+                        Realocar Atendimento
+                    </DialogTitle>
+                    <DialogDescription>
+                        Mova a OS <span className="font-mono font-bold">{stopToReallocate?.stop.serviceOrder}</span> para outra rota ativa.
+                        Todas as peças e rastreios serão preservados.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-2">
+                    {stopToReallocate && (
+                        <div className="rounded-lg bg-muted p-3 text-sm space-y-1">
+                            <p><span className="text-muted-foreground">Cliente:</span> <span className="font-medium">{stopToReallocate?.stop.consumerName}</span></p>
+                            <p><span className="text-muted-foreground">Cidade:</span> <span className="font-medium">{stopToReallocate?.stop.city}</span></p>
+                            <p><span className="text-muted-foreground">Modelo:</span> <span className="font-medium">{stopToReallocate?.stop.model}</span></p>
+                            {(stopToReallocate?.stop.parts?.length ?? 0) > 0 && (
+                                <p><span className="text-muted-foreground">Peças:</span> <span className="font-mono text-xs">{stopToReallocate?.stop.parts?.map(p => `${p.code} x${p.quantity}`).join(', ')}</span></p>
+                            )}
+                        </div>
+                    )}
+                    <div className="space-y-2">
+                        <Label>Rota de Destino</Label>
+                        {isLoadingRoutes ? (
+                            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                                <Loader2 className="h-4 w-4 animate-spin" /> Carregando rotas...
+                            </div>
+                        ) : availableRoutes.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">Nenhuma outra rota ativa disponível.</p>
+                        ) : (
+                            <Select value={targetRouteId} onValueChange={setTargetRouteId}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Selecione a rota destino" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {availableRoutes.map(r => (
+                                        <SelectItem key={r.id} value={r.id}>
+                                            <div className="flex flex-col">
+                                                <span className="font-medium">{r.name}</span>
+                                                <span className="text-xs text-muted-foreground">
+                                                    {r.technicianName || 'Técnico não definido'} · {r.stops?.length || 0} paradas
+                                                    {r.departureDate instanceof Date
+                                                        ? ` · ${format(r.departureDate, "dd/MM", { locale: ptBR })}`
+                                                        : ''}
+                                                </span>
+                                            </div>
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        )}
+                    </div>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsReallocateOpen(false)} disabled={isReallocating}>
+                        Cancelar
+                    </Button>
+                    <Button
+                        onClick={handleConfirmReallocate}
+                        disabled={!targetRouteId || isReallocating || isLoadingRoutes}
+                        className="gap-2"
+                    >
+                        {isReallocating
+                            ? <><Loader2 className="h-4 w-4 animate-spin" /> Realocando...</>
+                            : <><ArrowRightLeft className="h-4 w-4" /> Confirmar Realocação</>}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        </>
     );
 }
 
 function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop: RouteStop, index: number, serviceOrders: ServiceOrder[], routeCreatedAt: Timestamp | Date }) {
     const createdAtDate = routeCreatedAt instanceof Timestamp ? routeCreatedAt.toDate() : routeCreatedAt;
-    const isCompleted = serviceOrders.some(os => 
+    const relatedOsList = serviceOrders.filter(os => 
         os.serviceOrderNumber === stop.serviceOrder && 
         isAfter(os.date, createdAtDate)
     );
+    const relatedOs = relatedOsList.length > 0 ? relatedOsList[relatedOsList.length - 1] : null;
+
+    const isPending = relatedOs && (relatedOs.isFinalized === false);
+    const isCompleted = relatedOs && (relatedOs.isFinalized !== false);
 
     const getRowClass = () => {
-        if (isCompleted) return "bg-green-100 dark:bg-green-900/50 line-through";
+        if (isPending) return "bg-red-100 dark:bg-red-900/50 text-red-900 dark:text-red-100";
+        if (isCompleted) return "bg-green-100 dark:bg-green-900/50 line-through text-slate-500 opacity-60";
         switch (stop.stopType) {
             case 'coleta': return 'bg-yellow-100 dark:bg-yellow-900/50';
             case 'entrega': return 'bg-blue-100 dark:bg-blue-900/50';
@@ -804,11 +1081,17 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
 
 export default function RoutesPage() {
     const { toast } = useToast();
-    const [allRoutes, setAllRoutes] = useState<Route[]>([]);
-    const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
-    const [technicians, setTechnicians] = useState<Technician[]>([]);
+    const { serviceOrders, technicians, isLoading: contextLoading } = useAppData();
+
+    // --- Active routes (always fully loaded) ---
+    const [activeRoutes, setActiveRoutes] = useState<Route[]>([]);
+    // --- Inactive routes (paginated) ---
+    const [inactiveRoutes, setInactiveRoutes] = useState<Route[]>([]);
+    const [lastInactiveDoc, setLastInactiveDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+    const [hasMoreInactive, setHasMoreInactive] = useState(false);
+    const [isLoadingMoreInactive, setIsLoadingMoreInactive] = useState(false);
+
     const [drivers, setDrivers] = useState<Driver[]>([]);
-    const [filteredRoutes, setFilteredRoutes] = useState<Route[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
     const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
@@ -819,41 +1102,44 @@ export default function RoutesPage() {
     const [dialogMode, setDialogMode] = useState<'add' | 'edit'>('add');
     const [selectedRouteForEdit, setSelectedRouteForEdit] = useState<Route | null>(null);
 
+    const INACTIVE_PAGE_SIZE = 10;
+
+    const toRoute = (d: any, data: any): Route => ({
+        ...data,
+        id: d.id,
+        departureDate: (data.departureDate as Timestamp)?.toDate(),
+        arrivalDate: (data.arrivalDate as Timestamp)?.toDate(),
+        createdAt: (data.createdAt as Timestamp)?.toDate(),
+    } as Route);
 
     const fetchRoutes = async () => {
         setIsLoading(true);
         try {
-            const [routesSnapshot, ordersSnapshot, techsSnapshot, driversSnapshot] = await Promise.all([
-                getDocs(collection(db, "routes")),
-                getDocs(collection(db, "serviceOrders")),
-                getDocs(collection(db, "technicians")),
+            const cutoff15Days = subDays(new Date(), 15);
+
+            const [activeSnap, inactiveRecentSnap, driversSnap] = await Promise.all([
+                // All active routes (no limit – should be small)
+                getDocs(query(collection(db, "routes"), where("isActive", "==", true), orderBy("createdAt", "desc"))),
+                // Inactive: only last 15 days
+                getDocs(query(
+                    collection(db, "routes"),
+                    where("isActive", "==", false),
+                    where("createdAt", ">=", cutoff15Days),
+                    orderBy("createdAt", "desc"),
+                    limit(INACTIVE_PAGE_SIZE)
+                )),
                 getDocs(collection(db, "drivers"))
             ]);
 
-            const routesData = routesSnapshot.docs
-                .map(doc => {
-                    const data = doc.data();
-                    const createdAtDate = (data.createdAt as Timestamp)?.toDate();
-                    return {
-                         ...data, 
-                         id: doc.id,
-                         departureDate: (data.departureDate as Timestamp)?.toDate(),
-                         arrivalDate: (data.arrivalDate as Timestamp)?.toDate(),
-                         createdAt: createdAtDate
-                    } as Route
-                })
-                .sort((a, b) => ((b.createdAt as Date)?.getTime() || 0) - ((a.createdAt as Date)?.getTime() || 0));
-            setAllRoutes(routesData);
+            setActiveRoutes(activeSnap.docs.map(d => toRoute(d, d.data())));
 
-            const ordersData = ordersSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id, date: (doc.data().date as Timestamp).toDate() } as ServiceOrder));
-            setServiceOrders(ordersData);
-            
-            const techsData = techsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
-            setTechnicians(techsData);
-            
-            const driversData = driversSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Driver));
-            setDrivers(driversData);
+            const inactiveDocs = inactiveRecentSnap.docs;
+            setInactiveRoutes(inactiveDocs.map(d => toRoute(d, d.data())));
+            // If we got a full page, there might be more older ones
+            setLastInactiveDoc(inactiveDocs[inactiveDocs.length - 1] ?? null);
+            setHasMoreInactive(inactiveDocs.length === INACTIVE_PAGE_SIZE);
 
+            setDrivers(driversSnap.docs.map(d => ({ id: d.id, ...d.data() } as Driver)));
         } catch (error) {
             console.error("Error fetching routes: ", error);
             toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar as rotas." });
@@ -862,18 +1148,34 @@ export default function RoutesPage() {
         }
     };
 
+    const handleLoadMoreInactive = async () => {
+        if (!lastInactiveDoc || isLoadingMoreInactive) return;
+        setIsLoadingMoreInactive(true);
+        try {
+            const snap = await getDocs(query(
+                collection(db, "routes"),
+                where("isActive", "==", false),
+                orderBy("createdAt", "desc"),
+                startAfter(lastInactiveDoc),
+                limit(INACTIVE_PAGE_SIZE)
+            ));
+            const newDocs = snap.docs;
+            setInactiveRoutes(prev => [...prev, ...newDocs.map(d => toRoute(d, d.data()))]);
+            setLastInactiveDoc(newDocs[newDocs.length - 1] ?? null);
+            setHasMoreInactive(newDocs.length === INACTIVE_PAGE_SIZE);
+        } catch (error) {
+            toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar mais rotas." });
+        } finally {
+            setIsLoadingMoreInactive(false);
+        }
+    };
+
     useEffect(() => {
         fetchRoutes();
     }, [toast]);
 
-    useEffect(() => {
-        const routesToFilter = [...allRoutes];
-        if (showOnlyActive) {
-            setFilteredRoutes(routesToFilter.filter(route => route.isActive === true));
-        } else {
-            setFilteredRoutes(routesToFilter);
-        }
-    }, [allRoutes, showOnlyActive]);
+    // Derived display list
+    const filteredRoutes = showOnlyActive ? activeRoutes : [...activeRoutes, ...inactiveRoutes];
 
 
     const handleDelete = async () => {
@@ -899,6 +1201,51 @@ export default function RoutesPage() {
             console.error("Error finalizing route: ", error);
             toast({ variant: "destructive", title: "Erro", description: "Não foi possível finalizar a rota." });
         }
+    };
+
+    const handleExportActiveRoutes = () => {
+        const activeRoutesToExport = activeRoutes.filter((route: Route) => route.isActive);
+        if (activeRoutesToExport.length === 0) {
+            toast({ title: "Atenção", description: "Nenhuma rota ativa encontrada para exportar." });
+            return;
+        }
+
+        const reportData: any[] = [];
+
+        activeRoutesToExport.forEach((route: Route) => {
+            const routeName = route.name;
+            const technician = route.technicianName || 'N/A';
+            const driver = route.driverName || 'N/A';
+            const departure = route.departureDate instanceof Date ? route.departureDate.toLocaleDateString('pt-BR') : '';
+
+            (route.stops || []).forEach((stop: RouteStop) => {
+                reportData.push({
+                    "Nome da Rota": routeName,
+                    "Data de Saída": departure,
+                    "Técnico": technician,
+                    "Motorista": driver,
+                    "OS Nro.": stop.serviceOrder,
+                    "ASC Job No.": stop.ascJobNumber || '',
+                    "Nome Consumidor": stop.consumerName || '',
+                    "Cidade": stop.city || '',
+                    "Bairro": stop.neighborhood || '',
+                    "Modelo": stop.model || '',
+                    "Tipo de Parada": stop.stopType === 'coleta' ? `Coleta (${stop.collectionType || ''})` : stop.stopType === 'entrega' ? 'Entrega' : 'Padrão',
+                    "Status Comment": stop.statusComment || '',
+                });
+            });
+        });
+
+        if (reportData.length === 0) {
+            toast({ title: "Atenção", description: "As rotas ativas não possuem ordens de serviço." });
+            return;
+        }
+
+        const worksheet = XLSX.utils.json_to_sheet(reportData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Ordens em Rotas Ativas");
+        
+        XLSX.writeFile(workbook, `relatorio-rotas-ativas-${format(new Date(), 'dd-MM-yyyy')}.xlsx`);
     };
 
 
@@ -942,9 +1289,14 @@ export default function RoutesPage() {
             <div className="flex flex-col gap-6 p-4 sm:p-6">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <h1 className="text-2xl font-bold">Gerenciar Rotas</h1>
-                    <Button onClick={() => handleOpenFormDialog('add')}>
-                        <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Rota
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" onClick={handleExportActiveRoutes}>
+                            <FileDown className="mr-2 h-4 w-4" /> Exportar Relatório (Ativas)
+                        </Button>
+                        <Button onClick={() => handleOpenFormDialog('add')}>
+                            <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Rota
+                        </Button>
+                    </div>
                 </div>
 
                 <Card>
@@ -964,7 +1316,9 @@ export default function RoutesPage() {
                             <Label htmlFor="active-routes-filter">Mostrar apenas rotas ativas</Label>
                         </div>
                        {isLoading ? (
-                           <p className="text-center text-muted-foreground py-10">Carregando rotas...</p>
+                           <div className="space-y-2 py-2">
+                               {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}
+                           </div>
                        ) : filteredRoutes.length === 0 ? (
                            <div className="text-center text-muted-foreground py-10">
                                 <p>Nenhuma rota encontrada.</p>
@@ -1032,6 +1386,23 @@ export default function RoutesPage() {
                                 </TableBody>
                                 </Table>
                            </div>
+
+                            {/* Load More Inactive Button */}
+                            {!showOnlyActive && hasMoreInactive && (
+                                <div className="flex justify-center mt-4">
+                                    <Button
+                                        variant="outline"
+                                        onClick={handleLoadMoreInactive}
+                                        disabled={isLoadingMoreInactive}
+                                        className="gap-2"
+                                    >
+                                        {isLoadingMoreInactive
+                                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                                            : <ChevronDown className="h-4 w-4" />}
+                                        {isLoadingMoreInactive ? 'Carregando...' : 'Ver mais rotas finalizadas'}
+                                    </Button>
+                                </div>
+                            )}
 
                             {/* Mobile Card View */}
                             <div className="md:hidden space-y-4">
@@ -1107,6 +1478,7 @@ export default function RoutesPage() {
                             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-yellow-100 border border-yellow-300"></div><span>Coleta</span></div>
                             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300"></div><span>Entrega</span></div>
                             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-100 border border-green-300"></div><span>Finalizada</span></div>
+                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-red-100 border border-red-300"></div><span>Pendência</span></div>
                         </div>
                     </DialogHeader>
                     <div className="max-h-[70vh] overflow-y-auto">

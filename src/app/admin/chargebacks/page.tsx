@@ -19,9 +19,9 @@ import { Label } from "@/components/ui/label";
 import { PlusCircle, Edit, Trash2, FileMinus, Calendar as CalendarIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, Timestamp } from "firebase/firestore";
+import { doc, setDoc, addDoc, deleteDoc, Timestamp, collection } from "firebase/firestore";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { type Chargeback, type Technician } from "@/lib/data";
+import { type Chargeback } from "@/lib/data";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -29,12 +29,13 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { useAppData } from "@/context/AppDataContext";
 
 type FormData = Omit<Chargeback, 'id' | 'technicianName'>;
 
 export default function ChargebacksPage() {
+    const { chargebacks: contextChargebacks, technicians, isLoading: contextLoading } = useAppData();
     const [chargebacks, setChargebacks] = useState<Chargeback[]>([]);
-    const [technicians, setTechnicians] = useState<Technician[]>([]);
 
     const [selectedChargeback, setSelectedChargeback] = useState<Chargeback | null>(null);
     const [dialogMode, setDialogMode] = useState<'add' | 'edit'>('add');
@@ -49,42 +50,17 @@ export default function ChargebacksPage() {
         date: new Date(),
     });
 
-    const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const { toast } = useToast();
 
+    // Seed local state from context (sorted desc)
     useEffect(() => {
-        const fetchData = async () => {
-            setIsLoading(true);
-            try {
-                const [chargebacksSnapshot, techsSnapshot] = await Promise.all([
-                    getDocs(collection(db, "chargebacks")),
-                    getDocs(collection(db, "technicians")),
-                ]);
-                
-                const techs = techsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
-                setTechnicians(techs);
-                
-                const chargebacksData = chargebacksSnapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return { 
-                        id: doc.id, 
-                        ...data,
-                        date: (data.date as Timestamp)?.toDate(),
-                        technicianName: techs.find(t => t.id === data.technicianId)?.name || 'N/A',
-                    } as Chargeback;
-                }).sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0));
-                setChargebacks(chargebacksData);
-
-            } catch (error) {
-                console.error("Error fetching data:", error);
-                toast({ variant: "destructive", title: "Erro ao carregar dados", description: "Não foi possível buscar os dados do banco de dados." });
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchData();
-    }, [toast]);
+        const enriched = contextChargebacks.map(c => ({
+            ...c,
+            technicianName: technicians.find(t => t.id === c.technicianId)?.name || c.technicianName || 'N/A',
+        })).sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0));
+        setChargebacks(enriched);
+    }, [contextChargebacks, technicians]);
 
     const handleOpenAddDialog = () => {
         setDialogMode('add');
@@ -184,7 +160,7 @@ export default function ChargebacksPage() {
                         <CardDescription>Adicione e gerencie os estornos de faturamento dos técnicos.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {isLoading ? (
+                        {contextLoading ? (
                             <div className="text-center p-4">Carregando estornos...</div>
                         ) : (
                             <Table>

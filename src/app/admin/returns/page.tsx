@@ -20,25 +20,24 @@ import { Label } from "@/components/ui/label";
 import { PlusCircle, Edit, Trash2, History, Calendar as CalendarIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, Timestamp } from "firebase/firestore";
+import { doc, setDoc, addDoc, deleteDoc, collection } from "firebase/firestore";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { type Return, type Technician, type ServiceOrder } from "@/lib/data";
+import { type Return } from "@/lib/data";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-
+import { useAppData } from "@/context/AppDataContext";
 import { triggerWebhook } from "@/lib/webhook";
 
 type FormData = Omit<Return, 'id' | 'technicianName'>;
 
 
 export default function ReturnsPage() {
+    const { returns: contextReturns, technicians, isLoading: contextLoading } = useAppData();
     const [returns, setReturns] = useState<Return[]>([]);
-    const [technicians, setTechnicians] = useState<Technician[]>([]);
-    const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
 
     const [selectedReturn, setSelectedReturn] = useState<Return | null>(null);
     const [dialogMode, setDialogMode] = useState<'add' | 'edit'>('add');
@@ -56,46 +55,17 @@ export default function ReturnsPage() {
         returnDate: new Date(),
     });
 
-    const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const { toast } = useToast();
 
+    // Seed local state from context (sorted desc by returnDate)
     useEffect(() => {
-        const fetchData = async () => {
-            setIsLoading(true);
-            try {
-                const [returnsSnapshot, techsSnapshot, ordersSnapshot] = await Promise.all([
-                    getDocs(collection(db, "returns")),
-                    getDocs(collection(db, "technicians")),
-                    getDocs(collection(db, "serviceOrders")),
-                ]);
-                
-                const techs = techsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
-                setTechnicians(techs);
-
-                const orders = ordersSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id, date: (doc.data().date as Timestamp).toDate() } as ServiceOrder));
-                setServiceOrders(orders);
-                
-                const returnsData = returnsSnapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return { 
-                        id: doc.id, 
-                        ...data,
-                        returnDate: (data.returnDate as Timestamp)?.toDate(),
-                        technicianName: techs.find(t => t.id === data.technicianId)?.name || 'N/A',
-                    } as Return;
-                }).sort((a, b) => (b.returnDate?.getTime() || 0) - (a.returnDate?.getTime() || 0));
-                setReturns(returnsData);
-
-            } catch (error) {
-                console.error("Error fetching data:", error);
-                toast({ variant: "destructive", title: "Erro ao carregar dados", description: "Não foi possível buscar os dados do banco de dados." });
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchData();
-    }, [toast]);
+        const enriched = contextReturns.map(r => ({
+            ...r,
+            technicianName: technicians.find(t => t.id === r.technicianId)?.name || r.technicianName || 'N/A',
+        })).sort((a, b) => (b.returnDate?.getTime() || 0) - (a.returnDate?.getTime() || 0));
+        setReturns(enriched);
+    }, [contextReturns, technicians]);
 
     const handleOpenAddDialog = () => {
         setDialogMode('add');
@@ -208,7 +178,7 @@ export default function ReturnsPage() {
                         <CardDescription>Adicione e gerencie os retornos de serviço dos técnicos.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {isLoading ? (
+                        {contextLoading ? (
                             <div className="text-center p-4">Carregando retornos...</div>
                         ) : (
                             <Table>

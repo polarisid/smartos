@@ -10,10 +10,12 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
+import { subDays } from "date-fns";
 import { db } from "@/lib/firebase";
 import { type Route, type RouteStop, type RoutePart, type ServiceOrder } from "@/lib/data";
-import { collection, doc, getDocs, query, setDoc, Timestamp, orderBy, getDoc } from "firebase/firestore";
-import { ChevronDown, PackageSearch, Save, Search, FileDown, CheckCircle, ScanLine, FileBarChart2, Smartphone, Copy } from "lucide-react";
+import { collection, doc, getDocs, query, setDoc, Timestamp, orderBy, getDoc, where } from "firebase/firestore";
+import { Printer, Smartphone, Table as TableIcon, Activity, CheckCircle2, AlertCircle, FileBarChart2, Search, ChevronDown, PackageSearch, Save, FileDown, CheckCircle, ScanLine, Copy } from "lucide-react";
+import { useAppData } from "@/context/AppDataContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import jsPDF from 'jspdf';
@@ -205,16 +207,17 @@ function MonthlyPartsSummary({ serviceOrders, routes }: { serviceOrders: Service
 
         const osThisMonth = serviceOrders.filter(os => os.date && isWithinInterval(os.date, { start, end }));
         
-        const osWarrantyTypeMap = new Map<string, string>();
+        const osDataMap = new Map<string, { warrantyType?: string, model?: string }>();
         routes.forEach(route => {
             route.stops.forEach(stop => {
-                if (stop.warrantyType) {
-                    osWarrantyTypeMap.set(stop.serviceOrder, stop.warrantyType);
-                }
+                osDataMap.set(stop.serviceOrder, {
+                    warrantyType: stop.warrantyType,
+                    model: stop.model
+                });
             });
         });
 
-        const partsCount: { [partCode: string]: { lp: number, ow: number } } = {};
+        const partsCount: { [key: string]: { partCode: string, model: string, symptom: string, lp: number, ow: number } } = {};
 
         osThisMonth.forEach(os => {
             if (os.replacedPart) {
@@ -223,26 +226,34 @@ function MonthlyPartsSummary({ serviceOrders, routes }: { serviceOrders: Service
                     const partCodeMatch = partCodeRaw.match(/^([a-zA-Z0-9-]+)/);
                     const partCode = partCodeMatch ? partCodeMatch[0] : partCodeRaw;
 
-                    if (!partsCount[partCode]) {
-                        partsCount[partCode] = { lp: 0, ow: 0 };
+                    const osData = osDataMap.get(os.serviceOrderNumber) || {};
+                    const model = osData.model || '-';
+                    const symptom = os.symptomCode || '-';
+                    const key = `${partCode}-${model}-${symptom}`;
+
+                    if (!partsCount[key]) {
+                        partsCount[key] = { partCode, model, symptom, lp: 0, ow: 0 };
                     }
-                    const warrantyType = osWarrantyTypeMap.get(os.serviceOrderNumber) || os.samsungRepairType;
+                    const warrantyType = osData.warrantyType || os.samsungRepairType;
                     if (warrantyType === 'LP') {
-                        partsCount[partCode].lp++;
+                        partsCount[key].lp++;
                     } else if (warrantyType === 'OW') {
-                        partsCount[partCode].ow++;
+                        partsCount[key].ow++;
                     }
                 });
             }
         });
 
-        return Object.entries(partsCount)
-            .map(([partCode, quantities]) => ({
+        return Object.values(partsCount)
+            .map(({ partCode, model, symptom, lp, ow }) => ({
                 "Código da Peça": partCode,
-                "Quantidade Usada (LP)": quantities.lp,
-                "Quantidade Usada (OW)": quantities.ow,
+                "Modelo": model,
+                "Sintoma": symptom,
+                "Quantidade Usada (LP)": lp,
+                "Quantidade Usada (OW)": ow,
             }))
-            .filter(item => item["Quantidade Usada (LP)"] > 0 || item["Quantidade Usada (OW)"] > 0);
+            .filter(item => item["Quantidade Usada (LP)"] > 0 || item["Quantidade Usada (OW)"] > 0)
+            .sort((a, b) => a["Código da Peça"].localeCompare(b["Código da Peça"]));
 
     }, [serviceOrders, routes, selectedDate]);
     
@@ -326,14 +337,18 @@ function MonthlyPartsSummary({ serviceOrders, routes }: { serviceOrders: Service
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Código da Peça</TableHead>
+                                        <TableHead>Modelo</TableHead>
+                                        <TableHead>Sintoma</TableHead>
                                         <TableHead className="text-right">Qtd. Usada (LP)</TableHead>
                                         <TableHead className="text-right">Qtd. Usada (OW)</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {monthlyUsedParts.map(item => (
-                                        <TableRow key={item["Código da Peça"]}>
+                                        <TableRow key={`${item["Código da Peça"]}-${item["Modelo"]}-${item["Sintoma"]}`}>
                                             <TableCell className="font-mono">{item["Código da Peça"]}</TableCell>
+                                            <TableCell className="text-muted-foreground">{item["Modelo"]}</TableCell>
+                                            <TableCell className="text-muted-foreground">{item["Sintoma"]}</TableCell>
                                             <TableCell className="text-right font-semibold">{item["Quantidade Usada (LP)"]}</TableCell>
                                             <TableCell className="text-right font-semibold">{item["Quantidade Usada (OW)"]}</TableCell>
                                         </TableRow>
@@ -475,6 +490,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                         stop.serviceOrder,
                         part.code,
                         part.description,
+                        part.quantity.toString(),
                         part.trackingCode || 'N/A',
                         status
                     ]);
@@ -484,7 +500,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
 
             (doc as any).autoTable({
                 startY: 35,
-                head: [['OS', 'Peça', 'Descrição', 'Cód. Rastreio', 'Status']],
+                head: [['OS', 'Peça', 'Descrição', 'Qtd', 'Cód. Rastreio', 'Status']],
                 body: tableBody,
                 theme: 'grid',
             });
@@ -570,7 +586,7 @@ export default function PartSeparationPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [allRoutes, setAllRoutes] = useState<Route[]>([]);
-    const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
+    const { serviceOrders, isLoading: isContextLoading } = useAppData();
     const [trackingCodes, setTrackingCodes] = useState<Record<string, Record<string, Record<string, string>>>>({}); // { routeId: { stopServiceOrder: { partCode: trackingCode } } }
     const [filterText, setFilterText] = useState("");
     
@@ -580,10 +596,13 @@ export default function PartSeparationPage() {
     const fetchAllData = async () => {
         setIsLoading(true);
         try {
-            const [routesSnapshot, ordersSnapshot] = await Promise.all([
-                getDocs(query(collection(db, "routes"), orderBy("createdAt", "desc"))),
-                getDocs(collection(db, "serviceOrders"))
-            ]);
+            const cutoff30Days = subDays(new Date(), 30);
+            // Only fetch routes from last 30 days (active ones come from context)
+            const routesSnapshot = await getDocs(query(
+                collection(db, "routes"),
+                where("createdAt", ">=", cutoff30Days),
+                orderBy("createdAt", "desc")
+            ));
 
             const routesData = routesSnapshot.docs.map(doc => {
                 const data = doc.data();
@@ -598,11 +617,6 @@ export default function PartSeparationPage() {
             });
             setAllRoutes(routesData);
             
-            const ordersData = ordersSnapshot.docs.map(doc => {
-                 const data = doc.data();
-                 return { id: doc.id, ...data, date: (data.date as Timestamp).toDate() } as ServiceOrder;
-            });
-            setServiceOrders(ordersData);
 
             const initialTrackingCodes: typeof trackingCodes = {};
             routesData.forEach(route => {
@@ -823,7 +837,7 @@ export default function PartSeparationPage() {
                     <p className="text-center text-muted-foreground py-10">Carregando rotas...</p>
                 ) : (
                     <Tabs defaultValue="active">
-                        <TabsList className="grid w-full grid-cols-4">
+                        <TabsList className="grid w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 h-auto gap-2 bg-transparent p-0 mb-4 sm:mb-0 sm:bg-muted sm:p-1 hover:bg-transparent">
                             <TabsTrigger value="active">Rastreio de Peças (Ativas)</TabsTrigger>
                             <TabsTrigger value="history">Rastreio de Peças (Concluídas)</TabsTrigger>
                             <TabsTrigger value="summary">

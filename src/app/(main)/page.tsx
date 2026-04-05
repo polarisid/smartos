@@ -78,11 +78,8 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { ptBR } from 'date-fns/locale';
 import dynamic from "next/dynamic";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { useSearchParams } from "next/navigation";
-
-import { PerformanceDashboard } from "@/components/dashboard/PerformanceDashboard";
-import { ReturnsRanking } from "@/components/dashboard/ReturnsRanking";
-import { PartScannerClipboard } from "@/components/PartScannerClipboard";
+import { FirebaseSetupPrompt } from "@/components/FirebaseSetupPrompt";
+import { useAppData } from "@/context/AppDataContext";
 
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
@@ -107,13 +104,12 @@ const availableVariables: { key: keyof RouteStop | 'currentDate' | 'technicianNa
     { key: 'currentDate', label: 'Data Atual (DD/MM/AAAA)'},
 ];
 
-type CodeItem = { code: string; description: string; };
-type CodeCategory = { "TV/AV": CodeItem[]; "DA": CodeItem[]; };
+
 
 const formSchema = z.object({
   technician: z.string().min(1, "Selecione um técnico."),
   serviceOrderNumber: z.string().min(1, "Insira o número da OS."),
-  serviceType: z.string().min(1, "Selecione o tipo de atendimento."),
+  serviceType: z.string().optional(),
   samsungRepairType: z.string().optional(),
   samsungBudgetApproved: z.boolean().optional(),
   samsungBudgetValue: z.string().optional(),
@@ -128,7 +124,29 @@ const formSchema = z.object({
   productCollectedOrInstalled: z.string().optional(),
   collectionType: z.string().optional(),
   cleaningPerformed: z.boolean().optional(),
+  isFinalized: z.boolean().default(true),
+  pendingReason: z.string().optional(),
 }).superRefine((data, ctx) => {
+  if (data.isFinalized === false) {
+    if (!data.pendingReason) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Selecione o motivo da pendência.",
+        path: ["pendingReason"],
+      });
+    }
+    return; // SKIP ALL OTHER VALIDATIONS!
+  }
+
+  if (!data.serviceType || data.serviceType.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Selecione o tipo de atendimento.",
+      path: ["serviceType"],
+    });
+    return;
+  }
+
   const serviceRequiresCodes = !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(data.serviceType);
   
   if (serviceRequiresCodes) {
@@ -181,171 +199,11 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-function PermissionErrorDisplay() {
-  const searchParams = useSearchParams();
-  const permissionError = searchParams.get('error') === 'permission_denied';
 
-  if (!permissionError) {
-    return null;
-  }
 
-  return (
-    <div className="max-w-4xl mx-auto mt-4 w-full px-4 sm:px-6 md:px-8">
-        <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Acesso ao Painel de Admin Negado</AlertTitle>
-            <AlertDescription>
-                Você foi redirecionado porque sua conta não tem permissão de administrador. 
-                Para obter acesso, você precisa criar uma conta de administrador para esta operação.
-                <br />
-                <Button asChild variant="link" className="p-0 h-auto mt-2 text-white font-bold underline">
-                    <Link href="/setup">Clique aqui para ir à página de configuração e criar um administrador.</Link>
-                </Button>
-            </AlertDescription>
-        </Alert>
-    </div>
-  );
-}
 
-function FirebaseSetupPrompt() {
-  const { toast } = useToast();
 
-  const handleCopy = (text: string, title: string) => {
-    navigator.clipboard.writeText(text);
-    toast({ title });
-  };
 
-  return (
-    <Card className="max-w-2xl mx-auto my-8 border-destructive">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-3">
-          <AlertTriangle className="h-8 w-8 text-destructive" />
-          <span>Configuração do Banco de Dados Necessária</span>
-        </CardTitle>
-        <CardDescription>
-          Seu aplicativo não está conectado a um banco de dados Firebase. Escolha uma das opções abaixo para configurar.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Tabs defaultValue="new-project">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="new-project">1. Nova Operação</TabsTrigger>
-            <TabsTrigger value="existing-project">2. Usar Projeto Existente</TabsTrigger>
-          </TabsList>
-          <TabsContent value="new-project" className="mt-4">
-            <Card className="border-green-500/50">
-              <CardHeader>
-                <CardTitle>Criar uma Nova Operação (Recomendado)</CardTitle>
-                <CardDescription>
-                  Ideal para um novo ambiente ou para começar do zero. O assistente criará e configurará um novo projeto Firebase para você.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm mb-4">
-                  Para iniciar a configuração, basta pedir ao assistente:
-                </p>
-                <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
-                    <code className="text-sm font-semibold">configurar o Firebase</code>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleCopy("configurar o Firebase", "Comando copiado!")}>
-                        <Copy className="h-4 w-4" />
-                    </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-          <TabsContent value="existing-project" className="mt-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Conectar a um Projeto Existente</CardTitle>
-                  <CardDescription>
-                    Se você já possui um projeto Firebase (ex: um clone da operação original) e deseja usá-lo, informe o ID do projeto ao assistente.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="projectId">ID do Projeto Firebase</Label>
-                        <Input id="projectId" placeholder="seu-id-de-projeto-aqui" disabled />
-                        <p className="text-xs text-muted-foreground">Você pode encontrar o ID do Projeto nas configurações do seu projeto no Console do Firebase.</p>
-                    </div>
-                     <p className="text-sm">
-                        Para conectar, peça ao assistente (substituindo o texto em colchetes):
-                    </p>
-                     <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
-                        <code className="text-sm font-semibold">conectar ao projeto [ID do seu projeto]</code>
-                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleCopy("conectar ao projeto [ID do seu projeto]", "Comando copiado!")}>
-                            <Copy className="h-4 w-4" />
-                        </Button>
-                    </div>
-                     <Alert className="mt-4">
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertTitle>Atenção</AlertTitle>
-                        <AlertDescription>
-                            Esta opção <strong>não</strong> clona os dados do banco de dados. Ela apenas conecta a aplicação a um projeto Firebase já existente. A clonagem de dados deve ser feita manually através do Console do Firebase (Importar/Exportar).
-                        </AlertDescription>
-                    </Alert>
-                </CardContent>
-              </Card>
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
-  );
-}
-
-function Header() {
-    const [installPromptEvent, setInstallPromptEvent] = useState<any>(null);
-
-    useEffect(() => {
-        const handleBeforeInstallPrompt = (event: Event) => {
-            event.preventDefault();
-            setInstallPromptEvent(event);
-        };
-
-        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
-        return () => {
-            window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-        };
-    }, []);
-
-    const handleInstallClick = () => {
-        if (!installPromptEvent) {
-            return;
-        }
-        installPromptEvent.prompt();
-        installPromptEvent.userChoice.then((choiceResult: { outcome: string }) => {
-            if (choiceResult.outcome === 'accepted') {
-                console.log('User accepted the install prompt');
-            } else {
-                console.log('User dismissed the install prompt');
-            }
-            setInstallPromptEvent(null);
-        });
-    };
-    
-    return (
-        <header className="glass border-b p-3 md:p-4 flex justify-between items-center sticky top-0 z-40">
-            <Link href="/" className="flex items-center gap-2 md:gap-3 text-primary">
-                <Wrench className="w-5 h-5 md:w-6 md:h-6" />
-                <h1 className="text-lg md:text-xl font-bold text-foreground tracking-tight">SmartService OS</h1>
-            </Link>
-            <div className="flex items-center gap-2">
-                 {installPromptEvent && (
-                    <Button onClick={handleInstallClick} size="sm" className="relative">
-                        <Download className="mr-0 sm:mr-2 h-4 w-4" />
-                        <span className="hidden sm:inline">Instalar App</span>
-                    </Button>
-                )}
-                <Button asChild variant="outline" size="sm">
-                    <Link href="/admin/login">
-                        <LogIn className="mr-0 sm:mr-2 h-4 w-4" />
-                        <span className="hidden sm:inline">Área Admin</span>
-                    </Link>
-                </Button>
-            </div>
-        </header>
-    );
-}
 
 function SearchableSelect({
   options,
@@ -420,470 +278,10 @@ function SearchableSelect({
 }
 
 
-function MobileRouteStopCard({ stop, index, serviceOrders, routeCreatedAt, visitTemplate, blockedOrders, onBlock, onUnblock }: { 
-    stop: RouteStop, 
-    index: number, 
-    serviceOrders: ServiceOrder[], 
-    routeCreatedAt: Date | Timestamp,
-    visitTemplate: string,
-    blockedOrders: Record<string, string>,
-    onBlock: (serviceOrder: string, reason: string) => void,
-    onUnblock: (serviceOrder: string) => void,
-}) {
-    const { toast } = useToast();
-    const createdAtAsDate = routeCreatedAt instanceof Timestamp ? routeCreatedAt.toDate() : routeCreatedAt;
-    const isCompleted = serviceOrders.some(os => 
-        os.serviceOrderNumber === stop.serviceOrder && 
-        isAfter(os.date, createdAtAsDate)
-    );
-    const isBlocked = !!blockedOrders[stop.serviceOrder];
-    const blockReason = blockedOrders[stop.serviceOrder] || "";
-    const [pendingReason, setPendingReason] = useState(blockReason);
-
-    const handleCopyVisitText = () => {
-        let textToCopy = visitTemplate
-            .replace(/{{consumerName}}/g, stop.consumerName.split(' ')[0])
-            .replace(/{{serviceOrder}}/g, stop.serviceOrder)
-            .replace(/{{city}}/g, stop.city);
-        navigator.clipboard.writeText(textToCopy);
-        toast({ title: "Texto copiado!", description: "O anúncio de visita foi copiado." });
-    };
-
-    const getCardClass = () => {
-        if (isBlocked) return "border-red-400 bg-red-50 dark:bg-red-900/20";
-        if (isCompleted) return "border-green-300 bg-green-50 dark:bg-green-900/20";
-        switch (stop.stopType) {
-            case 'coleta': return 'border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20';
-            case 'entrega': return 'border-blue-300 bg-blue-50 dark:bg-blue-900/20';
-            default: return '';
-        }
-    };
-
-    const stopTypeLabels = {
-        padrao: 'Padrão',
-        coleta: 'Coleta',
-        entrega: 'Entrega'
-    };
-
-    return (
-        <Card className={cn("overflow-hidden border", getCardClass())}>
-            <div className="p-3 space-y-2.5">
-                <div className="flex justify-between items-start">
-                    <div>
-                        <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{stopTypeLabels[stop.stopType || 'padrao']}</span>
-                            {stop.ts && <span className="text-[9px] font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded">{stop.ts}</span>}
-                            {stop.warrantyType && <span className="text-[9px] font-bold bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded">{stop.warrantyType}</span>}
-                            {stop.ascJobNumber && <span className="text-[9px] font-bold bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{stop.ascJobNumber}</span>}
-                        </div>
-                        <p className={cn("font-mono font-black text-lg tracking-tight text-foreground leading-none", isCompleted && "line-through opacity-60")}>{stop.serviceOrder}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                        {isCompleted && <div className="text-[10px] bg-green-200 text-green-800 px-2 py-0.5 rounded-full font-bold uppercase">Concluída</div>}
-                        {isBlocked && <div className="text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1"><XCircle className="h-3 w-3"/>Bloqueada</div>}
-                    </div>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-2 text-sm bg-background/60 p-2 rounded border border-border/40">
-                    <div>
-                        <p className="text-[9px] uppercase font-bold text-muted-foreground">Local</p>
-                        <p className="text-xs font-semibold leading-tight line-clamp-1">{stop.city} - {stop.neighborhood}</p>
-                    </div>
-                    <div>
-                        <p className="text-[9px] uppercase font-bold text-muted-foreground">Produto</p>
-                        <p className="text-xs font-semibold leading-tight line-clamp-1">{stop.model}</p>
-                    </div>
-                </div>
-
-                {stop.parts && stop.parts.length > 0 && (
-                    <div className="pt-1">
-                        <div className="flex flex-wrap gap-1.5">
-                            {stop.parts.map((part, pIndex) => (
-                                <div key={pIndex} className="bg-background border shadow-sm rounded flex items-center px-1.5 py-0.5 font-mono text-[10px] font-bold">
-                                    {part.code} <span className="text-primary ml-1 opacity-80">x{part.quantity}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {isBlocked && (
-                    <div className="bg-red-100 dark:bg-red-900/30 border border-red-300 rounded p-2">
-                        <p className="text-[10px] uppercase font-bold text-red-700 dark:text-red-400 mb-0.5">Motivo do Bloqueio:</p>
-                        <p className="text-xs text-red-800 dark:text-red-300 font-medium leading-tight">{blockReason}</p>
-                    </div>
-                )}
-
-                <Collapsible>
-                    <CollapsibleTrigger asChild>
-                        <Button variant="ghost" size="sm" className="w-full h-7 text-[10px] uppercase font-bold text-muted-foreground hover:bg-transparent border-t border-transparent hover:border-border/50 mt-1 rounded-none">
-                            <span className="flex items-center">Menu Expandido <ChevronDown className="h-3 w-3 ml-1 transition-transform [&[data-state=open]]:rotate-180" /></span>
-                        </Button>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="pt-3 mt-1 border-t border-border/50 space-y-3">
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Consumidor:</p>
-                                <p className="text-xs font-medium line-clamp-1">{stop.consumerName || "N/A"}</p>
-                            </div>
-                            <div>
-                                <p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Status Comment:</p>
-                                <p className="text-[11px] font-medium leading-tight line-clamp-2">{stop.statusComment || "N/A"}</p>
-                            </div>
-                        </div>
-                        <Button size="sm" variant="default" className="w-full font-bold h-9 bg-primary" onClick={handleCopyVisitText}>
-                            <MessageSquare className="mr-2 h-4 w-4" />
-                            Copiar Anúncio de Visita
-                        </Button>
-                        {/* Block/Unblock button */}
-                        {isBlocked ? (
-                            <Button 
-                                size="sm" 
-                                variant="outline" 
-                                className="w-full font-bold h-9 border-red-400 text-red-600 hover:bg-red-50"
-                                onClick={() => onUnblock(stop.serviceOrder)}
-                            >
-                                <XCircle className="mr-2 h-4 w-4" />
-                                Desbloquear Ordem
-                            </Button>
-                        ) : (
-                            <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                    <Button 
-                                        size="sm" 
-                                        variant="outline" 
-                                        className="w-full font-bold h-9 border-red-400 text-red-600 hover:bg-red-50"
-                                        onClick={() => setPendingReason("")}
-                                    >
-                                        <XCircle className="mr-2 h-4 w-4" />
-                                        Marcar como Impossível
-                                    </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                        <AlertDialogTitle>Motivo do Bloqueio</AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                            OS <strong>{stop.serviceOrder}</strong> — explique por que esta ordem não pode ser realizada.
-                                        </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <Textarea
-                                        placeholder="Ex: Cliente ausente, endereço incorreto, produto quebrado..."
-                                        value={pendingReason}
-                                        onChange={(e) => setPendingReason(e.target.value)}
-                                        className="min-h-[100px] mt-2"
-                                    />
-                                    <AlertDialogFooter>
-                                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                        <AlertDialogAction
-                                            className="bg-red-600 hover:bg-red-700"
-                                            onClick={() => { if (pendingReason.trim()) onBlock(stop.serviceOrder, pendingReason.trim()); }}
-                                        >
-                                            Confirmar Bloqueio
-                                        </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                </AlertDialogContent>
-                            </AlertDialog>
-                        )}
-                    </CollapsibleContent>
-                </Collapsible>
-            </div>
-        </Card>
-    );
-}
 
 
-function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt, visitTemplate }: { 
-    stop: RouteStop, 
-    index: number, 
-    serviceOrders: ServiceOrder[], 
-    routeCreatedAt: Date | Timestamp,
-    visitTemplate: string
-}) {
-    const { toast } = useToast();
-    const createdAtAsDate = routeCreatedAt instanceof Timestamp ? routeCreatedAt.toDate() : routeCreatedAt;
-    const isCompleted = serviceOrders.some(os => 
-        os.serviceOrderNumber === stop.serviceOrder && 
-        isAfter(os.date, createdAtAsDate)
-    );
-
-    const handleCopyVisitText = () => {
-        let textToCopy = visitTemplate
-            .replace(/{{consumerName}}/g, stop.consumerName.split(' ')[0])
-            .replace(/{{serviceOrder}}/g, stop.serviceOrder)
-            .replace(/{{city}}/g, stop.city);
-        
-        navigator.clipboard.writeText(textToCopy);
-        toast({ title: "Texto copiado!", description: "O anúncio de visita foi copiado." });
-    };
-
-    const getRowClass = () => {
-        if (isCompleted) return "bg-green-100 dark:bg-green-900/50 line-through";
-        switch (stop.stopType) {
-            case 'coleta': return 'bg-yellow-100 dark:bg-yellow-900/50';
-            case 'entrega': return 'bg-blue-100 dark:bg-blue-900/50';
-            default: return '';
-        }
-    };
-
-    const stopTypeLabels = {
-        padrao: 'Padrão',
-        coleta: 'Coleta',
-        entrega: 'Entrega'
-    };
-
-    return (
-        <React.Fragment key={index}>
-            <CollapsibleTrigger asChild>
-                <TableRow className={cn("cursor-pointer", getRowClass())}>
-                    <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
-                    <TableCell>{stopTypeLabels[stop.stopType || 'padrao']}</TableCell>
-                    <TableCell>{stop.city}</TableCell>
-                    <TableCell>{stop.neighborhood}</TableCell>
-                    <TableCell>{stop.model}</TableCell>
-                    <TableCell>
-                        {stop.parts && stop.parts.length > 0 ? (
-                            <div>
-                                {stop.parts.map((part, pIndex) => (
-                                    <div key={pIndex} className="font-mono text-xs">
-                                        {part.code} (x{part.quantity})
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <span className="text-xs text-muted-foreground">N/A</span>
-                        )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                        <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
-                    </TableCell>
-                </TableRow>
-            </CollapsibleTrigger>
-            <CollapsibleContent asChild>
-                <tr className="bg-muted/50">
-                    <TableCell colSpan={7} className="p-2">
-                            <div className="p-2 bg-background/50 rounded space-y-2">
-                            <div>
-                                <p className="font-semibold text-xs mb-1">Nome Consumidor:</p>
-                                <p className="text-sm text-foreground">{stop.consumerName || "N/A"}</p>
-                            </div>
-                             <div>
-                                <p className="font-semibold text-xs mb-1">Detalhes:</p>
-                                <p className="text-sm text-foreground">{stop.ascJobNumber} / {stop.ts} / {stop.warrantyType}</p>
-                            </div>
-                            <div>
-                                <p className="font-semibold text-xs mb-1">Status Comment:</p>
-                                <p className="text-sm text-foreground">{stop.statusComment || "N/A"}</p>
-                            </div>
-                            <div className="border-t pt-2">
-                                    <Button size="sm" variant="outline" onClick={handleCopyVisitText}>
-                                    <MessageSquare className="mr-2 h-4 w-4" />
-                                    Copiar Anúncio de Visita
-                                </Button>
-                            </div>
-                        </div>
-                    </TableCell>
-                </tr>
-            </CollapsibleContent>
-        </React.Fragment>
-    )
-}
-
-function RoutesTab({ serviceOrders, visitTemplate, activeRoutes }: { serviceOrders: ServiceOrder[], visitTemplate: string, activeRoutes: Route[] }) {
-    const { toast } = useToast();
-    const [isLoading, setIsLoading] = useState(true);
-    const [blockedOrders, setBlockedOrders] = useState<Record<string, string>>({});
-    const [isBlocksLoaded, setIsBlocksLoaded] = useState(false);
-
-    useEffect(() => {
-        try {
-            const saved = localStorage.getItem("blocked_route_orders");
-            if (saved) setBlockedOrders(JSON.parse(saved));
-        } catch (e) { console.error("Failed to load blocked orders", e); }
-        setIsBlocksLoaded(true);
-    }, []);
-
-    useEffect(() => {
-        if (!isBlocksLoaded) return;
-        localStorage.setItem("blocked_route_orders", JSON.stringify(blockedOrders));
-    }, [blockedOrders, isBlocksLoaded]);
-
-    const handleBlock = (serviceOrder: string, reason: string) => {
-        setBlockedOrders(prev => ({ ...prev, [serviceOrder]: reason }));
-        toast({ title: "Ordem bloqueada", description: `A OS ${serviceOrder} foi marcada como impossível.` });
-    };
-
-    const handleUnblock = (serviceOrder: string) => {
-        setBlockedOrders(prev => {
-            const next = { ...prev };
-            delete next[serviceOrder];
-            return next;
-        });
-        toast({ title: "Ordem desbloqueada", description: `A OS ${serviceOrder} foi removida da lista de bloqueios.` });
-    };
-
-    useEffect(() => {
-        if(activeRoutes.length > 0 || activeRoutes.length === 0){
-            setIsLoading(false);
-        }
-    },[activeRoutes])
 
 
-    if (isLoading) {
-        return (
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><RouteIcon /> Rotas Ativas da Equipe</CardTitle>
-                    <CardDescription>Buscando as rotas ativas...</CardDescription>
-                </CardHeader>
-                <CardContent className="text-center py-10">
-                    <p>Carregando...</p>
-                </CardContent>
-            </Card>
-        );
-    }
-
-    if (activeRoutes.length === 0) {
-        return (
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><RouteIcon /> Rotas Ativas da Equipe</CardTitle>
-                    <CardDescription>Nenhuma rota ativa encontrada para a equipe.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="text-center text-muted-foreground py-10">
-                        <p>Nenhuma rota ativa encontrada para a equipe.</p>
-                    </div>
-                </CardContent>
-            </Card>
-        );
-    }
-
-    return (
-        <div className="space-y-4">
-            {activeRoutes.map(route => {
-                const departure = route.departureDate ? (route.departureDate instanceof Timestamp ? route.departureDate.toDate() : route.departureDate) : new Date();
-                const arrival = route.arrivalDate ? (route.arrivalDate instanceof Timestamp ? route.arrivalDate.toDate() : route.arrivalDate) : new Date();
-                const duration = differenceInDays(arrival, departure) + 1;
-
-                const totalStops = route.stops.length;
-                const completedStopsCount = route.stops.filter(stop => 
-                    serviceOrders.some(os => 
-                        os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt as Date)
-                    )
-                ).length;
-                const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
-
-
-                return (
-                    <Card key={route.id}>
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2"><RouteIcon /> Rota: {route.name}</CardTitle>
-                             <CardDescription>
-                                Técnico responsável: <span className="font-medium text-foreground">{route.technicianName}</span>
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 text-sm border-t border-b py-4">
-                                <div className="flex items-center gap-2">
-                                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                                    <div>
-                                        <p className="text-xs text-muted-foreground">Saída</p>
-                                        <p className="font-semibold">{format(departure, 'dd/MM/yyyy')}</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                                    <div>
-                                        <p className="text-xs text-muted-foreground">Chegada</p>
-                                        <p className="font-semibold">{format(arrival, 'dd/MM/yyyy')}</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <Sun className="h-4 w-4 text-muted-foreground" />
-                                    <div>
-                                        <p className="text-xs text-muted-foreground">Duração</p>
-                                        <p className="font-semibold">{duration} dia{duration !== 1 ? 's' : ''}</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <MapPin className="h-4 w-4 text-muted-foreground" />
-                                    <div>
-                                        <p className="text-xs text-muted-foreground">Tipo</p>
-                                        <p className="font-semibold capitalize">{route.routeType}</p>
-                                    </div>
-                                </div>
-                                {route.licensePlate && (
-                                    <div className="flex items-center gap-2">
-                                        <Car className="h-4 w-4 text-muted-foreground" />
-                                        <div>
-                                            <p className="text-xs text-muted-foreground">Placa</p>
-                                            <p className="font-semibold uppercase">{route.licensePlate}</p>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                            
-                            <div className="space-y-2">
-                                <Progress value={progress} />
-                                <p className="text-xs text-muted-foreground text-right">{completedStopsCount} de {totalStops} paradas concluídas</p>
-                            </div>
-
-                            <Dialog>
-                                <DialogTrigger asChild>
-                                    <Button variant="outline"><Eye className="mr-2 h-4 w-4" /> Ver Detalhes da Rota</Button>
-                                </DialogTrigger>
-                                <DialogContent className="max-w-6xl w-[95vw] md:w-full p-2 md:p-6 bg-muted md:bg-background">
-                                    <DialogHeader>
-                                        <DialogTitle>Detalhes da Rota: {route.name}</DialogTitle>
-                                        <DialogDescription>
-                                            Use a legenda de cores para identificar os tipos de parada.
-                                        </DialogDescription>
-                                         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs pt-2">
-                                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-yellow-100 border border-yellow-300"></div><span>Coleta</span></div>
-                                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300"></div><span>Entrega</span></div>
-                                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-100 border border-green-300"></div><span>Finalizada</span></div>
-                                        </div>
-                                    </DialogHeader>
-                                    <div className="max-h-[70vh] overflow-y-auto">
-                                        
-        <div className="md:hidden space-y-4 py-2">
-            {route.stops.map((stop, index) => (
-                <MobileRouteStopCard key={index} stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={(route.createdAt as Date)} visitTemplate={visitTemplate} blockedOrders={blockedOrders} onBlock={handleBlock} onUnblock={handleUnblock} />
-            ))}
-        </div>
-        <div className="hidden md:block overflow-x-auto">
-            <Table>
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead>OS</TableHead>
-                                                    <TableHead>Tipo</TableHead>
-                                                    <TableHead>Cidade</TableHead>
-                                                    <TableHead>Bairro</TableHead>
-                                                    <TableHead>Modelo</TableHead>
-                                                    <TableHead>Peças</TableHead>
-                                                    <TableHead className="w-[50px]"></TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {route.stops.map((stop, index) => (
-                                                    <Collapsible asChild key={index}>
-                                                        <RouteDetailsRow stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={(route.createdAt as Date)} visitTemplate={visitTemplate} />
-                                                    </Collapsible>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-        </div>
-        
-                                    </div>
-                                </DialogContent>
-                            </Dialog>
-                        </CardContent>
-                    </Card>
-                )
-            })}
-        </div>
-    );
-}
 
 function ChecklistSection({ 
     checklistTemplates, 
@@ -1108,26 +506,15 @@ function ChecklistSection({
     );
 }
 
-export default function ServiceOrderPage() {
+export default function OsFormPage() {
+  const { symptomCodes, repairCodes, technicians, presets, activeRoutes, checklistTemplates, visitTemplate, dataFetchError, refreshDynamicData } = useAppData();
   const [generatedText, setGeneratedText] = useState("");
   const [osIsSaved, setOsIsSaved] = useState(false);
-  const { toast } = useToast();
-  const [symptomCodes, setSymptomCodes] = useState<CodeCategory>({ "TV/AV": [], "DA": [] });
-  const [repairCodes, setRepairCodes] = useState<CodeCategory>({ "TV/AV": [], "DA": [] });
-  const [technicians, setTechnicians] = useState<Technician[]>([]);
-  const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
-  const [returns, setReturns] = useState<Return[]>([]);
-  const [chargebacks, setChargebacks] = useState<Chargeback[]>([]);
-  const [presets, setPresets] = useState<Preset[]>([]);
-  const [indicators, setIndicators] = useState<Indicator[]>([]);
   const [assistantName, setAssistantName] = useState("");
-  const [visitTemplate, setVisitTemplate] = useState("");
-  const [activeRoutes, setActiveRoutes] = useState<Route[]>([]);
   const [currentRouteStop, setCurrentRouteStop] = useState<RouteStop | null>(null);
   const [selectedParts, setSelectedParts] = useState<Record<string, number>>({});
-  const [checklistTemplates, setChecklistTemplates] = useState<ChecklistTemplate[]>([]);
   const [checklistData, setChecklistData] = useState<Record<string, string | boolean>>({});
-  const [dataFetchError, setDataFetchError] = useState(false);
+  const { toast } = useToast();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -1149,6 +536,8 @@ export default function ServiceOrderPage() {
       productCollectedOrInstalled: "",
       collectionType: "",
       cleaningPerformed: false,
+      isFinalized: true,
+      pendingReason: "",
     },
   });
 
@@ -1182,111 +571,7 @@ export default function ServiceOrderPage() {
   const watchedServiceOrderNumber = form.watch("serviceOrderNumber");
   const { resetField, setValue } = form;
 
-  const fetchDynamicData = async () => {
-    try {
-        const [ordersSnapshot, returnsSnapshot, indicatorsSnapshot, chargebacksSnapshot, activeRoutesSnapshot, checklistsSnapshot] = await Promise.all([
-            getDocs(collection(db, "serviceOrders")),
-            getDocs(collection(db, "returns")),
-            getDocs(collection(db, "indicators")),
-            getDocs(collection(db, "chargebacks")),
-            getDocs(query(collection(db, "routes"), where("isActive", "==", true))),
-            getDocs(collection(db, "checklistTemplates"))
-        ]);
-        
-        const orders = ordersSnapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                ...data,
-                date: (data.date as Timestamp).toDate(),
-            } as ServiceOrder;
-        });
-        setServiceOrders(orders);
-
-        const returnsData = returnsSnapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                ...data,
-                returnDate: (data.returnDate as Timestamp)?.toDate(),
-            } as Return;
-        });
-        setReturns(returnsData);
-
-        const chargebacksData = chargebacksSnapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                ...data,
-                date: (data.date as Timestamp).toDate(),
-            } as Chargeback;
-        });
-        setChargebacks(chargebacksData);
-        
-        const indicatorsData = indicatorsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Indicator));
-        setIndicators(indicatorsData);
-
-        const routesData = activeRoutesSnapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                ...data,
-                createdAt: (data.createdAt as Timestamp)?.toDate(),
-                departureDate: (data.departureDate as Timestamp)?.toDate(),
-                arrivalDate: (data.arrivalDate as Timestamp)?.toDate(),
-            } as Route;
-        });
-        setActiveRoutes(routesData);
-
-        const checklists = checklistsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChecklistTemplate));
-        setChecklistTemplates(checklists);
-        setDataFetchError(false);
-
-    } catch (error) {
-        console.error("Error fetching dynamic data:", error);
-        setDataFetchError(true);
-    }
-  };
-
   useEffect(() => {
-    const fetchInitialData = async (): Promise<boolean> => {
-        try {
-            const [symptomsDoc, repairsDoc, techsSnapshot, presetsSnapshot, templateDoc] = await Promise.all([
-                getDoc(doc(db, "codes", "symptoms")),
-                getDoc(doc(db, "codes", "repairs")),
-                getDocs(collection(db, "technicians")),
-                getDocs(collection(db, "presets")),
-                getDoc(doc(db, "textTemplates", "visitAnnouncement"))
-            ]);
-
-            if (symptomsDoc.exists()) setSymptomCodes(symptomsDoc.data() as CodeCategory);
-            if (repairsDoc.exists()) setRepairCodes(repairsDoc.data() as CodeCategory);
-            
-            const techs = techsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
-            setTechnicians(techs);
-            
-            const presetsData = presetsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Preset));
-            setPresets(presetsData);
-
-            if (templateDoc.exists()) {
-                setVisitTemplate(templateDoc.data().template);
-            } else {
-                setVisitTemplate(`Olá, bom dia! Somos da assistência técnica autorizada Samsung. Referente ao seu atendimento da ordem de serviço {{serviceOrder}}, para o cliente {{consumerName}} na cidade de {{city}}. Poderia me confirmar a sua localização?`);
-            }
-            return true;
-        } catch (error) {
-            console.error("Error fetching initial data:", error);
-            setDataFetchError(true);
-            return false;
-        }
-    };
-    
-    fetchInitialData().then((success) => {
-        if(success) {
-            fetchDynamicData();
-        }
-    });
-
     try {
         const savedChecklistData = localStorage.getItem('checklistFormData');
         if (savedChecklistData) {
@@ -1333,7 +618,7 @@ export default function ServiceOrderPage() {
     if (watchedServiceOrderNumber) {
         let foundStop: RouteStop | null = null;
         for (const route of activeRoutes) {
-            const stop = route.stops.find(s => s.serviceOrder === watchedServiceOrderNumber);
+            const stop = route.stops.find((s: RouteStop) => s.serviceOrder === watchedServiceOrderNumber);
             if (stop) {
                 foundStop = stop;
                 break;
@@ -1375,18 +660,21 @@ export default function ServiceOrderPage() {
         coleta_eco_rma: `Coleta - ${collectionTypeLabel}`,
         instalacao_inicial: 'Instalação Inicial',
     };
-    serviceDetails = serviceTypeLabels[data.serviceType] || data.serviceType;
+    serviceDetails = data.serviceType ? (serviceTypeLabels[data.serviceType] || data.serviceType) : '';
+
+    const isPending = !data.isFinalized;
 
     const baseTextParts = [
       `**Data: ${today} - ${data.equipmentType}**`,
       `**Ordem de Serviço: ${data.serviceOrderNumber}**`,
       `- **Técnico:** ${technicianName}`,
-      `- **Atendimento:** ${serviceDetails}`,
+      isPending ? `⚠️ **ATENDIMENTO NÃO FINALIZADO:** ${data.pendingReason} ⚠️` : '',
+      (!isPending && serviceDetails) ? `- **Atendimento:** ${serviceDetails}` : '',
     ];
 
     let serviceSpecificParts: string[] = [];
 
-    const serviceNeedsCodes = !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(data.serviceType);
+    const serviceNeedsCodes = data.serviceType ? !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(data.serviceType) : false;
 
     if (data.serviceType === 'visita_assurant') {
         if (data.defectFound) serviceSpecificParts.push(`- **Defeito Constatado:** ${data.defectFound}`);
@@ -1401,7 +689,7 @@ export default function ServiceOrderPage() {
             ? `${data.repairCode} - ${repairCodes[data.equipmentType as keyof typeof repairCodes]?.find(r => r.code === data.repairCode)?.description}`
             : '';
         if (repairDescription) serviceSpecificParts.push(`- **Reparo:** ${repairDescription}`);
-    } else if (['coleta_eco_rma', 'instalacao_inicial'].includes(data.serviceType)) {
+    } else if (data.serviceType && ['coleta_eco_rma', 'instalacao_inicial'].includes(data.serviceType)) {
         if(data.productCollectedOrInstalled) serviceSpecificParts.push(`- **Produto Coletado/Instalado:** ${data.productCollectedOrInstalled}`);
     }
 
@@ -1432,6 +720,8 @@ export default function ServiceOrderPage() {
             productCollectedOrInstalled: data.productCollectedOrInstalled || '',
             collectionType: data.collectionType as any,
             cleaningPerformed: data.cleaningPerformed || false,
+            isFinalized: data.isFinalized !== undefined ? data.isFinalized : true,
+            pendingReason: data.pendingReason || '',
         };
 
         await addDoc(collection(db, "serviceOrders"), newServiceOrder);
@@ -1441,7 +731,7 @@ export default function ServiceOrderPage() {
             description: `A ordem de serviço ${data.serviceOrderNumber} foi salva.`,
         });
 
-        fetchDynamicData();
+        await refreshDynamicData();
 
     } catch (error) {
         setOsIsSaved(false);
@@ -1492,6 +782,8 @@ export default function ServiceOrderPage() {
         productCollectedOrInstalled: "",
         collectionType: "",
         cleaningPerformed: false,
+        isFinalized: true,
+        pendingReason: "",
     });
     setGeneratedText("");
     setOsIsSaved(false);
@@ -1524,54 +816,17 @@ export default function ServiceOrderPage() {
 
 
   const filteredPresets = presets.filter(p => p.equipmentType === watchedEquipmentType);
-  const serviceRequiresCodes = !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType);
-  const showReplacedPart = !['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType);
+  const serviceRequiresCodes = !watchedServiceType || !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType);
+  const showReplacedPart = !watchedServiceType || !['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType);
   const routeParts = currentRouteStop?.parts || [];
 
   if (dataFetchError) {
-    return (
-      <div className="min-h-screen flex flex-col">
-        <Header />
-        <main className="flex-grow p-4 sm:p-6 md:p-8">
-          <FirebaseSetupPrompt />
-        </main>
-      </div>
-    );
+    return <FirebaseSetupPrompt />;
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
-        <Header />
-        <Suspense fallback={null}>
-          <PermissionErrorDisplay />
-        </Suspense>
-        <main className="flex-grow p-3 sm:p-6 md:p-8">
-            <div className="max-w-4xl mx-auto">
-                <Tabs defaultValue="os-form" className="w-full">
-                    <TabsList className="mb-3 md:mb-6 h-auto justify-start md:h-10 md:grid md:w-full md:grid-cols-5">
-                        <TabsTrigger value="os-form" className="flex flex-1 items-center justify-center gap-2 px-2">
-                           <Wrench />
-                           <span className="hidden sm:inline">Lançar OS</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="dashboard" className="flex flex-1 items-center justify-center gap-2 px-2">
-                           <TrendingUp />
-                           <span className="hidden sm:inline">Desempenho</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="returns-ranking" className="flex flex-1 items-center justify-center gap-2 px-2">
-                           <Trophy />
-                           <span className="hidden sm:inline">Ranking</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="routes" className="flex flex-1 items-center justify-center gap-2 px-2">
-                           <RouteIcon />
-                           <span className="hidden sm:inline">Rotas</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="scanner" className="flex flex-1 items-center justify-center gap-2 px-2">
-                           <QrCode />
-                           <span className="hidden sm:inline">Scanner</span>
-                        </TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="os-form">
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div className="max-w-7xl mx-auto w-full animate-in fade-in ease-out duration-300">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                             <Card className="w-full border-none shadow-none bg-transparent md:border-solid md:shadow-sm md:bg-card">
                                 <CardHeader className="px-1 pt-0 pb-3 md:p-6">
                                     <CardTitle className="text-[22px] md:text-2xl tracking-tight leading-none">Lançamento Rápido de OS</CardTitle>
@@ -1677,8 +932,58 @@ export default function ServiceOrderPage() {
                                                 )}
                                             />
 
-                                            {routeParts.length > 0 && (
-                                                <div className="space-y-2 rounded-lg border bg-muted/50 p-4">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start rounded-lg border p-4 bg-slate-50/50 dark:bg-slate-900/50">
+                                                <FormField
+                                                    control={form.control}
+                                                    name="isFinalized"
+                                                    render={({ field }) => (
+                                                        <FormItem className="flex flex-row items-center justify-between">
+                                                            <div className="space-y-0.5 mt-1">
+                                                                <FormLabel className="text-base text-slate-700 dark:text-slate-200">Atendimento Finalizado?</FormLabel>
+                                                                <div className="text-xs text-muted-foreground">Desmarque caso a OS não tenha sido concluída</div>
+                                                            </div>
+                                                            <FormControl>
+                                                                <Switch
+                                                                    checked={field.value}
+                                                                    onCheckedChange={field.onChange}
+                                                                />
+                                                            </FormControl>
+                                                        </FormItem>
+                                                    )}
+                                                />
+
+                                                {!form.watch('isFinalized') && (
+                                                    <FormField
+                                                        control={form.control}
+                                                        name="pendingReason"
+                                                        render={({ field }) => (
+                                                            <FormItem className="animate-in fade-in slide-in-from-top-2">
+                                                                <FormLabel className="text-red-600 dark:text-red-400">Motivo da Pendência</FormLabel>
+                                                                <Select onValueChange={field.onChange} value={field.value}>
+                                                                    <FormControl>
+                                                                        <SelectTrigger className="border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20">
+                                                                            <SelectValue placeholder="Selecione o motivo..." />
+                                                                        </SelectTrigger>
+                                                                    </FormControl>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="Peça nova com defeito">Peça nova com defeito</SelectItem>
+                                                                        <SelectItem value="Repedido">Repedido</SelectItem>
+                                                                        <SelectItem value="Remarcação">Remarcação</SelectItem>
+                                                                        <SelectItem value="Ausente">Ausente / Cliente não estava</SelectItem>
+                                                                        <SelectItem value="Outro">Outro</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                                <FormMessage />
+                                                            </FormItem>
+                                                        )}
+                                                    />
+                                                )}
+                                            </div>
+
+                                            {form.watch('isFinalized') && (
+                                                <div className="space-y-4 md:space-y-5 animate-in fade-in slide-in-from-top-2 duration-300">
+                                                    {routeParts.length > 0 && (
+                                                        <div className="space-y-2 rounded-lg border bg-muted/50 p-4">
                                                     <div className="space-y-1">
                                                         <Label className="font-semibold">Peças da Rota para esta OS</Label>
                                                         <p className="text-xs text-muted-foreground">Selecione as peças usadas</p>
@@ -1805,7 +1110,7 @@ export default function ServiceOrderPage() {
                                                 </div>
                                             )}
                                             
-                                            {['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType) ? (
+                                            {(watchedServiceType && ['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType)) ? (
                                                 <FormField control={form.control} name="productCollectedOrInstalled" render={({ field }) => (
                                                     <FormItem>
                                                         <FormLabel>Produto Coletado/Instalado</FormLabel>
@@ -1875,14 +1180,6 @@ export default function ServiceOrderPage() {
                                                 )}/>
                                             )}
 
-                                            <FormField control={form.control} name="observations" render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Observações (Opcional)</FormLabel>
-                                                    <FormControl><Textarea placeholder="Descreva observações adicionais aqui..." {...field} value={field.value || ''} /></FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}/>
-
                                             <FormField control={form.control} name="cleaningPerformed" render={({ field }) => (
                                                 <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
                                                     <div className="space-y-0.5">
@@ -1894,8 +1191,21 @@ export default function ServiceOrderPage() {
                                                     <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
                                                 </FormItem>
                                             )}/>
+
+                                                </div>
+                                            )}
+
+                                            <FormField control={form.control} name="observations" render={({ field }) => (
+                                                <FormItem className="animate-in fade-in slide-in-from-top-2">
+                                                    <FormLabel>Observações {form.watch('isFinalized') && '(Opcional)'}</FormLabel>
+                                                    <FormControl><Textarea placeholder="Descreva observações adicionais aqui..." {...field} value={field.value || ''} /></FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}/>
                                             
-                                            <Button type="submit" className="w-full">Gerar Texto e Salvar OS</Button>
+                                            <Button type="submit" className="w-full">
+                                                {form.watch('isFinalized') ? 'Gerar Texto e Salvar OS' : 'Gerar Texto de Pendência e Salvar'}
+                                            </Button>
                                         </form>
                                     </Form>
                                 </CardContent>
@@ -1942,32 +1252,7 @@ export default function ServiceOrderPage() {
                                 />
                             </div>
                         </div>
-                    </TabsContent>
-                    <TabsContent value="dashboard">
-                        <PerformanceDashboard 
-                            technicians={technicians} 
-                            serviceOrders={serviceOrders} 
-                            returns={returns} 
-                            indicators={indicators}
-                            chargebacks={chargebacks}
-                        />
-                    </TabsContent>
-                    <TabsContent value="returns-ranking">
-                        <ReturnsRanking technicians={technicians} returns={returns} />
-                    </TabsContent>
-                    <TabsContent value="routes">
-                        <RoutesTab serviceOrders={serviceOrders} visitTemplate={visitTemplate} activeRoutes={activeRoutes} />
-                    </TabsContent>
-                    <TabsContent value="scanner">
-                        <PartScannerClipboard />
-                    </TabsContent>
-                </Tabs>
-            </div>
-        </main>
-        <footer className="glass border-t p-4 text-center text-xs text-muted-foreground">
-            <p>SmartService OS - Feito com ❤️ para simplificar sua vida.</p>
-        </footer>
-    </div>
+        </div>
   );
 }
 

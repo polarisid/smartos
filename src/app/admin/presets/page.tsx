@@ -21,10 +21,11 @@ import { Label } from "@/components/ui/label";
 import { PlusCircle, Edit, Trash2, Bookmark, Save, Webhook } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, getDoc, setDoc, addDoc, deleteDoc } from "firebase/firestore";
+import { collection, doc, getDoc, setDoc, addDoc, deleteDoc } from "firebase/firestore";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { type Preset } from "@/lib/data";
+import { useAppData } from "@/context/AppDataContext";
 
 type CodeItem = { code: string; description: string; };
 type CodeCategory = { "TV/AV": CodeItem[]; "DA": CodeItem[]; };
@@ -104,9 +105,8 @@ function WebhookManagement() {
 
 
 export default function PresetsPage() {
+    const { presets: contextPresets, symptomCodes, repairCodes, visitTemplate: contextVisitTemplate, isLoading: contextLoading } = useAppData();
     const [presets, setPresets] = useState<Preset[]>([]);
-    const [symptomCodes, setSymptomCodes] = useState<CodeCategory>({ "TV/AV": [], "DA": [] });
-    const [repairCodes, setRepairCodes] = useState<CodeCategory>({ "TV/AV": [], "DA": [] });
     
     const [selectedPreset, setSelectedPreset] = useState<Preset | null>(null);
     const [dialogMode, setDialogMode] = useState<'add' | 'edit'>('add');
@@ -122,41 +122,13 @@ export default function PresetsPage() {
         observations: ''
     });
 
-    const [visitTemplate, setVisitTemplate] = useState(defaultVisitTemplate);
-    const [isLoading, setIsLoading] = useState(true);
+    const [visitTemplate, setVisitTemplate] = useState(contextVisitTemplate || defaultVisitTemplate);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const { toast } = useToast();
 
-    useEffect(() => {
-        const fetchData = async () => {
-            setIsLoading(true);
-            try {
-                const [presetsSnapshot, symptomsDoc, repairsDoc, templateDoc] = await Promise.all([
-                    getDocs(collection(db, "presets")),
-                    getDoc(doc(db, "codes", "symptoms")),
-                    getDoc(doc(db, "codes", "repairs")),
-                    getDoc(doc(db, "textTemplates", "visitAnnouncement"))
-                ]);
-
-                const presetsData = presetsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Preset));
-                setPresets(presetsData);
-
-                if (symptomsDoc.exists()) setSymptomCodes(symptomsDoc.data() as CodeCategory);
-                if (repairsDoc.exists()) setRepairCodes(repairsDoc.data() as CodeCategory);
-
-                if (templateDoc.exists()) {
-                    setVisitTemplate(templateDoc.data().template);
-                }
-
-            } catch (error) {
-                console.error("Error fetching data:", error);
-                toast({ variant: "destructive", title: "Erro ao carregar dados", description: "Não foi possível buscar os dados do banco de dados." });
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchData();
-    }, [toast]);
+    // Seed from context
+    useEffect(() => { setPresets([...contextPresets]); }, [contextPresets]);
+    useEffect(() => { if (contextVisitTemplate) setVisitTemplate(contextVisitTemplate); }, [contextVisitTemplate]);
 
     const handleOpenAddDialog = () => {
         setDialogMode('add');
@@ -285,7 +257,7 @@ export default function PresetsPage() {
                             value={visitTemplate}
                             onChange={(e) => setVisitTemplate(e.target.value)}
                             rows={5}
-                            disabled={isLoading}
+                            disabled={contextLoading}
                         />
                     </CardContent>
                     <CardFooter>
@@ -303,7 +275,7 @@ export default function PresetsPage() {
                         <CardDescription>Crie, edite e gerencie presets de sintoma/reparo para agilizar o lançamento de OS.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {isLoading ? (
+                        {contextLoading ? (
                             <div className="text-center p-4">Carregando presets...</div>
                         ) : (
                             <Table>

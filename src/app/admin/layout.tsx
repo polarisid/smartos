@@ -1,6 +1,6 @@
 "use client"
 
-import * as React from "react"
+import React, { useEffect, memo } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useAuth } from "@/context/AuthContext"
@@ -18,10 +18,28 @@ import {
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Wrench, LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, DollarSign, Users, Home, TrendingUp, Truck } from "lucide-react"
-import { useEffect } from "react"
+import { Wrench, LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity } from "lucide-react"
 
-function AdminSidebar({children}: {children: React.ReactNode}) {
+// Static nav items defined outside component to prevent re-allocation on re-render
+const NAV_ITEMS = [
+  { href: '/admin/dashboard', label: 'Dashboard', Icon: LayoutGrid, tooltip: 'Dashboard' },
+  { href: '/command-center', label: 'Command Center', Icon: Activity, tooltip: 'Command Center' },
+  { href: '/admin/analytics', label: 'Análise de Produtividade', Icon: BarChart2, tooltip: 'Análise de Produtividade' },
+  { href: '/admin/service-orders', label: 'Ordens de Serviço', Icon: ClipboardCheck, tooltip: 'Ordens de Serviço' },
+  { href: '/admin/technicians', label: 'Técnicos', Icon: UsersIcon, tooltip: 'Técnicos' },
+  { href: '/admin/drivers', label: 'Motoristas', Icon: Truck, tooltip: 'Motoristas' },
+  { href: '/admin/users', label: 'Usuários', Icon: Users, tooltip: 'Usuários' },
+  { href: '/admin/indicators', label: 'Indicadores', Icon: Target, tooltip: 'Indicadores' },
+  { href: '/admin/codes', label: 'Códigos', Icon: Tag, tooltip: 'Códigos' },
+  { href: '/admin/presets', label: 'Presets', Icon: Bookmark, tooltip: 'Presets' },
+  { href: '/admin/returns', label: 'Retornos', Icon: History, tooltip: 'Retornos' },
+  { href: '/admin/chargebacks', label: 'Estornos', Icon: FileMinus, tooltip: 'Estornos' },
+  { href: '/admin/routes', label: 'Rotas', Icon: Route, tooltip: 'Rotas' },
+  { href: '/admin/part-separation', label: 'Conferência de Peças', Icon: PackageSearch, tooltip: 'Conferência de Peças' },
+  { href: '/admin/checklists', label: 'Checklists', Icon: ClipboardList, tooltip: 'Checklists' },
+] as const;
+
+const AdminSidebar = memo(function AdminSidebar({children}: {children: React.ReactNode}) {
     const pathname = usePathname()
     const { user, logout, appUser } = useAuth();
     const isActive = (path: string) => pathname.startsWith(path) && (pathname === path || pathname.charAt(path.length) === '/')
@@ -47,71 +65,13 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
                 </SidebarHeader>
                 <SidebarContent>
                     <SidebarMenu>
-                        <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/dashboard')} tooltip="Dashboard">
-                                <Link href="/admin/dashboard"><LayoutGrid /> <span>Dashboard</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                         <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/service-orders')} tooltip="Ordens de Serviço">
-                                <Link href="/admin/service-orders"><ClipboardCheck /> <span>Ordens de Serviço</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                        <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/technicians')} tooltip="Técnicos">
-                                <Link href="/admin/technicians"><UsersIcon /> <span>Técnicos</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                        <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/drivers')} tooltip="Motoristas">
-                                <Link href="/admin/drivers"><Truck /> <span>Motoristas</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                        <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/users')} tooltip="Usuários">
-                                <Link href="/admin/users"><Users /> <span>Usuários</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                         <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/indicators')} tooltip="Indicadores">
-                                <Link href="/admin/indicators"><Target /> <span>Indicadores</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                        <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/codes')} tooltip="Códigos">
-                                <Link href="/admin/codes"><Tag /> <span>Códigos</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                        <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/presets')} tooltip="Presets">
-                                <Link href="/admin/presets"><Bookmark /> <span>Presets</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                        <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/returns')} tooltip="Retornos">
-                                <Link href="/admin/returns"><History /> <span>Retornos</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                        <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/chargebacks')} tooltip="Estornos">
-                                <Link href="/admin/chargebacks"><FileMinus /> <span>Estornos</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                        <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/routes')} tooltip="Rotas">
-                                <Link href="/admin/routes"><Route /> <span>Rotas</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                         <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/part-separation')} tooltip="Conferência de Peças">
-                                <Link href="/admin/part-separation"><PackageSearch /> <span>Conferência de Peças</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                        <SidebarMenuItem>
-                            <SidebarMenuButton asChild isActive={isActive('/admin/checklists')} tooltip="Checklists">
-                                <Link href="/admin/checklists"><ClipboardList /> <span>Checklists</span></Link>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
+                        {NAV_ITEMS.map(({ href, label, Icon, tooltip }) => (
+                            <SidebarMenuItem key={href}>
+                                <SidebarMenuButton asChild isActive={isActive(href)} tooltip={tooltip}>
+                                    <Link href={href}><Icon /> <span>{label}</span></Link>
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
+                        ))}
                     </SidebarMenu>
                 </SidebarContent>
                 <SidebarFooter>
@@ -139,7 +99,7 @@ function AdminSidebar({children}: {children: React.ReactNode}) {
             </div>
         </SidebarProvider>
     )
-}
+});
 
 export default function AdminLayout({
   children,

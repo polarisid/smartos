@@ -1,17 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { Wrench, Users, Tag, Tv, WashingMachine, ShieldCheck, ListTree, ClipboardCheck, History, Trophy, Sparkles, FileMinus, DollarSign, Store, Home, Target, TrendingUp, UserCheck, PencilRuler } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Wrench, Tv, WashingMachine, ShieldCheck, ListTree, ClipboardCheck, History, Trophy, FileMinus, DollarSign, Target } from "lucide-react";
 import { type ServiceOrder, type Technician, type Return, type Chargeback } from "@/lib/data";
 import { startOfWeek, startOfMonth, isAfter, startOfYear, isToday } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, Timestamp, doc, getDoc } from "firebase/firestore";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { useAppData } from "@/context/AppDataContext";
+import React from "react";
+
 
 function GeneralDashboard({
     technicians,
@@ -343,68 +343,21 @@ function ReturnsRanking({ technicians, returns }: { technicians: Technician[], r
 
 export default function DashboardPage() {
     const [filterPeriod, setFilterPeriod] = useState<'today' | 'this_week' | 'this_month' | 'this_year' | 'all_time'>('this_month');
-    const [technicians, setTechnicians] = useState<Technician[]>([]);
-    const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
-    const [returns, setReturns] = useState<Return[]>([]);
-    const [chargebacks, setChargebacks] = useState<Chargeback[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-
-    useEffect(() => {
-        const fetchData = async () => {
-            setIsLoading(true);
-            try {
-                const [techSnapshot, orderSnapshot, returnsSnapshot, chargebacksSnapshot] = await Promise.all([
-                    getDocs(collection(db, "technicians")),
-                    getDocs(collection(db, "serviceOrders")),
-                    getDocs(collection(db, "returns")),
-                    getDocs(collection(db, "chargebacks")),
-                ]);
-
-                const techs = techSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
-                setTechnicians(techs);
-
-                const orders = orderSnapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return {
-                        id: doc.id,
-                        ...data,
-                        date: (data.date as Timestamp).toDate(),
-                    } as ServiceOrder;
-                });
-                setServiceOrders(orders);
-
-                const returnsData = returnsSnapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return {
-                        id: doc.id,
-                        ...data,
-                        returnDate: data.returnDate?.toDate(),
-                    } as Return;
-                });
-                setReturns(returnsData);
-
-                const chargebacksData = chargebacksSnapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return {
-                        id: doc.id,
-                        ...data,
-                        date: (data.date as Timestamp).toDate(),
-                    } as Chargeback;
-                });
-                setChargebacks(chargebacksData);
-
-            } catch (error) {
-                console.error("Error fetching dashboard data:", error);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchData();
-    }, []);
+    const { technicians, serviceOrders, returns, chargebacks, isLoading } = useAppData();
 
     if (isLoading) {
-        return <div className="p-6 text-center">Carregando dashboard...</div>;
+        return (
+            <div className="p-4 sm:p-6 space-y-6">
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                    {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}
+                </div>
+                <Skeleton className="h-64 w-full rounded-xl" />
+                <div className="grid gap-4 md:grid-cols-2">
+                    <Skeleton className="h-40 w-full rounded-xl" />
+                    <Skeleton className="h-40 w-full rounded-xl" />
+                </div>
+            </div>
+        );
     }
 
   return (

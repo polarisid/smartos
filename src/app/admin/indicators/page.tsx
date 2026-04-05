@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import {
@@ -22,9 +22,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { PlusCircle, Edit, Trash2, Target, Trophy } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, writeBatch } from "firebase/firestore";
+import { collection, doc, setDoc, addDoc, deleteDoc, writeBatch } from "firebase/firestore";
 import { Textarea } from "@/components/ui/textarea";
 import { type Indicator } from "@/lib/data";
+import { useAppData } from "@/context/AppDataContext";
 
 type FormData = Omit<Indicator, 'id'>;
 
@@ -116,6 +117,7 @@ function LaunchIndicatorsDialog({ indicators, onSave }: { indicators: Indicator[
 
 
 export default function IndicatorsPage() {
+    const { indicators: contextIndicators, isLoading: contextLoading, refreshDynamicData } = useAppData();
     const [indicators, setIndicators] = useState<Indicator[]>([]);
     
     const [selectedIndicator, setSelectedIndicator] = useState<Indicator | null>(null);
@@ -125,27 +127,13 @@ export default function IndicatorsPage() {
     
     const [formData, setFormData] = useState<FormData>(initialFormData);
 
-    const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const { toast } = useToast();
 
-    const fetchData = async () => {
-        setIsLoading(true);
-        try {
-            const indicatorsSnapshot = await getDocs(collection(db, "indicators"));
-            const indicatorsData = indicatorsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Indicator));
-            setIndicators(indicatorsData);
-        } catch (error) {
-            console.error("Error fetching data:", error);
-            toast({ variant: "destructive", title: "Erro ao carregar dados", description: "Não foi possível buscar os indicadores do banco de dados." });
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
+    // Seed local state from context
     useEffect(() => {
-        fetchData();
-    }, [toast]);
+        setIndicators([...contextIndicators]);
+    }, [contextIndicators]);
 
     const handleOpenAddDialog = () => {
         setDialogMode('add');
@@ -235,7 +223,11 @@ export default function IndicatorsPage() {
         });
 
         await batch.commit();
-        await fetchData(); // Refresh data to show new values
+        // Update local state immediately without a full re-fetch
+        setIndicators(prev => prev.map(ind => ({
+            ...ind,
+            currentValue: data[ind.id] ?? ind.currentValue,
+        })));
     };
 
     const getGoalDisplay = (indicator: Indicator) => {
@@ -267,7 +259,7 @@ export default function IndicatorsPage() {
                         <CardDescription>Crie e gerencie os indicadores e suas respectivas metas que serão usados para avaliar a equipe.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {isLoading ? (
+                        {contextLoading ? (
                             <div className="text-center p-4">Carregando indicadores...</div>
                         ) : (
                             <Table>
