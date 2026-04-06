@@ -365,7 +365,7 @@ function RouteForm({
             productType: '',
             statusComment: '',
             parts: [],
-            addressDetails: manualStopData.addressDetails.trim() || undefined,
+            addressDetails: manualStopData.addressDetails.trim() || '',
         };
 
         if (manualPartsText.trim()) {
@@ -502,6 +502,23 @@ function RouteForm({
             const technician = technicians.find(t => t.id === technicianId);
             const driver = drivers.find(d => d.id === driverId);
             
+            // Helper to remove any undefined fields (Firestore rejects them)
+            const sanitizeStop = (stop: RouteStop): Record<string, unknown> => {
+                const s: Record<string, unknown> = {};
+                Object.entries(stop).forEach(([k, v]) => {
+                    if (v !== undefined) s[k] = v;
+                });
+                // Ensure nested parts array is also clean
+                if (Array.isArray(stop.parts)) {
+                    s['parts'] = stop.parts.map(p => {
+                        const clean: Record<string, unknown> = {};
+                        Object.entries(p).forEach(([k, v]) => { if (v !== undefined) clean[k] = v; });
+                        return clean;
+                    });
+                }
+                return s;
+            };
+
             let stopsToSave: RouteStop[] = parsedStops;
 
             if (mode === 'edit' && initialData) {
@@ -536,14 +553,14 @@ function RouteForm({
 
             const dataToSave = {
                 name: routeName,
-                stops: stopsToSave,
+                stops: stopsToSave.map(sanitizeStop),
                 departureDate: Timestamp.fromDate(departureDate),
                 arrivalDate: Timestamp.fromDate(arrivalDate),
                 routeType: routeType,
-                licensePlate: licensePlate,
+                licensePlate: licensePlate || '',
                 technicianId: technicianId,
                 technicianName: technician?.name || '',
-                driverId: driverId,
+                driverId: driverId || 'none',
                 driverName: driver?.name || '',
                 driverPhone: driver?.phone || '',
             };
