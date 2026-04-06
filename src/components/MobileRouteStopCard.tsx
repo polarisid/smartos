@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ChevronDown, MessageSquare, XCircle, Calendar } from "lucide-react";
+import { ChevronDown, MessageSquare, XCircle, Calendar, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ServiceOrder, RouteStop } from "@/lib/data";
 
@@ -45,6 +45,9 @@ export function MobileRouteStopCard({
     const isBlocked = !!blockedOrders[stop.serviceOrder];
     const blockReason = blockedOrders[stop.serviceOrder] || "";
     const [pendingReason, setPendingReason] = useState(blockReason);
+
+    const hasLocation = !!stop.addressDetails;
+    const addressQuery = hasLocation ? encodeURIComponent(`${stop.addressDetails}, ${stop.neighborhood}, ${stop.city}`) : "";
 
     const handleCopyVisitText = () => {
         let textToCopy = visitTemplate
@@ -86,10 +89,22 @@ export function MobileRouteStopCard({
                         </div>
                         <p className={cn("font-mono font-black text-lg tracking-tight text-foreground leading-none", isCompleted && "line-through opacity-60")}>{stop.serviceOrder}</p>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
-                        {isCompleted && <div className="text-[10px] bg-green-200 text-green-800 px-2 py-0.5 rounded-full font-bold uppercase">Concluída</div>}
-                        {isPending && <div className="text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded-full font-bold uppercase">Pendência</div>}
-                        {isBlocked && <div className="text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1"><XCircle className="h-3 w-3"/>Bloqueada</div>}
+                    <div className="flex items-center gap-2">
+                        <div className="flex flex-col items-end gap-1">
+                            {isCompleted && <div className="text-[10px] bg-green-200 text-green-800 px-2 py-0.5 rounded-full font-bold uppercase">Concluída</div>}
+                            {isPending && <div className="text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded-full font-bold uppercase">Pendência</div>}
+                            {isBlocked && <div className="text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1"><XCircle className="h-3 w-3"/>Bloqueada</div>}
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            className={cn("h-8 w-8 shrink-0", hasLocation ? "text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100" : "text-muted-foreground opacity-50 cursor-not-allowed border-border")}
+                            onClick={() => hasLocation && window.open(`https://www.google.com/maps/search/?api=1&query=${addressQuery}`, '_blank')}
+                            disabled={!hasLocation}
+                            title={hasLocation ? "Abrir endereço no Google Maps" : "Localização não salva"}
+                        >
+                            <MapPin className="h-4 w-4" />
+                        </Button>
                     </div>
                 </div>
                 
@@ -144,55 +159,6 @@ export function MobileRouteStopCard({
                             <MessageSquare className="mr-2 h-4 w-4" />
                             Copiar Anúncio de Visita
                         </Button>
-                        {/* Block/Unblock button */}
-                        {isBlocked ? (
-                            <Button 
-                                size="sm" 
-                                variant="outline" 
-                                className="w-full font-bold h-9 border-red-400 text-red-600 hover:bg-red-50"
-                                onClick={() => onUnblock(stop.serviceOrder)}
-                            >
-                                <XCircle className="mr-2 h-4 w-4" />
-                                Desbloquear Ordem
-                            </Button>
-                        ) : (
-                            <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                    <Button 
-                                        size="sm" 
-                                        variant="outline" 
-                                        className="w-full font-bold h-9 border-red-400 text-red-600 hover:bg-red-50"
-                                        onClick={() => setPendingReason("")}
-                                    >
-                                        <XCircle className="mr-2 h-4 w-4" />
-                                        Marcar como Impossível
-                                    </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                        <AlertDialogTitle>Motivo do Bloqueio</AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                            OS <strong>{stop.serviceOrder}</strong> — explique por que esta ordem não pode ser realizada.
-                                        </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <Textarea
-                                        placeholder="Ex: Cliente ausente, endereço incorreto, produto quebrado..."
-                                        value={pendingReason}
-                                        onChange={(e) => setPendingReason(e.target.value)}
-                                        className="min-h-[100px] mt-2"
-                                    />
-                                    <AlertDialogFooter>
-                                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                        <AlertDialogAction
-                                            className="bg-red-600 hover:bg-red-700"
-                                            onClick={() => { if (pendingReason.trim()) onBlock(stop.serviceOrder, pendingReason.trim()); }}
-                                        >
-                                            Confirmar Bloqueio
-                                        </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                </AlertDialogContent>
-                            </AlertDialog>
-                        )}
                     </CollapsibleContent>
                 </Collapsible>
             </div>

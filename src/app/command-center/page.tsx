@@ -6,7 +6,8 @@ import { db } from "@/lib/firebase";
 import { type Route, type RouteStop, type ServiceOrder } from "@/lib/data";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Truck, Users, Activity, Bell, BellOff, Calendar as CalendarIcon, CheckCircle2, ChevronRight, Search, TrendingUp, AlertTriangle, Clock, BarChart2, XCircle, Zap, MapPin, Timer } from "lucide-react";
+import { Truck, Users, Activity, Bell, BellOff, Calendar as CalendarIcon, CheckCircle2, ChevronRight, Search, TrendingUp, AlertTriangle, Clock, BarChart2, XCircle, Zap, MapPin, Timer, ArrowLeft } from "lucide-react";
+import Link from "next/link";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { parse, isValid, format, isAfter, isToday, isYesterday } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -36,7 +37,8 @@ export default function CommandCenterPage() {
     const [feed, setFeed] = useState<FeedItem[]>([]);
     const feedEndRef = useRef<HTMLDivElement>(null);
     const [soundEnabled, setSoundEnabled] = useState(true);
-    const [selectedMapRoute, setSelectedMapRoute] = useState<string>("all");
+    const [selectedMapRoutes, setSelectedMapRoutes] = useState<Set<string>>(new Set());
+    const [mapStatusFilter, setMapStatusFilter] = useState<'all' | 'todo' | 'pending' | 'completed'>('all');
     const isFirstLoad = useRef(true);
     const audioCtxRef = useRef<AudioContext | null>(null);
 
@@ -669,34 +671,88 @@ export default function CommandCenterPage() {
 
                     <TabsContent value="mapa" className="animate-in fade-in-50 duration-500 mt-0">
                         <div className="flex flex-col h-[75vh]">
-                            <div className="mb-4 flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <MapPin className="text-blue-500 h-5 w-5" />
-                                    <h2 className="text-xl font-semibold text-slate-200">Radar Dinâmico</h2>
+                            {/* ── Route chip filter ── */}
+                            <div className="mb-3 p-3 rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm space-y-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5 mr-1">
+                                        <MapPin className="h-3 w-3" /> Rotas Exibidas
+                                    </span>
+                                    {routes.map(r => {
+                                        const isSelected = selectedMapRoutes.size === 0 || selectedMapRoutes.has(r.id);
+                                        return (
+                                            <button
+                                                key={r.id}
+                                                onClick={() => setSelectedMapRoutes(prev => {
+                                                    const next = new Set(prev);
+                                                    if (next.size === 0) {
+                                                        // All selected → deselect this one (select all others)
+                                                        routes.forEach(ro => { if (ro.id !== r.id) next.add(ro.id); });
+                                                    } else if (next.has(r.id)) {
+                                                        next.delete(r.id);
+                                                        if (next.size === 0) return new Set(); // back to "all"
+                                                    } else {
+                                                        next.add(r.id);
+                                                        if (next.size === routes.length) return new Set(); // all selected
+                                                    }
+                                                    return next;
+                                                })}
+                                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                                                    isSelected
+                                                        ? 'bg-blue-600 border-blue-500 text-white shadow-sm shadow-blue-500/30'
+                                                        : 'bg-slate-800 border-slate-700 text-slate-500 hover:border-slate-600'
+                                                }`}
+                                            >
+                                                <Truck className="h-3 w-3" />
+                                                {r.name}
+                                                <span className="opacity-60 font-normal">· {r.technicianName}</span>
+                                            </button>
+                                        );
+                                    })}
+                                    <div className="ml-auto flex gap-3 text-xs">
+                                        <button onClick={() => setSelectedMapRoutes(new Set())} className="text-blue-400 hover:text-blue-300 transition-colors">Selecionar todas</button>
+                                        <button onClick={() => setSelectedMapRoutes(new Set())} className="text-slate-500 hover:text-slate-300 transition-colors">Limpar</button>
+                                    </div>
                                 </div>
-                                
-                                <select 
-                                    value={selectedMapRoute}
-                                    onChange={e => setSelectedMapRoute(e.target.value)}
-                                    className="bg-slate-800 border-slate-700 text-slate-200 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block px-3 py-1.5 focus:outline-none focus:ring-2 max-w-[300px] cursor-pointer"
-                                >
-                                    <option value="all">Todas as Rotas Ativas</option>
-                                    {routes.map(r => <option key={r.id} value={r.id}>{r.name} ({r.technicianName})</option>)}
-                                </select>
 
-                                <div className="flex gap-4 text-sm font-medium">
-                                    <span className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-emerald-500"></div> Concluídos</span>
-                                    <span className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-yellow-500"></div> Com Pendência</span>
-                                    <span className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-blue-600"></div> A Fazer</span>
+                                {/* ── Status filter ── */}
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mr-1">Filtrar por Status</span>
+                                    {([
+                                        { key: 'all',       label: 'Todas',              color: 'bg-slate-600 border-slate-500 text-white' },
+                                        { key: 'todo',      label: 'A Fazer',            color: 'bg-blue-600 border-blue-500 text-white' },
+                                        { key: 'pending',   label: 'Com Pendência',      color: 'bg-yellow-500 border-yellow-400 text-slate-900' },
+                                        { key: 'completed', label: 'Concluídas',         color: 'bg-emerald-600 border-emerald-500 text-white' },
+                                    ] as const).map(opt => (
+                                        <button
+                                            key={opt.key}
+                                            onClick={() => setMapStatusFilter(opt.key)}
+                                            className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                                                mapStatusFilter === opt.key
+                                                    ? opt.color
+                                                    : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:border-slate-600'
+                                            }`}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                    <div className="ml-auto flex gap-4 text-xs font-medium text-slate-400">
+                                        <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Concluídos</span>
+                                        <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-yellow-500" /> Com Pendência</span>
+                                        <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-blue-600" /> A Fazer</span>
+                                    </div>
                                 </div>
                             </div>
+
                             <div className="flex-1 rounded-xl shadow-2xl relative overflow-hidden">
                                 <DynamicalRouteMap 
                                     routes={routes} 
-                                    activeStops={selectedMapRoute === 'all' 
-                                        ? dashboardData.mapActiveStops 
-                                        : dashboardData.mapActiveStops.filter(s => s.route.id === selectedMapRoute)
-                                    } 
+                                    activeStops={dashboardData.mapActiveStops.filter(s => {
+                                        // Route filter: if none explicitly selected → show all
+                                        if (selectedMapRoutes.size > 0 && !selectedMapRoutes.has(s.route.id)) return false;
+                                        // Status filter
+                                        if (mapStatusFilter !== 'all' && s.status !== mapStatusFilter) return false;
+                                        return true;
+                                    })}
                                 />
                             </div>
                         </div>

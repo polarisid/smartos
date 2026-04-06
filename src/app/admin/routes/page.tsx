@@ -36,6 +36,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { format, isAfter, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import React from "react";
 import { Progress } from "@/components/ui/progress";
 import { triggerWebhook } from "@/lib/webhook";
@@ -185,18 +186,18 @@ function reconstructRouteText(stops: RouteStop[]): string {
 }
 
 
-function RouteFormDialog({ 
+function RouteForm({ 
     mode, 
-    isOpen, 
-    onOpenChange, 
+    isActive, 
+    onCancel, 
     onRouteSaved, 
     initialData,
     technicians,
     drivers
 }: { 
     mode: 'add' | 'edit',
-    isOpen: boolean,
-    onOpenChange: (open: boolean) => void,
+    isActive: boolean,
+    onCancel: () => void,
     onRouteSaved: () => void,
     initialData?: Route | null,
     technicians: Technician[],
@@ -240,7 +241,7 @@ function RouteFormDialog({
     };
 
     useEffect(() => {
-        if (isOpen) {
+        if (isActive) {
             if (mode === 'edit' && initialData) {
                 setRouteName(initialData.name);
                 setDepartureDate(initialData.departureDate instanceof Timestamp ? initialData.departureDate.toDate() : initialData.departureDate);
@@ -264,7 +265,7 @@ function RouteFormDialog({
                 setParsedStops([]);
             }
         }
-    }, [initialData, mode, isOpen]);
+    }, [initialData, mode, isActive]);
     
      const handleRouteTextChange = (text: string) => {
         setRouteText(text);
@@ -275,7 +276,8 @@ function RouteFormDialog({
             const existingStop = currentStops.find(cs => cs.serviceOrder === newStop.serviceOrder);
             return {
                 ...newStop,
-                stopType: existingStop?.stopType || 'padrao'
+                stopType: existingStop?.stopType || 'padrao',
+                addressDetails: existingStop?.addressDetails
             };
         });
         setParsedStops(updatedStops);
@@ -576,7 +578,7 @@ function RouteFormDialog({
                 toast({ title: "Rota atualizada com sucesso!" });
             }
             
-            onOpenChange(false);
+            onCancel();
             onRouteSaved();
         } catch (error) {
             console.error("Error saving route: ", error);
@@ -588,15 +590,15 @@ function RouteFormDialog({
     
     return (
         <>
-        <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl">
-                <DialogHeader>
-                    <DialogTitle>{mode === 'add' ? 'Adicionar Nova Rota' : 'Editar Rota'}</DialogTitle>
-                    <DialogDescription>
-                        Preencha o nome da rota, atribua a um técnico e cole os dados da sua planilha.
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="grid md:grid-cols-2 gap-6 py-4 max-h-[70vh] overflow-y-auto">
+        <Card>
+            <CardHeader>
+                <CardTitle>{mode === 'add' ? 'Adicionar Nova Rota' : 'Editar Rota'}</CardTitle>
+                <CardDescription>
+                    Preencha o nome da rota, atribua a um técnico e cole os dados da sua planilha.
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <div className="grid xl:grid-cols-2 gap-6 py-4">
                     <div className="space-y-4">
                          <div className="space-y-2">
                             <Label htmlFor="route-name">Nome da Rota</Label>
@@ -900,14 +902,14 @@ function RouteFormDialog({
                         </div>
                     </div>
                 </div>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-                    <Button onClick={handleSave} disabled={isSubmitting}>
-                        <Save className="mr-2 h-4 w-4" /> {isSubmitting ? "Salvando..." : "Salvar Rota"}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+            </CardContent>
+            <CardFooter className="flex justify-end gap-2">
+                <Button variant="outline" onClick={onCancel}>Cancelar</Button>
+                <Button onClick={handleSave} disabled={isSubmitting}>
+                    <Save className="mr-2 h-4 w-4" /> {isSubmitting ? "Salvando..." : "Salvar Rota"}
+                </Button>
+            </CardFooter>
+        </Card>
 
         {/* Reallocate Stop Dialog */}
         <Dialog open={isReallocateOpen} onOpenChange={(open) => { if (!isReallocating) setIsReallocateOpen(open); }}>
@@ -1098,8 +1100,8 @@ export default function RoutesPage() {
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [showOnlyActive, setShowOnlyActive] = useState(true);
 
-    const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
-    const [dialogMode, setDialogMode] = useState<'add' | 'edit'>('add');
+    const [activeTab, setActiveTab] = useState('list');
+    const [formMode, setFormMode] = useState<'add' | 'edit'>('add');
     const [selectedRouteForEdit, setSelectedRouteForEdit] = useState<Route | null>(null);
 
     const INACTIVE_PAGE_SIZE = 10;
@@ -1259,10 +1261,10 @@ export default function RoutesPage() {
         setIsDeleteDialogOpen(true);
     };
 
-    const handleOpenFormDialog = (mode: 'add' | 'edit', route?: Route) => {
-        setDialogMode(mode);
+    const handleOpenForm = (mode: 'add' | 'edit', route?: Route) => {
+        setFormMode(mode);
         setSelectedRouteForEdit(route || null);
-        setIsFormDialogOpen(true);
+        setActiveTab('form');
     };
 
     const renderRouteActions = (route: Route) => (
@@ -1270,7 +1272,7 @@ export default function RoutesPage() {
             <Button variant="outline" size="sm" onClick={() => handleOpenViewDialog(route)}>
                 <Eye className="mr-2 h-4 w-4" /> Visualizar
             </Button>
-            <Button variant="outline" size="sm" onClick={() => handleOpenFormDialog('edit', route)}>
+            <Button variant="outline" size="sm" onClick={() => handleOpenForm('edit', route)}>
                 <Edit className="mr-2 h-4 w-4" /> Editar
             </Button>
             {route.isActive && (
@@ -1293,13 +1295,22 @@ export default function RoutesPage() {
                         <Button variant="outline" onClick={handleExportActiveRoutes}>
                             <FileDown className="mr-2 h-4 w-4" /> Exportar Relatório (Ativas)
                         </Button>
-                        <Button onClick={() => handleOpenFormDialog('add')}>
-                            <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Rota
-                        </Button>
+                        {activeTab === 'list' && (
+                            <Button onClick={() => handleOpenForm('add')}>
+                                <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Rota
+                            </Button>
+                        )}
+                        {activeTab === 'form' && (
+                            <Button variant="outline" onClick={() => setActiveTab('list')}>
+                                <Eye className="mr-2 h-4 w-4" /> Voltar para Lista
+                            </Button>
+                        )}
                     </div>
                 </div>
 
-                <Card>
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
+                    <TabsContent value="list" className="mt-0 focus-visible:outline-none focus-visible:ring-0">
+                        <Card>
                     <CardHeader>
                         <CardTitle>Rotas Cadastradas</CardTitle>
                         <CardDescription>
@@ -1455,17 +1466,24 @@ export default function RoutesPage() {
                        )}
                     </CardContent>
                 </Card>
+                    </TabsContent>
+
+                    <TabsContent value="form" className="mt-0 focus-visible:outline-none focus-visible:ring-0">
+                        <RouteForm 
+                            mode={formMode}
+                            isActive={activeTab === 'form'}
+                            onCancel={() => setActiveTab('list')}
+                            onRouteSaved={() => {
+                                fetchRoutes();
+                                setActiveTab('list');
+                            }}
+                            initialData={selectedRouteForEdit}
+                            technicians={technicians}
+                            drivers={drivers}
+                        />
+                    </TabsContent>
+                </Tabs>
             </div>
-            
-            <RouteFormDialog 
-                mode={dialogMode}
-                isOpen={isFormDialogOpen}
-                onOpenChange={setIsFormDialogOpen}
-                onRouteSaved={fetchRoutes}
-                initialData={selectedRouteForEdit}
-                technicians={technicians}
-                drivers={drivers}
-            />
 
             <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
                 <DialogContent className="max-w-6xl">

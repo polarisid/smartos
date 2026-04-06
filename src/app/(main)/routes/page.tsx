@@ -19,17 +19,12 @@ import { RouteDetailsRow } from "@/components/RouteDetailsRow";
 
 import { Map as RouteIcon, Calendar, Sun, MapPin, Car, Eye, Filter, CheckCircle2, Clock, LayoutList } from "lucide-react";
 import type { Route, RouteStop } from "@/lib/data";
-
-type StatusFilter = "all" | "pending" | "completed";
-
 export default function RoutesPage() {
     const { activeRoutes, serviceOrders, visitTemplate, dataFetchError, isLoading } = useAppData();
     const { toast } = useToast();
 
     const [blockedOrders, setBlockedOrders] = useState<Record<string, string>>({});
     const [isBlocksLoaded, setIsBlocksLoaded] = useState(false);
-    const [selectedRouteIds, setSelectedRouteIds] = useState<Set<string>>(new Set());
-    const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
     useEffect(() => {
         try {
@@ -44,13 +39,6 @@ export default function RoutesPage() {
         localStorage.setItem("blocked_route_orders", JSON.stringify(blockedOrders));
     }, [blockedOrders, isBlocksLoaded]);
 
-    // Initialize all routes as selected when routes load
-    useEffect(() => {
-        if (activeRoutes.length > 0) {
-            setSelectedRouteIds(new Set(activeRoutes.map(r => r.id)));
-        }
-    }, [activeRoutes]);
-
     const handleBlock = (serviceOrder: string, reason: string) => {
         setBlockedOrders(prev => ({ ...prev, [serviceOrder]: reason }));
         toast({ title: "Ordem bloqueada", description: `A OS ${serviceOrder} foi marcada como impossível.` });
@@ -63,26 +51,6 @@ export default function RoutesPage() {
             return next;
         });
         toast({ title: "Ordem desbloqueada", description: `A OS ${serviceOrder} foi removida da lista de bloqueios.` });
-    };
-
-    const toggleRouteSelection = (routeId: string) => {
-        setSelectedRouteIds(prev => {
-            const next = new Set(prev);
-            if (next.has(routeId)) {
-                next.delete(routeId);
-            } else {
-                next.add(routeId);
-            }
-            return next;
-        });
-    };
-
-    const selectAllRoutes = () => {
-        setSelectedRouteIds(new Set(activeRoutes.map(r => r.id)));
-    };
-
-    const clearRouteSelection = () => {
-        setSelectedRouteIds(new Set());
     };
 
     const isStopCompleted = (stop: RouteStop, routeCreatedAt: Date | Timestamp) => {
@@ -104,18 +72,7 @@ export default function RoutesPage() {
         const lastOs = relatedOs.length > 0 ? relatedOs[relatedOs.length - 1] : null;
         return lastOs ? lastOs.isFinalized === false : false;
     };
-
-    const filterStops = (stops: RouteStop[], routeCreatedAt: Date | Timestamp) => {
-        if (statusFilter === "all") return stops;
-        if (statusFilter === "completed") return stops.filter(s => isStopCompleted(s, routeCreatedAt));
-        if (statusFilter === "pending") return stops.filter(s => !isStopCompleted(s, routeCreatedAt));
-        return stops;
-    };
-
-    const displayedRoutes = useMemo(() =>
-        activeRoutes.filter(r => selectedRouteIds.has(r.id)),
-        [activeRoutes, selectedRouteIds]
-    );
+    const displayedRoutes = activeRoutes;
 
     if (dataFetchError) {
         return <FirebaseSetupPrompt />;
@@ -155,114 +112,6 @@ export default function RoutesPage() {
         <div className="w-full animate-in fade-in ease-out duration-300 space-y-4">
             <h2 className="text-2xl font-bold tracking-tight">Rotas Ativas da Equipe</h2>
 
-            {/* Filter Panel */}
-            <Card className="border-border/60">
-                <CardContent className="p-4 space-y-4">
-                    {/* Route selection */}
-                    <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                            <p className="text-sm font-semibold flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
-                                <LayoutList className="h-4 w-4" />
-                                Rotas Exibidas
-                            </p>
-                            <div className="flex gap-2">
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 text-xs"
-                                    onClick={selectAllRoutes}
-                                    disabled={selectedRouteIds.size === activeRoutes.length}
-                                >
-                                    Selecionar todas
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 text-xs text-muted-foreground"
-                                    onClick={clearRouteSelection}
-                                    disabled={selectedRouteIds.size === 0}
-                                >
-                                    Limpar
-                                </Button>
-                            </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            {activeRoutes.map(route => {
-                                const isSelected = selectedRouteIds.has(route.id);
-                                return (
-                                    <button
-                                        key={route.id}
-                                        onClick={() => toggleRouteSelection(route.id)}
-                                        className={`
-                                            inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-all duration-150
-                                            ${isSelected
-                                                ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                                                : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"
-                                            }
-                                        `}
-                                    >
-                                        <RouteIcon className="h-3.5 w-3.5" />
-                                        {route.name}
-                                        {route.technicianName && (
-                                            <span className={`text-xs opacity-70 hidden sm:inline`}>
-                                                · {route.technicianName}
-                                            </span>
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    {/* Status filter */}
-                    <div className="space-y-2">
-                        <p className="text-sm font-semibold flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
-                            <Filter className="h-4 w-4" />
-                            Filtrar OS por Status
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                            {(["all", "pending", "completed"] as StatusFilter[]).map(filter => {
-                                const labels: Record<StatusFilter, { label: string; icon: React.ReactNode }> = {
-                                    all: { label: "Todas", icon: <LayoutList className="h-3.5 w-3.5" /> },
-                                    pending: { label: "A Fazer / Pendentes", icon: <Clock className="h-3.5 w-3.5" /> },
-                                    completed: { label: "Concluídas", icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
-                                };
-                                const isActive = statusFilter === filter;
-                                const colorMap: Record<StatusFilter, string> = {
-                                    all: isActive ? "bg-primary text-primary-foreground border-primary shadow-sm" : "bg-muted/50 text-muted-foreground border-border hover:bg-muted",
-                                    pending: isActive ? "bg-orange-500 text-white border-orange-500 shadow-sm" : "bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800",
-                                    completed: isActive ? "bg-green-600 text-white border-green-600 shadow-sm" : "bg-green-50 text-green-700 border-green-200 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800",
-                                };
-                                return (
-                                    <button
-                                        key={filter}
-                                        onClick={() => setStatusFilter(filter)}
-                                        className={`
-                                            inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-all duration-150
-                                            ${colorMap[filter]}
-                                        `}
-                                    >
-                                        {labels[filter].icon}
-                                        {labels[filter].label}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-
-            {/* Empty state when no routes are selected */}
-            {displayedRoutes.length === 0 && (
-                <Card>
-                    <CardContent className="py-12 text-center text-muted-foreground">
-                        <LayoutList className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                        <p className="font-medium">Nenhuma rota selecionada</p>
-                        <p className="text-sm mt-1">Selecione uma ou mais rotas acima para visualizá-las.</p>
-                    </CardContent>
-                </Card>
-            )}
-
             {displayedRoutes.map(route => {
                 const departure = route.departureDate ? (route.departureDate instanceof Timestamp ? route.departureDate.toDate() : route.departureDate) : new Date();
                 const arrival = route.arrivalDate ? (route.arrivalDate instanceof Timestamp ? route.arrivalDate.toDate() : route.arrivalDate) : new Date();
@@ -276,7 +125,7 @@ export default function RoutesPage() {
                 ).length;
                 const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
 
-                const filteredStops = filterStops(route.stops, route.createdAt as Date | Timestamp);
+                const filteredStops = route.stops || [];
                 const filteredCount = filteredStops.length;
                 const pendingCount = route.stops.filter(s => !isStopCompleted(s, route.createdAt as Date | Timestamp)).length;
                 const doneCount = completedStopsCount;
@@ -352,23 +201,13 @@ export default function RoutesPage() {
                                     <Button variant="outline" className="w-full md:w-auto mt-2">
                                         <Eye className="mr-2 h-4 w-4" />
                                         Ver Detalhes da Rota
-                                        {statusFilter !== "all" && (
-                                            <Badge className="ml-2 h-5 px-1.5 text-[10px]" variant="secondary">
-                                                {filteredCount}
-                                            </Badge>
-                                        )}
                                     </Button>
                                 </DialogTrigger>
                                 <DialogContent className="max-w-6xl w-[95vw] md:w-full p-2 md:p-6 bg-muted md:bg-background">
                                     <DialogHeader>
                                         <DialogTitle>Detalhes da Rota: {route.name}</DialogTitle>
                                         <DialogDescription>
-                                            {statusFilter === "all"
-                                                ? "Use a legenda de cores para identificar os tipos de parada."
-                                                : statusFilter === "pending"
-                                                    ? `Exibindo ${filteredCount} OS a fazer / pendentes.`
-                                                    : `Exibindo ${filteredCount} OS concluídas.`
-                                            }
+                                            Use a legenda de cores para identificar os tipos de parada.
                                         </DialogDescription>
                                         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs pt-2">
                                             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-yellow-100 border border-yellow-300"></div><span>Coleta</span></div>
@@ -381,7 +220,7 @@ export default function RoutesPage() {
                                         {filteredStops.length === 0 ? (
                                             <div className="py-12 text-center text-muted-foreground">
                                                 <p className="font-medium">Nenhuma OS encontrada</p>
-                                                <p className="text-sm mt-1">Não há OS com o filtro selecionado para esta rota.</p>
+                                                <p className="text-sm mt-1">Nenhuma ordem de serviço planejada para esta rota.</p>
                                             </div>
                                         ) : (
                                             <>
