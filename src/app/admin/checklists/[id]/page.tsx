@@ -449,7 +449,7 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
                         {/* This wrapper must tightly hug the rendered PDF pages so that
                             absolute-positioned field overlays have the same coordinate
                             origin as the PDF coordinate system used in pdf-lib. */}
-                        <div ref={pdfContainerRef} className="relative inline-block">
+                        <div ref={pdfContainerRef} className="relative inline-block leading-[0]">
                             {template.pdfUrl ? (
                                 <Document
                                     file={pdfUrl}
