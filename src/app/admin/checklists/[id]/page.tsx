@@ -441,48 +441,53 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
                     </aside>
 
                     <main 
-                        className="md:col-span-2 bg-card rounded-lg border p-4 overflow-auto relative"
-                        ref={pdfContainerRef}
+                        className="md:col-span-2 bg-card rounded-lg border p-4 overflow-auto"
                         onMouseMove={handleMouseMove}
                         onMouseUp={handleMouseUp}
                         onMouseLeave={handleMouseUp}
                     >
-                        {template.pdfUrl ? (
-                            <Document
-                                file={pdfUrl}
-                                onLoadSuccess={onDocumentLoadSuccess}
-                                onLoadError={(error) => toast({ variant: 'destructive', title: 'Erro ao carregar PDF', description: error.message })}
-                                className="flex justify-center"
-                                loading="Carregando PDF..."
-                            >
-                                {Array.from(new Array(numPages), (el, index) => (
-                                    <Page key={`page_${index + 1}`} pageNumber={index + 1} renderTextLayer={false} />
-                                ))}
-                            </Document>
-                        ) : (
-                             <div className="flex items-center justify-center h-full text-muted-foreground">
-                                <p>Nenhum PDF associado a este modelo.</p>
-                            </div>
-                        )}
-                        
-                        {fields.map(field => (
-                            <div
-                                key={field.id}
-                                className="absolute flex items-center gap-1 p-1 rounded-sm bg-blue-500/30 border border-blue-600 cursor-move"
-                                style={{ left: `${field.x}px`, top: `${field.y}px` }}
-                                onMouseDown={(e) => handleMouseDown(e, field.id)}
-                            >
-                                <Move className="h-3 w-3 text-blue-800" />
-                                {field.type === 'text' ? (
-                                    <span className="text-xs text-blue-800 bg-white/50 px-2 py-0.5 rounded-sm flex items-center gap-1">
-                                        {field.variableKey && <LinkIcon className="h-3 w-3" />}
-                                        {field.name}
-                                    </span>
-                                ) : (
-                                    <div className="w-4 h-4 border border-blue-800 bg-white/50" />
-                                )}
-                            </div>
-                        ))}
+                        {/* This wrapper must tightly hug the rendered PDF pages so that
+                            absolute-positioned field overlays have the same coordinate
+                            origin as the PDF coordinate system used in pdf-lib. */}
+                        <div ref={pdfContainerRef} className="relative inline-block">
+                            {template.pdfUrl ? (
+                                <Document
+                                    file={pdfUrl}
+                                    onLoadSuccess={onDocumentLoadSuccess}
+                                    onLoadError={(error) => toast({ variant: 'destructive', title: 'Erro ao carregar PDF', description: error.message })}
+                                    loading="Carregando PDF..."
+                                >
+                                    {Array.from(new Array(numPages), (el, index) => (
+                                        <Page key={`page_${index + 1}`} pageNumber={index + 1} renderTextLayer={false} />
+                                    ))}
+                                </Document>
+                            ) : (
+                                <div className="flex items-center justify-center h-64 text-muted-foreground">
+                                    <p>Nenhum PDF associado a este modelo.</p>
+                                </div>
+                            )}
+
+                            {/* Field overlays — absolute within the PDF wrapper, so positions
+                                map 1:1 to the PDF point coordinate system. */}
+                            {fields.map(field => (
+                                <div
+                                    key={field.id}
+                                    className="absolute flex items-center gap-1 p-1 rounded-sm bg-blue-500/30 border border-blue-600 cursor-move"
+                                    style={{ left: `${field.x}px`, top: `${field.y}px` }}
+                                    onMouseDown={(e) => handleMouseDown(e, field.id)}
+                                >
+                                    <Move className="h-3 w-3 text-blue-800" />
+                                    {field.type === 'text' ? (
+                                        <span className="text-xs text-blue-800 bg-white/50 px-2 py-0.5 rounded-sm flex items-center gap-1">
+                                            {field.variableKey && <LinkIcon className="h-3 w-3" />}
+                                            {field.name}
+                                        </span>
+                                    ) : (
+                                        <div className="w-4 h-4 border border-blue-800 bg-white/50" />
+                                    )}
+                                </div>
+                            ))}
+                        </div>
                     </main>
                 </div>
             </div>
