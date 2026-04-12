@@ -762,6 +762,46 @@ function OsRouteSearch() {
                                         <p className="font-medium">{r.stop.city || '—'}</p>
                                     </div>
                                 </div>
+
+                                {/* Peças e Rastreios */}
+                                {r.stop.parts && r.stop.parts.length > 0 ? (
+                                    <div className="mt-4">
+                                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Peças da OS</p>
+                                        <div className="rounded-md border overflow-hidden">
+                                            <Table>
+                                                <TableHeader>
+                                                    <TableRow className="bg-muted/50">
+                                                        <TableHead className="text-xs py-2">Código</TableHead>
+                                                        <TableHead className="text-xs py-2">Descrição</TableHead>
+                                                        <TableHead className="text-xs py-2 text-center">Qtd</TableHead>
+                                                        <TableHead className="text-xs py-2">Rastreio</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {r.stop.parts.map(part => (
+                                                        <TableRow key={part.code}>
+                                                            <TableCell className="font-mono text-xs py-2">{part.code}</TableCell>
+                                                            <TableCell className="text-xs text-muted-foreground py-2">{part.description}</TableCell>
+                                                            <TableCell className="text-center text-xs font-semibold py-2">x{part.quantity}</TableCell>
+                                                            <TableCell className="py-2">
+                                                                {part.trackingCode ? (
+                                                                    <span className="font-mono text-xs bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300 px-2 py-0.5 rounded">
+                                                                        {part.trackingCode}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-xs text-muted-foreground italic">Sem rastreio</span>
+                                                                )}
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <p className="mt-3 text-xs text-muted-foreground italic">Nenhuma peça registrada para esta OS.</p>
+                                )}
+
                                 {r.osStatus === "Pendente" && r.stop.statusComment && (
                                     <div className="mt-3 p-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-400">
                                         <span className="font-semibold">Motivo da pendência: </span>{r.stop.statusComment}
