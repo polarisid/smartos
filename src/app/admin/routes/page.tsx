@@ -1236,8 +1236,25 @@ export default function RoutesPage() {
             const technician = route.technicianName || 'N/A';
             const driver = route.driverName || 'N/A';
             const departure = route.departureDate instanceof Date ? route.departureDate.toLocaleDateString('pt-BR') : '';
+            const routeCreatedAt = route.createdAt instanceof Date ? route.createdAt : (route.createdAt as any)?.toDate?.() ?? new Date(0);
 
             (route.stops || []).forEach((stop: RouteStop) => {
+                // Determine OS status the same way the UI does
+                const relatedOsList = serviceOrders.filter(os =>
+                    os.serviceOrderNumber === stop.serviceOrder &&
+                    isAfter(os.date, routeCreatedAt)
+                );
+                const lastOs = relatedOsList.length > 0 ? relatedOsList[relatedOsList.length - 1] : null;
+
+                let osStatus: string;
+                if (!lastOs) {
+                    osStatus = 'A Fazer';
+                } else if (lastOs.isFinalized === false) {
+                    osStatus = 'Pendente';
+                } else {
+                    osStatus = 'Finalizada';
+                }
+
                 reportData.push({
                     "Nome da Rota": routeName,
                     "Data de Saída": departure,
@@ -1250,7 +1267,8 @@ export default function RoutesPage() {
                     "Bairro": stop.neighborhood || '',
                     "Modelo": stop.model || '',
                     "Tipo de Parada": stop.stopType === 'coleta' ? `Coleta (${stop.collectionType || ''})` : stop.stopType === 'entrega' ? 'Entrega' : 'Padrão',
-                    "Status Comment": stop.statusComment || '',
+                    "Status da OS": osStatus,
+                    "Motivo Pendência": osStatus === 'Pendente' ? (stop.statusComment || '') : '',
                 });
             });
         });
