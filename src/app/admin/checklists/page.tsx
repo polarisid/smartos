@@ -42,7 +42,8 @@ import { useRouter } from "next/navigation";
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { pdfjs } from 'react-pdf';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs';
+pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
 
 
 type FieldWithPosition = ChecklistField & { x: number; y: number };
