@@ -14,7 +14,7 @@ import { subDays } from "date-fns";
 import { db } from "@/lib/firebase";
 import { type Route, type RouteStop, type RoutePart, type ServiceOrder } from "@/lib/data";
 import { collection, doc, getDocs, query, setDoc, Timestamp, orderBy, getDoc, where } from "firebase/firestore";
-import { Printer, Smartphone, Table as TableIcon, Activity, CheckCircle2, AlertCircle, FileBarChart2, Search, ChevronDown, PackageSearch, Save, FileDown, CheckCircle, ScanLine, Copy } from "lucide-react";
+import { Printer, Smartphone, Table as TableIcon, Activity, CheckCircle2, AlertCircle, FileBarChart2, Search, ChevronDown, PackageSearch, Save, FileDown, CheckCircle, ScanLine, Copy, Loader2, Route as RouteIcon, XCircle } from "lucide-react";
 import { useAppData } from "@/context/AppDataContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
@@ -581,6 +581,201 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
     );
 }
 
+// ─── Busca de OS em Rotas ───────────────────────────────────────────────────
+function OsRouteSearch() {
+    const [searchTerm, setSearchTerm] = useState("");
+    const [isSearching, setIsSearching] = useState(false);
+    const [results, setResults] = useState<{ route: Route; stop: RouteStop; osStatus: string }[]>([]);
+    const [searched, setSearched] = useState(false);
+
+    const handleSearch = async () => {
+        if (!searchTerm.trim()) return;
+        setIsSearching(true);
+        setSearched(true);
+        setResults([]);
+
+        try {
+            // Busca todas as rotas (ativas e finalizadas) que contenham a OS no campo stops
+            const routesSnapshot = await getDocs(collection(db, "routes"));
+
+            const found: { route: Route; stop: RouteStop; osStatus: string }[] = [];
+            const term = searchTerm.trim().toLowerCase();
+
+            routesSnapshot.forEach(docSnap => {
+                const data = docSnap.data();
+                const toDate = (ts: any) => ts instanceof Timestamp ? ts.toDate() : ts;
+                const route = {
+                    id: docSnap.id,
+                    ...data,
+                    createdAt: toDate(data.createdAt),
+                    departureDate: toDate(data.departureDate),
+                    arrivalDate: toDate(data.arrivalDate),
+                } as Route;
+
+                (route.stops || []).forEach(stop => {
+                    if (
+                        stop.serviceOrder.toLowerCase().includes(term) ||
+                        stop.consumerName?.toLowerCase().includes(term) ||
+                        stop.model?.toLowerCase().includes(term)
+                    ) {
+                        // Determina status da OS dentro da rota
+                        // A rota não tem serviceOrders enriquecidos aqui, então usamos heurística dos campos do stop
+                        const osStatus = "A Fazer"; // fallback — status real vem do serviceOrders collection
+                        found.push({ route, stop, osStatus });
+                    }
+                });
+            });
+
+            // Agora busca os dados reais das OS para obter o status correto
+            if (found.length > 0) {
+                const osNumbers = [...new Set(found.map(f => f.stop.serviceOrder))];
+                const ordersQuery = query(
+                    collection(db, "serviceOrders"),
+                    where("serviceOrderNumber", "in", osNumbers.slice(0, 10))
+                );
+                const ordersSnapshot = await getDocs(ordersQuery);
+                const osStatusMap = new Map<string, string>();
+                ordersSnapshot.forEach(d => {
+                    const os = d.data() as ServiceOrder;
+                    let status = "A Fazer";
+                    if (os.isFinalized) {
+                        status = "Finalizada";
+                    } else if (os.pendingReason && os.pendingReason.trim() !== "") {
+                        status = "Pendente";
+                    }
+                    osStatusMap.set(os.serviceOrderNumber, status);
+                });
+
+                const enriched = found.map(f => ({
+                    ...f,
+                    osStatus: osStatusMap.get(f.stop.serviceOrder) ?? "A Fazer",
+                }));
+                setResults(enriched);
+            } else {
+                setResults([]);
+            }
+        } catch (err) {
+            console.error("Erro ao buscar OS nas rotas:", err);
+        } finally {
+            setIsSearching(false);
+        }
+    };
+
+    const getOsStatusBadge = (status: string) => {
+        switch (status) {
+            case "Finalizada":
+                return <Badge className="bg-green-600 hover:bg-green-700 text-white"><CheckCircle className="mr-1 h-3 w-3" />Finalizada</Badge>;
+            case "Pendente":
+                return <Badge variant="destructive"><XCircle className="mr-1 h-3 w-3" />Pendente</Badge>;
+            default:
+                return <Badge variant="secondary"><AlertCircle className="mr-1 h-3 w-3" />A Fazer</Badge>;
+        }
+    };
+
+    const getRouteStatusBadge = (isActive: boolean) => {
+        return isActive
+            ? <Badge className="bg-blue-600 hover:bg-blue-700 text-white"><RouteIcon className="mr-1 h-3 w-3" />Ativa</Badge>
+            : <Badge variant="outline"><CheckCircle2 className="mr-1 h-3 w-3" />Finalizada</Badge>;
+    };
+
+    return (
+        <div className="space-y-4">
+            <Card>
+                <CardHeader>
+                    <CardTitle>Buscar OS em Rotas</CardTitle>
+                    <CardDescription>Pesquise pelo número da OS, nome do cliente ou modelo para encontrar em qual rota ela está (ativa ou finalizada).</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="flex gap-2">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Ex: 4000123456, João Silva, UN55...	"
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                onKeyDown={e => e.key === "Enter" && handleSearch()}
+                                className="pl-8"
+                            />
+                        </div>
+                        <Button onClick={handleSearch} disabled={isSearching || !searchTerm.trim()}>
+                            {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                            <span className="ml-2 hidden sm:inline">Buscar</span>
+                        </Button>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {isSearching && (
+                <div className="flex items-center justify-center py-10 text-muted-foreground">
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Buscando em todas as rotas...
+                </div>
+            )}
+
+            {!isSearching && searched && results.length === 0 && (
+                <Card>
+                    <CardContent className="text-center text-muted-foreground py-10">
+                        <XCircle className="mx-auto h-8 w-8 mb-2 opacity-40" />
+                        <p>Nenhuma rota encontrada para <strong>&quot;{searchTerm}&quot;</strong>.</p>
+                    </CardContent>
+                </Card>
+            )}
+
+            {!isSearching && results.length > 0 && (
+                <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">{results.length} resultado(s) encontrado(s) para <strong>&quot;{searchTerm}&quot;</strong>.</p>
+                    {results.map((r, i) => (
+                        <Card key={i} className="border-l-4" style={{ borderLeftColor: r.route.isActive ? '#2563eb' : '#6b7280' }}>
+                            <CardHeader className="pb-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <RouteIcon className="h-4 w-4 text-muted-foreground" />
+                                        <CardTitle className="text-base">{r.route.name}</CardTitle>
+                                        {getRouteStatusBadge(r.route.isActive)}
+                                    </div>
+                                    {getOsStatusBadge(r.osStatus)}
+                                </div>
+                                <CardDescription>
+                                    {r.route.departureDate instanceof Date
+                                        ? `Saída: ${r.route.departureDate.toLocaleDateString('pt-BR')}`
+                                        : r.route.createdAt instanceof Date
+                                            ? `Criada em: ${r.route.createdAt.toLocaleDateString('pt-BR')}`
+                                            : ''}
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">OS</p>
+                                        <p className="font-mono font-semibold">{r.stop.serviceOrder}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Cliente</p>
+                                        <p className="font-medium">{r.stop.consumerName || '—'}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Modelo</p>
+                                        <p className="font-medium">{r.stop.model || '—'}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Cidade</p>
+                                        <p className="font-medium">{r.stop.city || '—'}</p>
+                                    </div>
+                                </div>
+                                {r.osStatus === "Pendente" && r.stop.statusComment && (
+                                    <div className="mt-3 p-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-400">
+                                        <span className="font-semibold">Motivo da pendência: </span>{r.stop.statusComment}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function PartSeparationPage() {
     const { toast } = useToast();
     const [isLoading, setIsLoading] = useState(true);
@@ -837,9 +1032,12 @@ export default function PartSeparationPage() {
                     <p className="text-center text-muted-foreground py-10">Carregando rotas...</p>
                 ) : (
                     <Tabs defaultValue="active">
-                        <TabsList className="grid w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 h-auto gap-2 bg-transparent p-0 mb-4 sm:mb-0 sm:bg-muted sm:p-1 hover:bg-transparent">
-                            <TabsTrigger value="active">Rastreio de Peças (Ativas)</TabsTrigger>
-                            <TabsTrigger value="history">Rastreio de Peças (Concluídas)</TabsTrigger>
+                        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 h-auto gap-2 bg-transparent p-0 mb-4 sm:mb-0 sm:bg-muted sm:p-1 hover:bg-transparent">
+                            <TabsTrigger value="search">
+                                <Search className="mr-2 h-4 w-4" /> Buscar OS em Rotas
+                            </TabsTrigger>
+                            <TabsTrigger value="active">Rastreio (Ativas)</TabsTrigger>
+                            <TabsTrigger value="history">Rastreio (Concluídas)</TabsTrigger>
                             <TabsTrigger value="summary">
                                 <FileBarChart2 className="mr-2 h-4 w-4" /> Conferência de Retorno
                             </TabsTrigger>
@@ -847,6 +1045,9 @@ export default function PartSeparationPage() {
                                 <Smartphone className="mr-2 h-4 w-4" /> Conferência Mobile
                             </TabsTrigger>
                         </TabsList>
+                        <TabsContent value="search" className="mt-6">
+                            <OsRouteSearch />
+                        </TabsContent>
                         <TabsContent value="active" className="mt-6">
                             <RouteList
                                 routes={activeRoutes}
