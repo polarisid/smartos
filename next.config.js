@@ -21,14 +21,6 @@ const nextConfig = {
   },
   webpack: (config) => {
     config.resolve.alias.canvas = false;
-    // Handle pdfjs-dist worker
-    config.module.rules.push({
-      test: /pdf\.worker\.(min\.)?(m)?js$/,
-      type: 'asset/resource',
-      generator: {
-        filename: 'static/worker/[hash][ext]',
-      },
-    });
     return config;
   },
 };

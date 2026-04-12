@@ -19,8 +19,7 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import dynamic from 'next/dynamic';
 
-import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs';
-pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
