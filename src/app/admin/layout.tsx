@@ -37,6 +37,7 @@ const NAV_ITEMS = [
   { href: '/admin/routes', label: 'Rotas', Icon: Route, tooltip: 'Rotas' },
   { href: '/admin/part-separation', label: 'Conferência de Peças', Icon: PackageSearch, tooltip: 'Conferência de Peças' },
   { href: '/admin/checklists', label: 'Checklists', Icon: ClipboardList, tooltip: 'Checklists' },
+  { href: '/admin/triage', label: 'Triagem IA', Icon: Target, tooltip: 'Triagem Assistida por IA' },
 ] as const;
 
 const AdminSidebar = memo(function AdminSidebar({children}: {children: React.ReactNode}) {
