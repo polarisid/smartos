@@ -198,6 +198,7 @@ export type Route = {
     stops: RouteStop[];
     createdAt: Timestamp | Date;
     isActive: boolean;
+    isCanceled?: boolean;
     departureDate?: Timestamp | Date;
     arrivalDate?: Timestamp | Date;
     routeType?: 'capital' | 'interior';

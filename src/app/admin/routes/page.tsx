@@ -1114,7 +1114,7 @@ export default function RoutesPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
     const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
-    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
     const [showOnlyActive, setShowOnlyActive] = useState(true);
 
     const [activeTab, setActiveTab] = useState('list');
@@ -1197,17 +1197,17 @@ export default function RoutesPage() {
     const filteredRoutes = showOnlyActive ? activeRoutes : [...activeRoutes, ...inactiveRoutes];
 
 
-    const handleDelete = async () => {
+    const handleCancelRoute = async () => {
         if (!selectedRoute) return;
         try {
-            await deleteDoc(doc(db, "routes", selectedRoute.id));
-            toast({ title: "Rota excluída com sucesso!" });
-            setIsDeleteDialogOpen(false);
+            await setDoc(doc(db, "routes", selectedRoute.id), { isActive: false, isCanceled: true }, { merge: true });
+            toast({ title: "Rota cancelada com sucesso!" });
+            setIsCancelDialogOpen(false);
             setSelectedRoute(null);
             fetchRoutes();
         } catch (error) {
-            console.error("Error deleting route: ", error);
-            toast({ variant: "destructive", title: "Erro", description: "Não foi possível excluir a rota." });
+            console.error("Error canceling route: ", error);
+            toast({ variant: "destructive", title: "Erro", description: "Não foi possível cancelar a rota." });
         }
     };
     
@@ -1291,9 +1291,9 @@ export default function RoutesPage() {
         setIsViewDialogOpen(true);
     };
 
-    const handleOpenDeleteDialog = (route: Route) => {
+    const handleOpenCancelDialog = (route: Route) => {
         setSelectedRoute(route);
-        setIsDeleteDialogOpen(true);
+        setIsCancelDialogOpen(true);
     };
 
     const handleOpenForm = (mode: 'add' | 'edit', route?: Route) => {
@@ -1315,8 +1315,8 @@ export default function RoutesPage() {
                     <CheckCircle className="mr-2 h-4 w-4" /> Finalizar
                 </Button>
             )}
-            <Button variant="destructive" size="sm" onClick={() => handleOpenDeleteDialog(route)}>
-                <Trash2 className="mr-2 h-4 w-4" /> Excluir
+            <Button variant="destructive" size="sm" onClick={() => handleOpenCancelDialog(route)}>
+                <Trash2 className="mr-2 h-4 w-4" /> Cancelar Rota
             </Button>
         </div>
     );
@@ -1420,8 +1420,8 @@ export default function RoutesPage() {
                                                     </div>
                                             </TableCell>
                                             <TableCell>
-                                                    <Badge variant={route.isActive ? "default" : "secondary"}>
-                                                        {route.isActive ? "Ativa" : "Finalizada"}
+                                                    <Badge variant={route.isActive ? "default" : route.isCanceled ? "destructive" : "secondary"}>
+                                                        {route.isActive ? "Ativa" : route.isCanceled ? "Cancelada" : "Finalizada"}
                                                     </Badge>
                                             </TableCell>
                                             <TableCell className="text-right space-x-2">
@@ -1467,8 +1467,8 @@ export default function RoutesPage() {
                                             <CardHeader>
                                                 <div className="flex justify-between items-start">
                                                     <CardTitle>{route.name}</CardTitle>
-                                                    <Badge variant={route.isActive ? "default" : "secondary"}>
-                                                        {route.isActive ? "Ativa" : "Finalizada"}
+                                                    <Badge variant={route.isActive ? "default" : route.isCanceled ? "destructive" : "secondary"}>
+                                                        {route.isActive ? "Ativa" : route.isCanceled ? "Cancelada" : "Finalizada"}
                                                     </Badge>
                                                 </div>
                                             </CardHeader>
@@ -1562,19 +1562,19 @@ export default function RoutesPage() {
                 </DialogContent>
             </Dialog>
 
-            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+            <AlertDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Esta ação não pode ser desfeita. Isso excluirá permanentemente a rota
+                            Esta ação não pode ser desfeita. Isso cancelará a rota
                             <span className="font-bold mx-1">{selectedRoute?.name}</span>.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">
-                           Sim, excluir
+                        <AlertDialogCancel>Voltar</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleCancelRoute} className="bg-destructive hover:bg-destructive/90">
+                           Sim, cancelar
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

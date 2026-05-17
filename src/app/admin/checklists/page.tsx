@@ -41,6 +41,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useRouter } from "next/navigation";
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { pdfjs } from 'react-pdf';
+import { Switch } from "@/components/ui/switch";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -192,6 +193,7 @@ export default function ChecklistsPage() {
     
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+    const [isGrouped, setIsGrouped] = useState(false);
     
     const [selectedTemplate, setSelectedTemplate] = useState<ChecklistTemplate | null>(null);
     const [formMode, setFormMode] = useState<'add' | 'edit'>('add');
@@ -330,6 +332,46 @@ export default function ChecklistsPage() {
         }
     };
 
+    const renderTable = (templatesToRender: ChecklistTemplate[]) => (
+        <Table>
+            <TableHeader>
+                <TableRow>
+                    <TableHead>Nome do Modelo</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+            </TableHeader>
+            <TableBody>
+                {templatesToRender.map(template => (
+                    <TableRow key={template.id}>
+                        <TableCell className="font-medium">{template.name}</TableCell>
+                        <TableCell>
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                                {template.type === 'counter' ? <Store className="h-4 w-4" /> : <HardHat className="h-4 w-4" />}
+                                <span>{template.type === 'counter' ? 'Balcão' : 'Campo'}</span>
+                            </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                            <Button variant="outline" size="sm" onClick={() => handleOpenFieldsDialog(template)}>
+                                <Edit className="mr-2 h-4 w-4" /> Editar Campos
+                            </Button>
+                            <Button variant="outline" size="sm" className="ml-2" onClick={() => handleOpenEditDialog(template)}>
+                                <Edit className="mr-2 h-4 w-4" /> Editar
+                            </Button>
+                                <Button variant="outline" size="sm" className="ml-2" onClick={() => handleDuplicate(template)} disabled={isSubmitting}>
+                                <Copy className="mr-2 h-4 w-4" /> Duplicar
+                            </Button>
+                            <TestChecklistDialog template={template} />
+                            <Button variant="destructive" size="sm" className="ml-2" onClick={() => handleOpenDeleteDialog(template)}>
+                                <Trash2 className="mr-2 h-4 w-4" /> Excluir
+                            </Button>
+                        </TableCell>
+                    </TableRow>
+                ))}
+            </TableBody>
+        </Table>
+    );
+
   return (
     <>
         <div className="flex flex-col gap-6 p-4 sm:p-6">
@@ -341,14 +383,20 @@ export default function ChecklistsPage() {
             </div>
 
             <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <ClipboardList />
-                        Modelos de Checklist
-                    </CardTitle>
-                    <CardDescription>
-                        Crie e gerencie os modelos de checklist que serão preenchidos pelos técnicos.
-                    </CardDescription>
+                <CardHeader className="flex flex-row items-start justify-between">
+                    <div className="space-y-1.5">
+                        <CardTitle className="flex items-center gap-2">
+                            <ClipboardList />
+                            Modelos de Checklist
+                        </CardTitle>
+                        <CardDescription>
+                            Crie e gerencie os modelos de checklist que serão preenchidos pelos técnicos.
+                        </CardDescription>
+                    </div>
+                    <div className="flex items-center space-x-2 mt-0">
+                        <Switch id="group-checklists" checked={isGrouped} onCheckedChange={setIsGrouped} />
+                        <Label htmlFor="group-checklists">Agrupar por Tipo</Label>
+                    </div>
                 </CardHeader>
                 <CardContent>
                     {isLoading ? (
@@ -358,44 +406,27 @@ export default function ChecklistsPage() {
                             <p>Nenhum modelo de checklist encontrado.</p>
                             <p className="text-sm">Clique em "Criar Modelo de Checklist" para adicionar o primeiro.</p>
                         </div>
+                    ) : isGrouped ? (
+                        <div className="space-y-8">
+                            {templates.filter(t => t.type !== 'counter').length > 0 && (
+                                <div>
+                                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-muted-foreground">
+                                        <HardHat className="h-5 w-5" /> Modelos de Campo
+                                    </h3>
+                                    {renderTable(templates.filter(t => t.type !== 'counter'))}
+                                </div>
+                            )}
+                            {templates.filter(t => t.type === 'counter').length > 0 && (
+                                <div>
+                                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-muted-foreground">
+                                        <Store className="h-5 w-5" /> Modelos de Balcão
+                                    </h3>
+                                    {renderTable(templates.filter(t => t.type === 'counter'))}
+                                </div>
+                            )}
+                        </div>
                     ) : (
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Nome do Modelo</TableHead>
-                                    <TableHead>Tipo</TableHead>
-                                    <TableHead className="text-right">Ações</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {templates.map(template => (
-                                    <TableRow key={template.id}>
-                                        <TableCell className="font-medium">{template.name}</TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-2 text-muted-foreground">
-                                                {template.type === 'counter' ? <Store className="h-4 w-4" /> : <HardHat className="h-4 w-4" />}
-                                                <span>{template.type === 'counter' ? 'Balcão' : 'Campo'}</span>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            <Button variant="outline" size="sm" onClick={() => handleOpenFieldsDialog(template)}>
-                                                <Edit className="mr-2 h-4 w-4" /> Editar Campos
-                                            </Button>
-                                            <Button variant="outline" size="sm" className="ml-2" onClick={() => handleOpenEditDialog(template)}>
-                                                <Edit className="mr-2 h-4 w-4" /> Editar
-                                            </Button>
-                                             <Button variant="outline" size="sm" className="ml-2" onClick={() => handleDuplicate(template)} disabled={isSubmitting}>
-                                                <Copy className="mr-2 h-4 w-4" /> Duplicar
-                                            </Button>
-                                            <TestChecklistDialog template={template} />
-                                            <Button variant="destructive" size="sm" className="ml-2" onClick={() => handleOpenDeleteDialog(template)}>
-                                                <Trash2 className="mr-2 h-4 w-4" /> Excluir
-                                            </Button>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
+                        renderTable(templates)
                     )}
                 </CardContent>
             </Card>

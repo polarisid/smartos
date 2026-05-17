@@ -585,7 +585,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
 function OsRouteSearch() {
     const [searchTerm, setSearchTerm] = useState("");
     const [isSearching, setIsSearching] = useState(false);
-    const [results, setResults] = useState<{ route: Route; stop: RouteStop; osStatus: string }[]>([]);
+    const [results, setResults] = useState<{ route: Route; stop: RouteStop; osStatus: string; usedPartsSet: Set<string> }[]>([]);
     const [searched, setSearched] = useState(false);
 
     const handleSearch = async () => {
@@ -598,7 +598,7 @@ function OsRouteSearch() {
             // Busca todas as rotas (ativas e finalizadas) que contenham a OS no campo stops
             const routesSnapshot = await getDocs(collection(db, "routes"));
 
-            const found: { route: Route; stop: RouteStop; osStatus: string }[] = [];
+            const found: { route: Route; stop: RouteStop; osStatus: string; usedPartsSet: Set<string> }[] = [];
             const term = searchTerm.trim().toLowerCase();
 
             routesSnapshot.forEach(docSnap => {
@@ -613,15 +613,19 @@ function OsRouteSearch() {
                 } as Route;
 
                 (route.stops || []).forEach(stop => {
+                    const matchesPart = (stop.parts || []).some(
+                        part => part.code?.toLowerCase().includes(term)
+                    );
                     if (
                         stop.serviceOrder.toLowerCase().includes(term) ||
                         stop.consumerName?.toLowerCase().includes(term) ||
-                        stop.model?.toLowerCase().includes(term)
+                        stop.model?.toLowerCase().includes(term) ||
+                        matchesPart
                     ) {
                         // Determina status da OS dentro da rota
                         // A rota não tem serviceOrders enriquecidos aqui, então usamos heurística dos campos do stop
                         const osStatus = "A Fazer"; // fallback — status real vem do serviceOrders collection
-                        found.push({ route, stop, osStatus });
+                        found.push({ route, stop, osStatus, usedPartsSet: new Set<string>() });
                     }
                 });
             });
@@ -635,6 +639,8 @@ function OsRouteSearch() {
                 );
                 const ordersSnapshot = await getDocs(ordersQuery);
                 const osStatusMap = new Map<string, string>();
+                // Mapa de OS -> Set de códigos de peças efetivamente usadas
+                const osUsedPartsMap = new Map<string, Set<string>>();
                 ordersSnapshot.forEach(d => {
                     const os = d.data() as ServiceOrder;
                     let status = "A Fazer";
@@ -644,11 +650,22 @@ function OsRouteSearch() {
                         status = "Pendente";
                     }
                     osStatusMap.set(os.serviceOrderNumber, status);
+
+                    // Extrai peças usadas do campo replacedPart (ex: "BN94-123A, BN96-456B")
+                    const usedSet = new Set<string>();
+                    if (os.replacedPart) {
+                        os.replacedPart.split(',').forEach(raw => {
+                            const codeMatch = raw.trim().match(/^([a-zA-Z0-9-]+)/);
+                            if (codeMatch) usedSet.add(codeMatch[0].toUpperCase());
+                        });
+                    }
+                    osUsedPartsMap.set(os.serviceOrderNumber, usedSet);
                 });
 
                 const enriched = found.map(f => ({
                     ...f,
                     osStatus: osStatusMap.get(f.stop.serviceOrder) ?? "A Fazer",
+                    usedPartsSet: osUsedPartsMap.get(f.stop.serviceOrder) ?? new Set<string>(),
                 }));
                 setResults(enriched);
             } else {
@@ -683,14 +700,14 @@ function OsRouteSearch() {
             <Card>
                 <CardHeader>
                     <CardTitle>Buscar OS em Rotas</CardTitle>
-                    <CardDescription>Pesquise pelo número da OS, nome do cliente ou modelo para encontrar em qual rota ela está (ativa ou finalizada).</CardDescription>
+                    <CardDescription>Pesquise pelo número da OS, nome do cliente, modelo ou código de peça para encontrar em qual rota ela está (ativa ou finalizada).</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <div className="flex gap-2">
                         <div className="relative flex-1">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input
-                                placeholder="Ex: 4000123456, João Silva, UN55...	"
+                                placeholder="Ex: 4000123456, João Silva, UN55, BN96..."
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
                                 onKeyDown={e => e.key === "Enter" && handleSearch()}
@@ -774,26 +791,41 @@ function OsRouteSearch() {
                                                         <TableHead className="text-xs py-2">Código</TableHead>
                                                         <TableHead className="text-xs py-2">Descrição</TableHead>
                                                         <TableHead className="text-xs py-2 text-center">Qtd</TableHead>
+                                                        <TableHead className="text-xs py-2 text-center">Status</TableHead>
                                                         <TableHead className="text-xs py-2">Rastreio</TableHead>
                                                     </TableRow>
                                                 </TableHeader>
                                                 <TableBody>
-                                                    {r.stop.parts.map(part => (
-                                                        <TableRow key={part.code}>
-                                                            <TableCell className="font-mono text-xs py-2">{part.code}</TableCell>
-                                                            <TableCell className="text-xs text-muted-foreground py-2">{part.description}</TableCell>
-                                                            <TableCell className="text-center text-xs font-semibold py-2">x{part.quantity}</TableCell>
-                                                            <TableCell className="py-2">
-                                                                {part.trackingCode ? (
-                                                                    <span className="font-mono text-xs bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300 px-2 py-0.5 rounded">
-                                                                        {part.trackingCode}
-                                                                    </span>
-                                                                ) : (
-                                                                    <span className="text-xs text-muted-foreground italic">Sem rastreio</span>
-                                                                )}
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    ))}
+                                                    {r.stop.parts.map(part => {
+                                                        const isUsed = r.usedPartsSet.has(part.code.toUpperCase());
+                                                        return (
+                                                            <TableRow key={part.code}>
+                                                                <TableCell className="font-mono text-xs py-2">{part.code}</TableCell>
+                                                                <TableCell className="text-xs text-muted-foreground py-2">{part.description}</TableCell>
+                                                                <TableCell className="text-center text-xs font-semibold py-2">x{part.quantity}</TableCell>
+                                                                <TableCell className="text-center py-2">
+                                                                    {isUsed ? (
+                                                                        <Badge className="bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-0.5">
+                                                                            <CheckCircle className="mr-1 h-3 w-3" />Usada
+                                                                        </Badge>
+                                                                    ) : (
+                                                                        <Badge variant="secondary" className="text-xs px-2 py-0.5">
+                                                                            Nova
+                                                                        </Badge>
+                                                                    )}
+                                                                </TableCell>
+                                                                <TableCell className="py-2">
+                                                                    {part.trackingCode ? (
+                                                                        <span className="font-mono text-xs bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300 px-2 py-0.5 rounded">
+                                                                            {part.trackingCode}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-xs text-muted-foreground italic">Sem rastreio</span>
+                                                                    )}
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        );
+                                                    })}
                                                 </TableBody>
                                             </Table>
                                         </div>

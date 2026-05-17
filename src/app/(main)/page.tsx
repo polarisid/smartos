@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useMemo, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -37,7 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { AlertTriangle, Check, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine, QrCode, XCircle } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, User, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine, QrCode, XCircle } from "lucide-react";
 import Link from 'next/link';
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
@@ -222,6 +222,7 @@ function SearchableSelect({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          type="button"
           variant="outline"
           role="combobox"
           aria-expanded={open}
@@ -298,7 +299,53 @@ function ChecklistSection({
     checklistData: Record<string, string | boolean>,
     technicianName?: string;
 }) {
-    const { toast } = useToast();
+  const { toast } = useToast();
+  const [currentStep, setCurrentStep] = useState(1);
+  const totalSteps = 4;
+
+  const handleNextStep = async () => {
+    let fieldsToValidate: any[] = [];
+    if (currentStep === 1) {
+      fieldsToValidate = ['equipmentType', 'technician', 'serviceOrderNumber'];
+    } else if (currentStep === 2) {
+      if (!form.getValues('isFinalized')) {
+          fieldsToValidate = ['pendingReason'];
+      } else {
+          const routeParts = currentRouteStop?.parts || [];
+          const unreviewed = routeParts.filter((p: { code: string }) => partsStatus[p.code] === null || partsStatus[p.code] === undefined);
+          if (unreviewed.length > 0) {
+              toast({
+                  variant: "destructive",
+                  title: "⚠️ Confirme o status das peças!",
+                  description: `${unreviewed.length} peça(s) ainda sem confirmação.`,
+              });
+              return;
+          }
+      }
+    } else if (currentStep === 3) {
+      fieldsToValidate = ['serviceType'];
+      const sType = form.getValues('serviceType');
+      if (sType === 'coleta_eco_rma') {
+          fieldsToValidate.push('collectionType', 'productCollectedOrInstalled');
+      } else if (sType === 'instalacao_inicial') {
+          fieldsToValidate.push('productCollectedOrInstalled');
+      } else if (sType && sType !== 'visita_assurant') {
+          fieldsToValidate.push('symptomCode');
+          if (sType !== 'visita_orcamento_samsung' && sType !== 'reparo_samsung') {
+              fieldsToValidate.push('repairCode');
+          }
+      }
+    }
+
+    const isValid = await form.trigger(fieldsToValidate);
+    if (isValid) {
+      setCurrentStep(prev => Math.min(prev + 1, totalSteps));
+    }
+  };
+
+  const handlePrevStep = () => {
+    setCurrentStep(prev => Math.max(prev - 1, 1));
+  };
     const [selectedTemplate, setSelectedTemplate] = useState<ChecklistTemplate | null>(null);
     const [fields, setFields] = useState<FieldWithPosition[]>([]);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -512,9 +559,56 @@ export default function OsFormPage() {
   const [osIsSaved, setOsIsSaved] = useState(false);
   const [assistantName, setAssistantName] = useState("");
   const [currentRouteStop, setCurrentRouteStop] = useState<RouteStop | null>(null);
-  const [selectedParts, setSelectedParts] = useState<Record<string, number>>({});
+  const [partsStatus, setPartsStatus] = useState<Record<string, 'used' | 'not_used' | null>>({});
+  const [partsUsedQuantity, setPartsUsedQuantity] = useState<Record<string, number>>({});
   const [checklistData, setChecklistData] = useState<Record<string, string | boolean>>({});
-  const { toast } = useToast();
+const { toast } = useToast();
+  const [currentStep, setCurrentStep] = useState(1);
+  const totalSteps = 4;
+
+  const handleNextStep = async () => {
+    let fieldsToValidate: any[] = [];
+    if (currentStep === 1) {
+      fieldsToValidate = ['equipmentType', 'technician', 'serviceOrderNumber'];
+    } else if (currentStep === 2) {
+      if (!form.getValues('isFinalized')) {
+          fieldsToValidate = ['pendingReason'];
+      } else {
+          const routeParts = currentRouteStop?.parts || [];
+          const unreviewed = routeParts.filter((p: { code: string }) => partsStatus[p.code] === null || partsStatus[p.code] === undefined);
+          if (unreviewed.length > 0) {
+              toast({
+                  variant: "destructive",
+                  title: "⚠️ Confirme o status das peças!",
+                  description: `${unreviewed.length} peça(s) ainda sem confirmação.`,
+              });
+              return;
+          }
+      }
+    } else if (currentStep === 3) {
+      fieldsToValidate = ['serviceType'];
+      const sType = form.getValues('serviceType');
+      if (sType === 'coleta_eco_rma') {
+          fieldsToValidate.push('collectionType', 'productCollectedOrInstalled');
+      } else if (sType === 'instalacao_inicial') {
+          fieldsToValidate.push('productCollectedOrInstalled');
+      } else if (sType && sType !== 'visita_assurant') {
+          fieldsToValidate.push('symptomCode');
+          if (sType !== 'visita_orcamento_samsung' && sType !== 'reparo_samsung') {
+              fieldsToValidate.push('repairCode');
+          }
+      }
+    }
+
+    const isValid = await form.trigger(fieldsToValidate);
+    if (isValid) {
+      setCurrentStep(prev => Math.min(prev + 1, totalSteps));
+    }
+  };
+
+  const handlePrevStep = () => {
+    setCurrentStep(prev => Math.max(prev - 1, 1));
+  };
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -614,6 +708,8 @@ export default function OsFormPage() {
     }
   }, [watchedPreset, presets, setValue]);
 
+  const previousOsRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (watchedServiceOrderNumber) {
         let foundStop: RouteStop | null = null;
@@ -625,24 +721,45 @@ export default function OsFormPage() {
             }
         }
         setCurrentRouteStop(foundStop);
-        setSelectedParts({});
-        setValue("replacedPart", "");
+        
+        // Reset part status ONLY when OS number actually changes
+        if (previousOsRef.current !== watchedServiceOrderNumber) {
+            if (foundStop?.parts) {
+                const initial: Record<string, 'used' | 'not_used' | null> = {};
+                foundStop.parts.forEach((p: { code: string }) => { initial[p.code] = null; });
+                setPartsStatus(initial);
+                setPartsUsedQuantity({});
+            } else {
+                setPartsStatus({});
+                setPartsUsedQuantity({});
+            }
+            setValue("replacedPart", "");
+            setOsIsSaved(false);
+            previousOsRef.current = watchedServiceOrderNumber;
+        }
     } else {
         setCurrentRouteStop(null);
+        if (previousOsRef.current !== null) {
+            setOsIsSaved(false);
+            previousOsRef.current = null;
+        }
     }
-    setOsIsSaved(false);
   }, [watchedServiceOrderNumber, activeRoutes, setValue]);
   
   useEffect(() => {
-    const replacedPartText = Object.entries(selectedParts)
-        .filter(([, qty]) => qty > 0)
-        .map(([code, qty]) => qty > 1 ? `${code} (x${qty})` : code)
+    const replacedPartText = (currentRouteStop?.parts || [])
+        .filter((p: { code: string; quantity: number }) => partsStatus[p.code] === 'used')
+        .map((p: { code: string; quantity: number }) => {
+            const usedQty = partsUsedQuantity[p.code] || p.quantity;
+            return usedQty > 1 ? `${p.code} (x${usedQty})` : p.code;
+        })
         .join(', ');
     setValue("replacedPart", replacedPartText);
-  }, [selectedParts, setValue]);
+  }, [partsStatus, partsUsedQuantity, currentRouteStop, setValue]);
 
 
-  const onSubmit = async (data: FormValues) => {
+  const previewText = useMemo(() => {
+    const data = allFormValues;
     const tech = technicians.find(t => t.id === data.technician);
     let technicianName = tech?.name || '';
     if (assistantName) {
@@ -698,8 +815,24 @@ export default function OsFormPage() {
         data.observations ? `- **Observações:** ${data.observations}` : ''
     ].filter(Boolean);
 
-    const text = [...baseTextParts, ...serviceSpecificParts, ...optionalParts].filter(Boolean).join('\n');
-    setGeneratedText(text);
+    return [...baseTextParts, ...serviceSpecificParts, ...optionalParts].filter(Boolean).join('\n');
+  }, [allFormValues, technicians, assistantName, symptomCodes, repairCodes]);
+
+  const onSubmit = async (data: FormValues) => {
+    // Bloquear envio se há peças da rota não revisadas
+    const currentParts = currentRouteStop?.parts || [];
+    const unreviewed = currentParts.filter((p: { code: string }) => partsStatus[p.code] === null || partsStatus[p.code] === undefined);
+    if (unreviewed.length > 0) {
+        toast({
+            variant: "destructive",
+            title: "⚠️ Confirme o status das peças!",
+            description: `${unreviewed.length} peça(s) ainda sem confirmação. Marque cada uma como USADA ou NÃO USADA.`,
+        });
+        document.getElementById('parts-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+    }
+
+    setGeneratedText(previewText);
 
     try {
         const newServiceOrder: Partial<ServiceOrder> = {
@@ -745,12 +878,13 @@ export default function OsFormPage() {
   };
 
   const handleCopy = () => {
-    if (!generatedText) return;
-    navigator.clipboard.writeText(generatedText)
+    const textToCopy = previewText;
+    if (!textToCopy) return;
+    navigator.clipboard.writeText(textToCopy)
       .then(() => {
         toast({
           title: "Texto Copiado!",
-          description: "O texto formatado da OS foi copiado para sua área de transferência.",
+          description: "O texto da OS foi copiado para sua área de transferência.",
         });
       })
       .catch(() => {
@@ -783,11 +917,13 @@ export default function OsFormPage() {
         collectionType: "",
         cleaningPerformed: false,
         isFinalized: true,
-        pendingReason: "",
+pendingReason: "",
     });
     setGeneratedText("");
     setOsIsSaved(false);
     setChecklistData({});
+    setCurrentStep(1);
+    setPartsUsedQuantity({});
   }
 
   const handleNewOS = () => {
@@ -804,14 +940,19 @@ export default function OsFormPage() {
     toast({ title: "Formulário Limpo", description: "Todos os dados foram removidos." });
   }
 
-  const handlePartQuantityChange = (partCode: string, quantity: number) => {
-    setSelectedParts(prev => {
-        const newParts = { ...prev, [partCode]: quantity };
-        if (quantity === 0) {
-            delete newParts[partCode];
-        }
-        return newParts;
-    });
+  const handlePartStatusChange = (partCode: string, status: 'used' | 'not_used') => {
+    setPartsStatus(prev => ({ ...prev, [partCode]: status }));
+    if (status === 'not_used') {
+        setPartsUsedQuantity(prev => {
+            const next = { ...prev };
+            delete next[partCode];
+            return next;
+        });
+    }
+  };
+
+  const handleQuantityChange = (partCode: string, qty: number) => {
+    setPartsUsedQuantity(prev => ({ ...prev, [partCode]: qty }));
   };
 
 
@@ -819,6 +960,8 @@ export default function OsFormPage() {
   const serviceRequiresCodes = !watchedServiceType || !['visita_assurant', 'coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType);
   const showReplacedPart = !watchedServiceType || !['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType);
   const routeParts = currentRouteStop?.parts || [];
+  const reviewedCount = routeParts.filter((p: { code: string }) => partsStatus[p.code] !== null && partsStatus[p.code] !== undefined).length;
+  const hasUnreviewedParts = routeParts.length > 0 && reviewedCount < routeParts.length;
 
   if (dataFetchError) {
     return <FirebaseSetupPrompt />;
@@ -828,411 +971,425 @@ export default function OsFormPage() {
     <div className="max-w-7xl mx-auto w-full animate-in fade-in ease-out duration-300">
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                             <Card className="w-full border-none shadow-none bg-transparent md:border-solid md:shadow-sm md:bg-card">
-                                <CardHeader className="px-1 pt-0 pb-3 md:p-6">
-                                    <CardTitle className="text-[22px] md:text-2xl tracking-tight leading-none">Lançamento Rápido de OS</CardTitle>
-                                    <CardDescription className="text-xs md:text-sm mt-1 leading-tight text-muted-foreground/80 md:text-muted-foreground">
-                                        Preencha os campos abaixo para gerar o texto da ordem de serviço.
-                                    </CardDescription>
+                                <CardHeader className="px-1 pt-0 pb-3 md:p-6 space-y-4">
+                                    <div>
+                                        <CardTitle className="text-[22px] md:text-2xl tracking-tight leading-none">Lançamento Rápido de OS</CardTitle>
+                                        <CardDescription className="text-xs md:text-sm mt-1 leading-tight text-muted-foreground/80 md:text-muted-foreground">
+                                            Preencha os campos abaixo para gerar o texto da ordem de serviço.
+                                        </CardDescription>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-4 overflow-x-auto pb-2 scrollbar-hide">
+                                        {[
+                                            { step: 1, title: 'Básico', icon: User },
+                                            { step: 2, title: 'Status', icon: Package },
+                                            { step: 3, title: 'Detalhes', icon: Wrench },
+                                            { step: 4, title: 'Fim', icon: CheckCircle }
+                                        ].map((s, index) => {
+                                            const Icon = s.icon;
+                                            const isActive = currentStep === s.step;
+                                            const isCompleted = currentStep > s.step;
+                                            return (
+                                                <div key={s.step} className="flex items-center min-w-max">
+                                                    <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 transition-colors ${
+                                                        isActive ? 'border-[#1a85ff] bg-[#1a85ff] text-white' : 
+                                                        isCompleted ? 'border-[#1a85ff] bg-transparent text-[#1a85ff]' : 
+                                                        'border-muted bg-transparent text-muted-foreground'
+                                                    }`}>
+                                                        <Icon className="h-4 w-4" />
+                                                    </div>
+                                                    <span className={`ml-2 text-sm font-medium ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                                        {s.title}
+                                                    </span>
+                                                    {index < 3 && <div className={`w-8 md:w-12 h-[2px] ml-2 ${isCompleted ? 'bg-[#1a85ff]' : 'bg-muted'}`} />}
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
                                 </CardHeader>
                                 <CardContent className="px-1 md:px-6">
                                     <Form {...form}>
-                                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 md:space-y-5">
-                                            <FormField control={form.control} name="equipmentType" render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Tipo de Aparelho</FormLabel>
-                                                    <Select onValueChange={field.onChange} value={field.value}>
-                                                        <FormControl><SelectTrigger><SelectValue placeholder="Selecione o tipo de aparelho" /></SelectTrigger></FormControl>
-                                                        <SelectContent>
-                                                            <SelectItem value="TV/AV">TV/AV</SelectItem>
-                                                            <SelectItem value="DA">DA (Linha Branca)</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}/>
-                                            
-                                            <FormField
-                                                control={form.control}
-                                                name="presetId"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel className="flex items-center gap-2"><Bookmark className="h-4 w-4" />Preset de Códigos (Opcional)</FormLabel>
-                                                        <Select onValueChange={field.onChange} value={field.value || 'none'} disabled={!watchedEquipmentType || !serviceRequiresCodes}>
-                                                            <FormControl>
-                                                                <SelectTrigger>
-                                                                    <SelectValue placeholder={
-                                                                        !watchedEquipmentType ? "Selecione um tipo de aparelho primeiro" 
-                                                                        : !serviceRequiresCodes ? "Não aplicável para este atendimento"
-                                                                        : "Selecione um preset para preencher os códigos"
-                                                                    } />
-                                                                </SelectTrigger>
-                                                            </FormControl>
-                                                            <SelectContent>
-                                                                <SelectItem value="none">Nenhum</SelectItem>
-                                                                {filteredPresets.map((preset) => (
-                                                                    <SelectItem key={preset.id} value={preset.id}>
-                                                                        {preset.name}
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}
-                                            />
-
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <FormField
-                                                    control={form.control}
-                                                    name="technician"
-                                                    render={({ field }) => (
+                                        <form 
+                                            onSubmit={(e) => e.preventDefault()} 
+                                            className="space-y-4 md:space-y-5"
+                                        >
+                                            {currentStep === 1 && (
+                                                <div className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
+                                                    <FormField control={form.control} name="equipmentType" render={({ field }) => (
                                                         <FormItem>
-                                                            <FormLabel>Técnico</FormLabel>
+                                                            <FormLabel>Tipo de Aparelho</FormLabel>
                                                             <Select onValueChange={field.onChange} value={field.value}>
+                                                                <FormControl><SelectTrigger><SelectValue placeholder="Selecione o tipo de aparelho" /></SelectTrigger></FormControl>
+                                                                <SelectContent>
+                                                                    <SelectItem value="TV/AV">TV/AV</SelectItem>
+                                                                    <SelectItem value="DA">DA (Linha Branca)</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}/>
+                                                    
+                                                    <FormField control={form.control} name="presetId" render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel className="flex items-center gap-2"><Bookmark className="h-4 w-4" />Preset de Códigos (Opcional)</FormLabel>
+                                                            <Select onValueChange={field.onChange} value={field.value || 'none'} disabled={!watchedEquipmentType || !serviceRequiresCodes}>
                                                                 <FormControl>
                                                                     <SelectTrigger>
-                                                                        <SelectValue placeholder="Técnico" />
+                                                                        <SelectValue placeholder={!watchedEquipmentType ? "Selecione um tipo de aparelho primeiro" : !serviceRequiresCodes ? "Não aplicável para este atendimento" : "Selecione um preset para preencher os códigos"} />
                                                                     </SelectTrigger>
                                                                 </FormControl>
                                                                 <SelectContent>
-                                                                    {technicians.map((tech) => (
-                                                                        <SelectItem key={tech.id} value={tech.id}>
-                                                                            {tech.name}
-                                                                        </SelectItem>
+                                                                    <SelectItem value="none">Nenhum</SelectItem>
+                                                                    {filteredPresets.map((preset) => (
+                                                                        <SelectItem key={preset.id} value={preset.id}>{preset.name}</SelectItem>
                                                                     ))}
                                                                 </SelectContent>
                                                             </Select>
                                                             <FormMessage />
                                                         </FormItem>
-                                                    )}
-                                                />
-                                                
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="assistant" className="line-clamp-1">Auxiliar (Opcional)</Label>
-                                                    <Input
-                                                        id="assistant"
-                                                        placeholder="Nome"
-                                                        value={assistantName}
-                                                        onChange={(e) => setAssistantName(e.target.value)}
-                                                    />
-                                                </div>
-                                            </div>
+                                                    )}/>
 
-                                            <FormField
-                                                control={form.control}
-                                                name="serviceOrderNumber"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>Número da OS</FormLabel>
-                                                        <FormControl>
-                                                            <Input placeholder="Digite o número da OS" {...field} />
-                                                        </FormControl>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}
-                                            />
-
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start rounded-lg border p-4 bg-slate-50/50 dark:bg-slate-900/50">
-                                                <FormField
-                                                    control={form.control}
-                                                    name="isFinalized"
-                                                    render={({ field }) => (
-                                                        <FormItem className="flex flex-row items-center justify-between">
-                                                            <div className="space-y-0.5 mt-1">
-                                                                <FormLabel className="text-base text-slate-700 dark:text-slate-200">Atendimento Finalizado?</FormLabel>
-                                                                <div className="text-xs text-muted-foreground">Desmarque caso a OS não tenha sido concluída</div>
-                                                            </div>
-                                                            <FormControl>
-                                                                <Switch
-                                                                    checked={field.value}
-                                                                    onCheckedChange={field.onChange}
-                                                                />
-                                                            </FormControl>
-                                                        </FormItem>
-                                                    )}
-                                                />
-
-                                                {!form.watch('isFinalized') && (
-                                                    <FormField
-                                                        control={form.control}
-                                                        name="pendingReason"
-                                                        render={({ field }) => (
-                                                            <FormItem className="animate-in fade-in slide-in-from-top-2">
-                                                                <FormLabel className="text-red-600 dark:text-red-400">Motivo da Pendência</FormLabel>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                        <FormField control={form.control} name="technician" render={({ field }) => (
+                                                            <FormItem>
+                                                                <FormLabel>Técnico</FormLabel>
                                                                 <Select onValueChange={field.onChange} value={field.value}>
-                                                                    <FormControl>
-                                                                        <SelectTrigger className="border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20">
-                                                                            <SelectValue placeholder="Selecione o motivo..." />
-                                                                        </SelectTrigger>
-                                                                    </FormControl>
+                                                                    <FormControl><SelectTrigger><SelectValue placeholder="Técnico" /></SelectTrigger></FormControl>
                                                                     <SelectContent>
-                                                                        <SelectItem value="Peça nova com defeito">Peça nova com defeito</SelectItem>
-                                                                        <SelectItem value="Repedido">Repedido</SelectItem>
-                                                                        <SelectItem value="Remarcação">Remarcação</SelectItem>
-                                                                        <SelectItem value="Ausente">Ausente / Cliente não estava</SelectItem>
-                                                                        <SelectItem value="Outro">Outro</SelectItem>
+                                                                        {technicians.map((tech) => (
+                                                                            <SelectItem key={tech.id} value={tech.id}>{tech.name}</SelectItem>
+                                                                        ))}
                                                                     </SelectContent>
                                                                 </Select>
                                                                 <FormMessage />
                                                             </FormItem>
-                                                        )}
-                                                    />
-                                                )}
-                                            </div>
+                                                        )}/>
+                                                        <div className="space-y-2">
+                                                            <Label htmlFor="assistant" className="line-clamp-1">Auxiliar (Opcional)</Label>
+                                                            <Input id="assistant" placeholder="Nome" value={assistantName} onChange={(e) => setAssistantName(e.target.value)} />
+                                                        </div>
+                                                    </div>
 
-                                            {form.watch('isFinalized') && (
-                                                <div className="space-y-4 md:space-y-5 animate-in fade-in slide-in-from-top-2 duration-300">
-                                                    {routeParts.length > 0 && (
-                                                        <div className="space-y-2 rounded-lg border bg-muted/50 p-4">
-                                                    <div className="space-y-1">
-                                                        <Label className="font-semibold">Peças da Rota para esta OS</Label>
-                                                        <p className="text-xs text-muted-foreground">Selecione as peças usadas</p>
-                                                    </div>
-                                                    <div className="space-y-3 pt-2">
-                                                        {routeParts.map((part) => (
-                                                            <div key={part.code} className="flex items-center justify-between gap-4">
-                                                                <div className="flex items-center gap-2">
-                                                                     <Checkbox
-                                                                        id={`part-${part.code}`}
-                                                                        checked={!!selectedParts[part.code] || (part.quantity > 1 && (selectedParts[part.code] || 0) > 0)}
-                                                                        onCheckedChange={(checked) => handlePartQuantityChange(part.code, checked ? part.quantity : 0)}
-                                                                    />
-                                                                    <label
-                                                                        htmlFor={`part-${part.code}`}
-                                                                        className="text-sm font-mono leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                                                    >
-                                                                        {part.code}
-                                                                    </label>
-                                                                </div>
-                                                                 {part.quantity > 1 ? (
-                                                                    <div className="flex items-center gap-2">
-                                                                        <Label htmlFor={`qty-${part.code}`} className="text-xs">Qtd:</Label>
-                                                                        <Select
-                                                                            value={String(selectedParts[part.code] || 0)}
-                                                                            onValueChange={(value) => handlePartQuantityChange(part.code, Number(value))}
-                                                                        >
-                                                                            <SelectTrigger className="h-8 w-20">
-                                                                                <SelectValue />
-                                                                            </SelectTrigger>
-                                                                            <SelectContent>
-                                                                                {[...Array(part.quantity + 1).keys()].map(qty => (
-                                                                                    <SelectItem key={qty} value={String(qty)}>{qty}</SelectItem>
-                                                                                ))}
-                                                                            </SelectContent>
-                                                                        </Select>
-                                                                    </div>
-                                                                ) : <span className="text-sm text-muted-foreground">x{part.quantity}</span>}
-                                                            </div>
-                                                        ))}
-                                                    </div>
+                                                    <FormField control={form.control} name="serviceOrderNumber" render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel>Número da OS</FormLabel>
+                                                            <FormControl><Input placeholder="Digite o número da OS" {...field} /></FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}/>
                                                 </div>
                                             )}
 
-                                            <FormField
-                                                control={form.control}
-                                                name="serviceType"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>Tipo de Atendimento</FormLabel>
-                                                        <Select onValueChange={field.onChange} value={field.value}>
-                                                            <FormControl>
-                                                                <SelectTrigger><SelectValue placeholder="Selecione o tipo" /></SelectTrigger>
-                                                            </FormControl>
-                                                            <SelectContent>
-                                                                <SelectItem value="reparo_samsung">Reparo Samsung</SelectItem>
-                                                                <SelectItem value="visita_orcamento_samsung">Visita Orçamento Samsung</SelectItem>
-                                                                <SelectItem value="visita_assurant">Visita Assurant</SelectItem>
-                                                                <SelectItem value="coleta_eco_rma">Coleta Eco /RMA</SelectItem>
-                                                                <SelectItem value="instalacao_inicial">Instalação Inicial</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}
-                                            />
+                                            {currentStep === 2 && (
+                                                <div className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
+                                                    <div className="grid grid-cols-1 gap-4 items-start rounded-lg border p-4 bg-slate-50/50 dark:bg-slate-900/50">
+                                                        <FormField control={form.control} name="isFinalized" render={({ field }) => (
+                                                            <FormItem className="flex flex-row items-center justify-between">
+                                                                <div className="space-y-0.5 mt-1">
+                                                                    <FormLabel className="text-base text-slate-700 dark:text-slate-200">Atendimento Finalizado?</FormLabel>
+                                                                    <div className="text-xs text-muted-foreground">Desmarque caso precise de mais peças, reagendamento ou peça com defeito</div>
+                                                                </div>
+                                                                <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                                            </FormItem>
+                                                        )}/>
+                                                        {!form.watch('isFinalized') && (
+                                                            <FormField control={form.control} name="pendingReason" render={({ field }) => (
+                                                                <FormItem className="animate-in fade-in slide-in-from-top-2">
+                                                                    <FormLabel className="text-red-600 dark:text-red-400">Motivo da Pendência</FormLabel>
+                                                                    <Select onValueChange={field.onChange} value={field.value}>
+                                                                        <FormControl><SelectTrigger className="border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20"><SelectValue placeholder="Selecione o motivo..." /></SelectTrigger></FormControl>
+                                                                        <SelectContent>
+                                                                            <SelectItem value="Peça nova com defeito">Peça nova com defeito</SelectItem>
+                                                                            <SelectItem value="Repedido">Repedido</SelectItem>
+                                                                            <SelectItem value="Remarcação">Remarcação</SelectItem>
+                                                                            <SelectItem value="Ausente">Ausente / Cliente não estava</SelectItem>
+                                                                            <SelectItem value="Outro">Outro</SelectItem>
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                    <FormMessage />
+                                                                </FormItem>
+                                                            )}/>
+                                                        )}
+                                                    </div>
 
-                                            {watchedServiceType === 'coleta_eco_rma' && (
-                                                <FormField control={form.control} name="collectionType" render={({ field }) => (
-                                                    <FormItem className="pl-4 border-l-2 border-primary/50">
-                                                        <FormLabel>Tipo de Coleta</FormLabel>
-                                                        <Select onValueChange={field.onChange} value={field.value || ""}>
-                                                            <FormControl>
-                                                                <SelectTrigger>
-                                                                    <SelectValue placeholder="Selecione o tipo de coleta" />
-                                                                </SelectTrigger>
-                                                            </FormControl>
-                                                            <SelectContent>
-                                                                <SelectItem value="reparo">Reparo</SelectItem>
-                                                                <SelectItem value="rma">RMA</SelectItem>
-                                                                <SelectItem value="eco">Eco</SelectItem>
-                                                                <SelectItem value="descarte">Descarte</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}/>
+                                                    {form.watch('isFinalized') && routeParts.length > 0 && (
+                                                        <div id="parts-section" className="space-y-3 rounded-xl border-2 border-amber-300 dark:border-amber-700 bg-amber-50/40 dark:bg-amber-950/20 p-4">
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <div className="space-y-0.5">
+                                                                    <Label className="font-semibold flex items-center gap-2 text-amber-800 dark:text-amber-300">
+                                                                        <Package className="h-4 w-4" />
+                                                                        Peças da Rota — Revisão Obrigatória
+                                                                    </Label>
+                                                                    <p className="text-xs text-muted-foreground">Marque cada peça como Usada ou Não Usada antes de salvar</p>
+                                                                </div>
+                                                                <span className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-full ${reviewedCount === routeParts.length ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'}`}>
+                                                                    {reviewedCount}/{routeParts.length}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex flex-col gap-3 mt-1">
+                                                                {routeParts.map((part: { code: string; quantity: number; description?: string }) => {
+                                                                    const status = partsStatus[part.code] ?? null;
+                                                                    return (
+                                                                        <div key={part.code} className={`rounded-lg border-2 p-3 transition-all duration-200 ${status === null ? 'border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900' : status === 'used' ? 'border-green-400 dark:border-green-600 bg-green-50 dark:bg-green-950/30' : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40'}`}>
+                                                                            <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+                                                                                <div className="flex-1 min-w-0 flex flex-col">
+                                                                                    <div>
+                                                                                        <span className="text-sm font-mono font-bold tracking-wide">{part.code}</span>
+                                                                                        {part.quantity > 1 && <span className="ml-2 text-xs text-muted-foreground">x{part.quantity}</span>}
+                                                                                        {status === null && <span className="ml-2 text-xs text-amber-600 dark:text-amber-400 font-medium">⚠ Pendente</span>}
+                                                                                    </div>
+                                                                                    {part.description && (
+                                                                                        <span className="text-xs text-muted-foreground mt-0.5 line-clamp-1" title={part.description}>
+                                                                                            {part.description}
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                                <div className="flex flex-col gap-2 w-full sm:w-auto">
+                                                                                    <div className="flex gap-2">
+                                                                                        <button type="button" onClick={() => handlePartStatusChange(part.code, 'used')} className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold border-2 transition-all duration-150 min-h-[44px] cursor-pointer ${status === 'used' ? 'bg-green-500 border-green-500 text-white shadow-sm' : 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-400 bg-white dark:bg-transparent hover:bg-green-50 dark:hover:bg-green-950/30'}`}>
+                                                                                            <Check className="h-4 w-4" /> USADA
+                                                                                        </button>
+                                                                                        <button type="button" onClick={() => handlePartStatusChange(part.code, 'not_used')} className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold border-2 transition-all duration-150 min-h-[44px] cursor-pointer ${status === 'not_used' ? 'bg-slate-500 border-slate-500 text-white shadow-sm' : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-400 bg-white dark:bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900/30'}`}>
+                                                                                            <XCircle className="h-4 w-4" /> NÃO USADA
+                                                                                        </button>
+                                                                                    </div>
+                                                                                    {status === 'used' && part.quantity > 1 && (
+                                                                                        <div className="flex items-center justify-between bg-green-100 dark:bg-green-900/40 px-3 py-2 rounded-md border border-green-200 dark:border-green-800 animate-in fade-in slide-in-from-top-2 mt-1">
+                                                                                            <span className="text-xs font-bold text-green-800 dark:text-green-300">Qtd Usada:</span>
+                                                                                            <div className="flex items-center gap-3">
+                                                                                                <button type="button" onClick={() => handleQuantityChange(part.code, (partsUsedQuantity[part.code] || part.quantity) - 1)} disabled={(partsUsedQuantity[part.code] || part.quantity) <= 1} className="w-7 h-7 flex items-center justify-center rounded-full bg-green-300 dark:bg-green-700 text-green-900 dark:text-green-100 disabled:opacity-50 font-bold hover:bg-green-400 dark:hover:bg-green-600 transition-colors cursor-pointer disabled:cursor-not-allowed">-</button>
+                                                                                                <span className="font-bold text-sm w-4 text-center text-green-900 dark:text-green-100">{partsUsedQuantity[part.code] || part.quantity}</span>
+                                                                                                <button type="button" onClick={() => handleQuantityChange(part.code, (partsUsedQuantity[part.code] || part.quantity) + 1)} disabled={(partsUsedQuantity[part.code] || part.quantity) >= part.quantity} className="w-7 h-7 flex items-center justify-center rounded-full bg-green-300 dark:bg-green-700 text-green-900 dark:text-green-100 disabled:opacity-50 font-bold hover:bg-green-400 dark:hover:bg-green-600 transition-colors cursor-pointer disabled:cursor-not-allowed">+</button>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             )}
 
-                                            {watchedServiceType === 'reparo_samsung' && (
-                                                <FormField control={form.control} name="samsungRepairType" render={({ field }) => (
-                                                    <FormItem className="pl-4 border-l-2 border-primary/50">
-                                                        <FormLabel>Sub-tipo Reparo Samsung</FormLabel>
-                                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                            <FormControl><SelectTrigger><SelectValue placeholder="LP / OW / VOID" /></SelectTrigger></FormControl>
-                                                            <SelectContent>
-                                                                <SelectItem value="LP">LP</SelectItem>
-                                                                <SelectItem value="OW">OW</SelectItem>
-                                                                <SelectItem value="VOID">VOID</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}/>
-                                            )}
-
-                                            {watchedServiceType === 'visita_orcamento_samsung' && (
-                                                <div className="pl-4 border-l-2 border-primary/50 space-y-4">
-                                                    <FormField control={form.control} name="samsungBudgetApproved" render={({ field }) => (
-                                                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
-                                                            <div className="space-y-0.5"><FormLabel>Orçamento Aprovado?</FormLabel></div>
-                                                            <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                            {currentStep === 3 && (
+                                                <div className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
+                                                    <FormField control={form.control} name="serviceType" render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel>Tipo de Atendimento</FormLabel>
+                                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                                <FormControl><SelectTrigger><SelectValue placeholder="Selecione o tipo" /></SelectTrigger></FormControl>
+                                                                <SelectContent>
+                                                                    <SelectItem value="reparo_samsung">Reparo Samsung</SelectItem>
+                                                                    <SelectItem value="visita_orcamento_samsung">Visita Orçamento Samsung</SelectItem>
+                                                                    <SelectItem value="visita_assurant">Visita Assurant</SelectItem>
+                                                                    <SelectItem value="coleta_eco_rma">Coleta Eco /RMA</SelectItem>
+                                                                    <SelectItem value="instalacao_inicial">Instalação Inicial</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
+                                                            <FormMessage />
                                                         </FormItem>
                                                     )}/>
-                                                    {form.watch('samsungBudgetApproved') && (
-                                                        <FormField control={form.control} name="samsungBudgetValue" render={({ field }) => (
-                                                            <FormItem>
-                                                                <FormLabel>Valor (R$)</FormLabel>
-                                                                <FormControl><Input type="number" placeholder="Ex: 150.00" {...field} /></FormControl>
+
+                                                    {watchedServiceType === 'coleta_eco_rma' && (
+                                                        <FormField control={form.control} name="collectionType" render={({ field }) => (
+                                                            <FormItem className="pl-4 border-l-2 border-primary/50">
+                                                                <FormLabel>Tipo de Coleta</FormLabel>
+                                                                <Select onValueChange={field.onChange} value={field.value || ""}>
+                                                                    <FormControl><SelectTrigger><SelectValue placeholder="Selecione o tipo de coleta" /></SelectTrigger></FormControl>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="reparo">Reparo</SelectItem>
+                                                                        <SelectItem value="rma">RMA</SelectItem>
+                                                                        <SelectItem value="eco">Eco</SelectItem>
+                                                                        <SelectItem value="descarte">Descarte</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
                                                                 <FormMessage />
                                                             </FormItem>
                                                         )}/>
                                                     )}
+
+                                                    {watchedServiceType === 'reparo_samsung' && (
+                                                        <FormField control={form.control} name="samsungRepairType" render={({ field }) => (
+                                                            <FormItem className="pl-4 border-l-2 border-primary/50">
+                                                                <FormLabel>Sub-tipo Reparo Samsung</FormLabel>
+                                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                                    <FormControl><SelectTrigger><SelectValue placeholder="LP / OW / VOID" /></SelectTrigger></FormControl>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="LP">LP</SelectItem>
+                                                                        <SelectItem value="OW">OW</SelectItem>
+                                                                        <SelectItem value="VOID">VOID</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                                <FormMessage />
+                                                            </FormItem>
+                                                        )}/>
+                                                    )}
+
+                                                    {watchedServiceType === 'visita_orcamento_samsung' && (
+                                                        <div className="pl-4 border-l-2 border-primary/50 space-y-4">
+                                                            <FormField control={form.control} name="samsungBudgetApproved" render={({ field }) => (
+                                                                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                                                                    <div className="space-y-0.5"><FormLabel>Orçamento Aprovado?</FormLabel></div>
+                                                                    <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                                                </FormItem>
+                                                            )}/>
+                                                            {form.watch('samsungBudgetApproved') && (
+                                                                <FormField control={form.control} name="samsungBudgetValue" render={({ field }) => (
+                                                                    <FormItem>
+                                                                        <FormLabel>Valor (R$)</FormLabel>
+                                                                        <FormControl><Input type="number" placeholder="Ex: 150.00" {...field} /></FormControl>
+                                                                        <FormMessage />
+                                                                    </FormItem>
+                                                                )}/>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    
+                                                    {(watchedServiceType && ['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType)) ? (
+                                                        <FormField control={form.control} name="productCollectedOrInstalled" render={({ field }) => (
+                                                            <FormItem>
+                                                                <FormLabel>Produto Coletado/Instalado</FormLabel>
+                                                                <FormControl><Input placeholder="Descreva o produto" {...field} value={field.value || ''} /></FormControl>
+                                                                <FormMessage />
+                                                            </FormItem>
+                                                        )}/>
+                                                    ) : null}
+
+                                                    {serviceRequiresCodes ? (
+                                                        <>
+                                                            <FormField control={form.control} name="symptomCode" render={({ field }) => (
+                                                                <FormItem>
+                                                                    <FormLabel>Código de Sintoma</FormLabel>
+                                                                    <FormControl>
+                                                                        <SearchableSelect value={field.value || ""} onChange={field.onChange} placeholder="Selecione o sintoma" options={symptomCodes[watchedEquipmentType as keyof typeof symptomCodes]?.map(s => ({ value: s.code, label: `${s.code} - ${s.description}` })) || []} />
+                                                                    </FormControl>
+                                                                    <FormMessage />
+                                                                </FormItem>
+                                                            )}/>
+                                                            <FormField control={form.control} name="repairCode" render={({ field }) => (
+                                                                <FormItem>
+                                                                    <FormLabel>Código de Reparo {(watchedServiceType === 'visita_orcamento_samsung' || watchedServiceType === 'reparo_samsung') && '(Opcional)'}</FormLabel>
+                                                                    <FormControl>
+                                                                        <SearchableSelect value={field.value || ""} onChange={field.onChange} placeholder="Selecione o reparo" options={repairCodes[watchedEquipmentType as keyof typeof repairCodes]?.map(r => ({ value: r.code, label: `${r.code} - ${r.description}` })) || []} />
+                                                                    </FormControl>
+                                                                    <FormMessage />
+                                                                </FormItem>
+                                                            )}/>
+                                                        </>
+                                                    ) : watchedServiceType === 'visita_assurant' ? (
+                                                        <>
+                                                            <FormField control={form.control} name="defectFound" render={({ field }) => (
+                                                                <FormItem>
+                                                                    <FormLabel>Defeito constatado</FormLabel>
+                                                                    <FormControl><Input placeholder="Descreva o defeito constatado" {...field} value={field.value || ''} /></FormControl>
+                                                                    <FormMessage />
+                                                                </FormItem>
+                                                            )}/>
+                                                            <FormField control={form.control} name="partsRequested" render={({ field }) => (
+                                                                <FormItem>
+                                                                    <FormLabel>Peças solicitadas</FormLabel>
+                                                                    <FormControl><Input placeholder="Liste as peças solicitadas" {...field} value={field.value || ''} /></FormControl>
+                                                                    <FormMessage />
+                                                                </FormItem>
+                                                            )}/>
+                                                        </>
+                                                    ) : null}
                                                 </div>
                                             )}
-                                            
-                                            {(watchedServiceType && ['coleta_eco_rma', 'instalacao_inicial'].includes(watchedServiceType)) ? (
-                                                <FormField control={form.control} name="productCollectedOrInstalled" render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>Produto Coletado/Instalado</FormLabel>
-                                                        <FormControl><Input placeholder="Descreva o produto" {...field} value={field.value || ''} /></FormControl>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}/>
-                                            ) : null}
 
-                                            {serviceRequiresCodes ? (
-                                                <>
-                                                    <FormField control={form.control} name="symptomCode" render={({ field }) => (
-                                                        <FormItem>
-                                                            <FormLabel>Código de Sintoma</FormLabel>
-                                                                <FormControl>
-                                                                <SearchableSelect
-                                                                    value={field.value || ""}
-                                                                    onChange={field.onChange}
-                                                                    placeholder="Selecione o sintoma"
-                                                                    options={symptomCodes[watchedEquipmentType as keyof typeof symptomCodes]?.map(s => ({ value: s.code, label: `${s.code} - ${s.description}` })) || []}
-                                                                />
-                                                            </FormControl>
-                                                            <FormMessage />
-                                                        </FormItem>
-                                                    )}/>
-                                                    <FormField control={form.control} name="repairCode" render={({ field }) => (
-                                                        <FormItem>
-                                                            <FormLabel>Código de Reparo {(watchedServiceType === 'visita_orcamento_samsung' || watchedServiceType === 'reparo_samsung') && '(Opcional)'}</FormLabel>
-                                                                <FormControl>
-                                                                <SearchableSelect
-                                                                    value={field.value || ""}
-                                                                    onChange={field.onChange}
-                                                                    placeholder="Selecione o reparo"
-                                                                    options={repairCodes[watchedEquipmentType as keyof typeof repairCodes]?.map(r => ({ value: r.code, label: `${r.code} - ${r.description}` })) || []}
-                                                                />
-                                                            </FormControl>
-                                                            <FormMessage />
-                                                        </FormItem>
-                                                    )}/>
-                                                </>
-                                            ) : watchedServiceType === 'visita_assurant' ? (
-                                                <>
-                                                    <FormField control={form.control} name="defectFound" render={({ field }) => (
-                                                        <FormItem>
-                                                            <FormLabel>Defeito constatado</FormLabel>
-                                                            <FormControl><Input placeholder="Descreva o defeito constatado" {...field} value={field.value || ''} /></FormControl>
-                                                            <FormMessage />
-                                                        </FormItem>
-                                                    )}/>
-                                                    <FormField control={form.control} name="partsRequested" render={({ field }) => (
-                                                        <FormItem>
-                                                            <FormLabel>Peças solicitadas</FormLabel>
-                                                            <FormControl><Input placeholder="Liste as peças solicitadas" {...field} value={field.value || ''} /></FormControl>
-                                                            <FormMessage />
-                                                        </FormItem>
-                                                    )}/>
-                                                </>
-                                            ) : null}
-                                            
-                                            {showReplacedPart && (
-                                                <FormField control={form.control} name="replacedPart" render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>Peça Trocada (Opcional)</FormLabel>
-                                                        <FormControl><Input placeholder="Ex: Placa principal BN94-12345A" {...field} value={field.value || ''} /></FormControl>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}/>
-                                            )}
+                                            {currentStep === 4 && (
+                                                <div className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
+                                                    {showReplacedPart && (
+                                                        <FormField control={form.control} name="replacedPart" render={({ field }) => (
+                                                            <FormItem>
+                                                                <FormLabel>Peça Trocada (Opcional)</FormLabel>
+                                                                <FormControl><Input placeholder="Ex: Placa principal BN94-12345A" {...field} value={field.value || ''} /></FormControl>
+                                                                <FormMessage />
+                                                            </FormItem>
+                                                        )}/>
+                                                    )}
 
-                                            <FormField control={form.control} name="cleaningPerformed" render={({ field }) => (
-                                                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
-                                                    <div className="space-y-0.5">
-                                                        <FormLabel>Foi feita limpeza nesta OS?</FormLabel>
-                                                        <FormDescription className="text-xs">
-                                                            Marque somente se você executou a limpeza.
-                                                        </FormDescription>
+                                                    <FormField control={form.control} name="cleaningPerformed" render={({ field }) => (
+                                                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                                                            <div className="space-y-0.5">
+                                                                <FormLabel>Foi feita limpeza nesta OS?</FormLabel>
+                                                                <FormDescription className="text-xs">Marque somente se você executou a limpeza.</FormDescription>
+                                                            </div>
+                                                            <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                                        </FormItem>
+                                                    )}/>
+
+                                                    <FormField control={form.control} name="observations" render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel>Observações {form.watch('isFinalized') && '(Opcional)'}</FormLabel>
+                                                            <FormControl><Textarea placeholder="Descreva observações adicionais aqui..." {...field} value={field.value || ''} /></FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}/>
+
+                                                    <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/50 p-4">
+                                                        <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-slate-700 dark:text-slate-200">
+                                                            <Eye className="h-4 w-4" /> Resumo para Envio
+                                                        </h4>
+                                                        <pre className="whitespace-pre-wrap text-[13px] md:text-sm font-sans text-muted-foreground bg-white dark:bg-slate-950 p-3 rounded-md border">{previewText}</pre>
                                                     </div>
-                                                    <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-                                                </FormItem>
-                                            )}/>
-
                                                 </div>
                                             )}
 
-                                            <FormField control={form.control} name="observations" render={({ field }) => (
-                                                <FormItem className="animate-in fade-in slide-in-from-top-2">
-                                                    <FormLabel>Observações {form.watch('isFinalized') && '(Opcional)'}</FormLabel>
-                                                    <FormControl><Textarea placeholder="Descreva observações adicionais aqui..." {...field} value={field.value || ''} /></FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}/>
-                                            
-                                            <Button type="submit" className="w-full">
-                                                {form.watch('isFinalized') ? 'Gerar Texto e Salvar OS' : 'Gerar Texto de Pendência e Salvar'}
-                                            </Button>
-                                        </form>
+                                            <div className="flex gap-3 pt-4 border-t mt-4">
+                                                {currentStep > 1 && (
+                                                    <Button type="button" onClick={handlePrevStep} className="flex-1 h-12 bg-[#9900ff] hover:bg-[#8000d6] text-white font-medium text-base shadow-none">
+                                                        Voltar
+                                                    </Button>
+                                                )}
+                                                
+                                                {currentStep < totalSteps ? (
+                                                    <Button type="button" onClick={handleNextStep} className="flex-1 h-12 bg-[#1a85ff] hover:bg-[#156fc2] text-white font-medium text-base shadow-none">
+                                                        Próximo
+                                                    </Button>
+                                                ) : (
+                                                    <Button type="button" onClick={form.handleSubmit(onSubmit)} className="flex-1 h-12 bg-[#1a85ff] hover:bg-[#156fc2] text-white text-base md:text-sm font-medium shadow-none transition-all">
+                                                        {form.watch('isFinalized') ? (
+                                                            <div className="flex items-center justify-center gap-2">
+                                                                <CheckCircle className="h-4 w-4" /> Salvar OS
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex items-center justify-center gap-2">
+                                                                <AlertTriangle className="h-4 w-4" /> Salvar Pendência
+                                                            </div>
+                                                        )}
+                                                    </Button>
+                                                )}
+                                            </div>
+</form>
                                     </Form>
                                 </CardContent>
                             </Card>
 
                             <div className="lg:sticky lg:top-24 h-fit space-y-4">
-                                <Card className={`w-full transition-all duration-300 ${generatedText ? 'opacity-100' : 'opacity-50'}`}>
+                                <Card className={`w-full transition-all duration-300 ${osIsSaved ? 'opacity-100 border-green-200 dark:border-green-900/50' : 'opacity-50'}`}>
                                     <CardHeader className="flex flex-row items-center justify-between">
                                         <div>
                                             <CardTitle>Texto Gerado</CardTitle>
-                                            <CardDescription>Copie o texto para a área de transferência.</CardDescription>
+                                            <CardDescription>{osIsSaved ? 'OS salva com sucesso. Copie o texto.' : 'Aguardando salvamento da OS.'}</CardDescription>
                                         </div>
-                                        <Button variant="ghost" size="icon" onClick={handleCopy} disabled={!generatedText}>
+                                        <Button variant="ghost" size="icon" onClick={handleCopy} disabled={!osIsSaved}>
                                             <Copy className="h-5 w-5" />
                                         </Button>
                                     </CardHeader>
                                     <CardContent>
-                                        {generatedText ? (
+                                        {osIsSaved ? (
                                             <pre className="whitespace-pre-wrap text-sm bg-muted p-4 rounded-md font-sans">{generatedText}</pre>
                                         ) : (
                                             <div className="text-center text-muted-foreground py-10">
-                                                <p>O texto formatado da sua OS aparecerá aqui.</p>
+                                                <p>Conclua todas as etapas e clique em "Salvar OS" para gerar o texto final.</p>
                                             </div>
                                         )}
                                     </CardContent>
                                      <CardFooter className="flex justify-end gap-2">
-                                        <Button variant="outline" size="sm" onClick={handleNewOS} disabled={!generatedText}>
+                                        <Button variant="outline" size="sm" onClick={handleNewOS} disabled={!osIsSaved}>
                                             Nova OS
                                         </Button>
                                         <Button variant="destructive" size="sm" onClick={handleClearForm}>
