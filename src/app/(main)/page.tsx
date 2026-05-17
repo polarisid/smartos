@@ -300,52 +300,7 @@ function ChecklistSection({
     technicianName?: string;
 }) {
   const { toast } = useToast();
-  const [currentStep, setCurrentStep] = useState(1);
-  const totalSteps = 4;
 
-  const handleNextStep = async () => {
-    let fieldsToValidate: any[] = [];
-    if (currentStep === 1) {
-      fieldsToValidate = ['equipmentType', 'technician', 'serviceOrderNumber'];
-    } else if (currentStep === 2) {
-      if (!form.getValues('isFinalized')) {
-          fieldsToValidate = ['pendingReason'];
-      } else {
-          const routeParts = currentRouteStop?.parts || [];
-          const unreviewed = routeParts.filter((p: { code: string }) => partsStatus[p.code] === null || partsStatus[p.code] === undefined);
-          if (unreviewed.length > 0) {
-              toast({
-                  variant: "destructive",
-                  title: "⚠️ Confirme o status das peças!",
-                  description: `${unreviewed.length} peça(s) ainda sem confirmação.`,
-              });
-              return;
-          }
-      }
-    } else if (currentStep === 3) {
-      fieldsToValidate = ['serviceType'];
-      const sType = form.getValues('serviceType');
-      if (sType === 'coleta_eco_rma') {
-          fieldsToValidate.push('collectionType', 'productCollectedOrInstalled');
-      } else if (sType === 'instalacao_inicial') {
-          fieldsToValidate.push('productCollectedOrInstalled');
-      } else if (sType && sType !== 'visita_assurant') {
-          fieldsToValidate.push('symptomCode');
-          if (sType !== 'visita_orcamento_samsung' && sType !== 'reparo_samsung') {
-              fieldsToValidate.push('repairCode');
-          }
-      }
-    }
-
-    const isValid = await form.trigger(fieldsToValidate);
-    if (isValid) {
-      setCurrentStep(prev => Math.min(prev + 1, totalSteps));
-    }
-  };
-
-  const handlePrevStep = () => {
-    setCurrentStep(prev => Math.max(prev - 1, 1));
-  };
     const [selectedTemplate, setSelectedTemplate] = useState<ChecklistTemplate | null>(null);
     const [fields, setFields] = useState<FieldWithPosition[]>([]);
     const [isGenerating, setIsGenerating] = useState(false);
