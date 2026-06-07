@@ -585,7 +585,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
 function OsRouteSearch() {
     const [searchTerm, setSearchTerm] = useState("");
     const [isSearching, setIsSearching] = useState(false);
-    const [results, setResults] = useState<{ route: Route; stop: RouteStop; osStatus: string; usedPartsSet: Set<string> }[]>([]);
+    const [results, setResults] = useState<{ route: Route; stop: RouteStop; osStatus: string; usedPartsSet: Set<string>; pendingReason?: string; pendingObservations?: string }[]>([]);
     const [searched, setSearched] = useState(false);
 
     const handleSearch = async () => {
@@ -638,36 +638,104 @@ function OsRouteSearch() {
                     where("serviceOrderNumber", "in", osNumbers.slice(0, 10))
                 );
                 const ordersSnapshot = await getDocs(ordersQuery);
-                const osStatusMap = new Map<string, string>();
-                // Mapa de OS -> Set de códigos de peças efetivamente usadas
-                const osUsedPartsMap = new Map<string, Set<string>>();
+
+                // Guardar TODAS as ServiceOrders por número (pode haver múltiplas para o mesmo número em rotas diferentes)
+                const osListMap = new Map<string, ServiceOrder[]>();
                 ordersSnapshot.forEach(d => {
                     const os = d.data() as ServiceOrder;
-                    let status = "A Fazer";
-                    if (os.isFinalized) {
-                        status = "Finalizada";
-                    } else if (os.pendingReason && os.pendingReason.trim() !== "") {
-                        status = "Pendente";
+                    const osDate = os.date instanceof Timestamp ? os.date.toDate() : os.date;
+                    const normalized = { ...os, date: osDate } as ServiceOrder;
+                    if (!osListMap.has(os.serviceOrderNumber)) {
+                        osListMap.set(os.serviceOrderNumber, []);
                     }
-                    osStatusMap.set(os.serviceOrderNumber, status);
+                    osListMap.get(os.serviceOrderNumber)!.push(normalized);
+                });
 
-                    // Extrai peças usadas do campo replacedPart (ex: "BN94-123A, BN96-456B")
+                // Para cada OS, montar a lista de rotas ordenadas por data (para calcular janela de validade)
+                // Mapa: osNumber -> rotas ordenadas por createdAt ASC
+                const osRouteTimeline = new Map<string, { routeDate: Date; isActive: boolean }[]>();
+                found.forEach(f => {
+                    const routeDate = f.route.createdAt instanceof Timestamp
+                        ? f.route.createdAt.toDate()
+                        : f.route.createdAt instanceof Date ? f.route.createdAt : null;
+                    if (!routeDate) return;
+                    if (!osRouteTimeline.has(f.stop.serviceOrder)) {
+                        osRouteTimeline.set(f.stop.serviceOrder, []);
+                    }
+                    osRouteTimeline.get(f.stop.serviceOrder)!.push({ routeDate, isActive: f.route.isActive });
+                });
+                // Ordenar cada timeline por data ASC
+                osRouteTimeline.forEach(list => list.sort((a, b) => a.routeDate.getTime() - b.routeDate.getTime()));
+
+                // Para cada resultado, encontrar a ServiceOrder dentro da janela correta
+                const enriched = found.map(f => {
+                    const routeDate = f.route.createdAt instanceof Timestamp
+                        ? f.route.createdAt.toDate()
+                        : f.route.createdAt instanceof Date ? f.route.createdAt : null;
+
+                    // Calcular o limite superior da janela:
+                    // Se a rota está ATIVA → sem limite (aceita qualquer OS após createdAt)
+                    // Se a rota está FINALIZADA → fecha na data da próxima rota que contém essa mesma OS
+                    let windowEnd: Date | null = null;
+                    if (!f.route.isActive && routeDate) {
+                        const timeline = osRouteTimeline.get(f.stop.serviceOrder) || [];
+                        const nextRoute = timeline.find(t => t.routeDate.getTime() > routeDate.getTime());
+                        if (nextRoute) {
+                            windowEnd = nextRoute.routeDate;
+                        } else {
+                            // Se a rota está finalizada e não há outra rota depois, 
+                            // a janela de tempo se fecha logo após o fim da rota (ex: arrivalDate + 2 dias)
+                            // Isso impede que lançamentos de hoje reflitam em rotas de meses atrás.
+                            const baseDate = (f.route.arrivalDate instanceof Date) ? f.route.arrivalDate : 
+                                             (f.route.departureDate instanceof Date) ? f.route.departureDate : routeDate;
+                            windowEnd = new Date(baseDate.getTime() + (2 * 24 * 60 * 60 * 1000));
+                        }
+                    }
+
+                    const candidates = osListMap.get(f.stop.serviceOrder) || [];
+                    const relatedList = candidates.filter(os => {
+                        const osDate = os.date as Date;
+                        if (routeDate && !isAfter(osDate, routeDate)) return false; // deve ser após a criação da rota
+                        if (windowEnd && !isAfter(windowEnd, osDate)) return false; // deve ser antes da próxima rota
+                        return true;
+                    });
+                    relatedList.sort((a, b) => ((b.date as Date).getTime()) - ((a.date as Date).getTime()));
+                    const relatedOs = relatedList.length > 0 ? relatedList[0] : null;
+
+                    let osStatus = "A Fazer";
+                    if (relatedOs) {
+                        if (relatedOs.isFinalized) osStatus = "Finalizada";
+                        else if (relatedOs.isFinalized === false) osStatus = "Pendente";
+                    }
+
                     const usedSet = new Set<string>();
-                    if (os.replacedPart) {
-                        os.replacedPart.split(',').forEach(raw => {
+                    if (relatedOs?.replacedPart) {
+                        relatedOs.replacedPart.split(',').forEach(raw => {
                             const codeMatch = raw.trim().match(/^([a-zA-Z0-9-]+)/);
                             if (codeMatch) usedSet.add(codeMatch[0].toUpperCase());
                         });
                     }
-                    osUsedPartsMap.set(os.serviceOrderNumber, usedSet);
+
+                    return {
+                        ...f,
+                        osStatus,
+                        usedPartsSet: usedSet,
+                        pendingReason: relatedOs?.isFinalized === false ? (relatedOs.pendingReason || undefined) : undefined,
+                        pendingObservations: relatedOs?.isFinalized === false ? (relatedOs.observations || undefined) : undefined,
+                    };
                 });
 
-                const enriched = found.map(f => ({
-                    ...f,
-                    osStatus: osStatusMap.get(f.stop.serviceOrder) ?? "A Fazer",
-                    usedPartsSet: osUsedPartsMap.get(f.stop.serviceOrder) ?? new Set<string>(),
-                }));
+                // Ordenar do mais recente ao mais antigo (pela data de saída da rota)
+                enriched.sort((a, b) => {
+                    const dateA = a.route.departureDate instanceof Date ? a.route.departureDate
+                        : a.route.createdAt instanceof Date ? a.route.createdAt : new Date(0);
+                    const dateB = b.route.departureDate instanceof Date ? b.route.departureDate
+                        : b.route.createdAt instanceof Date ? b.route.createdAt : new Date(0);
+                    return dateB.getTime() - dateA.getTime();
+                });
                 setResults(enriched);
+
+
             } else {
                 setResults([]);
             }
@@ -834,9 +902,26 @@ function OsRouteSearch() {
                                     <p className="mt-3 text-xs text-muted-foreground italic">Nenhuma peça registrada para esta OS.</p>
                                 )}
 
-                                {r.osStatus === "Pendente" && r.stop.statusComment && (
-                                    <div className="mt-3 p-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-400">
-                                        <span className="font-semibold">Motivo da pendência: </span>{r.stop.statusComment}
+                                {r.osStatus === "Pendente" && (
+                                    <div className="mt-3 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 overflow-hidden">
+                                        <div className="px-3 py-2 bg-red-100/60 dark:bg-red-900/30 border-b border-red-200 dark:border-red-800 flex items-center gap-2">
+                                            <XCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                                            <span className="text-xs font-bold text-red-700 dark:text-red-400 uppercase tracking-wide">Registro do Técnico — Pendência</span>
+                                        </div>
+                                        <div className="px-3 py-2 space-y-1">
+                                            {r.pendingReason ? (
+                                                <p className="text-sm text-red-800 dark:text-red-300">
+                                                    <span className="font-bold">Motivo: </span>{r.pendingReason}
+                                                </p>
+                                            ) : (
+                                                <p className="text-sm text-muted-foreground italic">Motivo não registrado pelo técnico.</p>
+                                            )}
+                                            {r.pendingObservations && (
+                                                <p className="text-sm text-red-800 dark:text-red-300">
+                                                    <span className="font-bold">Observações: </span>{r.pendingObservations}
+                                                </p>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                             </CardContent>

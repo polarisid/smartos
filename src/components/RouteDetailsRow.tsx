@@ -106,10 +106,30 @@ export function RouteDetailsRow({
                                     {stop.firstVisitDate || "Sem data"} {stop.turn ? `- ${stop.turn}` : ''}
                                 </p>
                             </div>
-                            <div>
-                                <p className="font-semibold text-xs mb-1">Status Comment:</p>
-                                <p className="text-sm text-foreground">{stop.statusComment || "N/A"}</p>
-                            </div>
+                            {isPending && (
+                                <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-2 space-y-1">
+                                    <p className="font-semibold text-xs text-red-700 dark:text-red-400 mb-1">Registro do Técnico (Pendência):</p>
+                                    {relatedOs?.pendingReason && (
+                                        <p className="text-sm text-red-800 dark:text-red-300">
+                                            <span className="font-bold">Motivo: </span>{relatedOs.pendingReason}
+                                        </p>
+                                    )}
+                                    {relatedOs?.observations && (
+                                        <p className="text-sm text-red-800 dark:text-red-300">
+                                            <span className="font-bold">Observações: </span>{relatedOs.observations}
+                                        </p>
+                                    )}
+                                    {!relatedOs?.pendingReason && !relatedOs?.observations && (
+                                        <p className="text-sm text-muted-foreground">Nenhuma observação registrada.</p>
+                                    )}
+                                </div>
+                            )}
+                            {stop.statusComment && (
+                                <div>
+                                    <p className="font-semibold text-xs mb-1">Status ASC:</p>
+                                    <p className="text-sm text-foreground">{stop.statusComment}</p>
+                                </div>
+                            )}
                             <div className="border-t pt-2">
                                     <Button size="sm" variant="outline" onClick={handleCopyVisitText}>
                                     <MessageSquare className="mr-2 h-4 w-4" />

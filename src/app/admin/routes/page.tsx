@@ -1086,10 +1086,30 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
                                 <p className="font-semibold text-xs mb-1">Nome Consumidor:</p>
                                 <p className="text-sm text-foreground">{stop.consumerName || "N/A"}</p>
                             </div>
-                            <div>
-                                <p className="font-semibold text-xs mb-1">Status Comment:</p>
-                                <p className="text-sm text-foreground">{stop.statusComment || "N/A"}</p>
-                            </div>
+                            {isPending && (
+                                <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-2 space-y-1">
+                                    <p className="font-semibold text-xs text-red-700 dark:text-red-400 mb-1">Registro do Técnico (Pendência):</p>
+                                    {relatedOs?.pendingReason && (
+                                        <p className="text-sm text-red-800 dark:text-red-300">
+                                            <span className="font-bold">Motivo: </span>{relatedOs.pendingReason}
+                                        </p>
+                                    )}
+                                    {relatedOs?.observations && (
+                                        <p className="text-sm text-red-800 dark:text-red-300">
+                                            <span className="font-bold">Observações: </span>{relatedOs.observations}
+                                        </p>
+                                    )}
+                                    {!relatedOs?.pendingReason && !relatedOs?.observations && (
+                                        <p className="text-sm text-muted-foreground">Nenhuma observação registrada.</p>
+                                    )}
+                                </div>
+                            )}
+                            {stop.statusComment && (
+                                <div>
+                                    <p className="font-semibold text-xs mb-1">Status ASC:</p>
+                                    <p className="text-sm text-foreground">{stop.statusComment}</p>
+                                </div>
+                            )}
                         </div>
                     </TableCell>
                 </tr>
