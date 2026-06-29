@@ -55,48 +55,48 @@ const AdminSidebar = memo(function AdminSidebar({children}: {children: React.Rea
 
     return (
         <SidebarProvider>
-            <Sidebar>
+            <Sidebar className="border-r border-border/40 bg-sidebar/80 backdrop-blur-xl">
                 <SidebarHeader>
-                    <div className="flex items-center gap-2">
-                        <div className="p-2 bg-primary rounded-lg">
-                            <Wrench className="w-6 h-6 text-primary-foreground" />
+                    <div className="flex items-center gap-3 p-2">
+                        <div className="p-2 bg-gradient-to-br from-primary to-primary/70 rounded-xl shadow-lg shadow-primary/20">
+                            <Wrench className="w-5 h-5 text-primary-foreground" />
                         </div>
-                        <h2 className="text-lg font-semibold">Admin Panel</h2>
+                        <h2 className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-foreground to-foreground/70">Admin Panel</h2>
                     </div>
                 </SidebarHeader>
                 <SidebarContent>
                     <SidebarMenu>
                         {NAV_ITEMS.map(({ href, label, Icon, tooltip }) => (
                             <SidebarMenuItem key={href}>
-                                <SidebarMenuButton asChild isActive={isActive(href)} tooltip={tooltip}>
-                                    <Link href={href}><Icon /> <span>{label}</span></Link>
+                                <SidebarMenuButton asChild isActive={isActive(href)} tooltip={tooltip} className="transition-all duration-200 hover:translate-x-1 data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:font-medium rounded-lg mx-2">
+                                    <Link href={href}><Icon className="w-4 h-4" /> <span>{label}</span></Link>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                         ))}
                     </SidebarMenu>
                 </SidebarContent>
                 <SidebarFooter>
-                    <div className="flex items-center justify-between p-2 rounded-lg bg-background/50">
-                        <div className="flex items-center gap-2">
-                            <Avatar className="h-8 w-8">
+                    <div className="flex items-center justify-between p-3 m-2 rounded-xl bg-background/40 backdrop-blur-md border border-border/50 hover:bg-background/60 transition-colors">
+                        <div className="flex items-center gap-3 overflow-hidden">
+                            <Avatar className="h-9 w-9 border-2 border-primary/20">
                                 <AvatarImage src="https://placehold.co/40x40.png" alt="Admin" data-ai-hint="user avatar" />
-                                <AvatarFallback>{appUser?.name?.charAt(0).toUpperCase()}</AvatarFallback>
+                                <AvatarFallback className="bg-primary/10 text-primary font-bold">{appUser?.name?.charAt(0).toUpperCase()}</AvatarFallback>
                             </Avatar>
                             <span className="font-medium text-sm truncate">{appUser?.name || user?.email}</span>
                         </div>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleLogout}>
-                           <LogOut />
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" onClick={handleLogout}>
+                           <LogOut className="w-4 h-4" />
                         </Button>
                     </div>
                 </SidebarFooter>
             </Sidebar>
 
-            <div className="flex-1 flex flex-col">
-                <header className="p-4 border-b flex items-center gap-4 bg-card md:hidden">
+            <div className="flex-1 flex flex-col min-h-screen">
+                <header className="p-4 border-b border-border/40 flex items-center gap-4 bg-card/80 backdrop-blur-xl md:hidden sticky top-0 z-50 shadow-sm">
                     <SidebarTrigger />
-                    <h2 className="text-lg font-semibold">Admin Panel</h2>
+                    <h2 className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-foreground to-foreground/70">Admin Panel</h2>
                 </header>
-                <SidebarInset>{children}</SidebarInset>
+                <SidebarInset className="bg-transparent">{children}</SidebarInset>
             </div>
         </SidebarProvider>
     )

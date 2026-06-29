@@ -1,11 +1,20 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { collection, getDocs, doc, getDoc, query, where, Timestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import type { Technician, ServiceOrder, Return, Chargeback, Preset, Indicator, Route, ChecklistTemplate, CodeCategory, Driver } from "@/lib/data";
 import { startOfYear, startOfMonth, subMonths } from 'date-fns';
+import { technicianService } from "@/services/supabase/technicianService";
+import { serviceOrderService } from "@/services/supabase/serviceOrderService";
+import { driverService } from "@/services/supabase/driverService";
+import { routeService } from "@/services/supabase/routeService";
+import { checklistService } from "@/services/supabase/checklistService";
+import { returnService } from "@/services/supabase/returnService";
+import { chargebackService } from "@/services/supabase/chargebackService";
+import { indicatorService } from "@/services/supabase/indicatorService";
+import { presetService } from "@/services/supabase/presetService";
+import { codeService } from "@/services/supabase/codeService";
+import { configService } from "@/services/supabase/configService";
 
 interface AppDataContextProps {
   symptomCodes: CodeCategory;
@@ -46,68 +55,25 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const fetchDynamicData = async () => {
     try {
-        const now = new Date();
-        const startOfThisYear = startOfYear(now);
-        const startOfRelevantMonths = startOfMonth(subMonths(now, 2));
-
-        const [ordersSnapshot, returnsSnapshot, indicatorsSnapshot, chargebacksSnapshot, activeRoutesSnapshot, checklistsSnapshot, driversSnapshot] = await Promise.all([
-            getDocs(query(collection(db, "serviceOrders"), where("date", ">=", startOfRelevantMonths))),
-            getDocs(query(collection(db, "returns"), where("returnDate", ">=", startOfThisYear))),
-            getDocs(collection(db, "indicators")),
-            getDocs(query(collection(db, "chargebacks"), where("date", ">=", startOfThisYear))),
-            getDocs(query(collection(db, "routes"), where("isActive", "==", true))),
-            getDocs(collection(db, "checklistTemplates")),
-            getDocs(collection(db, "drivers"))
+        const [ordersData, returnsData, indicatorsData, chargebacksData, activeRoutesData, checklistsData, driversData] = await Promise.all([
+            serviceOrderService.getAll(),
+            returnService.getAll(),
+            indicatorService.getAll(),
+            chargebackService.getAll(),
+            routeService.getAll().then(routes => routes.filter(r => r.isActive)),
+            checklistService.getAll(),
+            driverService.getAll()
         ]);
         
-        const orders = ordersSnapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                ...data,
-                date: (data.date as Timestamp).toDate(),
-            } as ServiceOrder;
-        });
-        setServiceOrders(orders);
+        setServiceOrders(ordersData);
 
-        const returnsData = returnsSnapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                ...data,
-                returnDate: (data.returnDate as Timestamp)?.toDate(),
-            } as Return;
-        });
         setReturns(returnsData);
-
-        const chargebacksData = chargebacksSnapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                ...data,
-                date: (data.date as Timestamp).toDate(),
-            } as Chargeback;
-        });
         setChargebacks(chargebacksData);
-        
-        const indicatorsData = indicatorsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Indicator));
         setIndicators(indicatorsData);
 
-        const routesData = activeRoutesSnapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                ...data,
-                createdAt: (data.createdAt as Timestamp)?.toDate(),
-                departureDate: (data.departureDate as Timestamp)?.toDate(),
-                arrivalDate: (data.arrivalDate as Timestamp)?.toDate(),
-            } as Route;
-        });
-        setActiveRoutes(routesData);
-
-        const checklists = checklistsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChecklistTemplate));
-        setChecklistTemplates(checklists);
-        setDrivers(driversSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Driver)));
+        setActiveRoutes(activeRoutesData);
+        setChecklistTemplates(checklistsData);
+        setDrivers(driversData);
         setDataFetchError(false);
 
     } catch (error) {
@@ -121,28 +87,32 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     
     const fetchInitialData = async (): Promise<boolean> => {
         try {
-            const [symptomsDoc, repairsDoc, techsSnapshot, presetsSnapshot, templateDoc] = await Promise.all([
-                getDoc(doc(db, "codes", "symptoms")),
-                getDoc(doc(db, "codes", "repairs")),
-                getDocs(collection(db, "technicians")),
-                getDocs(collection(db, "presets")),
-                getDoc(doc(db, "textTemplates", "visitAnnouncement"))
+            const [
+                symptomsDoc, 
+                repairsDoc, 
+                techsData, 
+                presetsData,
+                templateData
+            ] = await Promise.all([
+                codeService.getSymptoms(),
+                codeService.getRepairs(),
+                technicianService.getAll(),
+                presetService.getAll(),
+                configService.getTextTemplate("visitAnnouncement")
             ]);
 
-            if (symptomsDoc.exists()) setSymptomCodes(symptomsDoc.data() as CodeCategory);
-            if (repairsDoc.exists()) setRepairCodes(repairsDoc.data() as CodeCategory);
+            if (symptomsDoc) setSymptomCodes(symptomsDoc);
+            if (repairsDoc) setRepairCodes(repairsDoc);
             
-            const techs = techsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Technician));
-            setTechnicians(techs);
-            
-            const presetsData = presetsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Preset));
+            setTechnicians(techsData);
             setPresets(presetsData);
 
-            if (templateDoc.exists()) {
-                setVisitTemplate(templateDoc.data().template);
+            if (templateData) {
+                setVisitTemplate(templateData);
             } else {
                 setVisitTemplate(`Olá, bom dia! Somos da assistência técnica autorizada Samsung. Referente ao seu atendimento da ordem de serviço {{serviceOrder}}, para o cliente {{consumerName}} na cidade de {{city}}. Poderia me confirmar a sua localização?`);
             }
+            
             return true;
         } catch (error) {
             console.error("Error fetching initial data:", error);

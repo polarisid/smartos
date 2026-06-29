@@ -21,8 +21,7 @@ import { Label } from "@/components/ui/label";
 import { PlusCircle, Edit, Trash2, Truck } from "lucide-react";
 import { type Driver } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, updateDoc } from "firebase/firestore";
+import { driverService } from "@/services/supabase/driverService";
 
 type FormData = Omit<Driver, 'id'>;
 
@@ -44,8 +43,7 @@ export default function DriversPage() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const driversSnapshot = await getDocs(collection(db, "drivers"));
-      const data = driversSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Driver));
+      const data = await driverService.getAll();
       setDrivers(data);
     } catch (error) {
       console.error("Error fetching drivers:", error);
@@ -80,10 +78,10 @@ export default function DriversPage() {
     setIsSubmitting(true);
     try {
       if (formMode === 'add') {
-        await addDoc(collection(db, "drivers"), formData);
+        await driverService.create(formData);
         toast({ title: "Motorista Cadastrado!" });
       } else if (selectedDriver) {
-        await updateDoc(doc(db, "drivers", selectedDriver.id), formData);
+        await driverService.update(selectedDriver.id, formData);
         toast({ title: "Motorista Atualizado!" });
       }
       
@@ -101,7 +99,7 @@ export default function DriversPage() {
     if (!selectedDriver) return;
     setIsSubmitting(true);
     try {
-      await deleteDoc(doc(db, "drivers", selectedDriver.id));
+      await driverService.remove(selectedDriver.id);
       setDrivers(prev => prev.filter(d => d.id !== selectedDriver.id));
       toast({ title: "Motorista Excluído!" });
       setIsDeleteDialogOpen(false);

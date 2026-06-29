@@ -25,68 +25,63 @@ export function FirebaseSetupPrompt() {
           <span>Configuração do Banco de Dados Necessária</span>
         </CardTitle>
         <CardDescription>
-          Seu aplicativo não está conectado a um banco de dados Firebase. Escolha uma das opções abaixo para configurar.
+          Seu aplicativo não conseguiu carregar os dados. É provável que as tabelas do Supabase não tenham sido criadas ainda.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="new-project">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="new-project">1. Nova Operação</TabsTrigger>
-            <TabsTrigger value="existing-project">2. Usar Projeto Existente</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-1">
+            <TabsTrigger value="new-project">Executar Migrations no Supabase</TabsTrigger>
           </TabsList>
           <TabsContent value="new-project" className="mt-4">
             <Card className="border-green-500/50">
               <CardHeader>
-                <CardTitle>Criar uma Nova Operação (Recomendado)</CardTitle>
+                <CardTitle>Sincronizar o Banco (Push)</CardTitle>
                 <CardDescription>
-                  Ideal para um novo ambiente ou para começar do zero. O assistente criará e configurará um novo projeto Firebase para você.
+                  Você precisa enviar o esquema do banco de dados (migrations) que estão na pasta <code>supabase/migrations</code> para o seu projeto Supabase.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <p className="text-sm mb-4">
-                  Para iniciar a configuração, basta pedir ao assistente:
+              <CardContent className="space-y-4">
+                <p className="text-sm">
+                  1. Abra o terminal na raiz do projeto e faça login no Supabase (se necessário):
                 </p>
                 <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
-                    <code className="text-sm font-semibold">configurar o Firebase</code>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleCopy("configurar o Firebase", "Comando copiado!")}>
+                    <code className="text-sm font-semibold">npx supabase login</code>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleCopy("npx supabase login", "Comando copiado!")}>
                         <Copy className="h-4 w-4" />
                     </Button>
                 </div>
+                
+                <p className="text-sm mt-4">
+                  2. Vincule seu projeto local ao projeto remoto (já pegamos o ID do seu .env.local):
+                </p>
+                <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
+                    <code className="text-sm font-semibold">npx supabase link --project-ref wftrcvrkgyslvmbstkwi</code>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleCopy("npx supabase link --project-ref wftrcvrkgyslvmbstkwi", "Comando copiado!")}>
+                        <Copy className="h-4 w-4" />
+                    </Button>
+                </div>
+
+                <p className="text-sm mt-4">
+                  3. Envie as tabelas para o banco de dados:
+                </p>
+                <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
+                    <code className="text-sm font-semibold">npx supabase db push</code>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleCopy("npx supabase db push", "Comando copiado!")}>
+                        <Copy className="h-4 w-4" />
+                    </Button>
+                </div>
+
+                <Alert className="mt-4">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Atenção</AlertTitle>
+                    <AlertDescription>
+                        Ao rodar o comando <code>link</code>, o Supabase pedirá a senha do seu banco de dados. Após o comando <code>db push</code>, todas as tabelas e políticas de segurança estarão prontas.
+                    </AlertDescription>
+                </Alert>
+
               </CardContent>
             </Card>
-          </TabsContent>
-          <TabsContent value="existing-project" className="mt-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Conectar a um Projeto Existente</CardTitle>
-                  <CardDescription>
-                    Se você já possui um projeto Firebase (ex: um clone da operação original) e deseja usá-lo, informe o ID do projeto ao assistente.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="projectId">ID do Projeto Firebase</Label>
-                        <Input id="projectId" placeholder="seu-id-de-projeto-aqui" disabled />
-                        <p className="text-xs text-muted-foreground">Você pode encontrar o ID do Projeto nas configurações do seu projeto no Console do Firebase.</p>
-                    </div>
-                     <p className="text-sm">
-                        Para conectar, peça ao assistente (substituindo o texto em colchetes):
-                    </p>
-                     <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
-                        <code className="text-sm font-semibold">conectar ao projeto [ID do seu projeto]</code>
-                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleCopy("conectar ao projeto [ID do seu projeto]", "Comando copiado!")}>
-                            <Copy className="h-4 w-4" />
-                        </Button>
-                    </div>
-                     <Alert className="mt-4">
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertTitle>Atenção</AlertTitle>
-                        <AlertDescription>
-                            Esta opção <strong>não</strong> clona os dados do banco de dados. Ela apenas conecta a aplicação a um projeto Firebase já existente. A clonagem de dados deve ser feita manually através do Console do Firebase (Importar/Exportar).
-                        </AlertDescription>
-                    </Alert>
-                </CardContent>
-              </Card>
           </TabsContent>
         </Tabs>
       </CardContent>

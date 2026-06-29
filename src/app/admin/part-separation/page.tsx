@@ -11,9 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { subDays } from "date-fns";
-import { db } from "@/lib/firebase";
-import { type Route, type RouteStop, type RoutePart, type ServiceOrder } from "@/lib/data";
-import { collection, doc, getDocs, query, setDoc, Timestamp, orderBy, getDoc, where } from "firebase/firestore";
+import { routeService } from "@/services/supabase/routeService";
+import { type Route, type RouteStop, type RoutePart, type Technician, type ServiceOrder } from "@/lib/data";
+import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { Printer, Smartphone, Table as TableIcon, Activity, CheckCircle2, AlertCircle, FileBarChart2, Search, ChevronDown, PackageSearch, Save, FileDown, CheckCircle, ScanLine, Copy, Loader2, Route as RouteIcon, XCircle } from "lucide-react";
 import { useAppData } from "@/context/AppDataContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -384,7 +384,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
 
             const usedParts: { [partCode: string]: { count: number; osNumbers: string[] } } = {};
             const routeStopOSNumbers = new Set(route.stops.map(s => s.serviceOrder));
-            const createdAtDate = route.createdAt instanceof Timestamp ? route.createdAt.toDate() : route.createdAt;
+            const createdAtDate = new Date(route.createdAt);
 
             serviceOrders.forEach(os => {
                 if (
@@ -461,7 +461,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
             doc.setFontSize(16);
             doc.text(`Resumo de Utilização de Peças - Rota: ${route.name}`, 14, 20);
             
-            const createdAtDate = route.createdAt instanceof Timestamp ? route.createdAt.toDate() : route.createdAt;
+            const createdAtDate = new Date(route.createdAt);
             if (createdAtDate) {
                 doc.setFontSize(10);
                 doc.text(`Data da Rota: ${createdAtDate.toLocaleDateString('pt-BR')}`, 14, 26);
@@ -596,21 +596,12 @@ function OsRouteSearch() {
 
         try {
             // Busca todas as rotas (ativas e finalizadas) que contenham a OS no campo stops
-            const routesSnapshot = await getDocs(collection(db, "routes"));
+            const routesSnapshot = await routeService.getAll();
 
             const found: { route: Route; stop: RouteStop; osStatus: string; usedPartsSet: Set<string> }[] = [];
             const term = searchTerm.trim().toLowerCase();
 
-            routesSnapshot.forEach(docSnap => {
-                const data = docSnap.data();
-                const toDate = (ts: any) => ts instanceof Timestamp ? ts.toDate() : ts;
-                const route = {
-                    id: docSnap.id,
-                    ...data,
-                    createdAt: toDate(data.createdAt),
-                    departureDate: toDate(data.departureDate),
-                    arrivalDate: toDate(data.arrivalDate),
-                } as Route;
+            routesSnapshot.forEach(route => {
 
                 (route.stops || []).forEach(stop => {
                     const matchesPart = (stop.parts || []).some(
@@ -633,18 +624,12 @@ function OsRouteSearch() {
             // Agora busca os dados reais das OS para obter o status correto
             if (found.length > 0) {
                 const osNumbers = [...new Set(found.map(f => f.stop.serviceOrder))];
-                const ordersQuery = query(
-                    collection(db, "serviceOrders"),
-                    where("serviceOrderNumber", "in", osNumbers.slice(0, 10))
-                );
-                const ordersSnapshot = await getDocs(ordersQuery);
+                const ordersSnapshot = await serviceOrderService.getByNumbers(osNumbers);
 
                 // Guardar TODAS as ServiceOrders por número (pode haver múltiplas para o mesmo número em rotas diferentes)
                 const osListMap = new Map<string, ServiceOrder[]>();
-                ordersSnapshot.forEach(d => {
-                    const os = d.data() as ServiceOrder;
-                    const osDate = os.date instanceof Timestamp ? os.date.toDate() : os.date;
-                    const normalized = { ...os, date: osDate } as ServiceOrder;
+                ordersSnapshot.forEach(os => {
+                    const normalized = { ...os } as ServiceOrder;
                     if (!osListMap.has(os.serviceOrderNumber)) {
                         osListMap.set(os.serviceOrderNumber, []);
                     }
@@ -655,9 +640,7 @@ function OsRouteSearch() {
                 // Mapa: osNumber -> rotas ordenadas por createdAt ASC
                 const osRouteTimeline = new Map<string, { routeDate: Date; isActive: boolean }[]>();
                 found.forEach(f => {
-                    const routeDate = f.route.createdAt instanceof Timestamp
-                        ? f.route.createdAt.toDate()
-                        : f.route.createdAt instanceof Date ? f.route.createdAt : null;
+                    const routeDate = f.route.createdAt instanceof Date ? f.route.createdAt : null;
                     if (!routeDate) return;
                     if (!osRouteTimeline.has(f.stop.serviceOrder)) {
                         osRouteTimeline.set(f.stop.serviceOrder, []);
@@ -669,9 +652,7 @@ function OsRouteSearch() {
 
                 // Para cada resultado, encontrar a ServiceOrder dentro da janela correta
                 const enriched = found.map(f => {
-                    const routeDate = f.route.createdAt instanceof Timestamp
-                        ? f.route.createdAt.toDate()
-                        : f.route.createdAt instanceof Date ? f.route.createdAt : null;
+                    const routeDate = new Date(f.route.createdAt);
 
                     // Calcular o limite superior da janela:
                     // Se a rota está ATIVA → sem limite (aceita qualquer OS após createdAt)
@@ -948,26 +929,10 @@ export default function PartSeparationPage() {
     const fetchAllData = async () => {
         setIsLoading(true);
         try {
+            const routesData = await routeService.getAll();
             const cutoff30Days = subDays(new Date(), 30);
-            // Only fetch routes from last 30 days (active ones come from context)
-            const routesSnapshot = await getDocs(query(
-                collection(db, "routes"),
-                where("createdAt", ">=", cutoff30Days),
-                orderBy("createdAt", "desc")
-            ));
-
-            const routesData = routesSnapshot.docs.map(doc => {
-                const data = doc.data();
-                const toDate = (ts: any) => ts instanceof Timestamp ? ts.toDate() : ts;
-                return {
-                    id: doc.id,
-                    ...data,
-                    createdAt: toDate(data.createdAt),
-                    departureDate: toDate(data.departureDate),
-                    arrivalDate: toDate(data.arrivalDate),
-                } as Route;
-            });
-            setAllRoutes(routesData);
+            const recentRoutes = routesData.filter(r => r.createdAt >= cutoff30Days);
+            setAllRoutes(recentRoutes);
             
 
             const initialTrackingCodes: typeof trackingCodes = {};
@@ -1029,12 +994,11 @@ export default function PartSeparationPage() {
     const handleSavePartTrackingCode = async (routeId: string, stopServiceOrder: string, partToUpdate: RoutePart) => {
         setIsSubmitting(true);
         try {
-            const routeDocRef = doc(db, "routes", routeId);
-            const routeDoc = await getDoc(routeDocRef);
-            if (!routeDoc.exists()) {
+            const routeData = await routeService.getById(routeId);
+            if (!routeData) {
                 throw new Error("Rota não encontrada");
             }
-            const routeData = routeDoc.data() as Route;
+            const currentStops = routeData.stops || [];
             
             const updatedStops = routeData.stops.map(stop => {
                 if (stop.serviceOrder === stopServiceOrder) {
@@ -1050,7 +1014,7 @@ export default function PartSeparationPage() {
                 return stop;
             });
 
-            await setDoc(routeDocRef, { stops: updatedStops }, { merge: true });
+            await routeService.update(routeId, { stops: updatedStops });
             
             // Update state locally instead of refetching
             setAllRoutes(prevRoutes => prevRoutes.map(route => 
@@ -1085,7 +1049,7 @@ export default function PartSeparationPage() {
                 })),
             }));
             
-            await setDoc(doc(db, "routes", routeId), { stops: updatedStops }, { merge: true });
+            await routeService.update(routeId, { stops: updatedStops });
 
             toast({ title: "Códigos de rastreio salvos!", description: `As informações para a rota ${routeToUpdate.name} foram atualizadas.` });
             await fetchAllData(); // Refresh data from db
@@ -1103,7 +1067,7 @@ export default function PartSeparationPage() {
         doc.setFontSize(16);
         doc.text(`Extrato de Peças - Rota: ${route.name}`, 14, 20);
         doc.setFontSize(10);
-        const createdAtDate = route.createdAt instanceof Date ? route.createdAt : (route.createdAt as unknown as Timestamp).toDate();
+        const createdAtDate = new Date(route.createdAt);
         doc.text(`Data de Criação: ${createdAtDate.toLocaleDateString('pt-BR')}`, 14, 26);
 
         type Row = any[];

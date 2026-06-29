@@ -20,11 +20,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PlusCircle, Edit, Trash2, Bookmark, Save, Webhook } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { db } from "@/lib/firebase";
-import { collection, doc, getDoc, setDoc, addDoc, deleteDoc } from "firebase/firestore";
+import { configService } from "@/services/supabase/configService";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { type Preset } from "@/lib/data";
+import { presetService } from "@/services/supabase/presetService";
 import { useAppData } from "@/context/AppDataContext";
 
 type CodeItem = { code: string; description: string; };
@@ -44,9 +44,9 @@ function WebhookManagement() {
         const fetchWebhookConfig = async () => {
             setIsLoading(true);
             try {
-                const configDoc = await getDoc(doc(db, "configs", "webhook"));
-                if (configDoc.exists()) {
-                    setWebhookUrl(configDoc.data().url || '');
+                const url = await configService.getWebhookUrl();
+                if (url) {
+                    setWebhookUrl(url);
                 }
             } catch (error) {
                 console.error("Error fetching webhook config:", error);
@@ -61,7 +61,7 @@ function WebhookManagement() {
     const handleSaveWebhook = async () => {
         setIsSubmitting(true);
         try {
-            await setDoc(doc(db, "configs", "webhook"), { url: webhookUrl });
+            await configService.setWebhookUrl(webhookUrl);
             toast({ title: "Configuração do Webhook salva!" });
         } catch (error) {
             console.error("Error saving webhook config:", error);
@@ -179,12 +179,11 @@ export default function PresetsPage() {
         setIsSubmitting(true);
         try {
             if (dialogMode === 'add') {
-                const docRef = await addDoc(collection(db, "presets"), formData);
-                setPresets(prev => [...prev, { id: docRef.id, ...formData }]);
+                const newDocId = await presetService.create(formData as Omit<Preset, 'id'>);
+                setPresets(prev => [...prev, { id: newDocId, ...formData }]);
                 toast({ title: "Preset criado com sucesso!" });
             } else if (selectedPreset) {
-                const presetRef = doc(db, "presets", selectedPreset.id);
-                await setDoc(presetRef, formData, { merge: true });
+                await presetService.update(selectedPreset.id, formData as Partial<Preset>);
                 setPresets(prev => prev.map(p => p.id === selectedPreset.id ? { id: selectedPreset.id, ...formData } : p));
                 toast({ title: "Preset atualizado com sucesso!" });
             }
@@ -201,7 +200,7 @@ export default function PresetsPage() {
         if (!selectedPreset) return;
         setIsSubmitting(true);
         try {
-            await deleteDoc(doc(db, "presets", selectedPreset.id));
+            await presetService.remove(selectedPreset.id);
             setPresets(prev => prev.filter(p => p.id !== selectedPreset.id));
             toast({ title: "Preset excluído com sucesso!" });
             setIsDeleteDialogOpen(false);
@@ -217,7 +216,7 @@ export default function PresetsPage() {
     const handleSaveTemplate = async () => {
         setIsSubmitting(true);
         try {
-            await setDoc(doc(db, "textTemplates", "visitAnnouncement"), { template: visitTemplate });
+            await configService.setTextTemplate("visitAnnouncement", visitTemplate);
             toast({ title: "Modelo de texto salvo com sucesso!" });
         } catch (error) {
             console.error("Error saving text template:", error);

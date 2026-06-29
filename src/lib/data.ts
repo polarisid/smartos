@@ -1,6 +1,5 @@
 
 
-import { type Timestamp } from "firebase/firestore";
 
 export type AppUser = {
   uid: string;
@@ -69,7 +68,7 @@ export type CounterBudget = {
   id: string;
   technicianId: string;
   technicianName: string;
-  date: Timestamp | Date;
+  date: Date;
   
   // Customer info
   customerName: string;
@@ -196,11 +195,11 @@ export type Route = {
     id: string;
     name: string;
     stops: RouteStop[];
-    createdAt: Timestamp | Date;
+    createdAt: Date;
     isActive: boolean;
     isCanceled?: boolean;
-    departureDate?: Timestamp | Date;
-    arrivalDate?: Timestamp | Date;
+    departureDate?: Date;
+    arrivalDate?: Date;
     routeType?: 'capital' | 'interior';
     licensePlate?: string;
     technicianId?: string;
@@ -213,10 +212,12 @@ export type Route = {
 export type ChecklistField = {
   id: string;
   name: string;
-  type: 'text' | 'checkbox';
+  type: 'text' | 'checkbox' | 'signature';
   page: number;
   x: number;
   y: number;
+  width?: number;
+  height?: number;
   variableKey?: string;
 }
 
@@ -300,8 +301,8 @@ export type TriageSession = {
   productModel: string;
   productLine?: string;
   status: 'em_andamento' | 'concluido';
-  createdAt: Date | Timestamp;
-  updatedAt: Date | Timestamp;
+  createdAt: Date;
+  updatedAt: Date;
   messages: TriageChatMessage[];
   finalDiagnosis?: string;
   suggestedParts?: string[];
@@ -317,5 +318,5 @@ export type KnowledgeDocument = {
   content: string;
   productLine?: string;
   productFamily: string; // e.g. "TV", "Refrigerador", or specific model
-  createdAt: Date | Timestamp;
+  createdAt: Date;
 };

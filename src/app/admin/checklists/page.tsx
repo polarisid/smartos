@@ -35,8 +35,8 @@ import { Label } from "@/components/ui/label";
 import { ClipboardList, PlusCircle, Edit, Trash2, TestTube2, FileDown, Copy, Store, HardHat } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type ChecklistTemplate, type ChecklistField } from "@/lib/data";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, addDoc, doc, deleteDoc, setDoc, getDoc } from "firebase/firestore";
+
+import { checklistService } from "@/services/supabase/checklistService";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
@@ -59,11 +59,9 @@ function TestChecklistDialog({ template }: { template: ChecklistTemplate | null 
         if (isDialogOpen && template) {
             // Fetch fields when dialog opens
             const fetchFields = async () => {
-                const docRef = doc(db, 'checklistTemplates', template.id);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data() as ChecklistTemplate;
-                    const initialFields = (data.fields || []).map(f => ({
+                const data = await checklistService.getById(template.id);
+                if (data) {
+                    const initialFields = (data.fields || []).map((f: any) => ({
                         ...f,
                         x: f.x || 50,
                         y: f.y || 50
@@ -222,8 +220,7 @@ export default function ChecklistsPage() {
         const fetchTemplates = async () => {
             setIsLoading(true);
             try {
-                const snapshot = await getDocs(collection(db, "checklistTemplates"));
-                const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChecklistTemplate));
+                const data = await checklistService.getAll();
                 setTemplates(data);
             } catch (error) {
                 console.error("Error fetching checklist templates:", error);
@@ -273,15 +270,14 @@ export default function ChecklistsPage() {
                     type: formData.type,
                     fields: [] 
                 };
-                const newDocRef = await addDoc(collection(db, "checklistTemplates"), docData);
+                const newDocId = await checklistService.create(docData as Omit<ChecklistTemplate, 'id'>);
 
-                setTemplates(prev => [...prev, { id: newDocRef.id, ...docData }]);
+                setTemplates(prev => [...prev, { id: newDocId, ...docData }]);
                 toast({ title: "Modelo salvo com sucesso!", description: "O novo modelo de checklist foi adicionado."});
 
             } else if (selectedTemplate) {
-                 const docRef = doc(db, "checklistTemplates", selectedTemplate.id);
                  const updatedData = { ...selectedTemplate, name: formData.name, pdfUrl: formData.pdfUrl, type: formData.type };
-                 await setDoc(docRef, { name: formData.name, pdfUrl: formData.pdfUrl, type: formData.type }, { merge: true });
+                 await checklistService.update(selectedTemplate.id, { name: formData.name, pdfUrl: formData.pdfUrl, type: formData.type });
                  setTemplates(prev => prev.map(t => t.id === selectedTemplate.id ? updatedData : t));
                  toast({ title: "Modelo atualizado!", description: "Os dados do modelo foram alterados." });
             }
@@ -298,7 +294,7 @@ export default function ChecklistsPage() {
         if (!selectedTemplate) return;
         setIsSubmitting(true);
         try {
-            await deleteDoc(doc(db, "checklistTemplates", selectedTemplate.id));
+            await checklistService.remove(selectedTemplate.id);
             
             setTemplates(prev => prev.filter(t => t.id !== selectedTemplate.id));
             toast({ title: "Modelo excluído", description: `O modelo "${selectedTemplate.name}" foi excluído com sucesso.` });
@@ -321,8 +317,8 @@ export default function ChecklistsPage() {
                 fields: template.fields || [],
                 type: template.type || 'field',
             };
-            const newDocRef = await addDoc(collection(db, "checklistTemplates"), docData);
-            setTemplates(prev => [...prev, { id: newDocRef.id, ...docData }]);
+            const newDocId = await checklistService.create(docData as Omit<ChecklistTemplate, 'id'>);
+            setTemplates(prev => [...prev, { id: newDocId, ...docData }]);
             toast({ title: "Modelo duplicado com sucesso!" });
         } catch (error) {
             console.error("Error duplicating template:", error);

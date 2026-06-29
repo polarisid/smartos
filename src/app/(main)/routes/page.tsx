@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Timestamp } from "firebase/firestore";
 import { format, differenceInDays, isAfter } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useAppData } from "@/context/AppDataContext";
@@ -61,23 +60,17 @@ export default function RoutesPage() {
         toast({ title: "Ordem desbloqueada", description: `A OS ${serviceOrder} foi removida da lista de bloqueios.` });
     };
 
-    const isStopCompleted = (stop: RouteStop, routeCreatedAt: Date | Timestamp) => {
-        const createdAt = routeCreatedAt instanceof Timestamp ? routeCreatedAt.toDate() : routeCreatedAt;
-        const relatedOs = serviceOrders.filter(os =>
-            os.serviceOrderNumber === stop.serviceOrder &&
-            isAfter(os.date, createdAt)
-        );
-        const lastOs = relatedOs.length > 0 ? relatedOs[relatedOs.length - 1] : null;
+    const isStopCompleted = (stop: RouteStop) => {
+        const relatedOs = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder);
+        relatedOs.sort((a, b) => b.date.getTime() - a.date.getTime());
+        const lastOs = relatedOs.length > 0 ? relatedOs[0] : null;
         return lastOs ? lastOs.isFinalized !== false : false;
     };
 
-    const isStopPending = (stop: RouteStop, routeCreatedAt: Date | Timestamp) => {
-        const createdAt = routeCreatedAt instanceof Timestamp ? routeCreatedAt.toDate() : routeCreatedAt;
-        const relatedOs = serviceOrders.filter(os =>
-            os.serviceOrderNumber === stop.serviceOrder &&
-            isAfter(os.date, createdAt)
-        );
-        const lastOs = relatedOs.length > 0 ? relatedOs[relatedOs.length - 1] : null;
+    const isStopPending = (stop: RouteStop) => {
+        const relatedOs = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder);
+        relatedOs.sort((a, b) => b.date.getTime() - a.date.getTime());
+        const lastOs = relatedOs.length > 0 ? relatedOs[0] : null;
         return lastOs ? lastOs.isFinalized === false : false;
     };
     const displayedRoutes = useMemo(() => {
@@ -131,21 +124,17 @@ export default function RoutesPage() {
             <h2 className="text-2xl font-bold tracking-tight">Rotas Ativas da Equipe</h2>
 
             {displayedRoutes.map(route => {
-                const departure = route.departureDate ? (route.departureDate instanceof Timestamp ? route.departureDate.toDate() : route.departureDate) : new Date();
-                const arrival = route.arrivalDate ? (route.arrivalDate instanceof Timestamp ? route.arrivalDate.toDate() : route.arrivalDate) : new Date();
+                const departure = route.departureDate ? route.departureDate : new Date();
+                const arrival = route.arrivalDate ? route.arrivalDate : new Date();
                 const duration = differenceInDays(arrival, departure) + 1;
 
                 const totalStops = route.stops.length;
-                const completedStopsCount = route.stops.filter(stop =>
-                    serviceOrders.some(os =>
-                        os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt as Date)
-                    )
-                ).length;
+                const completedStopsCount = route.stops.filter(stop => isStopCompleted(stop)).length;
                 const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
 
                 const filteredStops = route.stops || [];
                 const filteredCount = filteredStops.length;
-                const pendingCount = route.stops.filter(s => !isStopCompleted(s, route.createdAt as Date | Timestamp)).length;
+                const pendingCount = route.stops.filter(s => !isStopCompleted(s)).length;
                 const doneCount = completedStopsCount;
 
                 return (

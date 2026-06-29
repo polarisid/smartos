@@ -21,9 +21,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Edit, Trash2, Users, PlusCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { type AppUser } from "@/lib/data";
+import { userService } from "@/services/supabase/userService";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/context/AuthContext";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -55,8 +54,7 @@ export default function UsersPage() {
     const fetchUsers = async () => {
         setIsLoading(true);
         try {
-            const usersSnapshot = await getDocs(collection(db, "users"));
-            const usersData = usersSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as AppUser));
+            const usersData = await userService.getAll();
             setUsers(usersData);
         } catch (error) {
             console.error("Error fetching users:", error);
@@ -91,8 +89,7 @@ export default function UsersPage() {
         if (!selectedUser) return;
         setIsSubmitting(true);
         try {
-            const userRef = doc(db, "users", selectedUser.uid);
-            await updateDoc(userRef, { role: newRole });
+            await userService.update(selectedUser.uid, { role: newRole });
             
             setUsers(prev => prev.map(u => u.uid === selectedUser.uid ? { ...u, role: newRole } : u));
             toast({ title: "Função atualizada com sucesso!" });
@@ -111,7 +108,7 @@ export default function UsersPage() {
         try {
             // This just deletes the Firestore document, not the Auth user.
             // For a full user deletion, you would need a Cloud Function.
-            await deleteDoc(doc(db, "users", selectedUser.uid));
+            await userService.remove(selectedUser.uid);
             
             setUsers(prev => prev.filter(u => u.uid !== selectedUser.uid));
             toast({ title: "Usuário removido com sucesso.", description: "O acesso do usuário foi removido, mas a conta de login ainda existe." });

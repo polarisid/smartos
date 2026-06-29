@@ -21,9 +21,9 @@ import { Label } from "@/components/ui/label";
 import { PlusCircle, Edit, Divide, Trash2, User, UserCog } from "lucide-react";
 import { type Technician, type AppUser } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, setDoc, addDoc, deleteDoc, writeBatch, query, where, updateDoc } from "firebase/firestore";
+import { userService } from "@/services/supabase/userService";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { technicianService } from "@/services/supabase/technicianService";
 
 type EnrichedTechnician = Technician & { role?: AppUser['role'] };
 type FormDataType = Partial<Omit<Technician, 'id' | 'goal'>> & { userId?: string };
@@ -54,16 +54,13 @@ export default function TechniciansPage() {
   const fetchData = async () => {
       setIsLoading(true);
       try {
-          const [techsSnapshot, usersSnapshot] = await Promise.all([
-            getDocs(collection(db, "technicians")),
-            getDocs(collection(db, "users"))
+          const [techsData, users] = await Promise.all([
+            technicianService.getAll(),
+            userService.getAll()
           ]);
-          
-          const users = usersSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as AppUser));
           const usersMap = new Map(users.map(u => [u.uid, u]));
 
-          const techs = techsSnapshot.docs.map(doc => {
-            const techData = { id: doc.id, ...doc.data() } as Technician;
+          const techs = techsData.map(techData => {
             const user = usersMap.get(techData.id);
             return {
               ...techData,
@@ -120,8 +117,7 @@ export default function TechniciansPage() {
     const newGoal = parseFloat(goalValue) || 0;
     
     try {
-      const techRef = doc(db, "technicians", selectedTech.id);
-      await setDoc(techRef, { goal: newGoal }, { merge: true });
+      await technicianService.update(selectedTech.id, { goal: newGoal });
 
       setTechnicians(currentTechs =>
         currentTechs.map(t =>
@@ -164,9 +160,9 @@ export default function TechniciansPage() {
         };
 
         if (formData.userId && formData.userId !== 'none') {
-          await setDoc(doc(db, "technicians", formData.userId), newTechData);
+          await technicianService.create(newTechData as Omit<Technician, 'id'>, formData.userId);
         } else {
-          await addDoc(collection(db, "technicians"), newTechData);
+          await technicianService.create(newTechData as Omit<Technician, 'id'>);
         }
         toast({ title: "Técnico Cadastrado!", description: `O técnico ${newTechData.name} foi adicionado com sucesso.` });
 
@@ -175,8 +171,7 @@ export default function TechniciansPage() {
             name: formData.name.trim(),
             phone: formData.phone || '',
         };
-        const techRef = doc(db, "technicians", selectedTech.id);
-        await updateDoc(techRef, updatedData);
+        await technicianService.update(selectedTech.id, updatedData);
         toast({ title: "Técnico Atualizado!", description: "Os dados do técnico foram atualizados."});
       }
       
@@ -214,12 +209,8 @@ export default function TechniciansPage() {
     const goalPerTechnician = totalGoal / technicians.length;
     
     try {
-      const batch = writeBatch(db);
-      technicians.forEach(tech => {
-        const techRef = doc(db, "technicians", tech.id);
-        batch.update(techRef, { goal: goalPerTechnician });
-      });
-      await batch.commit();
+      const updates = technicians.map(tech => ({ id: tech.id, data: { goal: goalPerTechnician } }));
+      await technicianService.updateBatch(updates);
       
       const updatedTechs = technicians.map(t => ({ ...t, goal: goalPerTechnician }));
       setTechnicians(updatedTechs);
@@ -242,7 +233,7 @@ export default function TechniciansPage() {
     setIsSubmitting(true);
 
     try {
-      await deleteDoc(doc(db, "technicians", selectedTech.id));
+      await technicianService.remove(selectedTech.id);
 
       setTechnicians(currentTechs => currentTechs.filter(t => t.id !== selectedTech.id));
       await fetchData(); // Refetch to update available users

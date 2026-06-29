@@ -40,18 +40,10 @@ export default function AdminLoginPage() {
       router.push("/admin/dashboard");
     } catch (err: any) {
       let errorMessage = "Ocorreu um erro desconhecido.";
-      switch (err.code) {
-        case 'auth/user-not-found':
-        case 'auth/wrong-password':
-        case 'auth/invalid-credential':
+      if (err.message === "Invalid login credentials") {
           errorMessage = 'Email ou senha inválidos.';
-          break;
-        case 'auth/invalid-email':
-          errorMessage = 'O formato do email é inválido.';
-          break;
-        default:
-          errorMessage = 'Falha no login. Por favor, tente novamente.';
-          break;
+      } else if (err.message) {
+          errorMessage = err.message;
       }
       setError(errorMessage);
     } finally {

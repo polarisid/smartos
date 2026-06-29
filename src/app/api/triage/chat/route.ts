@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
+import { supabase } from '@/lib/supabase';
 
 const apiKey = process.env.GEMINI_API_KEY;
 
@@ -17,19 +16,20 @@ export async function POST(req: Request) {
     const ai = new GoogleGenAI({ apiKey });
 
     // Fetch related knowledge base documents
-    const kbSnapshot = await getDocs(collection(db, "knowledgeBase_rules"));
+    const { data: kbSnapshot, error: kbError } = await supabase.from('knowledge_base_rules').select('*');
     let knowledgeBase = "BOLETINS TÉCNICOS SAMSUMG:\n";
-    kbSnapshot.docs.forEach(doc => {
-      const data = doc.data();
-      // Only append if it's general, if the product lines match, or if the specific target model matches
-      const isGeneralLine = !data.productLine || data.productLine === 'Geral';
-      const matchesLine = productLine && data.productLine === productLine;
-      const matchesModel = data.productFamily && productModel.toLowerCase().includes(data.productFamily.toLowerCase());
-      
-      if (isGeneralLine || matchesLine || matchesModel) {
-          knowledgeBase += `\n[${data.title}]:\n${data.content}\n`;
-      }
-    });
+    if (!kbError && kbSnapshot) {
+      kbSnapshot.forEach(data => {
+        // Only append if it's general, if the product lines match, or if the specific target model matches
+        const isGeneralLine = !data.product_line || data.product_line === 'Geral';
+        const matchesLine = productLine && data.product_line === productLine;
+        const matchesModel = data.product_family && productModel.toLowerCase().includes(data.product_family.toLowerCase());
+        
+        if (isGeneralLine || matchesLine || matchesModel) {
+            knowledgeBase += `\n[${data.title}]:\n${data.content}\n`;
+        }
+      });
+    }
 
     // Prepare system instructions
     const systemPrompt = `
@@ -98,19 +98,17 @@ export async function POST(req: Request) {
 
     // Track API Custom Quota
     try {
-        const statsRef = doc(db, 'system_stats', 'gemini_api');
-        const statsSnap = await getDoc(statsRef);
         const todayStr = new Date().toISOString().split('T')[0];
+        const { data: statsData } = await supabase.from('system_stats').select('*').eq('id', 'gemini_api').single();
         
-        if (statsSnap.exists()) {
-            const data = statsSnap.data();
-            if (data.date === todayStr) {
-                await setDoc(statsRef, { dailyRequests: (data.dailyRequests || 0) + 1, date: todayStr }, { merge: true });
+        if (statsData) {
+            if (statsData.date === todayStr) {
+                await supabase.from('system_stats').update({ daily_requests: (statsData.daily_requests || 0) + 1, date: todayStr }).eq('id', 'gemini_api');
             } else {
-                await setDoc(statsRef, { dailyRequests: 1, date: todayStr }, { merge: true });
+                await supabase.from('system_stats').update({ daily_requests: 1, date: todayStr }).eq('id', 'gemini_api');
             }
         } else {
-            await setDoc(statsRef, { dailyRequests: 1, date: todayStr });
+            await supabase.from('system_stats').insert({ id: 'gemini_api', daily_requests: 1, date: todayStr });
         }
     } catch (metricError) {
         console.error("Failed to update API metrics", metricError);

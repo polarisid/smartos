@@ -37,8 +37,7 @@ import {
     SelectValue 
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, getDoc, setDoc } from "firebase/firestore";
+import { codeService } from "@/services/supabase/codeService";
 
 type CodeItem = { code: string; description: string; };
 type CodeCategory = { "TV/AV": CodeItem[]; "DA": CodeItem[]; };
@@ -131,53 +130,6 @@ function ImportDialog({ onImport, isSubmitting }: { onImport: (file: File) => vo
     )
 }
 
-function FirestoreConnectionTest() {
-    const [status, setStatus] = useState<"pending" | "success" | "error">("pending");
-    const [errorMsg, setErrorMsg] = useState("");
-
-    useEffect(() => {
-        const testConnection = async () => {
-            try {
-                // Use a non-essential collection for testing to avoid costs/errors on non-existing collections.
-                await getDocs(collection(db, "test-connection"));
-                setStatus("success");
-            } catch (error: any) {
-                console.error("Firestore connection failed:", error);
-                setStatus("error");
-                setErrorMsg(error.message);
-            }
-        };
-
-        testConnection();
-    }, []);
-
-    return (
-        <Card>
-            <CardHeader>
-                <CardTitle>Teste de Conexão com Firestore</CardTitle>
-                <CardDescription>Verificando o status da conexão com o banco de dados.</CardDescription>
-            </CardHeader>
-            <CardContent>
-                {status === "pending" && <p className="flex items-center text-muted-foreground">Testando conexão...</p>}
-                {status === "success" && (
-                    <div className="flex items-center gap-2 text-green-600">
-                        <Wifi className="h-5 w-5" />
-                        <p className="font-semibold">Conexão com Firestore estabelecida com sucesso!</p>
-                    </div>
-                )}
-                {status === "error" && (
-                    <div className="flex flex-col gap-2 text-destructive">
-                         <div className="flex items-center gap-2">
-                             <WifiOff className="h-5 w-5" />
-                             <p className="font-semibold">Falha na conexão com o Firestore.</p>
-                        </div>
-                        <p className="text-xs font-mono bg-muted p-2 rounded">{errorMsg}</p>
-                    </div>
-                )}
-            </CardContent>
-        </Card>
-    );
-}
 
 export default function CodesPage() {
     const { toast } = useToast();
@@ -197,13 +149,13 @@ export default function CodesPage() {
         const fetchData = async () => {
             setIsLoading(true);
             try {
-                const symptomsDoc = await getDoc(doc(db, "codes", "symptoms"));
-                if (symptomsDoc.exists()) {
-                    setSymptoms(symptomsDoc.data() as CodeCategory);
+                const symptomsDoc = await codeService.getSymptoms();
+                if (symptomsDoc) {
+                    setSymptoms(symptomsDoc);
                 }
-                const repairsDoc = await getDoc(doc(db, "codes", "repairs"));
-                if (repairsDoc.exists()) {
-                    setRepairs(repairsDoc.data() as CodeCategory);
+                const repairsDoc = await codeService.getRepairs();
+                if (repairsDoc) {
+                    setRepairs(repairsDoc);
                 }
             } catch (error) {
                 console.error("Error fetching codes:", error);
@@ -276,7 +228,11 @@ export default function CodesPage() {
         }
 
         try {
-            await setDoc(doc(db, "codes", type), updatedState);
+            if (dialogMode === 'add') {
+                await codeService.create({ code, description, type, category });
+            } else if (currentItem) {
+                await codeService.update(currentItem.data.code, type, category, { code, description, type, category });
+            }
             stateUpdater(updatedState);
             toast({ title: `Código ${dialogMode === 'add' ? 'cadastrado' : 'atualizado'} com sucesso!` });
             setIsFormDialogOpen(false);
@@ -300,7 +256,7 @@ export default function CodesPage() {
         const updatedState = { ...currentState, [category as keyof typeof currentState]: updatedCategoryData };
 
         try {
-            await setDoc(doc(db, "codes", type), updatedState);
+            await codeService.remove(data.code, type, category);
             stateUpdater(updatedState);
             toast({ title: "Código excluído com sucesso!" });
             setIsDeleteDialogOpen(false);
@@ -331,6 +287,8 @@ export default function CodesPage() {
               let importedCount = 0;
               let skippedCount = 0;
 
+              const itemsToInsert: { code: string; description: string; type: string; category: string }[] = [];
+
               json.forEach(row => {
                   const { tipo, categoria, codigo, descricao } = row;
                   if (!tipo || !categoria || !codigo || !descricao) return;
@@ -343,6 +301,7 @@ export default function CodesPage() {
                       if (tipo.toLowerCase() === 'sintoma') {
                           if (!newSymptoms[targetCategory].some(c => c.code === code)) {
                              newSymptoms[targetCategory].push(item);
+                             itemsToInsert.push({ code, description: descricao, type: 'symptom', category: targetCategory });
                              importedCount++;
                           } else {
                             skippedCount++;
@@ -350,6 +309,7 @@ export default function CodesPage() {
                       } else if (tipo.toLowerCase() === 'reparo') {
                           if (!newRepairs[targetCategory].some(c => c.code === code)) {
                               newRepairs[targetCategory].push(item);
+                              itemsToInsert.push({ code, description: descricao, type: 'repair', category: targetCategory });
                               importedCount++;
                           } else {
                             skippedCount++;
@@ -358,8 +318,7 @@ export default function CodesPage() {
                   }
               });
               
-              await setDoc(doc(db, "codes", "symptoms"), newSymptoms);
-              await setDoc(doc(db, "codes", "repairs"), newRepairs);
+              await codeService.insertMany(itemsToInsert);
 
               setSymptoms(newSymptoms);
               setRepairs(newRepairs);
@@ -399,9 +358,6 @@ export default function CodesPage() {
               </Button>
           </div>
         </div>
-        
-        <FirestoreConnectionTest />
-
         <Tabs defaultValue="symptoms">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="symptoms">Códigos de Sintoma</TabsTrigger>

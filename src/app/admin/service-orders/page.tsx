@@ -33,8 +33,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Edit, Trash2, Calendar as CalendarIcon, FilterX, Sparkles, Search, ChevronDown, Loader2 } from "lucide-react";
 import { type ServiceOrder, type Technician } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, setDoc, deleteDoc, Timestamp, query, orderBy, limit, startAfter, where, QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
+
+import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -78,7 +78,7 @@ export default function ServiceOrdersPage() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [lastDoc, setLastDoc] = useState<any>(null);
   const [techMap, setTechMap] = useState<Record<string, string>>({});
 
   // Search state
@@ -104,21 +104,14 @@ export default function ServiceOrdersPage() {
   const loadInitialOrders = useCallback(async (map: Record<string, string>) => {
     setIsLoading(true);
     try {
-      const q = query(collection(db, "serviceOrders"), orderBy("date", "desc"), limit(PAGE_SIZE));
-      const snap = await getDocs(q);
-      const docs = snap.docs;
-      const orders = docs.map(d => {
-        const data = d.data();
-        return {
-          id: d.id,
-          ...data,
-          date: (data.date as Timestamp).toDate(),
-          technicianName: map[data.technicianId] || "N/A",
-        } as ServiceOrder & { technicianName?: string };
-      });
+      const data = await serviceOrderService.getPaginated(PAGE_SIZE);
+      const orders = data.orders.map(o => ({
+          ...o,
+          technicianName: map[o.technicianId] || "N/A",
+      }));
       setServiceOrders(orders);
-      setLastDoc(docs[docs.length - 1] ?? null);
-      setHasMore(docs.length === PAGE_SIZE);
+      setLastDoc(data.lastDoc);
+      setHasMore(data.hasMore);
     } catch (e) {
       toast({ variant: "destructive", title: "Erro ao carregar OS" });
     } finally {
@@ -135,26 +128,14 @@ export default function ServiceOrdersPage() {
     if (!lastDoc || isLoadingMore) return;
     setIsLoadingMore(true);
     try {
-      const q = query(
-        collection(db, "serviceOrders"),
-        orderBy("date", "desc"),
-        startAfter(lastDoc),
-        limit(PAGE_SIZE)
-      );
-      const snap = await getDocs(q);
-      const docs = snap.docs;
-      const newOrders = docs.map(d => {
-        const data = d.data();
-        return {
-          id: d.id,
-          ...data,
-          date: (data.date as Timestamp).toDate(),
-          technicianName: techMap[data.technicianId] || "N/A",
-        } as ServiceOrder & { technicianName?: string };
-      });
+      const data = await serviceOrderService.getPaginated(PAGE_SIZE, lastDoc);
+      const newOrders = data.orders.map(o => ({
+          ...o,
+          technicianName: techMap[o.technicianId] || "N/A",
+      }));
       setServiceOrders(prev => [...prev, ...newOrders]);
-      setLastDoc(docs[docs.length - 1] ?? null);
-      setHasMore(docs.length === PAGE_SIZE);
+      setLastDoc(data.lastDoc);
+      setHasMore(data.hasMore);
     } catch (e) {
       toast({ variant: "destructive", title: "Erro ao carregar mais OS" });
     } finally {
@@ -174,24 +155,12 @@ export default function ServiceOrdersPage() {
     setIsSearching(true);
     try {
       // Search by OS number (exact prefix match using Firestore range query)
-      const q = query(
-        collection(db, "serviceOrders"),
-        where("serviceOrderNumber", ">=", term),
-        where("serviceOrderNumber", "<=", term + "\uf8ff"),
-        orderBy("serviceOrderNumber"),
-        limit(50)
-      );
-      const snap = await getDocs(q);
-      const results = snap.docs.map(d => {
-        const data = d.data();
-        return {
-          id: d.id,
-          ...data,
-          date: (data.date as Timestamp).toDate(),
-          technicianName: techMap[data.technicianId] || "N/A",
-        } as ServiceOrder & { technicianName?: string };
-      });
-      setServiceOrders(results);
+      const results = await serviceOrderService.searchByNumber(term);
+      const mappedResults = results.map(o => ({
+          ...o,
+          technicianName: techMap[o.technicianId] || "N/A",
+      }));
+      setServiceOrders(mappedResults);
       setHasMore(false); // disable "load more" during search
       setLastDoc(null);
     } catch (e) {
@@ -236,14 +205,13 @@ export default function ServiceOrdersPage() {
     if (!selectedOrder) return;
     setIsSubmitting(true);
     try {
-      const orderRef = doc(db, "serviceOrders", selectedOrder.id);
       const updatedData: Partial<ServiceOrder> = {
         ...data,
         equipmentType: data.equipmentType as "TV/AV" | "DA",
         serviceType: data.serviceType as any,
         samsungBudgetValue: data.samsungBudgetValue ? parseFloat(data.samsungBudgetValue) : 0,
       };
-      await setDoc(orderRef, updatedData, { merge: true });
+      await serviceOrderService.update(selectedOrder.id, updatedData);
       setServiceOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, ...updatedData, technicianName: o.technicianName } : o));
       toast({ title: "OS atualizada com sucesso!" });
       setIsFormDialogOpen(false);
@@ -258,7 +226,7 @@ export default function ServiceOrdersPage() {
     if (!selectedOrder) return;
     setIsSubmitting(true);
     try {
-      await deleteDoc(doc(db, "serviceOrders", selectedOrder.id));
+      await serviceOrderService.remove(selectedOrder.id);
       setServiceOrders(prev => prev.filter(o => o.id !== selectedOrder.id));
       toast({ title: "OS excluída com sucesso!" });
       setIsDeleteDialogOpen(false);

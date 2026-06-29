@@ -8,8 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { checklistService } from '@/services/supabase/checklistService';
 import { type ChecklistTemplate, type ChecklistField, type RouteStop } from '@/lib/data';
 import { ArrowLeft, PlusCircle, Trash2, Save, Move, TestTube2, Link as LinkIcon, ScanLine } from 'lucide-react';
 import { Document, Page, pdfjs } from 'react-pdf';
@@ -129,6 +128,25 @@ function TestChecklistDialog({ template, fields, isOpen, onOpenChange }: {
                             size: 14,
                             color: rgb(0, 0, 0),
                         });
+                    } else if (field.type === 'signature') {
+                        // Just draw a placeholder for the test PDF
+                        const w = field.width || 150;
+                        const h = field.height || 40;
+                        pageToDraw.drawRectangle({
+                            x: field.x,
+                            y: pageHeight - field.y - h,
+                            width: w,
+                            height: h,
+                            borderColor: rgb(0, 0, 0),
+                            borderWidth: 1,
+                        });
+                        pageToDraw.drawText('Assinatura AQUI', {
+                            x: field.x + 5,
+                            y: pageHeight - field.y - (h / 2) - 5,
+                            font,
+                            size: 10,
+                            color: rgb(0, 0, 0),
+                        });
                     }
                 }
             });
@@ -190,7 +208,7 @@ function TestChecklistDialog({ template, fields, isOpen, onOpenChange }: {
                                                 </Button>
                                             )}
                                         </div>
-                                    ) : (
+                                    ) : field.type === 'checkbox' ? (
                                         <div className="flex items-center space-x-2">
                                             <input 
                                                 type="checkbox"
@@ -199,6 +217,10 @@ function TestChecklistDialog({ template, fields, isOpen, onOpenChange }: {
                                                 onChange={(e) => handleInputChange(field.id, e.target.checked)}
                                             />
                                             <label htmlFor={`test-${field.id}`} className="text-sm">Marcar</label>
+                                        </div>
+                                    ) : (
+                                        <div className="p-2 border border-dashed rounded text-xs text-center text-muted-foreground bg-muted/30">
+                                            {field.name} (Quadro de Assinatura)
                                         </div>
                                     )}
                                 </div>
@@ -241,15 +263,13 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
         const fetchTemplate = async () => {
             setIsLoading(true);
             try {
-                const docRef = doc(db, 'checklistTemplates', id);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    const data = { id: docSnap.id, ...docSnap.data() } as ChecklistTemplate;
+                const data = await checklistService.getById(id);
+                if (data) {
                     setTemplate(data);
-                    const initialFields = (data.fields || []).map(f => ({
+                    const initialFields = (data.fields || []).map((f: any) => ({
                         ...f,
                         x: f.x || 50,
-                        y: f.y || 50 + (parseInt(f.id.split('-')[1]) * 40)
+                        y: f.y || 50 + (parseInt(f.id.split('-')[1] || "0") * 40)
                     }));
                     setFields(initialFields as FieldWithPosition[]);
                 } else {
@@ -296,8 +316,6 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
         if (!template) return;
         setIsSubmitting(true);
         try {
-            const templateRef = doc(db, 'checklistTemplates', template.id);
-            // Sanitize fields before saving to avoid Firestore errors with 'undefined'
             const fieldsToSave = fields.map(f => {
                 const fieldCopy: Partial<FieldWithPosition> = {...f};
                 if (fieldCopy.variableKey === undefined || fieldCopy.variableKey === 'none') {
@@ -305,7 +323,7 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
                 }
                 return fieldCopy;
             });
-            await updateDoc(templateRef, { fields: fieldsToSave });
+            await checklistService.update(template.id, { fields: fieldsToSave });
             toast({ title: 'Campos salvos!', description: 'As posições e dados dos campos foram atualizados.' });
         } catch (error) {
             console.error('Error saving fields:', error);
@@ -356,8 +374,8 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
 
     return (
         <>
-            <div className="flex h-screen flex-col bg-muted/40">
-                <header className="bg-card border-b p-4 flex justify-between items-center sticky top-0 z-40">
+            <div className="flex h-screen flex-col bg-muted/40 overflow-hidden">
+                <header className="bg-card border-b p-4 flex justify-between items-center z-40 shrink-0">
                     <div className="flex items-center gap-4">
                         <Button variant="outline" size="sm" onClick={() => router.push('/admin/checklists')}>
                             <ArrowLeft className="mr-2 h-4 w-4" /> Voltar
@@ -377,13 +395,13 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
                     </div>
                 </header>
 
-                <div className="flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-hidden">
-                    <aside className="md:col-span-1 bg-card rounded-lg border p-4 flex flex-col">
-                        <CardHeader className="p-2">
+                <div className="flex-1 grid md:grid-cols-3 gap-4 p-4 min-h-0">
+                    <aside className="md:col-span-1 bg-card rounded-lg border flex flex-col h-full min-h-0 overflow-hidden">
+                        <CardHeader className="p-4 shrink-0">
                             <CardTitle>Campos do Checklist</CardTitle>
                             <CardDescription>Adicione, edite e remova os campos do formulário.</CardDescription>
                         </CardHeader>
-                        <CardContent className="flex-1 space-y-4 overflow-y-auto pr-2">
+                        <CardContent className="flex-1 space-y-4 overflow-y-auto p-4 pt-0">
                             {fields.map(field => (
                                 <div key={field.id} className="space-y-3 border p-3 rounded-lg bg-background">
                                     <Input
@@ -392,11 +410,12 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
                                         placeholder="Nome do Campo"
                                     />
                                     <div className="flex gap-2">
-                                        <Select value={field.type} onValueChange={(v) => updateField(field.id, { type: v as 'text' | 'checkbox' })}>
+                                        <Select value={field.type} onValueChange={(v) => updateField(field.id, { type: v as 'text' | 'checkbox' | 'signature' })}>
                                             <SelectTrigger><SelectValue /></SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="text">Texto</SelectItem>
                                                 <SelectItem value="checkbox">Caixa de Seleção</SelectItem>
+                                                <SelectItem value="signature">Assinatura</SelectItem>
                                             </SelectContent>
                                         </Select>
                                         <Input
@@ -429,10 +448,32 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
                                             </SelectContent>
                                         </Select>
                                     </div>
+                                    {field.type === 'signature' && (
+                                        <div className="flex gap-4">
+                                            <div className="space-y-1 flex-1">
+                                                <Label className="text-xs text-muted-foreground">Largura</Label>
+                                                <Input
+                                                    type="number"
+                                                    value={field.width || 150}
+                                                    onChange={(e) => updateField(field.id, { width: parseInt(e.target.value) || 150 })}
+                                                    className="h-8"
+                                                />
+                                            </div>
+                                            <div className="space-y-1 flex-1">
+                                                <Label className="text-xs text-muted-foreground">Altura</Label>
+                                                <Input
+                                                    type="number"
+                                                    value={field.height || 40}
+                                                    onChange={(e) => updateField(field.id, { height: parseInt(e.target.value) || 40 })}
+                                                    className="h-8"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </CardContent>
-                        <CardFooter className="p-2 pt-4">
+                        <CardFooter className="p-4 pt-4 shrink-0 border-t">
                             <Button onClick={addNewField} className="w-full">
                                 <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Campo
                             </Button>
@@ -440,7 +481,7 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
                     </aside>
 
                     <main 
-                        className="md:col-span-2 bg-card rounded-lg border p-4 overflow-auto"
+                        className="md:col-span-2 bg-card rounded-lg border p-4 overflow-auto min-h-0 relative"
                         onMouseMove={handleMouseMove}
                         onMouseUp={handleMouseUp}
                         onMouseLeave={handleMouseUp}
@@ -481,8 +522,15 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
                                             {field.variableKey && <LinkIcon className="h-3 w-3" />}
                                             {field.name}
                                         </span>
-                                    ) : (
+                                    ) : field.type === 'checkbox' ? (
                                         <div className="w-4 h-4 border border-blue-800 bg-white/50" />
+                                    ) : (
+                                        <div 
+                                            className="border-2 border-dashed border-blue-800 bg-white/30 flex items-center justify-center absolute -m-1"
+                                            style={{ width: field.width || 150, height: field.height || 40 }}
+                                        >
+                                            <span className="text-[10px] text-blue-800 font-bold bg-white/80 px-1 rounded">Assinatura</span>
+                                        </div>
                                     )}
                                 </div>
                             ))}

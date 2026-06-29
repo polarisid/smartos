@@ -1,4 +1,5 @@
 import React from "react";
+import { motion } from "framer-motion";
 import { format, isAfter, startOfMonth } from "date-fns";
 import { type Technician, type ServiceOrder, type Return, type Indicator, type Chargeback } from "@/lib/data";
 import {
@@ -145,85 +146,95 @@ export function PerformanceDashboard({
 
     return (
         <div className="space-y-6">
-            <Card>
-                <CardHeader>
-                    <CardTitle>Desempenho do Mês</CardTitle>
+            <Card className="glass-card overflow-hidden">
+                <CardHeader className="bg-primary/5 border-b border-border/40">
+                    <CardTitle className="text-xl font-bold">Desempenho do Mês</CardTitle>
                     <CardDescription>
                         Acompanhe o faturamento, OS e retornos dos técnicos em relação às suas metas mensais.
                     </CardDescription>
                 </CardHeader>
-                <CardContent className="grid gap-6 md:grid-cols-2">
-                    {performanceData.map(tech => (
-                        <Card key={tech.id} className="transition-all hover:shadow-md border-muted/60">
-                            <CardHeader className="pb-4">
-                                <CardTitle className="text-lg">{tech.name}</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div className="space-y-2">
-                                    <Progress value={tech.progress} className="h-2" />
-                                    <div className="flex justify-between text-sm text-muted-foreground">
-                                        <span>
-                                            {tech.revenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                        </span>
-                                        <span className="font-semibold text-foreground">
-                                            Meta: {tech.goal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                        </span>
+                <CardContent className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 pt-6">
+                    {performanceData.map((tech, index) => (
+                        <motion.div
+                            key={tech.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: index * 0.1, duration: 0.4, ease: "easeOut" }}
+                        >
+                            <Card className="hover-card-effect border-muted/60 bg-card/40 backdrop-blur-sm h-full flex flex-col">
+                                <CardHeader className="pb-4">
+                                    <CardTitle className="text-lg flex items-center justify-between">
+                                        {tech.name}
+                                        {tech.progress >= 100 && <Sparkles className="w-5 h-5 text-yellow-500" />}
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-4 flex-1 flex flex-col">
+                                    <div className="space-y-2 flex-1">
+                                        <Progress value={tech.progress} className="h-2" />
+                                        <div className="flex justify-between text-sm text-muted-foreground">
+                                            <span className="text-foreground font-medium">
+                                                {tech.revenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                            </span>
+                                            <span className="text-muted-foreground">
+                                                Meta: {tech.goal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                            </span>
+                                        </div>
                                     </div>
-                                </div>
-                                 <div className="border-t pt-4 space-y-1">
-                                     <Collapsible>
-                                        <CollapsibleTrigger className="w-full">
-                                            <div className="flex justify-between items-center text-sm py-1">
-                                                <div className="flex items-center gap-2 text-muted-foreground">
-                                                    <ClipboardCheck className="h-4 w-4" />
-                                                    <span>Total de OS</span>
+                                    <div className="border-t pt-4 space-y-1">
+                                        <Collapsible>
+                                            <CollapsibleTrigger className="w-full hover:bg-muted/50 rounded-md transition-colors px-1">
+                                                <div className="flex justify-between items-center text-sm py-1">
+                                                    <div className="flex items-center gap-2 text-muted-foreground">
+                                                        <ClipboardCheck className="h-4 w-4" />
+                                                        <span>Total de OS</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-bold">{tech.osCount}</span>
+                                                        <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
+                                                    </div>
                                                 </div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-bold">{tech.osCount}</span>
-                                                    <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
-                                                </div>
-                                            </div>
-                                        </CollapsibleTrigger>
-                                        <CollapsibleContent className="text-sm pl-6 mt-1 space-y-1">
-                                            {Object.entries(tech.osCountByType).map(([type, count]) => {
-                                                const Icon = serviceTypeConfig[type]?.icon || Wrench;
-                                                const label = serviceTypeConfig[type]?.label || type;
-                                                return (
-                                                     <div key={type} className="flex justify-between items-center text-xs">
-                                                         <div className="flex items-center gap-2 text-muted-foreground">
-                                                            <Icon className="h-3 w-3" />
-                                                            <span>{label}</span>
+                                            </CollapsibleTrigger>
+                                            <CollapsibleContent className="text-sm pl-6 mt-1 space-y-1">
+                                                {Object.entries(tech.osCountByType).map(([type, count]) => {
+                                                    const Icon = serviceTypeConfig[type]?.icon || Wrench;
+                                                    const label = serviceTypeConfig[type]?.label || type;
+                                                    return (
+                                                        <div key={type} className="flex justify-between items-center text-xs">
+                                                            <div className="flex items-center gap-2 text-muted-foreground">
+                                                                <Icon className="h-3 w-3" />
+                                                                <span>{label}</span>
+                                                            </div>
+                                                            <span className="font-bold">{count}</span>
                                                         </div>
-                                                        <span className="font-bold">{count}</span>
-                                                     </div>
-                                                )
-                                            })}
-                                        </CollapsibleContent>
-                                     </Collapsible>
-                                    <div className="flex justify-between items-center text-sm py-1">
-                                        <div className="flex items-center gap-2 text-muted-foreground">
-                                            <History className="h-4 w-4" />
-                                            <span>Total de Retornos</span>
+                                                    )
+                                                })}
+                                            </CollapsibleContent>
+                                        </Collapsible>
+                                        <div className="flex justify-between items-center text-sm py-1 px-1">
+                                            <div className="flex items-center gap-2 text-muted-foreground">
+                                                <History className="h-4 w-4" />
+                                                <span>Total de Retornos</span>
+                                            </div>
+                                            <span className="font-bold">{tech.returnCount}</span>
                                         </div>
-                                        <span className="font-bold">{tech.returnCount}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-sm py-1">
-                                        <div className="flex items-center gap-2 text-muted-foreground">
-                                            <Sparkles className="h-4 w-4" />
-                                            <span>Total de Limpezas</span>
+                                        <div className="flex justify-between items-center text-sm py-1 px-1">
+                                            <div className="flex items-center gap-2 text-muted-foreground">
+                                                <Sparkles className="h-4 w-4" />
+                                                <span>Total de Limpezas</span>
+                                            </div>
+                                            <span className="font-bold">{tech.cleaningsCount}</span>
                                         </div>
-                                        <span className="font-bold">{tech.cleaningsCount}</span>
-                                    </div>
-                                     <div className="flex justify-between items-center text-sm py-1">
-                                        <div className="flex items-center gap-2 text-muted-foreground">
-                                            <Percent className="h-4 w-4" />
-                                            <span>Taxa de Conversão</span>
+                                        <div className="flex justify-between items-center text-sm py-1 px-1">
+                                            <div className="flex items-center gap-2 text-muted-foreground">
+                                                <Percent className="h-4 w-4" />
+                                                <span>Conversão Orçamento</span>
+                                            </div>
+                                            <span className="font-bold">{tech.conversionRate.toFixed(1)}%</span>
                                         </div>
-                                        <span className="font-bold">{tech.conversionRate.toFixed(1)}%</span>
                                     </div>
-                                 </div>
-                            </CardContent>
-                        </Card>
+                                </CardContent>
+                            </Card>
+                        </motion.div>
                     ))}
                 </CardContent>
             </Card>

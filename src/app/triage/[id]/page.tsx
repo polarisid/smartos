@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
-import { db } from "@/lib/firebase";
-import { doc, getDoc, updateDoc, arrayUnion, Timestamp } from "firebase/firestore";
+import { triageService } from "@/services/supabase/triageService";
 import { type TriageSession, type TriageChatMessage } from "@/lib/data";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,10 +26,9 @@ export default function PublicTriagePage() {
         const fetchSession = async () => {
             if (!id) return;
             try {
-                const docRef = doc(db, "triages", id);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    setSession({ id: docSnap.id, ...docSnap.data() } as TriageSession);
+                const data = await triageService.getById(id);
+                if (data) {
+                    setSession({ ...data, messages: data.messages || [] } as TriageSession);
                 } else {
                     toast({ variant: "destructive", title: "Link inválido ou expirado." });
                 }
@@ -62,13 +60,10 @@ export default function PublicTriagePage() {
         };
 
         try {
-            const sessionRef = doc(db, "triages", id);
-            
             // 1. Optimistic update & Save user message
-            setSession(prev => prev ? { ...prev, messages: [...prev.messages, newUserMessage] } : null);
-            await updateDoc(sessionRef, {
-                messages: arrayUnion({ ...newUserMessage, createdAt: Timestamp.fromDate(newUserMessage.createdAt) })
-            });
+            const currentMessages = [...session.messages, newUserMessage];
+            setSession(prev => prev ? { ...prev, messages: currentMessages } : null);
+            await triageService.update(id, { messages: currentMessages });
 
             // 2. Optional: Load global knowledge base here or on the server.
             // For now, we will pass an empty string until the Admin Knowledge Base is connected.
@@ -81,7 +76,7 @@ export default function PublicTriagePage() {
                 body: JSON.stringify({
                     productModel: session.productModel,
                     productLine: session.productLine,
-                    history: session.messages,
+                    history: currentMessages,
                     userMessage: messageText,
                     knowledgeBase
                 })
@@ -101,9 +96,11 @@ export default function PublicTriagePage() {
                 createdAt: new Date()
             };
 
+            const updatedMessages = [...currentMessages, newAiMessage];
+
             const updatePayload: any = {
-                messages: arrayUnion({ ...newAiMessage, createdAt: Timestamp.fromDate(newAiMessage.createdAt) }),
-                updatedAt: Timestamp.now()
+                messages: updatedMessages,
+                updated_at: new Date().toISOString()
             };
 
             if (aiData.diagnosisComplete) {
@@ -113,12 +110,12 @@ export default function PublicTriagePage() {
                 updatePayload.symptomsReported = aiData.symptomsReported || [];
             }
 
-            await updateDoc(sessionRef, updatePayload);
+            await triageService.update(id, updatePayload);
 
             // Re-fetch to normalize state
-            const updatedSnap = await getDoc(sessionRef);
-            if (updatedSnap.exists()) {
-                setSession({ id: updatedSnap.id, ...updatedSnap.data() } as TriageSession);
+            const updatedSnap = await triageService.getById(id);
+            if (updatedSnap) {
+                setSession({ ...updatedSnap, messages: updatedSnap.messages || [] } as TriageSession);
             }
 
         } catch (error: any) {

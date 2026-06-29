@@ -1,46 +1,43 @@
 
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, Timestamp, query, where } from 'firebase/firestore';
-import { type ServiceOrder, type Route, type Technician } from '@/lib/data';
+import { routeService } from '@/services/supabase/routeService';
+import { serviceOrderService } from '@/services/supabase/serviceOrderService';
+import { technicianService } from '@/services/supabase/technicianService';
 import { subMonths } from 'date-fns';
 
 export async function GET() {
   try {
     const sixMonthsAgo = subMonths(new Date(), 6);
     // Fetch only recent service orders (last 6 months) + active routes + technicians in parallel
-    const activeRoutesQuery = query(collection(db, "routes"), where("isActive", "==", true));
-    const ordersQuery = query(collection(db, "serviceOrders"), where("date", ">=", sixMonthsAgo));
-    const [ordersSnapshot, activeRoutesSnapshot, techniciansSnapshot] = await Promise.all([
-      getDocs(ordersQuery),
-      getDocs(activeRoutesQuery),
-      getDocs(collection(db, "technicians"))
+    const [allOrders, allRoutes, allTechnicians] = await Promise.all([
+      serviceOrderService.getAll(),
+      routeService.getAll(),
+      technicianService.getAll()
     ]);
+
+    const recentOrders = allOrders.filter(os => os.date >= sixMonthsAgo);
+    const activeRoutes = allRoutes.filter(r => r.isActive);
 
     // Process technicians into a map for quick lookup
     const techniciansMap = new Map<string, string>();
-    techniciansSnapshot.forEach(doc => {
-      const tech = doc.data() as Omit<Technician, 'id'>;
-      techniciansMap.set(doc.id, tech.name);
+    allTechnicians.forEach(tech => {
+      techniciansMap.set(tech.id, tech.name);
     });
 
     // Process service orders into a map for quick lookup
-    const serviceOrdersMap = new Map<string, ServiceOrder>();
-    ordersSnapshot.forEach(doc => {
-      const order = { id: doc.id, ...doc.data() } as ServiceOrder;
+    const serviceOrdersMap = new Map<string, any>();
+    recentOrders.forEach(order => {
       serviceOrdersMap.set(order.serviceOrderNumber, order);
     });
 
     // Process active routes and enrich them with their service orders
-    const enrichedRoutes = activeRoutesSnapshot.docs.map(doc => {
-        const route = { id: doc.id, ...doc.data() } as Route;
-        
+    const enrichedRoutes = activeRoutes.map(route => {
         const serviceOrdersInRoute = (route.stops || [])
             .map(stop => {
                 const serviceOrder = serviceOrdersMap.get(stop.serviceOrder);
                 if (serviceOrder) {
                     const technicianName = techniciansMap.get(serviceOrder.technicianId) || 'N/A';
-                    const date = (serviceOrder.date as unknown as Timestamp).toDate().toISOString();
+                    const date = (serviceOrder.date instanceof Date ? serviceOrder.date : new Date()).toISOString();
                     
                     let status = 'Vai ser feita';
                     if (serviceOrder.isFinalized) {
@@ -58,12 +55,12 @@ export async function GET() {
                 }
                 return null;
             })
-            .filter((os): os is ServiceOrder & { date: string; technicianName: string; status: string } => os !== null);
+            .filter((os): os is any => os !== null);
 
-        // Convert route's Timestamps to serializable format
-        const createdAt = (route.createdAt as unknown as Timestamp)?.toDate().toISOString();
-        const departureDate = (route.departureDate as unknown as Timestamp)?.toDate().toISOString();
-        const arrivalDate = (route.arrivalDate as unknown as Timestamp)?.toDate().toISOString();
+        // Convert route's Dates to serializable format
+        const createdAt = route.createdAt instanceof Date ? route.createdAt.toISOString() : undefined;
+        const departureDate = route.departureDate instanceof Date ? route.departureDate.toISOString() : undefined;
+        const arrivalDate = route.arrivalDate instanceof Date ? route.arrivalDate.toISOString() : undefined;
 
         const finalizadas = serviceOrdersInRoute.filter(os => os.status === 'Finalizada');
         const pendentes = serviceOrdersInRoute.filter(os => os.status === 'Pendente');

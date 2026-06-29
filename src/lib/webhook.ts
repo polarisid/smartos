@@ -1,16 +1,10 @@
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "./firebase";
+import { configService } from "@/services/supabase/configService";
 
 export async function triggerWebhook(payload: Record<string, unknown>) {
     try {
-        const configDoc = await getDoc(doc(db, "configs", "webhook"));
-        if (!configDoc.exists()) {
-            console.log("Webhook URL not configured.");
-            return;
-        }
-        const webhookUrl = configDoc.data().url as string;
+        const webhookUrl = await configService.getWebhookUrl();
         if (!webhookUrl) {
-            console.log("Webhook URL is empty.");
+            console.log("Webhook URL not configured or empty.");
             return;
         }
 

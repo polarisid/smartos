@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useState, useMemo, useRef } from "react";
-import { collection, query, where, onSnapshot, Timestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 import { type Route, type ServiceOrder } from "@/lib/data";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -14,6 +12,8 @@ import {
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useAppData } from "@/context/AppDataContext";
+import { routeService } from "@/services/supabase/routeService";
+import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 const WORK_START = 8;   // 8 AM
@@ -58,53 +58,53 @@ export default function AnalyticsPage() {
     }, []);
 
     useEffect(() => {
-        // ── Listener 1: Active routes ──────────────────────────────────────
-        const routesQ = query(collection(db, "routes"), where("isActive", "==", true));
-        let unsubRouteSOs: (() => void) | null = null;
+        let isMounted = true;
 
-        const unsubRoutes = onSnapshot(routesQ, snap => {
-            const loadedRoutes = snap.docs.map(doc => {
-                const d = doc.data();
-                return {
-                    id: doc.id, ...d,
-                    createdAt: (d.createdAt as Timestamp)?.toDate(),
-                    departureDate: (d.departureDate as Timestamp)?.toDate(),
-                } as Route;
-            });
-            setRoutes(loadedRoutes);
+        const fetchData = async () => {
+            try {
+                // 1. Fetch Active Routes
+                const allRoutes = await routeService.getAll();
+                const activeRoutes = allRoutes.filter(r => r.isActive);
+                
+                if (!isMounted) return;
+                setRoutes(activeRoutes);
 
-            // Determine the earliest createdAt among all active routes
-            const fallback = subDays(new Date(), 30);
-            const oldestRouteDate = loadedRoutes.reduce<Date>((oldest, r) => {
-                const d = r.createdAt as Date | undefined;
-                if (d && d < oldest) return d;
-                return oldest;
-            }, fallback);
+                // Determine the earliest createdAt among all active routes
+                const fallback = subDays(new Date(), 30);
+                const oldestRouteDate = activeRoutes.reduce<Date>((oldest, r) => {
+                    const d = r.createdAt as Date | undefined;
+                    if (d && d < oldest) return d;
+                    return oldest;
+                }, fallback);
 
-            // Tear down previous route-SO listener before creating a new one
-            if (unsubRouteSOs) unsubRouteSOs();
+                // 2. Fetch Service Orders
+                // We fetch all orders and filter them locally to match the old behavior.
+                const allOrders = await serviceOrderService.getAll();
+                
+                if (!isMounted) return;
+                
+                // Wide window: needed to count completions for route tracking
+                const wideWindowOrders = allOrders.filter(os => os.date >= oldestRouteDate);
+                setServiceOrders(wideWindowOrders);
 
-            // Wide window: needed to count completions for route tracking
-            const routeSoQ = query(collection(db, "serviceOrders"), where("date", ">=", oldestRouteDate));
-            unsubRouteSOs = onSnapshot(routeSoQ, snap => {
-                setServiceOrders(snap.docs.map(doc => {
-                    const d = doc.data();
-                    return { id: doc.id, ...d, date: (d.date as Timestamp).toDate() } as ServiceOrder;
-                }));
-            });
-        });
+                // 3. Comparison OS (always just 2 days, for the chart)
+                const twoDaysAgo = subDays(new Date(), 2);
+                const compOrders = allOrders.filter(os => os.date >= twoDaysAgo);
+                setComparisonOrders(compOrders);
 
-        // ── Listener 2: Comparison OS (always just 2 days, for the chart) ──
-        const twoDaysAgo = subDays(new Date(), 2);
-        const compSoQ = query(collection(db, "serviceOrders"), where("date", ">=", twoDaysAgo));
-        const unsubCompSOs = onSnapshot(compSoQ, snap => {
-            setComparisonOrders(snap.docs.map(doc => {
-                const d = doc.data();
-                return { id: doc.id, ...d, date: (d.date as Timestamp).toDate() } as ServiceOrder;
-            }));
-        });
+            } catch (error) {
+                console.error("Error fetching analytics data:", error);
+            }
+        };
 
-        return () => { unsubRoutes(); if (unsubRouteSOs) unsubRouteSOs(); unsubCompSOs(); };
+        fetchData();
+        // Set a polling interval to update data every 60 seconds
+        const dataTimer = setInterval(fetchData, 60000);
+
+        return () => { 
+            isMounted = false;
+            clearInterval(dataTimer);
+        };
     }, []);
 
     // ── Yesterday vs Today hourly ──────────────────────────────────────────

@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Wrench, TrendingUp, Trophy, Map, QrCode, LogIn, Menu, Download, Shield } from "lucide-react";
+import { Wrench, TrendingUp, Trophy, Map, QrCode, LogIn, Menu, Download, Shield, RefreshCw } from "lucide-react";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
@@ -45,22 +46,28 @@ export function Sidebar() {
       </div>
       
       <nav className="flex-1 space-y-2">
-        {routes.map((route) => {
+        {routes.map((route, i) => {
           const isActive = pathname === route.href;
           return (
-            <Link 
-              key={route.href} 
-              href={route.href} 
-              onClick={() => setOpen(false)}
-              className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 ${
-                isActive 
-                  ? 'bg-primary text-primary-foreground shadow-md font-semibold' 
-                  : 'hover:bg-muted text-muted-foreground font-medium'
-              }`}
+            <motion.div 
+              key={route.href}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.05 }}
             >
-              <route.icon className={`w-5 h-5 ${isActive ? 'opacity-100' : 'opacity-70'}`} />
-              {route.label}
-            </Link>
+              <Link 
+                href={route.href} 
+                onClick={() => setOpen(false)}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ${
+                  isActive 
+                    ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/30 font-semibold' 
+                    : 'hover:bg-muted text-muted-foreground font-medium hover:translate-x-1'
+                }`}
+              >
+                <route.icon className={`w-5 h-5 ${isActive ? 'opacity-100' : 'opacity-70'}`} />
+                {route.label}
+              </Link>
+            </motion.div>
           );
         })}
       </nav>
@@ -72,6 +79,26 @@ export function Sidebar() {
                 Instalar Web App
             </Button>
         )}
+        <Button 
+            onClick={async () => {
+                try {
+                    const res = await fetch('/api/sync', { method: 'POST' });
+                    const data = await res.json();
+                    if (data.success) {
+                        alert("Sincronização concluída com sucesso! Recarregue a página.");
+                    } else {
+                        alert("Erro na sincronização: " + data.error);
+                    }
+                } catch (e) {
+                    alert("Erro ao conectar com o endpoint de sincronização.");
+                }
+            }} 
+            variant="secondary" 
+            className="w-full justify-start rounded-xl font-bold bg-blue-500/10 text-blue-600 hover:bg-blue-500/20"
+        >
+            <RefreshCw className="mr-3 h-4 w-4" />
+            Sincronizar Firebase
+        </Button>
         <Button asChild variant="outline" className="w-full justify-start rounded-xl font-bold shadow-sm">
           <Link href="/admin/login">
             <Shield className="mr-3 h-4 w-4 text-primary" />

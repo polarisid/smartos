@@ -22,9 +22,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { PlusCircle, Edit, Trash2, Target, Trophy } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, doc, setDoc, addDoc, deleteDoc, writeBatch } from "firebase/firestore";
 import { Textarea } from "@/components/ui/textarea";
 import { type Indicator } from "@/lib/data";
+import { indicatorService } from "@/services/supabase/indicatorService";
 import { useAppData } from "@/context/AppDataContext";
 
 type FormData = Omit<Indicator, 'id'>;
@@ -179,12 +179,11 @@ export default function IndicatorsPage() {
         setIsSubmitting(true);
         try {
             if (dialogMode === 'add') {
-                const docRef = await addDoc(collection(db, "indicators"), formData);
-                setIndicators(prev => [...prev, { id: docRef.id, ...formData }]);
+                const newDocId = await indicatorService.create(formData as Omit<Indicator, 'id'>);
+                setIndicators(prev => [...prev, { id: newDocId, ...formData }]);
                 toast({ title: "Indicador criado com sucesso!" });
             } else if (selectedIndicator) {
-                const indicatorRef = doc(db, "indicators", selectedIndicator.id);
-                await setDoc(indicatorRef, formData, { merge: true });
+                await indicatorService.update(selectedIndicator.id, formData);
                 setIndicators(prev => prev.map(p => p.id === selectedIndicator.id ? { id: selectedIndicator.id, ...formData } : p));
                 toast({ title: "Indicador atualizado com sucesso!" });
             }
@@ -201,7 +200,7 @@ export default function IndicatorsPage() {
         if (!selectedIndicator) return;
         setIsSubmitting(true);
         try {
-            await deleteDoc(doc(db, "indicators", selectedIndicator.id));
+            await indicatorService.remove(selectedIndicator.id);
             setIndicators(prev => prev.filter(p => p.id !== selectedIndicator.id));
             toast({ title: "Indicador excluído com sucesso!" });
             setIsDeleteDialogOpen(false);
@@ -215,14 +214,11 @@ export default function IndicatorsPage() {
     };
 
     const handleSaveIndicatorResults = async (data: Record<string, number>) => {
-        const batch = writeBatch(db);
-
-        Object.entries(data).forEach(([indicatorId, value]) => {
-            const docRef = doc(db, "indicators", indicatorId);
-            batch.update(docRef, { currentValue: value });
+        const promises = Object.entries(data).map(([indicatorId, value]) => {
+            return indicatorService.update(indicatorId, { currentValue: value });
         });
 
-        await batch.commit();
+        await Promise.all(promises);
         // Update local state immediately without a full re-fetch
         setIndicators(prev => prev.map(ind => ({
             ...ind,

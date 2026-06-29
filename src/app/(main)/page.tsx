@@ -39,8 +39,8 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { AlertTriangle, Check, CheckCircle, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, User, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine, QrCode, XCircle } from "lucide-react";
 import Link from 'next/link';
-import { db } from "@/lib/firebase";
-import { collection, doc, getDoc, getDocs, addDoc, Timestamp, query, orderBy, limit, where } from "firebase/firestore";
+
+import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -76,6 +76,7 @@ import React from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { ptBR } from 'date-fns/locale';
+import SignatureCanvas from 'react-signature-canvas';
 import dynamic from "next/dynamic";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { FirebaseSetupPrompt } from "@/components/FirebaseSetupPrompt";
@@ -306,6 +307,7 @@ function ChecklistSection({
     const [isGenerating, setIsGenerating] = useState(false);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [scanTargetField, setScanTargetField] = useState<string | null>(null);
+    const signatureRefs = useRef<Record<string, any>>({});
 
     useEffect(() => {
         if (selectedTemplate) {
@@ -384,10 +386,28 @@ function ChecklistSection({
             const pages = pdfDoc.getPages();
             const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
             
-            fields.forEach(field => {
+            for (const field of fields) {
                 const value = checklistData[field.id];
                 
-                if (value !== undefined && value !== null) {
+                if (field.type === 'signature') {
+                    const canvas = signatureRefs.current[field.id];
+                    if (canvas && !canvas.isEmpty()) {
+                        const base64Data = canvas.toDataURL('image/png');
+                        const pngImage = await pdfDoc.embedPng(base64Data);
+                        const w = field.width || 150;
+                        const h = field.height || 40; 
+                        const pageToDraw = pages[field.page - 1] || pages[0];
+                        if (pageToDraw) {
+                            const pageHeight = pageToDraw.getHeight();
+                            pageToDraw.drawImage(pngImage, {
+                                x: field.x,
+                                y: pageHeight - field.y - h,
+                                width: w,
+                                height: h,
+                            });
+                        }
+                    }
+                } else if (value !== undefined && value !== null) {
                     const pageToDraw = pages[field.page - 1] || pages[0];
                     if (pageToDraw) {
                         const pageHeight = pageToDraw.getHeight();
@@ -398,7 +418,7 @@ function ChecklistSection({
                         }
                     }
                 }
-            });
+            }
 
             const pdfBytes = await pdfDoc.save();
 
@@ -471,7 +491,7 @@ function ChecklistSection({
                                                     </Button>
                                                 )}
                                             </div>
-                                        ) : (
+                                        ) : field.type === 'checkbox' ? (
                                             <div className="flex items-center space-x-2">
                                                 <input 
                                                     type="checkbox" 
@@ -481,6 +501,21 @@ function ChecklistSection({
                                                     onChange={(e) => handleInputChange(field.id, e.target.checked)} 
                                                 />
                                                 <label htmlFor={`fill-${field.id}`} className="text-sm">Marcar</label>
+                                            </div>
+                                        ) : (
+                                            <div className="border rounded-md overflow-hidden bg-white shadow-sm border-gray-300">
+                                                <SignatureCanvas 
+                                                    ref={(ref) => {
+                                                        if (ref) signatureRefs.current[field.id] = ref;
+                                                    }}
+                                                    penColor="black"
+                                                    canvasProps={{
+                                                        className: 'signature-canvas w-full h-40'
+                                                    }}
+                                                />
+                                                <div className="bg-muted p-1 flex justify-end border-t">
+                                                    <Button type="button" variant="ghost" size="sm" onClick={() => signatureRefs.current[field.id]?.clear()}>Limpar Assinatura</Button>
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -513,6 +548,7 @@ export default function OsFormPage() {
   const [generatedText, setGeneratedText] = useState("");
   const [osIsSaved, setOsIsSaved] = useState(false);
   const [assistantName, setAssistantName] = useState("");
+  const [localTechnician, setLocalTechnician] = useState("");
   const [currentRouteStop, setCurrentRouteStop] = useState<RouteStop | null>(null);
   const [partsStatus, setPartsStatus] = useState<Record<string, 'used' | 'not_used' | null>>({});
   const [partsUsedQuantity, setPartsUsedQuantity] = useState<Record<string, number>>({});
@@ -597,9 +633,10 @@ const { toast } = useToast();
    useEffect(() => {
         try {
             const savedFormData = localStorage.getItem('serviceOrderFormData');
-            if (savedFormData) {
-                const parsedData = JSON.parse(savedFormData);
-                form.reset(parsedData);
+            let parsedData = savedFormData ? JSON.parse(savedFormData) : null;
+            
+            if (parsedData && Object.keys(parsedData).length > 0) {
+                form.reset({ ...form.getValues(), ...parsedData });
             }
         } catch (e) {
             console.error("Failed to parse form data from localStorage", e);
@@ -607,9 +644,11 @@ const { toast } = useToast();
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); 
 
-  useEffect(() => {
+    useEffect(() => {
       localStorage.setItem('serviceOrderFormData', JSON.stringify(allFormValues));
-  }, [allFormValues]);
+    }, [allFormValues]);
+
+
 
    useEffect(() => {
       localStorage.setItem('checklistFormData', JSON.stringify(checklistData));
@@ -631,6 +670,11 @@ const { toast } = useToast();
         const savedAssistant = localStorage.getItem("assistantName");
         if (savedAssistant) {
             setAssistantName(savedAssistant);
+        }
+        const savedTechnician = localStorage.getItem('lastTechnician');
+        if (savedTechnician) {
+            setLocalTechnician(savedTechnician);
+            setValue('technician', savedTechnician);
         }
     } catch (error) {
         console.error("Failed to parse data from localStorage", error);
@@ -814,7 +858,7 @@ const { toast } = useToast();
             pendingReason: data.pendingReason || '',
         };
 
-        await addDoc(collection(db, "serviceOrders"), newServiceOrder);
+        await serviceOrderService.create(newServiceOrder as Omit<ServiceOrder, 'id'>);
         setOsIsSaved(true);
         toast({
             title: "OS Lançada com Sucesso!",
@@ -854,9 +898,8 @@ const { toast } = useToast();
   };
   
   const resetForm = () => {
-    const technicianBeforeReset = form.getValues("technician");
     form.reset({
-        technician: technicianBeforeReset,
+        technician: localTechnician,
         serviceOrderNumber: "",
         serviceType: "",
         samsungRepairType: "",
@@ -891,10 +934,11 @@ pendingReason: "",
     resetForm();
     localStorage.removeItem('serviceOrderFormData');
     localStorage.removeItem('checklistFormData');
-    localStorage.removeItem('assistantName');
-    setAssistantName("");
-    form.reset({ technician: "" });
-    toast({ title: "Formulário Limpo", description: "Todos os dados foram removidos." });
+    // Não removemos assistantName nem lastTechnician
+    
+    setValue('technician', localTechnician);
+    
+    toast({ title: "Formulário Limpo", description: "Todos os dados da OS foram removidos, mas a equipe foi mantida." });
   }
 
   const handlePartStatusChange = (partCode: string, status: 'used' | 'not_used') => {
@@ -927,9 +971,9 @@ pendingReason: "",
   return (
     <div className="max-w-7xl mx-auto w-full animate-in fade-in ease-out duration-300">
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                            <Card className="w-full border-none shadow-none bg-transparent md:border-solid md:shadow-sm md:bg-card">
-                                <CardHeader className="px-1 pt-0 pb-3 md:p-6 space-y-4">
-                                    <div>
+            <Card className="w-full border-none shadow-none bg-transparent md:glass-card md:border-solid md:shadow-xl overflow-visible">
+                <CardHeader className="px-1 pt-0 pb-3 md:p-6 space-y-4 md:bg-primary/5 md:border-b md:border-border/40 md:rounded-t-xl">
+                    <div>
                                         <CardTitle className="text-[22px] md:text-2xl tracking-tight leading-none">Lançamento Rápido de OS</CardTitle>
                                         <CardDescription className="text-xs md:text-sm mt-1 leading-tight text-muted-foreground/80 md:text-muted-foreground">
                                             Preencha os campos abaixo para gerar o texto da ordem de serviço.
@@ -1006,17 +1050,30 @@ pendingReason: "",
                                                     )}/>
 
                                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                        <FormField control={form.control} name="technician" render={({ field }) => (
+                                                        <FormField control={form.control} name="technician" render={() => (
                                                             <FormItem>
                                                                 <FormLabel>Técnico</FormLabel>
-                                                                <Select onValueChange={field.onChange} value={field.value}>
-                                                                    <FormControl><SelectTrigger><SelectValue placeholder="Técnico" /></SelectTrigger></FormControl>
-                                                                    <SelectContent>
-                                                                        {technicians.map((tech) => (
-                                                                            <SelectItem key={tech.id} value={tech.id}>{tech.name}</SelectItem>
-                                                                        ))}
-                                                                    </SelectContent>
-                                                                </Select>
+                                                                {technicians.length === 0 ? (
+                                                                    <Select disabled>
+                                                                        <FormControl><SelectTrigger><SelectValue placeholder="Carregando..." /></SelectTrigger></FormControl>
+                                                                    </Select>
+                                                                ) : (
+                                                                    <Select 
+                                                                        onValueChange={(val) => {
+                                                                            setLocalTechnician(val);
+                                                                            setValue('technician', val, { shouldValidate: true, shouldDirty: true });
+                                                                            localStorage.setItem('lastTechnician', val);
+                                                                        }} 
+                                                                        value={localTechnician || undefined}
+                                                                    >
+                                                                        <FormControl><SelectTrigger><SelectValue placeholder="Selecione o Técnico" /></SelectTrigger></FormControl>
+                                                                        <SelectContent>
+                                                                            {technicians.map((tech) => (
+                                                                                <SelectItem key={tech.id} value={tech.id}>{tech.name}</SelectItem>
+                                                                            ))}
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                )}
                                                                 <FormMessage />
                                                             </FormItem>
                                                         )}/>
@@ -1045,7 +1102,21 @@ pendingReason: "",
                                                                     <FormLabel className="text-base text-slate-700 dark:text-slate-200">Atendimento Finalizado?</FormLabel>
                                                                     <div className="text-xs text-muted-foreground">Desmarque caso precise de mais peças, reagendamento ou peça com defeito</div>
                                                                 </div>
-                                                                <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                                                <FormControl>
+                                                                    <Switch 
+                                                                        checked={field.value} 
+                                                                        onCheckedChange={(val) => {
+                                                                            field.onChange(val);
+                                                                            if (!val && currentRouteStop?.parts) {
+                                                                                const newStatus = { ...partsStatus };
+                                                                                currentRouteStop.parts.forEach((p: { code: string }) => {
+                                                                                    newStatus[p.code] = 'not_used';
+                                                                                });
+                                                                                setPartsStatus(newStatus);
+                                                                            }
+                                                                        }} 
+                                                                    />
+                                                                </FormControl>
                                                             </FormItem>
                                                         )}/>
                                                         {!form.watch('isFinalized') && (

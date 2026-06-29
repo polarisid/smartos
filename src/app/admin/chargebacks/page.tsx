@@ -18,10 +18,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PlusCircle, Edit, Trash2, FileMinus, Calendar as CalendarIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { db } from "@/lib/firebase";
-import { doc, setDoc, addDoc, deleteDoc, Timestamp, collection } from "firebase/firestore";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type Chargeback } from "@/lib/data";
+import { chargebackService } from "@/services/supabase/chargebackService";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -105,13 +104,12 @@ export default function ChargebacksPage() {
             const fullDataToSave: Chargeback = { id: '', technicianName, ...dataToSave } as Chargeback;
 
             if (dialogMode === 'add') {
-                const docRef = await addDoc(collection(db, "chargebacks"), dataToSave);
-                fullDataToSave.id = docRef.id;
+                const newDocId = await chargebackService.create(dataToSave as Omit<Chargeback, 'id'>);
+                fullDataToSave.id = newDocId;
                 setChargebacks(prev => [...prev, fullDataToSave].sort((a,b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0)));
                 toast({ title: "Estorno registrado com sucesso!" });
             } else if (selectedChargeback) {
-                const chargebackRef = doc(db, "chargebacks", selectedChargeback.id);
-                await setDoc(chargebackRef, dataToSave, { merge: true });
+                await chargebackService.update(selectedChargeback.id, dataToSave as Partial<Chargeback>);
                 fullDataToSave.id = selectedChargeback.id;
                 setChargebacks(prev => prev.map(p => p.id === selectedChargeback.id ? fullDataToSave : p).sort((a,b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0)));
                 toast({ title: "Estorno atualizado com sucesso!" });
@@ -129,7 +127,7 @@ export default function ChargebacksPage() {
         if (!selectedChargeback) return;
         setIsSubmitting(true);
         try {
-            await deleteDoc(doc(db, "chargebacks", selectedChargeback.id));
+            await chargebackService.remove(selectedChargeback.id);
             setChargebacks(prev => prev.filter(p => p.id !== selectedChargeback.id));
             toast({ title: "Estorno excluído com sucesso!" });
             setIsDeleteDialogOpen(false);

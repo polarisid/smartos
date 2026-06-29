@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { collection, query, where, onSnapshot, getDocs, Timestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { routeService } from "@/services/supabase/routeService";
+import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { type Route, type RouteStop, type ServiceOrder } from "@/lib/data";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Truck, Users, Activity, Bell, BellOff, Calendar as CalendarIcon, CheckCircle2, ChevronRight, Search, TrendingUp, AlertTriangle, Clock, BarChart2, XCircle, Zap, MapPin, Timer, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { parse, isValid, format, isAfter, isToday, isYesterday } from "date-fns";
+import { parse, isValid, format, isAfter, isToday, isYesterday, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import DynamicalRouteMap from "@/components/DynamicalRouteMap";
 import React from "react";
@@ -41,6 +41,7 @@ export default function CommandCenterPage() {
     const [mapStatusFilter, setMapStatusFilter] = useState<'all' | 'todo' | 'pending' | 'completed'>('all');
     const isFirstLoad = useRef(true);
     const audioCtxRef = useRef<AudioContext | null>(null);
+    const lastFeedCount = useRef(0);
 
     const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -85,69 +86,44 @@ export default function CommandCenterPage() {
 
 
     useEffect(() => {
-        const fetchInitialContext = async () => {
-            // Setup real-time listener for active routes
-            const routesQuery = query(collection(db, "routes"), where("isActive", "==", true));
-            const unsubscribeRoutes = onSnapshot(routesQuery, (snapshot) => {
-                const routesData = snapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return {
-                        id: doc.id,
-                        ...data,
-                        createdAt: (data.createdAt as Timestamp)?.toDate(),
-                        departureDate: (data.departureDate as Timestamp)?.toDate(),
-                        arrivalDate: (data.arrivalDate as Timestamp)?.toDate(),
-                    } as Route;
-                });
-                setRoutes(routesData);
-                routesRef.current = routesData;
-            });
+        let isMounted = true;
 
-            // 60-day window needed for route completion tracking (past stops)
-            const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
-            const soQuery = query(collection(db, "serviceOrders"), where("date", ">=", sixtyDaysAgo));
-            
-            // Narrow 2-day window just for the Ontem × Hoje comparison chart
-            const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
-            const compSoQuery = query(collection(db, "serviceOrders"), where("date", ">=", twoDaysAgo));
-            const unsubscribeCompSOs = onSnapshot(compSoQuery, (snapshot) => {
-                setComparisonOrders(snapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return { id: doc.id, ...data, date: (data.date as Timestamp).toDate() } as ServiceOrder;
-                }));
-            });
-            
-            const unsubscribeSOs = onSnapshot(soQuery, (snapshot) => {
-                const orders = snapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return {
-                         id: doc.id,
-                         ...data,
-                         date: (data.date as Timestamp).toDate(),
-                    } as ServiceOrder;
-                });
-                setServiceOrders(orders);
+        const fetchData = async () => {
+            try {
+                // Fetch Active Routes
+                const allRoutesData = await routeService.getAll();
+                const activeRoutes = allRoutesData.filter(r => r.isActive);
+                
+                if (!isMounted) return;
+                setRoutes(activeRoutes);
+                routesRef.current = activeRoutes;
+
+                // 60-day window needed for route completion tracking (past stops)
+                const sixtyDaysAgo = subDays(new Date(), 60);
+                const allOrdersData = await serviceOrderService.getAll();
+                const soQuery = allOrdersData.filter(os => os.date >= sixtyDaysAgo);
+                
+                // Narrow 2-day window just for the Ontem × Hoje comparison chart
+                const twoDaysAgo = subDays(new Date(), 2);
+                const compSoQuery = allOrdersData.filter(os => os.date >= twoDaysAgo);
+                
+                if (!isMounted) return;
+                
+                setComparisonOrders(compSoQuery);
+                setServiceOrders(soQuery);
 
                 // Handle timeline feed notification
-                const changes = snapshot.docChanges();
-                
-                // On initial load, we might get multiple additions. Sort them to process chronologically
-                const addedChanges = changes.filter(c => c.type === "added");
-                addedChanges.sort((a, b) => {
-                    const dateA = (a.doc.data().date as Timestamp)?.toDate().getTime() || 0;
-                    const dateB = (b.doc.data().date as Timestamp)?.toDate().getTime() || 0;
-                    return dateA - dateB;
-                });
+                // Reconstruct feed items from the last 24 hours based on soQuery
+                const twentyFourHoursAgo = subDays(new Date(), 1);
+                const recentOrders = soQuery.filter(os => os.date >= twentyFourHoursAgo);
+                // Sort chronologically to simulate feed events
+                recentOrders.sort((a, b) => a.date.getTime() - b.date.getTime());
 
                 const newFeedItems: FeedItem[] = [];
-                const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
                 
-                addedChanges.forEach((change) => {
-                    const data = change.doc.data();
+                recentOrders.forEach((data) => {
                     const isPending = data.isFinalized === false;
-                    const itemDate = (data.date as Timestamp)?.toDate() || new Date();
-                    
-                    if (itemDate < twentyFourHoursAgo) return; // Only show last 24h on feed
+                    const itemDate = data.date;
                     
                     let stopCity = 'Cidade N/A';
                     let routeName = 'Rota Avulsa';
@@ -155,7 +131,7 @@ export default function CommandCenterPage() {
                     const techFromGlobal = techniciansRef.current.find(t => t.id === data.technicianId);
                     let techName = techFromGlobal ? techFromGlobal.name : 'Técnico';
                     
-                    for (const r of routesRef.current) {
+                    for (const r of activeRoutes) {
                         if (r.technicianId === data.technicianId) {
                             const matchedStop = r.stops?.find(s => s.serviceOrder === data.serviceOrderNumber);
                             if (matchedStop) {
@@ -175,7 +151,7 @@ export default function CommandCenterPage() {
                     }
 
                     newFeedItems.push({
-                        id: change.doc.id + Date.now(),
+                        id: `feed_${data.serviceOrderNumber}_${itemDate.getTime()}`,
                         message: message,
                         timestamp: itemDate,
                         type: isPending ? 'warning' : 'success'
@@ -183,43 +159,43 @@ export default function CommandCenterPage() {
                 });
 
                 if (newFeedItems.length > 0) {
-                    // Play alert sound for truly new items (not initial load)
-                    if (!isFirstLoad.current && soundEnabled) {
-                        const hasPending = newFeedItems.some(i => i.type === 'warning');
+                    // Deduplicate
+                    const getOsNumber = (msg: string) => {
+                        const match = msg.match(/OS (\d+)/);
+                        return match ? match[1] : null;
+                    };
+                    const seen = new Set<string>();
+                    // Start from newest to oldest
+                    const deduped = newFeedItems.reverse().filter(item => {
+                        const osNum = getOsNumber(item.message);
+                        if (!osNum) return true;
+                        if (seen.has(osNum)) return false;
+                        seen.add(osNum);
+                        return true;
+                    });
+                    
+                    if (!isFirstLoad.current && soundEnabled && deduped.length > lastFeedCount.current) {
+                        const hasPending = deduped.some(i => i.type === 'warning');
                         playAlert(hasPending);
                     }
-                    if (isFirstLoad.current) isFirstLoad.current = false;
-
-                    setFeed(prev => {
-                        const getOsNumber = (msg: string) => {
-                            const match = msg.match(/OS (\d+)/);
-                            return match ? match[1] : null;
-                        };
-                        const merged = [...newFeedItems, ...prev];
-                        const seen = new Set<string>();
-                        const deduped = merged.filter(item => {
-                            const osNum = getOsNumber(item.message);
-                            if (!osNum) return true;
-                            if (seen.has(osNum)) return false;
-                            seen.add(osNum);
-                            return true;
-                        });
-                        deduped.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-                        return deduped.slice(0, 50);
-                    });
+                    
+                    lastFeedCount.current = deduped.length;
+                    
+                    setFeed(deduped.slice(0, 50));
                 }
-            });
-
-            return () => {
-                unsubscribeRoutes();
-                unsubscribeSOs();
-                unsubscribeCompSOs();
-            };
+                
+                if (isFirstLoad.current) isFirstLoad.current = false;
+            } catch (error) {
+                console.error("Error fetching data:", error);
+            }
         };
 
-        const cleanup = fetchInitialContext();
+        fetchData();
+        const dataTimer = setInterval(fetchData, 30000); // 30s polling
+
         return () => {
-            cleanup.then(unsub => unsub());
+            isMounted = false;
+            clearInterval(dataTimer);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);

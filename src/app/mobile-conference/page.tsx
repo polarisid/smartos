@@ -6,9 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { db } from "@/lib/firebase";
 import { type Route, type RoutePart, type ServiceOrder } from "@/lib/data";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { routeService } from "@/services/supabase/routeService";
 import { PackageSearch, Save, ScanLine, Smartphone, Loader2, RefreshCw } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -89,12 +88,10 @@ export default function MobileConferencePage() {
     const handleSavePartTrackingCode = async (routeId: string, stopServiceOrder: string, partCode: string) => {
         setIsSubmitting(true);
         try {
-            const routeDocRef = doc(db, "routes", routeId);
-            const routeDoc = await getDoc(routeDocRef);
-            if (!routeDoc.exists()) {
+            const routeData = await routeService.getById(routeId);
+            if (!routeData) {
                 throw new Error("Rota não encontrada");
             }
-            const routeData = routeDoc.data() as Route;
             
             const updatedStops = routeData.stops.map(stop => {
                 if (stop.serviceOrder === stopServiceOrder) {
@@ -110,7 +107,7 @@ export default function MobileConferencePage() {
                 return stop;
             });
 
-            await setDoc(routeDocRef, { stops: updatedStops }, { merge: true });
+            await routeService.update(routeId, { stops: updatedStops });
 
             toast({ title: "Código de rastreio salvo!", description: `Rastreio para a peça ${partCode} salvo.` });
         } catch (error) {

@@ -19,10 +19,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PlusCircle, Edit, Trash2, History, Calendar as CalendarIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { db } from "@/lib/firebase";
-import { doc, setDoc, addDoc, deleteDoc, collection } from "firebase/firestore";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type Return } from "@/lib/data";
+import { returnService } from "@/services/supabase/returnService";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -112,8 +111,8 @@ export default function ReturnsPage() {
             const fullDataToSave: Return = { id: '', technicianName, ...dataToSave } as Return;
 
             if (dialogMode === 'add') {
-                const docRef = await addDoc(collection(db, "returns"), dataToSave);
-                fullDataToSave.id = docRef.id;
+                const newDocId = await returnService.create(dataToSave as Omit<Return, 'id'>);
+                fullDataToSave.id = newDocId;
                 setReturns(prev => [...prev, fullDataToSave].sort((a,b) => (b.returnDate?.getTime() || 0) - (a.returnDate?.getTime() || 0)));
                 toast({ title: "Retorno registrado com sucesso!" });
 
@@ -128,8 +127,7 @@ export default function ReturnsPage() {
                     productModel: dataToSave.productModel,
                 });
             } else if (selectedReturn) {
-                const returnRef = doc(db, "returns", selectedReturn.id);
-                await setDoc(returnRef, dataToSave, { merge: true });
+                await returnService.update(selectedReturn.id, dataToSave as Partial<Return>);
                 fullDataToSave.id = selectedReturn.id;
                 setReturns(prev => prev.map(p => p.id === selectedReturn.id ? fullDataToSave : p).sort((a,b) => (b.returnDate?.getTime() || 0) - (a.returnDate?.getTime() || 0)));
                 toast({ title: "Retorno atualizado com sucesso!" });
@@ -147,7 +145,7 @@ export default function ReturnsPage() {
         if (!selectedReturn) return;
         setIsSubmitting(true);
         try {
-            await deleteDoc(doc(db, "returns", selectedReturn.id));
+            await returnService.remove(selectedReturn.id);
             setReturns(prev => prev.filter(p => p.id !== selectedReturn.id));
             toast({ title: "Retorno excluído com sucesso!" });
             setIsDeleteDialogOpen(false);

@@ -46,23 +46,12 @@ export default function SignupPage() {
 
     try {
       await signup(email, password, name);
-      toast({ title: "Conta criada com sucesso!", description: "Você já pode fazer o login." });
-      router.push("/admin/login");
+      toast({ title: "Conta criada com sucesso!", description: "Redirecionando..." });
+      router.push("/admin/dashboard");
     } catch (err: any) {
       let errorMessage = "Ocorreu um erro desconhecido.";
-      switch (err.code) {
-        case 'auth/email-already-in-use':
-          errorMessage = 'Este email já está em uso.';
-          break;
-        case 'auth/invalid-email':
-          errorMessage = 'O formato do email é inválido.';
-          break;
-        case 'auth/weak-password':
-          errorMessage = 'A senha é muito fraca. Use pelo menos 6 caracteres.';
-          break;
-        default:
-          errorMessage = 'Falha ao criar conta. Por favor, tente novamente.';
-          break;
+      if (err.message) {
+         errorMessage = err.message;
       }
       setError(errorMessage);
     } finally {

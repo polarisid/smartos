@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import { Timestamp } from "firebase/firestore";
 import { isAfter } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { TableRow, TableCell } from "@/components/ui/table";
@@ -21,16 +20,13 @@ export function RouteDetailsRow({
     stop: RouteStop, 
     index: number, 
     serviceOrders: ServiceOrder[], 
-    routeCreatedAt: Date | Timestamp,
+    routeCreatedAt: Date,
     visitTemplate: string
 }) {
     const { toast } = useToast();
-    const createdAtAsDate = routeCreatedAt instanceof Timestamp ? routeCreatedAt.toDate() : routeCreatedAt;
-    const relatedOsList = serviceOrders.filter(os => 
-        os.serviceOrderNumber === stop.serviceOrder && 
-        isAfter(os.date, createdAtAsDate)
-    );
-    const relatedOs = relatedOsList.length > 0 ? relatedOsList[relatedOsList.length - 1] : null;
+    const relatedOsList = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder);
+    relatedOsList.sort((a, b) => b.date.getTime() - a.date.getTime());
+    const relatedOs = relatedOsList.length > 0 ? relatedOsList[0] : null;
 
     const isPending = relatedOs && (relatedOs.isFinalized === false);
     const isCompleted = relatedOs && (relatedOs.isFinalized !== false);

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { db } from "@/lib/firebase";
-import { collection, query, orderBy, onSnapshot, addDoc, Timestamp, updateDoc, doc, deleteDoc } from "firebase/firestore";
+
 import { type TriageSession, type KnowledgeDocument } from "@/lib/data";
+import { triageService } from "@/services/supabase/triageService";
+import { knowledgeService } from "@/services/supabase/knowledgeService";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,30 +46,25 @@ export default function TriageAdminPage() {
     const [docContent, setDocContent] = useState("");
     const [editingDocId, setEditingDocId] = useState<string | null>(null);
 
+    const loadData = async () => {
+        try {
+            const [sessionsData, docsData] = await Promise.all([
+                triageService.getAll(),
+                knowledgeService.getAll()
+            ]);
+            setSessions(sessionsData as TriageSession[]);
+            setKnowledgeDocs(docsData as KnowledgeDocument[]);
+        } catch (error) {
+            console.error("Error loading triage data:", error);
+            toast({ variant: "destructive", title: "Erro ao carregar dados" });
+        }
+    };
+
     useEffect(() => {
-        const qSessions = query(collection(db, "triages"), orderBy("createdAt", "desc"));
-        const unsubSessions = onSnapshot(qSessions, (snap) => {
-            setSessions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as TriageSession)));
-        });
-
-        const qDocs = query(collection(db, "knowledgeBase_rules"), orderBy("createdAt", "desc"));
-        const unsubDocs = onSnapshot(qDocs, (snap) => {
-            setKnowledgeDocs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as KnowledgeDocument)));
-        });
-
-        const unsubStats = onSnapshot(doc(db, "system_stats", "gemini_api"), (snap) => {
-            if (snap.exists()) {
-               const data = snap.data();
-               const todayStr = new Date().toISOString().split('T')[0];
-               if (data.date === todayStr) {
-                   setApiStats({ requests: data.dailyRequests || 0, limit: 20 });
-               } else {
-                   setApiStats({ requests: 0, limit: 20 });
-               }
-            }
-        });
-
-        return () => { unsubSessions(); unsubDocs(); unsubStats(); };
+        loadData();
+        // Optional: Poll every 30s to keep it fresh
+        const interval = setInterval(loadData, 30000);
+        return () => clearInterval(interval);
     }, []);
 
     const handleCreateTriage = async () => {
@@ -86,17 +82,17 @@ export default function TriageAdminPage() {
                     content: `Olá! Sou o assistente virtual da assistência técnica. Vi que sua OS ${newOs} relatou um problema com o modelo ${newModel}. Pode me descrever exatamente o que está acontecendo?`,
                     createdAt: new Date()
                 }],
-                createdAt: Timestamp.now(),
-                updatedAt: Timestamp.now(),
+                createdAt: new Date().toISOString() as any,
+                updatedAt: new Date().toISOString() as any,
             };
             
-            const docRef = await addDoc(collection(db, "triages"), triageData);
+            const docId = await triageService.create(triageData as any);
             
             toast({ title: "Triagem Criada!", description: "Link gerado para o cliente." });
             setNewOs(""); setNewModel(""); setNewLine(""); setIsNewTriageOpen(false);
             
             // Auto copy link
-            const url = `${window.location.origin}/triage/${docRef.id}`;
+            const url = `${window.location.origin}/triage/${docId}`;
             navigator.clipboard.writeText(`Olá! Acesse o link para iniciarmos o diagnóstico do seu produto: ${url}`);
             
         } catch (error) {
@@ -111,22 +107,22 @@ export default function TriageAdminPage() {
         if (!docTitle || !docContent) return toast({ variant: "destructive", title: "Preencha Título e Conteúdo." });
         try {
             if (editingDocId) {
-                await updateDoc(doc(db, "knowledgeBase_rules", editingDocId), {
+                await knowledgeService.update(editingDocId, {
                     title: docTitle,
                     productLine: docLine !== "Geral" ? docLine : "",
                     productFamily: docModel,
                     content: docContent,
-                    updatedAt: Timestamp.now()
-                });
+                    updated_at: new Date().toISOString()
+                } as any);
                 toast({ title: "Informativo Atualizado!" });
             } else {
-                await addDoc(collection(db, "knowledgeBase_rules"), {
+                await knowledgeService.create({
                     title: docTitle,
                     productLine: docLine !== "Geral" ? docLine : "",
                     productFamily: docModel,
                     content: docContent,
-                    createdAt: Timestamp.now()
-                });
+                    created_at: new Date().toISOString()
+                } as any);
                 toast({ title: "Informativo Salvo!" });
             }
             setDocTitle(""); setDocModel(""); setDocLine("Geral"); setDocContent(""); setEditingDocId(null); setIsNewDocOpen(false);
@@ -139,7 +135,7 @@ export default function TriageAdminPage() {
     const handleDeleteDoc = async (id: string) => {
         if (!confirm("Tem certeza que deseja excluir este informativo?")) return;
         try {
-            await deleteDoc(doc(db, "knowledgeBase_rules", id));
+            await knowledgeService.remove(id);
             toast({ title: "Informativo Excluído!" });
         } catch (error) {
             console.error(error);
@@ -166,13 +162,12 @@ export default function TriageAdminPage() {
         if (!selectedSession || !correctionDefect) return toast({ variant: "destructive", title: "Informe o defeito correto." });
         try {
             // Update Triage Session
-            const sessionRef = doc(db, "triages", selectedSession.id);
-            await updateDoc(sessionRef, {
+            await triageService.update(selectedSession.id, {
                 isCorrected: true,
                 correctedDiagnosis: correctionDefect,
                 correctedParts: correctionParts ? correctionParts.split(',').map(p => p.trim()) : [],
-                updatedAt: Timestamp.now()
-            });
+                updatedAt: new Date()
+            } as any);
 
             // Feed the AI (Create KnowledgeBase Doc)
             const symptomsText = selectedSession.symptomsReported && selectedSession.symptomsReported.length > 0 
@@ -180,13 +175,13 @@ export default function TriageAdminPage() {
                 : "Vide transcrição da OS";
             const kbContent = `SINTOMAS RECLAMADOS: ${symptomsText}\nDIAGNÓSTICO CORRETO (APRENDIZAGEM): ${correctionDefect}\nPEÇAS: ${correctionParts || 'Nenhuma'}`;
             
-            await addDoc(collection(db, "knowledgeBase_rules"), {
+            await knowledgeService.create({
                 title: `Correção Pós-Triagem (OS: ${selectedSession.serviceOrderNumber})`,
                 productLine: selectedSession.productLine || "Geral",
                 productFamily: selectedSession.productModel,
                 content: kbContent,
-                createdAt: Timestamp.now()
-            });
+                createdAt: new Date()
+            } as any);
 
             toast({ title: "IA Treinada no Defeito!", description: "Diagnóstico corrigido e inserido na Base de Conhecimento." });
             setIsCorrectionOpen(false);
