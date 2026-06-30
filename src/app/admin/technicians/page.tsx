@@ -22,6 +22,7 @@ import { type Technician, type AppUser } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
 import { userService } from "@/services/supabase/userService";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { technicianService } from "@/services/supabase/technicianService";
 
 type EnrichedTechnician = Technician & { role?: AppUser['role'] };
