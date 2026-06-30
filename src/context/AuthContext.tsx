@@ -33,7 +33,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         // Listen for changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUser(session?.user ?? null);
+            setUser((prevUser) => {
+                // If the user ID is the same, don't update the state reference to avoid re-renders
+                if (prevUser?.id === session?.user?.id) {
+                    return prevUser;
+                }
+                return session?.user ?? null;
+            });
             if (!session?.user) {
                 setAppUser(null);
                 setLoading(false);
@@ -75,10 +81,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         };
 
         if (user) {
-            setLoading(true);
+            // Only set loading if we don't already have the user's profile
+            setLoading(prev => appUser?.uid !== user.id ? true : prev);
             fetchProfile(user.id);
         }
-    }, [user]);
+    }, [user?.id]); // Depend on user ID, not the object reference
     
     const signup = async (email: string, pass: string, name: string, role: AppUser['role'] = 'technician') => {
         const { data, error } = await supabase.auth.signUp({

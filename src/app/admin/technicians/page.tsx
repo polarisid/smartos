@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -310,7 +309,9 @@ export default function TechniciansPage() {
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="text-center p-4">Carregando técnicos...</div>
+              <div className="space-y-2 p-4">
+                {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
+              </div>
             ) : (
               <Table>
                 <TableHeader>

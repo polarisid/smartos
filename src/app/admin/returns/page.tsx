@@ -23,6 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { type Return } from "@/lib/data";
 import { returnService } from "@/services/supabase/returnService";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -177,7 +178,9 @@ export default function ReturnsPage() {
                     </CardHeader>
                     <CardContent>
                         {contextLoading ? (
-                            <div className="text-center p-4">Carregando retornos...</div>
+                            <div className="space-y-2 py-2">
+                                {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
+                            </div>
                         ) : (
                             <Table>
                                 <TableHeader>

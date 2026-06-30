@@ -56,7 +56,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const fetchDynamicData = async () => {
     try {
         const [ordersData, returnsData, indicatorsData, chargebacksData, activeRoutesData, checklistsData, driversData] = await Promise.all([
-            serviceOrderService.getAll(),
+            serviceOrderService.getRecentOrders(2000), // Optimization: Only load recent OS to context
             returnService.getAll(),
             indicatorService.getAll(),
             chargebackService.getAll(),
