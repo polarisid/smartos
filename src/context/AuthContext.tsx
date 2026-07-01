@@ -60,7 +60,41 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                     .eq('id', userId)
                     .single();
 
-                if (error) throw error;
+                if (error) {
+                    // PGRST116 means no rows were found. The user exists in Auth but has no Profile.
+                    if (error.code === 'PGRST116') {
+                        console.warn("AuthContext: Profile not found. Attempting to auto-create...");
+                        const { data: authData } = await supabase.auth.getUser();
+                        
+                        if (authData.user) {
+                            // Check if this is the very first profile in the database
+                            const { count } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
+                            const isFirstUser = count === 0;
+
+                            const { data: newProfile, error: insertError } = await supabase.from('profiles').insert({
+                                id: userId,
+                                email: authData.user.email,
+                                name: authData.user.user_metadata?.name || authData.user.email?.split('@')[0] || 'Usuário',
+                                role: isFirstUser ? 'admin' : 'technician'
+                            }).select().single();
+
+                            if (!insertError && newProfile) {
+                                if (isMounted) {
+                                    setAppUser({
+                                        uid: newProfile.id,
+                                        name: newProfile.name,
+                                        email: newProfile.email,
+                                        role: newProfile.role
+                                    });
+                                }
+                                return; // Successfully auto-healed
+                            } else {
+                                console.error("AuthContext: Failed to auto-create profile:", insertError);
+                            }
+                        }
+                    }
+                    throw error;
+                }
 
                 if (isMounted && data) {
                     setAppUser({

@@ -37,7 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { AlertTriangle, Check, CheckCircle, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, User, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine, QrCode, XCircle } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, User, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine, QrCode, XCircle, AlertCircle } from "lucide-react";
 import Link from 'next/link';
 
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
@@ -79,7 +79,7 @@ import { ptBR } from 'date-fns/locale';
 import SignatureCanvas from 'react-signature-canvas';
 import dynamic from "next/dynamic";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { FirebaseSetupPrompt } from "@/components/FirebaseSetupPrompt";
+
 import { useAppData } from "@/context/AppDataContext";
 
 const ScannerDialog = dynamic(
@@ -965,7 +965,15 @@ pendingReason: "",
   const hasUnreviewedParts = routeParts.length > 0 && reviewedCount < routeParts.length;
 
   if (dataFetchError) {
-    return <FirebaseSetupPrompt />;
+    return (
+      <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh]">
+        <div className="rounded-full bg-destructive/10 p-4 mb-4">
+          <AlertCircle className="h-8 w-8 text-destructive" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-200 mb-2">Erro de Conexão</h2>
+        <p className="text-slate-500 max-w-md">Não foi possível conectar ao banco de dados. Verifique sua conexão com a internet ou tente novamente mais tarde.</p>
+      </div>
+    );
   }
 
   return (

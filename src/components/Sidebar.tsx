@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Wrench, TrendingUp, Trophy, Map, QrCode, LogIn, Menu, Download, Shield, RefreshCw } from "lucide-react";
+import { Wrench, TrendingUp, Trophy, Map, QrCode, LogIn, Menu, Download, Shield } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -79,26 +79,7 @@ export function Sidebar() {
                 Instalar Web App
             </Button>
         )}
-        <Button 
-            onClick={async () => {
-                try {
-                    const res = await fetch('/api/sync', { method: 'POST' });
-                    const data = await res.json();
-                    if (data.success) {
-                        alert("Sincronização concluída com sucesso! Recarregue a página.");
-                    } else {
-                        alert("Erro na sincronização: " + data.error);
-                    }
-                } catch (e) {
-                    alert("Erro ao conectar com o endpoint de sincronização.");
-                }
-            }} 
-            variant="secondary" 
-            className="w-full justify-start rounded-xl font-bold bg-blue-500/10 text-blue-600 hover:bg-blue-500/20"
-        >
-            <RefreshCw className="mr-3 h-4 w-4" />
-            Sincronizar Firebase
-        </Button>
+
         <Button asChild variant="outline" className="w-full justify-start rounded-xl font-bold shadow-sm">
           <Link href="/admin/login">
             <Shield className="mr-3 h-4 w-4 text-primary" />
