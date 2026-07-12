@@ -17,7 +17,7 @@ import React from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAppData } from "@/context/AppDataContext";
+import { useTechnicians } from "@/hooks/queries";
 import { RouteAnalysis } from "@/components/command-center/RouteAnalysis";
 
 type FeedItem = {
@@ -28,7 +28,7 @@ type FeedItem = {
 };
 
 export default function CommandCenterPage() {
-    const { technicians } = useAppData();
+    const { data: technicians = [] } = useTechnicians();
     const techniciansRef = useRef(technicians);
     useEffect(() => { techniciansRef.current = technicians; }, [technicians]);
 

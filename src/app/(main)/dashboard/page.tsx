@@ -1,5 +1,5 @@
 "use client";
-import { useAppData } from "@/context/AppDataContext";
+import { useTechnicians, useServiceOrders, useReturns, useIndicators, useChargebacks } from "@/hooks/queries";
 import dynamic from "next/dynamic";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle } from "lucide-react";
@@ -21,8 +21,14 @@ const PerformanceDashboard = dynamic(
 );
 
 export default function DashboardPage() {
-  const { technicians, serviceOrders, returns, indicators, chargebacks, dataFetchError } = useAppData();
+  const { data: technicians = [], isError: errTech } = useTechnicians();
+  const { data: serviceOrders = [], isError: errSo } = useServiceOrders(2000);
+  const { data: returns = [], isError: errRet } = useReturns();
+  const { data: indicators = [], isError: errInd } = useIndicators();
+  const { data: chargebacks = [], isError: errChar } = useChargebacks();
   
+  const dataFetchError = errTech || errSo || errRet || errInd || errChar;
+
   if (dataFetchError) {
       return (
         <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh]">

@@ -24,7 +24,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { routeService } from "@/services/supabase/routeService";
 import { driverService } from "@/services/supabase/driverService";
 import { useToast } from "@/hooks/use-toast";
-import { useAppData } from "@/context/AppDataContext";
+import { useTechnicians, useServiceOrders } from "@/hooks/queries";
+import { useQueryClient } from "@tanstack/react-query";
 import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart, type Driver } from "@/lib/data";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -1113,8 +1114,12 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
 }
 
 export default function RoutesPage() {
+    const queryClient = useQueryClient();
     const { toast } = useToast();
-    const { serviceOrders, technicians, refreshDynamicData, isLoading: contextLoading } = useAppData();
+    const { data: technicians = [], isLoading: loadingTech } = useTechnicians();
+    const { data: serviceOrders = [], isLoading: loadingSo } = useServiceOrders(2000);
+    const contextLoading = loadingTech || loadingSo;
+    const refreshDynamicData = () => queryClient.invalidateQueries();
 
     // --- Active routes (always fully loaded) ---
     const [activeRoutes, setActiveRoutes] = useState<Route[]>([]);

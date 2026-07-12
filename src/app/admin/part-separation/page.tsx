@@ -15,7 +15,7 @@ import { routeService } from "@/services/supabase/routeService";
 import { type Route, type RouteStop, type RoutePart, type Technician, type ServiceOrder } from "@/lib/data";
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { Printer, Smartphone, Table as TableIcon, Activity, CheckCircle2, AlertCircle, FileBarChart2, Search, ChevronDown, PackageSearch, Save, FileDown, CheckCircle, ScanLine, Copy, Loader2, Route as RouteIcon, XCircle } from "lucide-react";
-import { useAppData } from "@/context/AppDataContext";
+import { useServiceOrders } from "@/hooks/queries";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import jsPDF from 'jspdf';
@@ -919,7 +919,7 @@ export default function PartSeparationPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [allRoutes, setAllRoutes] = useState<Route[]>([]);
-    const { serviceOrders, isLoading: isContextLoading } = useAppData();
+    const { data: serviceOrders = [], isLoading: isContextLoading } = useServiceOrders(2000);
     const [trackingCodes, setTrackingCodes] = useState<Record<string, Record<string, Record<string, string>>>>({}); // { routeId: { stopServiceOrder: { partCode: trackingCode } } }
     const [filterText, setFilterText] = useState("");
     

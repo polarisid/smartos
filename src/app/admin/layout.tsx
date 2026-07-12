@@ -55,7 +55,7 @@ const AdminSidebar = memo(function AdminSidebar({children}: {children: React.Rea
 
     return (
         <SidebarProvider>
-            <Sidebar className="border-r border-border/40 bg-sidebar/80 backdrop-blur-xl">
+            <Sidebar className="border-r border-border/40 bg-sidebar/80 backdrop-blur-xl overflow-x-hidden">
                 <SidebarHeader>
                     <div className="flex items-center gap-3 p-2">
                         <div className="p-2 bg-gradient-to-br from-primary to-primary/70 rounded-xl shadow-lg shadow-primary/20">
@@ -64,11 +64,11 @@ const AdminSidebar = memo(function AdminSidebar({children}: {children: React.Rea
                         <h2 className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-foreground to-foreground/70">Admin Panel</h2>
                     </div>
                 </SidebarHeader>
-                <SidebarContent>
+                <SidebarContent className="px-2">
                     <SidebarMenu>
                         {NAV_ITEMS.map(({ href, label, Icon, tooltip }) => (
                             <SidebarMenuItem key={href}>
-                                <SidebarMenuButton asChild isActive={isActive(href)} tooltip={tooltip} className="transition-all duration-200 hover:translate-x-1 data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:font-medium rounded-lg mx-2">
+                                <SidebarMenuButton asChild isActive={isActive(href)} tooltip={tooltip} className="transition-all duration-200 hover:translate-x-1 data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:font-medium rounded-lg">
                                     <Link href={href}><Icon className="w-4 h-4" /> <span>{label}</span></Link>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>

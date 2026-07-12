@@ -11,7 +11,6 @@ import {
     format, isToday, isYesterday, isAfter, startOfDay, subDays, parse, isValid
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { useAppData } from "@/context/AppDataContext";
 import { routeService } from "@/services/supabase/routeService";
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 
@@ -46,7 +45,6 @@ interface RouteStats {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function AnalyticsPage() {
-    const { technicians } = useAppData();
     const [routes, setRoutes] = useState<Route[]>([]);
     const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);        // wide window — for route completion
     const [comparisonOrders, setComparisonOrders] = useState<ServiceOrder[]>([]); // 2-day window — for the chart

@@ -29,14 +29,19 @@ import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useAppData } from "@/context/AppDataContext";
+import { useReturns, useTechnicians } from "@/hooks/queries";
+import { useQueryClient } from "@tanstack/react-query";
 import { triggerWebhook } from "@/lib/webhook";
 
 type FormData = Omit<Return, 'id' | 'technicianName'>;
 
 
 export default function ReturnsPage() {
-    const { returns: contextReturns, technicians, isLoading: contextLoading } = useAppData();
+    const queryClient = useQueryClient();
+    const { data: contextReturns = [], isLoading: loadingRet } = useReturns();
+    const { data: technicians = [], isLoading: loadingTech } = useTechnicians();
+    const contextLoading = loadingRet || loadingTech;
+    
     const [returns, setReturns] = useState<Return[]>([]);
 
     const [selectedReturn, setSelectedReturn] = useState<Return | null>(null);
@@ -130,9 +135,9 @@ export default function ReturnsPage() {
             } else if (selectedReturn) {
                 await returnService.update(selectedReturn.id, dataToSave as Partial<Return>);
                 fullDataToSave.id = selectedReturn.id;
-                setReturns(prev => prev.map(p => p.id === selectedReturn.id ? fullDataToSave : p).sort((a,b) => (b.returnDate?.getTime() || 0) - (a.returnDate?.getTime() || 0)));
                 toast({ title: "Retorno atualizado com sucesso!" });
             }
+            queryClient.invalidateQueries({ queryKey: ['returns'] });
             setIsFormDialogOpen(false);
         } catch (error) {
             console.error("Error saving return:", error);
@@ -147,8 +152,8 @@ export default function ReturnsPage() {
         setIsSubmitting(true);
         try {
             await returnService.remove(selectedReturn.id);
-            setReturns(prev => prev.filter(p => p.id !== selectedReturn.id));
             toast({ title: "Retorno excluído com sucesso!" });
+            queryClient.invalidateQueries({ queryKey: ['returns'] });
             setIsDeleteDialogOpen(false);
             setSelectedReturn(null);
         } catch (error) {

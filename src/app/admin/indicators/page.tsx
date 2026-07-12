@@ -25,7 +25,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { type Indicator } from "@/lib/data";
 import { indicatorService } from "@/services/supabase/indicatorService";
-import { useAppData } from "@/context/AppDataContext";
+import { useIndicators } from "@/hooks/queries";
+import { useQueryClient } from "@tanstack/react-query";
 
 type FormData = Omit<Indicator, 'id'>;
 
@@ -117,7 +118,8 @@ function LaunchIndicatorsDialog({ indicators, onSave }: { indicators: Indicator[
 
 
 export default function IndicatorsPage() {
-    const { indicators: contextIndicators, isLoading: contextLoading, refreshDynamicData } = useAppData();
+    const queryClient = useQueryClient();
+    const { data: contextIndicators = [], isLoading: contextLoading } = useIndicators();
     const [indicators, setIndicators] = useState<Indicator[]>([]);
     
     const [selectedIndicator, setSelectedIndicator] = useState<Indicator | null>(null);
@@ -179,14 +181,13 @@ export default function IndicatorsPage() {
         setIsSubmitting(true);
         try {
             if (dialogMode === 'add') {
-                const newDocId = await indicatorService.create(formData as Omit<Indicator, 'id'>);
-                setIndicators(prev => [...prev, { id: newDocId, ...formData }]);
+                await indicatorService.create(formData as Omit<Indicator, 'id'>);
                 toast({ title: "Indicador criado com sucesso!" });
             } else if (selectedIndicator) {
                 await indicatorService.update(selectedIndicator.id, formData);
-                setIndicators(prev => prev.map(p => p.id === selectedIndicator.id ? { id: selectedIndicator.id, ...formData } : p));
                 toast({ title: "Indicador atualizado com sucesso!" });
             }
+            queryClient.invalidateQueries({ queryKey: ['indicators'] });
             setIsFormDialogOpen(false);
         } catch (error) {
             console.error("Error saving indicator:", error);
@@ -201,8 +202,8 @@ export default function IndicatorsPage() {
         setIsSubmitting(true);
         try {
             await indicatorService.remove(selectedIndicator.id);
-            setIndicators(prev => prev.filter(p => p.id !== selectedIndicator.id));
             toast({ title: "Indicador excluído com sucesso!" });
+            queryClient.invalidateQueries({ queryKey: ['indicators'] });
             setIsDeleteDialogOpen(false);
             setSelectedIndicator(null);
         } catch (error) {
@@ -214,16 +215,18 @@ export default function IndicatorsPage() {
     };
 
     const handleSaveIndicatorResults = async (data: Record<string, number>) => {
-        const promises = Object.entries(data).map(([indicatorId, value]) => {
-            return indicatorService.update(indicatorId, { currentValue: value });
-        });
-
-        await Promise.all(promises);
-        // Update local state immediately without a full re-fetch
-        setIndicators(prev => prev.map(ind => ({
-            ...ind,
-            currentValue: data[ind.id] ?? ind.currentValue,
-        })));
+        try {
+            await Promise.all(
+                Object.entries(data).map(([id, val]) => 
+                    indicatorService.update(id, { currentValue: val })
+                )
+            );
+            toast({ title: "Resultados salvos!" });
+            queryClient.invalidateQueries({ queryKey: ['indicators'] });
+        } catch (error) {
+            console.error(error);
+            toast({ variant: "destructive", title: "Erro ao salvar resultados" });
+        }
     };
 
     const getGoalDisplay = (indicator: Indicator) => {

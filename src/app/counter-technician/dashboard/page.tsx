@@ -4,13 +4,13 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { useAppData } from "@/context/AppDataContext";
+import { useServiceOrders } from "@/hooks/queries";
 import { Wrench, CheckCircle, Clock, PlusCircle } from "lucide-react";
-import { format } from "date-fns";
+import { format, isToday } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function CounterTechnicianDashboardPage() {
-  const { serviceOrders, isLoading } = useAppData();
+  const { data: serviceOrders = [], isLoading } = useServiceOrders(10);
   
   // No caso real, filtraríamos as OSs apenas desse técnico e do dia de hoje.
   // Como simplificação, pegamos as mais recentes:
@@ -18,10 +18,12 @@ export default function CounterTechnicianDashboardPage() {
     .sort((a, b) => b.date.getTime() - a.date.getTime())
     .slice(0, 10);
 
+  const todayOrders = serviceOrders.filter(os => isToday(os.date));
+  
   const stats = {
-    totalHoje: 12, // mock
-    orcamentosAprovados: 8, // mock
-    pendentes: 4 // mock
+    totalHoje: todayOrders.length,
+    orcamentosAprovados: todayOrders.filter(os => os.samsungBudgetApproved).length,
+    pendentes: todayOrders.filter(os => !os.samsungBudgetApproved && os.samsungBudgetValue).length
   };
 
   return (

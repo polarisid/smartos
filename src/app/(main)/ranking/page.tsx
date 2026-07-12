@@ -1,5 +1,5 @@
 "use client";
-import { useAppData } from "@/context/AppDataContext";
+import { useTechnicians, useReturns } from "@/hooks/queries";
 import dynamic from "next/dynamic";
 import { Trophy, AlertCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,7 +19,10 @@ const ReturnsRanking = dynamic(
 );
 
 export default function RankingPage() {
-  const { technicians, returns, dataFetchError } = useAppData();
+  const { data: technicians = [], isError: errTech } = useTechnicians();
+  const { data: returns = [], isError: errRet } = useReturns();
+
+  const dataFetchError = errTech || errRet;
 
   if (dataFetchError) {
     return (

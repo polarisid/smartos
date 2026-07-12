@@ -38,7 +38,7 @@ import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
-import { useAppData } from "@/context/AppDataContext";
+import { useTechnicians } from "@/hooks/queries";
 
 const PAGE_SIZE = 20;
 
@@ -70,7 +70,7 @@ const serviceTypeLabels: Record<string, string> = {
 
 export default function ServiceOrdersPage() {
   const { toast } = useToast();
-  const { technicians } = useAppData();
+  const { data: technicians = [] } = useTechnicians();
 
   // Data state
   const [serviceOrders, setServiceOrders] = useState<(ServiceOrder & { technicianName?: string })[]>([]);

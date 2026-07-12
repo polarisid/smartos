@@ -28,12 +28,17 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { useAppData } from "@/context/AppDataContext";
+import { useChargebacks, useTechnicians } from "@/hooks/queries";
+import { useQueryClient } from "@tanstack/react-query";
 
 type FormData = Omit<Chargeback, 'id' | 'technicianName'>;
 
 export default function ChargebacksPage() {
-    const { chargebacks: contextChargebacks, technicians, isLoading: contextLoading } = useAppData();
+    const queryClient = useQueryClient();
+    const { data: contextChargebacks = [], isLoading: loadingChar } = useChargebacks();
+    const { data: technicians = [], isLoading: loadingTech } = useTechnicians();
+    const contextLoading = loadingChar || loadingTech;
+    
     const [chargebacks, setChargebacks] = useState<Chargeback[]>([]);
 
     const [selectedChargeback, setSelectedChargeback] = useState<Chargeback | null>(null);
@@ -114,6 +119,7 @@ export default function ChargebacksPage() {
                 setChargebacks(prev => prev.map(p => p.id === selectedChargeback.id ? fullDataToSave : p).sort((a,b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0)));
                 toast({ title: "Estorno atualizado com sucesso!" });
             }
+            queryClient.invalidateQueries({ queryKey: ['chargebacks'] });
             setIsFormDialogOpen(false);
         } catch (error) {
             console.error("Error saving chargeback:", error);
@@ -128,8 +134,8 @@ export default function ChargebacksPage() {
         setIsSubmitting(true);
         try {
             await chargebackService.remove(selectedChargeback.id);
-            setChargebacks(prev => prev.filter(p => p.id !== selectedChargeback.id));
             toast({ title: "Estorno excluído com sucesso!" });
+            queryClient.invalidateQueries({ queryKey: ['chargebacks'] });
             setIsDeleteDialogOpen(false);
             setSelectedChargeback(null);
         } catch (error) {

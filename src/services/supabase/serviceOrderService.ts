@@ -43,6 +43,20 @@ export const serviceOrderService = {
     return data.map(this.mapFromDb);
   },
 
+  async getOrdersSince(daysAgo: number): Promise<ServiceOrder[]> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - daysAgo);
+    
+    const { data, error } = await supabase
+        .from('service_orders')
+        .select('*')
+        .gte('date', cutoff.toISOString())
+        .order('date', { ascending: false });
+        
+    if (error) throw error;
+    return data.map(this.mapFromDb);
+  },
+
   async getAll(): Promise<ServiceOrder[]> {
     let allOrders: any[] = [];
     let from = 0;
@@ -97,7 +111,13 @@ export const serviceOrderService = {
   },
 
   async create(data: Omit<ServiceOrder, 'id'>): Promise<string> {
-    const dbData = this.mapToDb(data as ServiceOrder);
+    const generatedId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : (Math.random().toString(36).substring(2, 15) + Date.now().toString(36));
+    const dbData = {
+      id: generatedId,
+      ...this.mapToDb(data as ServiceOrder)
+    };
     const { data: newDoc, error } = await supabase
       .from('service_orders')
       .insert(dbData)

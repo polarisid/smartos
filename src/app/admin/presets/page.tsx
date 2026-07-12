@@ -25,7 +25,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { type Preset } from "@/lib/data";
 import { presetService } from "@/services/supabase/presetService";
-import { useAppData } from "@/context/AppDataContext";
+import { usePresets, useCodes, useVisitTemplate } from "@/hooks/queries";
+import { useQueryClient } from "@tanstack/react-query";
 
 type CodeItem = { code: string; description: string; };
 type CodeCategory = { "TV/AV": CodeItem[]; "DA": CodeItem[]; };
@@ -105,7 +106,12 @@ function WebhookManagement() {
 
 
 export default function PresetsPage() {
-    const { presets: contextPresets, symptomCodes, repairCodes, visitTemplate: contextVisitTemplate, isLoading: contextLoading } = useAppData();
+    const queryClient = useQueryClient();
+    const { data: contextPresets = [], isLoading: loadingPresets } = usePresets();
+    const { data: codes = { symptomCodes: { "TV/AV": [], "DA": [] }, repairCodes: { "TV/AV": [], "DA": [] } }, isLoading: loadingCodes } = useCodes();
+    const { symptomCodes, repairCodes } = codes;
+    const { data: contextVisitTemplate = "", isLoading: loadingTemplate } = useVisitTemplate();
+    const contextLoading = loadingPresets || loadingCodes || loadingTemplate;
     const [presets, setPresets] = useState<Preset[]>([]);
     
     const [selectedPreset, setSelectedPreset] = useState<Preset | null>(null);
@@ -179,14 +185,13 @@ export default function PresetsPage() {
         setIsSubmitting(true);
         try {
             if (dialogMode === 'add') {
-                const newDocId = await presetService.create(formData as Omit<Preset, 'id'>);
-                setPresets(prev => [...prev, { id: newDocId, ...formData }]);
+                await presetService.create(formData as Omit<Preset, 'id'>);
                 toast({ title: "Preset criado com sucesso!" });
             } else if (selectedPreset) {
                 await presetService.update(selectedPreset.id, formData as Partial<Preset>);
-                setPresets(prev => prev.map(p => p.id === selectedPreset.id ? { id: selectedPreset.id, ...formData } : p));
                 toast({ title: "Preset atualizado com sucesso!" });
             }
+            queryClient.invalidateQueries({ queryKey: ['presets'] });
             setIsFormDialogOpen(false);
         } catch (error) {
             console.error("Error saving preset:", error);
@@ -201,8 +206,8 @@ export default function PresetsPage() {
         setIsSubmitting(true);
         try {
             await presetService.remove(selectedPreset.id);
-            setPresets(prev => prev.filter(p => p.id !== selectedPreset.id));
             toast({ title: "Preset excluído com sucesso!" });
+            queryClient.invalidateQueries({ queryKey: ['presets'] });
             setIsDeleteDialogOpen(false);
             setSelectedPreset(null);
         } catch (error) {
@@ -217,7 +222,8 @@ export default function PresetsPage() {
         setIsSubmitting(true);
         try {
             await configService.setTextTemplate("visitAnnouncement", visitTemplate);
-            toast({ title: "Modelo de texto salvo com sucesso!" });
+            toast({ title: "Template salvo com sucesso!" });
+            queryClient.invalidateQueries({ queryKey: ['visit-template'] });
         } catch (error) {
             console.error("Error saving text template:", error);
             toast({ variant: "destructive", title: "Erro ao Salvar", description: "Não foi possível salvar o modelo de texto." });

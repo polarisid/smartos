@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { format, differenceInDays, isAfter } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
-import { useAppData } from "@/context/AppDataContext";
+import { useActiveRoutes, useServiceOrders, useVisitTemplate } from "@/hooks/queries";
 import { AlertCircle } from "lucide-react";
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -16,10 +16,16 @@ import { Table, TableHeader, TableRow, TableHead, TableBody } from "@/components
 import { MobileRouteStopCard } from "@/components/MobileRouteStopCard";
 import { RouteDetailsRow } from "@/components/RouteDetailsRow";
 
-import { Map as RouteIcon, Calendar, Sun, MapPin, Car, Eye, Filter, CheckCircle2, Clock, LayoutList, Pin, PinOff } from "lucide-react";
+import { Map as RouteIcon, Calendar, Sun, MapPin, Car, Eye, Filter, CheckCircle2, Clock, LayoutList, Pin, PinOff, History } from "lucide-react";
 import type { Route, RouteStop } from "@/lib/data";
 export default function RoutesPage() {
-    const { activeRoutes, serviceOrders, visitTemplate, dataFetchError, isLoading } = useAppData();
+    const { data: activeRoutes = [], isError: errRoutes, isLoading: loadingRoutes } = useActiveRoutes();
+    const { data: serviceOrders = [], isError: errSo, isLoading: loadingSo } = useServiceOrders(2000);
+    const { data: visitTemplate = "", isError: errTemplate, isLoading: loadingTemplate } = useVisitTemplate();
+    
+    const dataFetchError = errRoutes || errSo || errTemplate;
+    const isLoading = loadingRoutes || loadingSo || loadingTemplate;
+
     const { toast } = useToast();
 
     const [blockedOrders, setBlockedOrders] = useState<Record<string, string>>({});
@@ -60,17 +66,19 @@ export default function RoutesPage() {
         toast({ title: "Ordem desbloqueada", description: `A OS ${serviceOrder} foi removida da lista de bloqueios.` });
     };
 
-    const isStopCompleted = (stop: RouteStop) => {
-        const relatedOs = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder);
-        relatedOs.sort((a, b) => b.date.getTime() - a.date.getTime());
-        const lastOs = relatedOs.length > 0 ? relatedOs[0] : null;
+    const isStopCompleted = (stop: RouteStop, routeCreatedAt: Date) => {
+        const currentRouteOs = serviceOrders
+            .filter(os => os.serviceOrderNumber === stop.serviceOrder && os.date.getTime() >= routeCreatedAt.getTime());
+        currentRouteOs.sort((a, b) => b.date.getTime() - a.date.getTime());
+        const lastOs = currentRouteOs.length > 0 ? currentRouteOs[0] : null;
         return lastOs ? lastOs.isFinalized !== false : false;
     };
 
-    const isStopPending = (stop: RouteStop) => {
-        const relatedOs = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder);
-        relatedOs.sort((a, b) => b.date.getTime() - a.date.getTime());
-        const lastOs = relatedOs.length > 0 ? relatedOs[0] : null;
+    const isStopPending = (stop: RouteStop, routeCreatedAt: Date) => {
+        const currentRouteOs = serviceOrders
+            .filter(os => os.serviceOrderNumber === stop.serviceOrder && os.date.getTime() >= routeCreatedAt.getTime());
+        currentRouteOs.sort((a, b) => b.date.getTime() - a.date.getTime());
+        const lastOs = currentRouteOs.length > 0 ? currentRouteOs[0] : null;
         return lastOs ? lastOs.isFinalized === false : false;
     };
     const displayedRoutes = useMemo(() => {
@@ -137,12 +145,13 @@ export default function RoutesPage() {
                 const duration = differenceInDays(arrival, departure) + 1;
 
                 const totalStops = route.stops.length;
-                const completedStopsCount = route.stops.filter(stop => isStopCompleted(stop)).length;
+                const routeCreated = route.createdAt as Date;
+                const completedStopsCount = route.stops.filter(stop => isStopCompleted(stop, routeCreated)).length;
                 const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
 
                 const filteredStops = route.stops || [];
                 const filteredCount = filteredStops.length;
-                const pendingCount = route.stops.filter(s => !isStopCompleted(s)).length;
+                const pendingCount = route.stops.filter(s => !isStopCompleted(s, routeCreated)).length;
                 const doneCount = completedStopsCount;
 
                 return (
@@ -244,6 +253,7 @@ export default function RoutesPage() {
                                             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300"></div><span>Entrega</span></div>
                                             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-100 border border-green-300"></div><span>Finalizada</span></div>
                                             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-red-100 border border-red-300"></div><span>Pendência</span></div>
+                                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-violet-100 border border-violet-300 flex items-center justify-center"><History className="w-2 h-2 text-violet-600" /></div><span>Já Visitada</span></div>
                                         </div>
                                     </DialogHeader>
                                     <div className="max-h-[70vh] overflow-y-auto">

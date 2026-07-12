@@ -9,7 +9,7 @@ import { Wrench, Tv, WashingMachine, ShieldCheck, ListTree, ClipboardCheck, Hist
 import { type ServiceOrder, type Technician, type Return, type Chargeback } from "@/lib/data";
 import { startOfWeek, startOfMonth, isAfter, startOfYear, isToday } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAppData } from "@/context/AppDataContext";
+import { useTechnicians, useServiceOrders, useReturns, useChargebacks } from "@/hooks/queries";
 import React from "react";
 
 
@@ -343,7 +343,13 @@ function ReturnsRanking({ technicians, returns }: { technicians: Technician[], r
 
 export default function DashboardPage() {
     const [filterPeriod, setFilterPeriod] = useState<'today' | 'this_week' | 'this_month' | 'this_year' | 'all_time'>('this_month');
-    const { technicians, serviceOrders, returns, chargebacks, isLoading } = useAppData();
+    
+    const { data: technicians = [], isLoading: loadingTech } = useTechnicians();
+    const { data: serviceOrders = [], isLoading: loadingSo } = useServiceOrders();
+    const { data: returns = [], isLoading: loadingRet } = useReturns();
+    const { data: chargebacks = [], isLoading: loadingChar } = useChargebacks();
+    
+    const isLoading = loadingTech || loadingSo || loadingRet || loadingChar;
 
     if (isLoading) {
         return (

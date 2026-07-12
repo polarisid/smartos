@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { isAfter } from "date-fns";
+import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ChevronDown, MessageSquare, XCircle, Calendar, MapPin } from "lucide-react";
+import { ChevronDown, MessageSquare, XCircle, Calendar, MapPin, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ServiceOrder, RouteStop } from "@/lib/data";
 
@@ -32,12 +32,23 @@ export function MobileRouteStopCard({
     onUnblock: (serviceOrder: string) => void,
 }) {
     const { toast } = useToast();
-    const relatedOsList = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder);
-    relatedOsList.sort((a, b) => b.date.getTime() - a.date.getTime());
-    const relatedOs = relatedOsList.length > 0 ? relatedOsList[0] : null;
-
-    const isPending = relatedOs && (relatedOs.isFinalized === false);
-    const isCompleted = relatedOs && (relatedOs.isFinalized !== false);
+    
+    // Separate service orders into "this route" vs "previous visits"
+    const allRelatedOs = serviceOrders
+        .filter(os => os.serviceOrderNumber === stop.serviceOrder)
+        .sort((a, b) => b.date.getTime() - a.date.getTime());
+    
+    const currentRouteOs = allRelatedOs.filter(os => os.date.getTime() >= routeCreatedAt.getTime());
+    const previousVisits = allRelatedOs.filter(os => os.date.getTime() < routeCreatedAt.getTime());
+    
+    // Status based ONLY on current route visits
+    const currentOs = currentRouteOs.length > 0 ? currentRouteOs[0] : null;
+    const isPending = currentOs && (currentOs.isFinalized === false);
+    const isCompleted = currentOs && (currentOs.isFinalized !== false);
+    
+    // Previous visit info
+    const hasPreviousVisits = previousVisits.length > 0;
+    
     const isBlocked = !!blockedOrders[stop.serviceOrder];
     const blockReason = blockedOrders[stop.serviceOrder] || "";
     const [pendingReason, setPendingReason] = useState(blockReason);
@@ -57,6 +68,7 @@ export function MobileRouteStopCard({
     const getCardClass = () => {
         if (isBlocked || isPending) return "border-red-400 bg-red-50 dark:bg-red-900/20";
         if (isCompleted) return "border-green-300 bg-green-50 dark:bg-green-900/20";
+        if (hasPreviousVisits) return "border-violet-300 bg-violet-50/50 dark:bg-violet-900/10";
         switch (stop.stopType) {
             case 'coleta': return 'border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20';
             case 'entrega': return 'border-blue-300 bg-blue-50 dark:bg-blue-900/20';
@@ -90,6 +102,11 @@ export function MobileRouteStopCard({
                             {isCompleted && <div className="text-[10px] bg-green-200 text-green-800 px-2 py-0.5 rounded-full font-bold uppercase">Concluída</div>}
                             {isPending && <div className="text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded-full font-bold uppercase">Pendência</div>}
                             {isBlocked && <div className="text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1"><XCircle className="h-3 w-3"/>Bloqueada</div>}
+                            {hasPreviousVisits && !isCompleted && !isPending && (
+                                <div className="text-[10px] bg-violet-200 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1">
+                                    <History className="h-3 w-3" />Já Visitada
+                                </div>
+                            )}
                         </div>
                         <Button
                             variant="outline"
@@ -154,21 +171,62 @@ export function MobileRouteStopCard({
                         {isPending && (
                             <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-2 space-y-1">
                                 <p className="font-bold text-[10px] uppercase text-red-700 dark:text-red-400 mb-1">Registro do Técnico (Pendência):</p>
-                                {relatedOs?.pendingReason && (
+                                {currentOs?.pendingReason && (
                                     <p className="text-xs text-red-800 dark:text-red-300">
-                                        <span className="font-bold">Motivo: </span>{relatedOs.pendingReason}
+                                        <span className="font-bold">Motivo: </span>{currentOs.pendingReason}
                                     </p>
                                 )}
-                                {relatedOs?.observations && (
+                                {currentOs?.observations && (
                                     <p className="text-xs text-red-800 dark:text-red-300">
-                                        <span className="font-bold">Observações: </span>{relatedOs.observations}
+                                        <span className="font-bold">Observações: </span>{currentOs.observations}
                                     </p>
                                 )}
-                                {!relatedOs?.pendingReason && !relatedOs?.observations && (
+                                {!currentOs?.pendingReason && !currentOs?.observations && (
                                     <p className="text-xs text-muted-foreground">Nenhuma observação registrada pelo técnico.</p>
                                 )}
                             </div>
                         )}
+                        
+                        {/* Histórico de visitas anteriores */}
+                        {hasPreviousVisits && (
+                            <div className="rounded-md bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 p-2 space-y-2">
+                                <p className="font-bold text-[10px] uppercase text-violet-700 dark:text-violet-400 flex items-center gap-1">
+                                    <History className="h-3 w-3" />
+                                    Histórico de Visitas Anteriores ({previousVisits.length})
+                                </p>
+                                {previousVisits.map((visit, vIndex) => (
+                                    <div key={vIndex} className="bg-white/60 dark:bg-background/40 rounded p-2 space-y-0.5 border border-violet-100 dark:border-violet-800/50">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="text-[10px] text-violet-600 dark:text-violet-400 font-semibold">
+                                                {format(visit.date, "dd/MM/yyyy")}
+                                            </p>
+                                            <span className={cn(
+                                                "text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase",
+                                                visit.isFinalized === false
+                                                    ? "bg-red-200 text-red-800"
+                                                    : "bg-green-200 text-green-800"
+                                            )}>
+                                                {visit.isFinalized === false ? "Pendência" : "Finalizada"}
+                                            </span>
+                                        </div>
+                                        {visit.isFinalized === false && visit.pendingReason && (
+                                            <p className="text-xs text-foreground/80">
+                                                <span className="font-bold">Motivo: </span>{visit.pendingReason}
+                                            </p>
+                                        )}
+                                        {visit.observations && (
+                                            <p className="text-xs text-foreground/80">
+                                                <span className="font-bold">Obs: </span>{visit.observations}
+                                            </p>
+                                        )}
+                                        {!visit.pendingReason && !visit.observations && (
+                                            <p className="text-xs text-muted-foreground italic">Sem observações registradas.</p>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
                         <Button size="sm" variant="default" className="w-full font-bold h-9 bg-primary" onClick={handleCopyVisitText}>
                             <MessageSquare className="mr-2 h-4 w-4" />
                             Copiar Anúncio de Visita
