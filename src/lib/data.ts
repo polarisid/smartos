@@ -189,6 +189,8 @@ export type RouteStop = {
     stopType?: 'padrao' | 'coleta' | 'entrega';
     collectionType?: 'reparo' | 'rma' | 'eco' | 'descarte';
     addressDetails?: string;
+    isReallocated?: boolean;
+    reallocatedToRouteName?: string;
 }
 
 export type Route = {

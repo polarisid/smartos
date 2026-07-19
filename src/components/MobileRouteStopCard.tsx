@@ -53,8 +53,9 @@ export function MobileRouteStopCard({
     const blockReason = blockedOrders[stop.serviceOrder] || "";
     const [pendingReason, setPendingReason] = useState(blockReason);
 
-    const hasLocation = !!stop.addressDetails;
-    const addressQuery = hasLocation ? encodeURIComponent(`${stop.addressDetails}, ${stop.neighborhood}, ${stop.city}`) : "";
+    const addressQuery = stop.addressDetails
+        ? encodeURIComponent(`${stop.addressDetails}, ${stop.neighborhood}, ${stop.city}`)
+        : encodeURIComponent(`${stop.neighborhood ? stop.neighborhood + ', ' : ''}${stop.city}`);
 
     const handleCopyVisitText = () => {
         let textToCopy = visitTemplate
@@ -66,6 +67,7 @@ export function MobileRouteStopCard({
     };
 
     const getCardClass = () => {
+        if (stop.isReallocated) return "border-slate-300 bg-slate-50 dark:bg-slate-900/30 opacity-70";
         if (isBlocked || isPending) return "border-red-400 bg-red-50 dark:bg-red-900/20";
         if (isCompleted) return "border-green-300 bg-green-50 dark:bg-green-900/20";
         if (hasPreviousVisits) return "border-violet-300 bg-violet-50/50 dark:bg-violet-900/10";
@@ -95,14 +97,15 @@ export function MobileRouteStopCard({
                             {stop.firstVisitDate && <span className="text-[9px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 px-1.5 py-0.5 rounded flex items-center gap-1"><Calendar className="h-3 w-3" />{stop.firstVisitDate}</span>}
                             {stop.turn && <span className="text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 px-1.5 py-0.5 rounded">{stop.turn}</span>}
                         </div>
-                        <p className={cn("font-mono font-black text-lg tracking-tight text-foreground leading-none", isCompleted && "line-through opacity-60")}>{stop.serviceOrder}</p>
+                        <p className={cn("font-mono font-black text-lg tracking-tight text-foreground leading-none", (isCompleted || stop.isReallocated) && "line-through opacity-60")}>{stop.serviceOrder}</p>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="flex flex-col items-end gap-1">
+                            {stop.isReallocated && <div className="text-[10px] bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 px-2 py-0.5 rounded-full font-bold uppercase">Realocado</div>}
                             {isCompleted && <div className="text-[10px] bg-green-200 text-green-800 px-2 py-0.5 rounded-full font-bold uppercase">Concluída</div>}
                             {isPending && <div className="text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded-full font-bold uppercase">Pendência</div>}
                             {isBlocked && <div className="text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1"><XCircle className="h-3 w-3"/>Bloqueada</div>}
-                            {hasPreviousVisits && !isCompleted && !isPending && (
+                            {hasPreviousVisits && !isCompleted && !isPending && !stop.isReallocated && (
                                 <div className="text-[10px] bg-violet-200 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1">
                                     <History className="h-3 w-3" />Já Visitada
                                 </div>
@@ -111,10 +114,9 @@ export function MobileRouteStopCard({
                         <Button
                             variant="outline"
                             size="icon"
-                            className={cn("h-8 w-8 shrink-0", hasLocation ? "text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100" : "text-muted-foreground opacity-50 cursor-not-allowed border-border")}
-                            onClick={() => hasLocation && window.open(`https://www.google.com/maps/search/?api=1&query=${addressQuery}`, '_blank')}
-                            disabled={!hasLocation}
-                            title={hasLocation ? "Abrir endereço no Google Maps" : "Localização não salva"}
+                            className="h-8 w-8 shrink-0 text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100"
+                            onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${addressQuery}`, '_blank')}
+                            title="Abrir no Google Maps"
                         >
                             <MapPin className="h-4 w-4" />
                         </Button>
@@ -158,6 +160,13 @@ export function MobileRouteStopCard({
                         </Button>
                     </CollapsibleTrigger>
                     <CollapsibleContent className="pt-3 mt-1 border-t border-border/50 space-y-3">
+                        {stop.isReallocated && (
+                            <div className="rounded-md bg-amber-50 dark:bg-amber-955/10 border border-amber-200 dark:border-amber-900 p-2 text-xs">
+                                <p className="font-semibold text-amber-800 dark:text-amber-400">
+                                    ⚠️ Este atendimento foi realocado para a rota: <span className="font-bold">{stop.reallocatedToRouteName}</span>
+                                </p>
+                            </div>
+                        )}
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Consumidor:</p>

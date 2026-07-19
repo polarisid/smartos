@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { TableRow, TableCell } from "@/components/ui/table";
 import { CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, MessageSquare, History } from "lucide-react";
+import { ChevronDown, MessageSquare, History, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ServiceOrder, RouteStop } from "@/lib/data";
 
@@ -52,6 +52,7 @@ export function RouteDetailsRow({
     };
 
     const getRowClass = () => {
+        if (stop.isReallocated) return "bg-slate-100 dark:bg-slate-900/50 line-through text-slate-400 dark:text-slate-500 opacity-60";
         if (isPending) return "bg-red-100 dark:bg-red-900/50 text-red-900 dark:text-red-100";
         if (isCompleted) return "bg-green-100 dark:bg-green-900/50 line-through text-slate-500 opacity-60";
         if (hasPreviousVisits) return "bg-violet-50 dark:bg-violet-900/20";
@@ -75,7 +76,10 @@ export function RouteDetailsRow({
                     <TableCell className="font-mono">
                         <span className="flex items-center gap-1.5">
                             {stop.serviceOrder}
-                            {hasPreviousVisits && !isCompleted && !isPending && (
+                            {stop.isReallocated && (
+                                <span className="text-[9px] bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-bold px-1.5 py-0.5 rounded-full uppercase">Realocado</span>
+                            )}
+                            {hasPreviousVisits && !isCompleted && !isPending && !stop.isReallocated && (
                                 <History className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
                             )}
                         </span>
@@ -105,7 +109,14 @@ export function RouteDetailsRow({
             <CollapsibleContent asChild>
                 <tr className="bg-muted/50">
                     <TableCell colSpan={7} className="p-2">
-                            <div className="p-2 bg-background/50 rounded space-y-2">
+                        <div className="p-2 bg-background/50 rounded space-y-2">
+                            {stop.isReallocated && (
+                                <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 p-2">
+                                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-400">
+                                        ⚠️ Este atendimento foi realocado para a rota: <span className="font-bold">{stop.reallocatedToRouteName}</span>
+                                    </p>
+                                </div>
+                            )}
                             <div>
                                 <p className="font-semibold text-xs mb-1">Nome Consumidor:</p>
                                 <p className="text-sm text-foreground">{stop.consumerName || "N/A"}</p>
@@ -185,13 +196,30 @@ export function RouteDetailsRow({
                                     <p className="text-sm text-foreground">{stop.statusComment}</p>
                                 </div>
                             )}
-                            <div className="border-t pt-2">
+                            {(() => {
+                                const addressQuery = stop.addressDetails
+                                    ? encodeURIComponent(`${stop.addressDetails}, ${stop.neighborhood}, ${stop.city}`)
+                                    : encodeURIComponent(`${stop.neighborhood ? stop.neighborhood + ', ' : ''}${stop.city}`);
+
+                            return (
+                                <div className="border-t pt-2 flex items-center gap-2">
                                     <Button size="sm" variant="outline" onClick={handleCopyVisitText}>
-                                    <MessageSquare className="mr-2 h-4 w-4" />
-                                    Copiar Anúncio de Visita
-                                </Button>
-                            </div>
-                        </div>
+                                        <MessageSquare className="mr-2 h-4 w-4" />
+                                        Copiar Anúncio de Visita
+                                    </Button>
+                                    <Button 
+                                        size="sm" 
+                                        variant="outline" 
+                                        className="text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 hover:text-blue-700"
+                                        onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${addressQuery}`, '_blank')}
+                                    >
+                                        <MapPin className="mr-2 h-4 w-4" />
+                                        Visualizar no Mapa
+                                    </Button>
+                                </div>
+                            );
+                        })()}
+                    </div>
                     </TableCell>
                 </tr>
             </CollapsibleContent>

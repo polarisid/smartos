@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { getCoordinates } from '@/lib/geocode';
@@ -17,8 +17,8 @@ L.Icon.Default.mergeOptions({
 });
 
 
-// Custom DivIcons
-const getCustomIcon = (color: 'green' | 'blue' | 'yellow') => {
+// Custom DivIcons with sequential index numbers
+const getCustomIcon = (color: 'green' | 'blue' | 'yellow', index: number) => {
     const colorClasses = {
         green: 'bg-emerald-500 shadow-emerald-500/50',
         blue: 'bg-blue-600 shadow-blue-500/50',
@@ -27,9 +27,9 @@ const getCustomIcon = (color: 'green' | 'blue' | 'yellow') => {
     
     return L.divIcon({
         className: 'custom-leaflet-icon',
-        html: `<div class="w-5 h-5 rounded-full border-2 border-white shadow-lg ${colorClasses[color]} flex items-center justify-center animate-in zoom-in"></div>`,
-        iconSize: [20, 20],
-        iconAnchor: [10, 10],
+        html: `<div class="w-6 h-6 rounded-full border-2 border-white shadow-lg ${colorClasses[color]} flex items-center justify-center text-[10px] font-bold text-white animate-in zoom-in">${index}</div>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
     });
 };
 
@@ -95,6 +95,8 @@ export default function RouteMap({ routes, activeStops }: RouteMapProps) {
         };
     }, [activeStops]);
 
+
+
     return (
         <div className="w-full h-full min-h-[500px] bg-slate-900 rounded-xl overflow-hidden border border-slate-800 relative z-0">
             {mapStops.length === 0 && loading && (
@@ -118,34 +120,40 @@ export default function RouteMap({ routes, activeStops }: RouteMapProps) {
                 
                 <MapBounds stops={mapStops} />
 
-                {mapStops.map((item, idx) => (
-                    <Marker 
-                        key={`${item.stop.serviceOrder}-${idx}`} 
-                        position={item.coords}
-                        icon={getCustomIcon(item.status === 'completed' ? 'green' : item.status === 'pending' ? 'yellow' : 'blue')}
-                    >
-                        <Popup className="custom-popup">
-                            <div className="p-1">
-                                <h4 className="font-bold text-slate-900 text-sm mb-1">{item.stop.city} - {item.stop.neighborhood}</h4>
-                                {item.stop.addressDetails && (
-                                    <p className="text-xs text-slate-700 italic border-l-2 border-slate-300 pl-2 mb-2 bg-slate-50 py-1">
-                                        {item.stop.addressDetails}
-                                    </p>
-                                )}
-                                <p className="text-xs text-slate-600 mb-2"><strong>OS:</strong> {item.stop.serviceOrder}</p>
-                                
-                                <div className="text-xs space-y-1 mb-2">
-                                    <p><strong>Rota:</strong> {item.route.name}</p>
-                                    <p><strong>Téc:</strong> {item.route.technicianName}</p>
-                                    <p><strong>Turno/Produto:</strong> {item.stop.turn} • {item.stop.productType}</p>
+                {mapStops.map((item, idx) => {
+                    const originalIndex = activeStops.findIndex(a => a.stop.serviceOrder === item.stop.serviceOrder) + 1;
+
+                    return (
+                        <Marker 
+                            key={`${item.stop.serviceOrder}-${idx}`} 
+                            position={item.coords}
+                            icon={getCustomIcon(item.status === 'completed' ? 'green' : item.status === 'pending' ? 'yellow' : 'blue', originalIndex)}
+                        >
+                            <Popup className="custom-popup">
+                                <div className="p-1">
+                                    <h4 className="font-bold text-slate-900 text-sm mb-1">
+                                        #{originalIndex} - {item.stop.city} - {item.stop.neighborhood}
+                                    </h4>
+                                    {item.stop.addressDetails && (
+                                        <p className="text-xs text-slate-700 italic border-l-2 border-slate-300 pl-2 mb-2 bg-slate-50 py-1">
+                                            {item.stop.addressDetails}
+                                        </p>
+                                    )}
+                                    <p className="text-xs text-slate-600 mb-2"><strong>OS:</strong> {item.stop.serviceOrder}</p>
+                                    
+                                    <div className="text-xs space-y-1 mb-2">
+                                        <p><strong>Rota:</strong> {item.route.name}</p>
+                                        <p><strong>Téc:</strong> {item.route.technicianName}</p>
+                                        <p><strong>Turno/Produto:</strong> {item.stop.turn} • {item.stop.productType}</p>
+                                    </div>
+                                    <div className="mt-2 text-center text-xs font-bold rounded-md py-1 bg-slate-100">
+                                        {item.status === 'completed' ? <span className="text-emerald-600">Finalizado</span> : item.status === 'pending' ? <span className="text-yellow-600">Com Pendência</span> : <span className="text-blue-600">A Fazer</span>}
+                                    </div>
                                 </div>
-                                <div className="mt-2 text-center text-xs font-bold rounded-md py-1 bg-slate-100">
-                                    {item.status === 'completed' ? <span className="text-emerald-600">Finalizado</span> : item.status === 'pending' ? <span className="text-yellow-600">Com Pendência</span> : <span className="text-blue-600">A Fazer</span>}
-                                </div>
-                            </div>
-                        </Popup>
-                    </Marker>
-                ))}
+                            </Popup>
+                        </Marker>
+                    );
+                })}
             </MapContainer>
         </div>
     );

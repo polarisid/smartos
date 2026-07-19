@@ -42,6 +42,10 @@ import React from "react";
 import { Progress } from "@/components/ui/progress";
 import { triggerWebhook } from "@/lib/webhook";
 import * as XLSX from 'xlsx';
+import dynamic from "next/dynamic";
+import { Clock, Map as MapIcon, List, History } from "lucide-react";
+
+const DynamicalRouteMap = dynamic(() => import('@/components/RouteMap'), { ssr: false });
 
 
 function parseRouteText(text: string): RouteStop[] {
@@ -52,10 +56,16 @@ function parseRouteText(text: string): RouteStop[] {
     const headerLine = lines.shift()?.trim();
     if (!headerLine) return [];
     
-    // Replace multiple spaces/tabs with a single tab for consistent splitting
-    const normalizeSpaces = (line: string) => line.replace(/[\s\t]{2,}/g, '\t');
+    const hasTabs = headerLine.includes('\t');
+    const getColumns = (line: string) => {
+        if (hasTabs) {
+            return line.split('\t').map(cell => cell.trim().replace(/ {2,}/g, ' '));
+        } else {
+            return line.replace(/[\s\t]{2,}/g, '\t').split('\t').map(cell => cell.trim());
+        }
+    };
 
-    const headers = normalizeSpaces(headerLine).split('\t').map(h => h.trim().toLowerCase());
+    const headers = getColumns(headerLine).map(h => h.toLowerCase());
     
     // Dynamically find indices of headers
     const getIndex = (name: string | string[]) => {
@@ -111,7 +121,7 @@ function parseRouteText(text: string): RouteStop[] {
     });
 
     return lines.map(line => {
-        const columns = normalizeSpaces(line).split('\t');
+        const columns = getColumns(line);
 
         // Basic validation: ensure the line has enough columns to be a valid entry
         const serviceOrder = columns[headerIndices.soNro]?.trim();
@@ -194,7 +204,8 @@ function RouteForm({
     onRouteSaved, 
     initialData,
     technicians,
-    drivers
+    drivers,
+    serviceOrders = []
 }: { 
     mode: 'add' | 'edit',
     isActive: boolean,
@@ -202,7 +213,8 @@ function RouteForm({
     onRouteSaved: () => void,
     initialData?: Route | null,
     technicians: Technician[],
-    drivers: Driver[]
+    drivers: Driver[],
+    serviceOrders?: ServiceOrder[]
 }) {
     const { toast } = useToast();
     const [routeName, setRouteName] = useState("");
@@ -454,11 +466,25 @@ function RouteForm({
                 return;
             }
 
-            // Remove from current route
-            const newCurrentStops = parsedStops.filter((_, i) => i !== stopToReallocate.index);
+            // Mark as reallocated on original route
+            const newCurrentStops = parsedStops.map((stop, i) => {
+                if (i === stopToReallocate.index) {
+                    return {
+                        ...stop,
+                        isReallocated: true,
+                        reallocatedToRouteName: targetRoute.name
+                    };
+                }
+                return stop;
+            });
 
-            // Add to target route (appended at end, preserving all data)
-            const newTargetStops = [...(targetRoute.stops || []), stopToMove];
+            // Prepare a clean copy of the stop for the new route
+            const stopToMoveClean = {
+                ...stopToMove,
+                isReallocated: false,
+                reallocatedToRouteName: undefined
+            };
+            const newTargetStops = [...(targetRoute.stops || []), stopToMoveClean];
             
             const updates = [
                 { id: initialData.id, data: { stops: newCurrentStops } },
@@ -728,8 +754,8 @@ function RouteForm({
                     </div>
                      <div className="space-y-4">
                         <Label>Pré-visualização da Rota</Label>
-                        <div className="border rounded-lg overflow-hidden">
-                            <Table>
+                        <div className="border rounded-lg overflow-x-auto w-full">
+                            <Table className="min-w-[850px]">
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>OS</TableHead>
@@ -742,11 +768,28 @@ function RouteForm({
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {parsedStops.length > 0 ? parsedStops.map((stop, index) => (
-                                        <TableRow key={stop.serviceOrder}>
-                                            <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
+                                    {parsedStops.length > 0 ? parsedStops.map((stop, index) => {
+                                        const isAlreadyVisited = serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder);
+
+                                        return (
+                                            <TableRow key={stop.serviceOrder} className={cn(stop.isReallocated && "line-through text-muted-foreground bg-slate-50 dark:bg-slate-900/10 opacity-60")}>
+                                                <TableCell className="font-mono">
+                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                        <span>{stop.serviceOrder}</span>
+                                                        {isAlreadyVisited && (
+                                                            <Badge variant="secondary" className="bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 hover:bg-violet-100 hover:text-violet-700 text-[10px] px-1.5 py-0 flex items-center gap-0.5">
+                                                                <History className="w-3 h-3" /> Já Visitada
+                                                            </Badge>
+                                                        )}
+                                                        {stop.isReallocated && (
+                                                            <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:text-amber-400 text-[10px] px-1.5 py-0">
+                                                                Realocado para: {stop.reallocatedToRouteName}
+                                                            </Badge>
+                                                        )}
+                                                    </div>
+                                                </TableCell>
                                             <TableCell>
-                                                <Select value={stop.stopType || 'padrao'} onValueChange={(v) => handleStopTypeChange(index, v as any)}>
+                                                <Select value={stop.stopType || 'padrao'} onValueChange={(v) => handleStopTypeChange(index, v as any)} disabled={stop.isReallocated}>
                                                     <SelectTrigger className="text-xs h-8">
                                                         <SelectValue />
                                                     </SelectTrigger>
@@ -774,6 +817,7 @@ function RouteForm({
                                                     value={stop.firstVisitDate || stop.requestDate || ''} 
                                                     onChange={(e) => handleDateChange(index, e.target.value)} 
                                                     placeholder="dd/mm/aaaa"
+                                                    disabled={stop.isReallocated}
                                                 />
                                             </TableCell>
                                             <TableCell>
@@ -782,12 +826,13 @@ function RouteForm({
                                                     value={stop.turn || ''} 
                                                     onChange={(e) => handleTurnChange(index, e.target.value)} 
                                                     placeholder="Turno"
+                                                    disabled={stop.isReallocated}
                                                 />
                                             </TableCell>
                                             <TableCell className="text-center">
                                                 <Popover>
                                                     <PopoverTrigger asChild>
-                                                        <Button variant="ghost" size="icon" className={cn("h-8 w-8", stop.addressDetails ? "text-emerald-500 bg-emerald-50 dark:bg-emerald-950" : "text-muted-foreground")} title="Editar Detalhes do Endereço">
+                                                        <Button variant="ghost" size="icon" className={cn("h-8 w-8", stop.addressDetails ? "text-emerald-500 bg-emerald-50 dark:bg-emerald-950" : "text-muted-foreground")} title="Editar Detalhes do Endereço" disabled={stop.isReallocated}>
                                                             <MapPin className="h-4 w-4" />
                                                         </Button>
                                                     </PopoverTrigger>
@@ -815,24 +860,25 @@ function RouteForm({
                                             </TableCell>
                                              <TableCell className="text-right">
                                                 <div className="flex items-center justify-end gap-1">
-                                                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleMoveStop(index, 'up')} disabled={index === 0}>
+                                                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleMoveStop(index, 'up')} disabled={index === 0 || stop.isReallocated}>
                                                         <ArrowUp className="h-4 w-4" />
                                                     </Button>
-                                                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleMoveStop(index, 'down')} disabled={index === parsedStops.length - 1}>
+                                                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleMoveStop(index, 'down')} disabled={index === parsedStops.length - 1 || stop.isReallocated}>
                                                         <ArrowDown className="h-4 w-4" />
                                                     </Button>
                                                     {mode === 'edit' && (
-                                                        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Realocar para outra rota" onClick={() => handleOpenReallocate(stop, index)}>
+                                                        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Realocar para outra rota" onClick={() => handleOpenReallocate(stop, index)} disabled={stop.isReallocated}>
                                                             <ArrowRightLeft className="h-4 w-4 text-blue-500" />
                                                         </Button>
                                                     )}
-                                                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleRemoveStop(index)}>
+                                                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleRemoveStop(index)} disabled={stop.isReallocated}>
                                                         <Trash2 className="h-4 w-4 text-destructive" />
                                                     </Button>
                                                 </div>
                                             </TableCell>
                                         </TableRow>
-                                    )) : (
+                                        );
+                                    }) : (
                                         <TableRow>
                                             <TableCell colSpan={4} className="h-24 text-center">
                                                 A pré-visualização aparecerá aqui.
@@ -1011,6 +1057,7 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
     const isCompleted = relatedOs && (relatedOs.isFinalized !== false);
 
     const getRowClass = () => {
+        if (stop.isReallocated) return "bg-slate-100 dark:bg-slate-900/50 line-through text-slate-400 dark:text-slate-500 opacity-60";
         if (isPending) return "bg-red-100 dark:bg-red-900/50 text-red-900 dark:text-red-100";
         if (isCompleted) return "bg-green-100 dark:bg-green-900/50 line-through text-slate-500 opacity-60";
         switch (stop.stopType) {
@@ -1047,7 +1094,16 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
         <React.Fragment>
             <CollapsibleTrigger asChild>
                 <TableRow className={cn("cursor-pointer", getRowClass())}>
-                    <TableCell className="font-mono">{stop.serviceOrder}</TableCell>
+                    <TableCell className="font-mono">
+                        <span className="flex items-center gap-1.5">
+                            {stop.serviceOrder}
+                            {stop.isReallocated && (
+                                <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:text-amber-400 text-[9px] px-1.5 py-0 flex items-center">
+                                    Realocado
+                                </Badge>
+                            )}
+                        </span>
+                    </TableCell>
                     <TableCell className="font-mono">{stop.ascJobNumber}</TableCell>
                     <TableCell>{getStopTypeDisplay()}</TableCell>
                     <TableCell>{stop.city}</TableCell>
@@ -1077,6 +1133,13 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
                 <tr className="bg-muted/50">
                     <TableCell colSpan={10} className="p-2">
                             <div className="p-2 bg-background/50 rounded space-y-2">
+                            {stop.isReallocated && (
+                                <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 p-2">
+                                    <p className="text-xs font-semibold text-amber-800 dark:text-amber-400">
+                                        ⚠️ Este atendimento foi realocado para a rota: <span className="font-bold">{stop.reallocatedToRouteName}</span>
+                                    </p>
+                                </div>
+                            )}
                             <div>
                                 <p className="font-semibold text-xs mb-1">Nome Consumidor:</p>
                                 <p className="text-sm text-foreground">{stop.consumerName || "N/A"}</p>
@@ -1105,6 +1168,28 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
                                     <p className="text-sm text-foreground">{stop.statusComment}</p>
                                 </div>
                             )}
+                            {(() => {
+                                const addressQuery = stop.addressDetails
+                                    ? encodeURIComponent(`${stop.addressDetails}, ${stop.neighborhood}, ${stop.city}`)
+                                    : encodeURIComponent(`${stop.neighborhood ? stop.neighborhood + ', ' : ''}${stop.city}`);
+
+                                return (
+                                    <div className="pt-2">
+                                        <Button 
+                                            size="sm" 
+                                            variant="outline" 
+                                            className="text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 hover:text-blue-700"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.open(`https://www.google.com/maps/search/?api=1&query=${addressQuery}`, '_blank');
+                                            }}
+                                        >
+                                            <MapPin className="mr-2 h-4 w-4" />
+                                            Visualizar no Mapa
+                                        </Button>
+                                    </div>
+                                );
+                            })()}
                         </div>
                     </TableCell>
                 </tr>
@@ -1139,6 +1224,52 @@ export default function RoutesPage() {
     const [activeTab, setActiveTab] = useState('list');
     const [formMode, setFormMode] = useState<'add' | 'edit'>('add');
     const [selectedRouteForEdit, setSelectedRouteForEdit] = useState<Route | null>(null);
+
+    const activeStopsForMap = useMemo(() => {
+        if (!selectedRoute) return [];
+        const routeCreatedAt = selectedRoute.createdAt instanceof Date 
+            ? selectedRoute.createdAt 
+            : (selectedRoute.createdAt as any)?.toDate?.() ?? new Date();
+
+        return (selectedRoute.stops || []).map(stop => {
+            const relatedOsList = serviceOrders.filter(os =>
+                os.serviceOrderNumber === stop.serviceOrder &&
+                isAfter(os.date, routeCreatedAt)
+            );
+            const lastOs = relatedOsList.length > 0 ? relatedOsList[relatedOsList.length - 1] : null;
+
+            let status: 'completed' | 'pending' | 'todo' = 'todo';
+            if (lastOs) {
+                if (lastOs.isFinalized === false) {
+                    status = 'pending';
+                } else {
+                    status = 'completed';
+                }
+            }
+            return {
+                stop,
+                route: selectedRoute,
+                status
+            };
+        });
+    }, [selectedRoute, serviceOrders]);
+
+    const estimatedRouteTime = useMemo(() => {
+        if (!selectedRoute) return "0 min";
+        const stopsCount = selectedRoute.stops?.length || 0;
+        if (stopsCount === 0) return "0 min";
+        
+        const isInterior = selectedRoute.routeType?.toLowerCase() === 'interior';
+        const travelTime = isInterior ? 50 : 25;
+        const serviceTime = 40;
+        
+        const totalMinutes = stopsCount * (travelTime + serviceTime);
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        
+        if (hours === 0) return `${minutes} min`;
+        return minutes > 0 ? `${hours}h ${minutes}min` : `${hours}h`;
+    }, [selectedRoute]);
 
     const INACTIVE_PAGE_SIZE = 10;
 
@@ -1262,12 +1393,14 @@ export default function RoutesPage() {
                     osStatus = 'Finalizada';
                 }
 
+                const numericOS = /^\d+$/.test(stop.serviceOrder) ? Number(stop.serviceOrder) : stop.serviceOrder;
+
                 reportData.push({
+                    "OS Nro.": numericOS,
                     "Nome da Rota": routeName,
                     "Data de Saída": departure,
                     "Técnico": technician,
                     "Motorista": driver,
-                    "OS Nro.": stop.serviceOrder,
                     "ASC Job No.": stop.ascJobNumber || '',
                     "Nome Consumidor": stop.consumerName || '',
                     "Cidade": stop.city || '',
@@ -1275,7 +1408,9 @@ export default function RoutesPage() {
                     "Modelo": stop.model || '',
                     "Tipo de Parada": stop.stopType === 'coleta' ? `Coleta (${stop.collectionType || ''})` : stop.stopType === 'entrega' ? 'Entrega' : 'Padrão',
                     "Status da OS": osStatus,
-                    "Motivo Pendência": osStatus === 'Pendente' ? (stop.statusComment || '') : '',
+                    "Motivo Pendência": osStatus === 'Pendente' 
+                        ? [lastOs?.pendingReason, lastOs?.observations].filter(Boolean).join(' - ') || (stop.statusComment || '')
+                        : '',
                 });
             });
         });
@@ -1523,13 +1658,14 @@ export default function RoutesPage() {
                             initialData={selectedRouteForEdit}
                             technicians={technicians}
                             drivers={drivers}
+                            serviceOrders={serviceOrders}
                         />
                     </TabsContent>
                 </Tabs>
             </div>
 
             <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-                <DialogContent className="max-w-6xl">
+                <DialogContent className="max-w-6xl w-[90vw]">
                     <DialogHeader>
                         <DialogTitle>Detalhes da Rota: {selectedRoute?.name}</DialogTitle>
                          <DialogDescription>
@@ -1542,31 +1678,74 @@ export default function RoutesPage() {
                             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-red-100 border border-red-300"></div><span>Pendência</span></div>
                         </div>
                     </DialogHeader>
-                    <div className="max-h-[70vh] overflow-y-auto">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>OS</TableHead>
-                                    <TableHead>ASC Job No.</TableHead>
-                                    <TableHead>Tipo</TableHead>
-                                    <TableHead>Cidade</TableHead>
-                                    <TableHead>Bairro</TableHead>
-                                    <TableHead>Modelo</TableHead>
-                                    <TableHead>TS</TableHead>
-                                    <TableHead>OW/LP</TableHead>
-                                    <TableHead>Peças</TableHead>
-                                    <TableHead className="w-[50px]"></TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {selectedRoute?.stops.map((stop, index) => (
-                                     <Collapsible asChild key={index}>
-                                        <RouteDetailsRow stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={selectedRoute.createdAt!} />
-                                     </Collapsible>
-                                ))}
-                            </TableBody>
-                        </Table>
+
+                    {/* Summary Info Banner */}
+                    <div className="flex flex-wrap items-center gap-4 py-3 px-4 bg-muted/40 rounded-xl border border-border/50">
+                        <div className="flex items-center gap-2 text-sm text-foreground">
+                            <Clock className="w-4 h-4 text-primary" />
+                            <span className="font-medium text-muted-foreground">Tempo Estimado:</span>
+                            <span className="font-bold text-foreground">{estimatedRouteTime}</span>
+                        </div>
+                        <div className="w-1.5 h-1.5 rounded-full bg-border"></div>
+                        <div className="flex items-center gap-2 text-sm text-foreground">
+                            <MapPin className="w-4 h-4 text-primary" />
+                            <span className="font-medium text-muted-foreground">Paradas Totais:</span>
+                            <span className="font-bold text-foreground">{selectedRoute?.stops?.length || 0}</span>
+                        </div>
+                        <div className="w-1.5 h-1.5 rounded-full bg-border"></div>
+                        <div className="flex items-center gap-2 text-sm text-foreground">
+                            <Truck className="w-4 h-4 text-primary" />
+                            <span className="font-medium text-muted-foreground">Tipo de Rota:</span>
+                            <span className="font-bold text-foreground capitalize">{selectedRoute?.routeType || 'Padrão'}</span>
+                        </div>
                     </div>
+
+                    {/* Tab Navigation between List and Map */}
+                    <Tabs defaultValue="list" className="w-full">
+                        <TabsList className="grid w-full max-w-[400px] grid-cols-2">
+                            <TabsTrigger value="list" className="flex items-center gap-2">
+                                <List className="w-4 h-4" /> Lista de Paradas
+                            </TabsTrigger>
+                            <TabsTrigger value="map" className="flex items-center gap-2">
+                                <MapIcon className="w-4 h-4" /> Mapa da Rota
+                            </TabsTrigger>
+                        </TabsList>
+                        
+                        <TabsContent value="list" className="max-h-[50vh] overflow-y-auto overflow-x-auto rounded-xl border mt-2 w-full">
+                            <Table className="min-w-[900px]">
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>OS</TableHead>
+                                        <TableHead>ASC Job No.</TableHead>
+                                        <TableHead>Tipo</TableHead>
+                                        <TableHead>Cidade</TableHead>
+                                        <TableHead>Bairro</TableHead>
+                                        <TableHead>Modelo</TableHead>
+                                        <TableHead>TS</TableHead>
+                                        <TableHead>OW/LP</TableHead>
+                                        <TableHead>Peças</TableHead>
+                                        <TableHead className="w-[50px]"></TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {selectedRoute?.stops.map((stop, index) => (
+                                         <Collapsible asChild key={index}>
+                                            <RouteDetailsRow stop={stop} index={index} serviceOrders={serviceOrders} routeCreatedAt={selectedRoute.createdAt!} />
+                                         </Collapsible>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </TabsContent>
+                        
+                        <TabsContent value="map" className="h-[50vh] min-h-[400px] overflow-hidden rounded-xl border relative mt-2">
+                            {selectedRoute && (
+                                <DynamicalRouteMap 
+                                    routes={[selectedRoute]} 
+                                    activeStops={activeStopsForMap} 
+                                />
+                            )}
+                        </TabsContent>
+                    </Tabs>
                 </DialogContent>
             </Dialog>
 

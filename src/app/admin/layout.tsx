@@ -33,7 +33,6 @@ const NAV_ITEMS = [
   { href: '/admin/codes', label: 'Códigos', Icon: Tag, tooltip: 'Códigos' },
   { href: '/admin/presets', label: 'Presets', Icon: Bookmark, tooltip: 'Presets' },
   { href: '/admin/returns', label: 'Retornos', Icon: History, tooltip: 'Retornos' },
-  { href: '/admin/chargebacks', label: 'Estornos', Icon: FileMinus, tooltip: 'Estornos' },
   { href: '/admin/routes', label: 'Rotas', Icon: Route, tooltip: 'Rotas' },
   { href: '/admin/part-separation', label: 'Conferência de Peças', Icon: PackageSearch, tooltip: 'Conferência de Peças' },
   { href: '/admin/checklists', label: 'Checklists', Icon: ClipboardList, tooltip: 'Checklists' },
