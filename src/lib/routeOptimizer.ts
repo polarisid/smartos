@@ -83,6 +83,39 @@ const CITY_COORDINATES: Record<string, { lat: number; lng: number }> = {
 };
 
 /**
+ * Approximate geographic zones for main city neighborhoods to ensure smooth route progression
+ */
+const NEIGHBORHOOD_ZONES: Record<string, number> = {
+  // Aracaju (Norte -> Centro -> Sul)
+  "porto dantas": 10, "soledade": 11, "japaozinho": 12, "coqueiral": 13,
+  "bugio": 15, "jardim centenario": 16, "olaria": 17, "santos dumont": 18,
+  "18 do forte": 20, "cidade nova": 21, "santo antonio": 22, "bairro industrial": 23,
+  "centro": 30, "getulio vargas": 31, "cirurgia": 32, "suissa": 33,
+  "siqueira campos": 34, "america": 35, "novo paraiso": 36, "jose conrado de araujo": 37,
+  "sao jose": 38, "treze de julho": 39,
+  "salgado filho": 40, "grageru": 41, "jardins": 42, "luzia": 43,
+  "ponto novo": 44, "inacio barbosa": 45, "jabotiana": 46, "jk": 47,
+  "farolandia": 50, "augusto franco": 51, "coroa do meio": 52, "atalaia": 53,
+  "aruana": 54, "robalo": 55, "zona de expansao": 56, "mosqueiro": 57,
+
+  // Maceió (Centro -> Farol -> Orla -> Tabuleiro)
+  "pontal da barra": 10, "trapiche da barra": 11, "prado": 12, "jaragua": 13,
+  "poco": 15, "pajucara": 16, "ponta verde": 17, "jatiuca": 18, "cruz das almas": 19,
+  "farol": 25, "pinheiro": 26, "bebedouro": 27, "mutange": 28,
+  "tabuleiro do martins": 35, "cleto marques luz": 36, "santa lucia": 37,
+  "benedito bentes": 40,
+
+  // Campina Grande
+  "centro": 10, "prata": 12, "alto branco": 14, "lauritzen": 15,
+  "catole": 20, "tres irmas": 22, "liberdade": 24, "cruzeiro": 25,
+  "bodocongo": 30, "malvinas": 32,
+};
+
+function getNeighborhoodZoneScore(nKey: string): number {
+  return NEIGHBORHOOD_ZONES[nKey] ?? 100;
+}
+
+/**
  * Calculates approximate distance in km between two cities.
  */
 function getCityDistance(cityA: string, cityB: string): number {
@@ -111,11 +144,10 @@ function getCityDistance(cityA: string, cityB: string): number {
  * Optimizes the order of route stops starting from an origin/departure city (Base)
  * using Nearest Neighbor TSP clustering.
  *
- * Algorithm:
- * 1. Group stops by normalized city name.
- * 2. Order cities using Nearest-Neighbor TSP starting from originCity (default: Aracaju).
- * 3. Within each city, group by neighborhood and sort by urgency (TAT / LP).
- * 4. Flatten into a single ordered circuit that departs from and returns to base.
+ * Hierarchical Optimization:
+ * 1. CIDADE: Nearest-Neighbor TSP starting from originCity (Base).
+ * 2. BAIRRO: Strict grouping by neighborhood + geographic zone sequence.
+ * 3. PARADA/OS: Sorted by TAT urgency (LP/OW priority) within each neighborhood.
  *
  * @param stops - Array of RouteStop objects
  * @param originCity - Departure/Return base city (e.g. "Aracaju")
@@ -186,6 +218,7 @@ export function optimizeRouteStops(stops: RouteStop[], originCity: string = "Ara
     const cityData = cityMap.get(cityKey);
     if (!cityData) continue;
 
+    // Group stops strictly by neighborhood
     const neighborhoodMap = new Map<string, RouteStop[]>();
     for (const stop of cityData.stops) {
       const nKey = normalize(stop.neighborhood) || "sem_bairro";
@@ -193,9 +226,14 @@ export function optimizeRouteStops(stops: RouteStop[], originCity: string = "Ara
       neighborhoodMap.get(nKey)!.push(stop);
     }
 
-    // Sort neighborhoods by stop count descending
+    // Sort neighborhoods by geographic zone score first, then by stop count
     const sortedNeighborhoods = [...neighborhoodMap.entries()].sort(
-      ([, a], [, b]) => b.length - a.length
+      ([keyA, listA], [keyB, listB]) => {
+        const scoreA = getNeighborhoodZoneScore(keyA);
+        const scoreB = getNeighborhoodZoneScore(keyB);
+        if (scoreA !== scoreB) return scoreA - scoreB;
+        return listB.length - listA.length;
+      }
     );
 
     for (const [, neighborhoodStops] of sortedNeighborhoods) {
@@ -220,5 +258,5 @@ export function describeOptimization(
 ): string {
   const cities = new Set(optimized.map(s => s.city).filter(Boolean));
   const neighborhoods = new Set(optimized.map(s => s.neighborhood).filter(Boolean));
-  return `Circuito otimizado a partir de ${originCity}: ${optimized.length} paradas em ${cities.size} cidade(s) e ${neighborhoods.size} bairro(s), organizadas por proximidade de percurso e retorno à base.`;
+  return `Circuito otimizado a partir de ${originCity}: ${optimized.length} paradas em ${cities.size} cidade(s) e ${neighborhoods.size} bairro(s), organizadas com agrupamento estrito por bairro e percurso de retorno à base.`;
 }
