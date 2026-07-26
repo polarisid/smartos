@@ -315,8 +315,15 @@ export default function PlanejamentoPage() {
   // AI Optimization preview state
   const [isOptimizeOpen, setIsOptimizeOpen] = useState(false);
   const [optimizingRoute, setOptimizingRoute] = useState<Route | null>(null);
+  const [originCity, setOriginCity] = useState("Aracaju");
   const [proposedStops, setProposedStops] = useState<RouteStop[]>([]);
   const [optimizationSummary, setOptimizationSummary] = useState("");
+
+  const routeCities = useMemo(() => {
+    if (!optimizingRoute) return [];
+    const set = new Set(optimizingRoute.stops.map(s => s.city).filter(Boolean));
+    return Array.from(set);
+  }, [optimizingRoute]);
 
   // Form state
   const [formName, setFormName] = useState("");
@@ -422,11 +429,23 @@ export default function PlanejamentoPage() {
   // ── Open AI Optimization Preview Modal ──
   const handleOpenOptimize = (route: Route) => {
     setOptimizingRoute(route);
-    const optimized = optimizeRouteStops(route.stops);
-    const summary = describeOptimization(route.stops, optimized);
+    const initialOrigin = "Aracaju";
+    setOriginCity(initialOrigin);
+    const optimized = optimizeRouteStops(route.stops, initialOrigin);
+    const summary = describeOptimization(route.stops, optimized, initialOrigin);
     setProposedStops(optimized);
     setOptimizationSummary(summary);
     setIsOptimizeOpen(true);
+  };
+
+  // ── Handle Origin Base Change ──
+  const handleOriginChange = (newOrigin: string) => {
+    setOriginCity(newOrigin);
+    if (!optimizingRoute) return;
+    const optimized = optimizeRouteStops(optimizingRoute.stops, newOrigin);
+    const summary = describeOptimization(optimizingRoute.stops, optimized, newOrigin);
+    setProposedStops(optimized);
+    setOptimizationSummary(summary);
   };
 
   // ── Apply AI Optimization ──
@@ -930,6 +949,31 @@ export default function PlanejamentoPage() {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
+            {/* Ponto de Saída / Base Selector */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-muted/40 p-3 rounded-xl border border-border/50">
+              <div className="flex items-center gap-2 text-xs">
+                <MapPin className="h-4 w-4 text-primary shrink-0" />
+                <span className="font-bold text-foreground">Ponto de Saída & Retorno (Base):</span>
+              </div>
+              <Select value={originCity} onValueChange={handleOriginChange}>
+                <SelectTrigger className="w-full sm:w-[220px] h-8 text-xs bg-background">
+                  <SelectValue placeholder="Selecione a base..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Aracaju">📍 Aracaju (Base Principal)</SelectItem>
+                  <SelectItem value="Maceió">📍 Maceió</SelectItem>
+                  <SelectItem value="Arapiraca">📍 Arapiraca</SelectItem>
+                  <SelectItem value="Campina Grande">📍 Campina Grande</SelectItem>
+                  <SelectItem value="João Pessoa">📍 João Pessoa</SelectItem>
+                  <SelectItem value="Recife">📍 Recife</SelectItem>
+                  <SelectItem value="Salvador">📍 Salvador</SelectItem>
+                  {routeCities.map(c => (
+                    <SelectItem key={c} value={c}>📍 {c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="rounded-lg border border-violet-200 bg-violet-50/50 dark:border-violet-900/50 dark:bg-violet-955/20 p-3 text-xs text-violet-800 dark:text-violet-300 flex items-start gap-2">
               <span className="text-base">🤖</span>
               <div>
