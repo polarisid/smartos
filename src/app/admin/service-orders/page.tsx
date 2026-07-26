@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -81,6 +81,19 @@ export default function ServiceOrdersPage() {
   const [hasMore, setHasMore] = useState(true);
   const [lastDoc, setLastDoc] = useState<any>(null);
   const [techMap, setTechMap] = useState<Record<string, string>>({});
+  const [surveyFilter, setSurveyFilter] = useState<'all' | 'completed' | 'pending'>('all');
+
+  const filteredServiceOrders = useMemo(() => {
+    return serviceOrders.filter(order => {
+      if (surveyFilter === 'all') return true;
+      const hasSurvey = order.samsungRepairType === 'LP' && order.observations?.includes('[Pesquisa LP realizada: Sim]');
+      if (surveyFilter === 'completed') return hasSurvey;
+      if (surveyFilter === 'pending') {
+        return order.samsungRepairType === 'LP' && !order.observations?.includes('[Pesquisa LP realizada: Sim]');
+      }
+      return true;
+    });
+  }, [serviceOrders, surveyFilter]);
 
   // Search state
   const [searchTerm, setSearchTerm] = useState("");
@@ -266,30 +279,46 @@ export default function ServiceOrdersPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Número da OS (ex: 4801234567)"
-                  className="pl-9"
-                  value={searchInput}
-                  onChange={e => setSearchInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                />
-              </div>
-              <Button onClick={handleSearch} disabled={isSearching}>
-                {isSearching ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Search className="h-4 w-4 mr-2" />}
-                Buscar
-              </Button>
-              {searchTerm && (
-                <Button variant="outline" onClick={() => {
-                  setSearchInput("");
-                  setSearchTerm("");
-                  loadInitialOrders(techMap);
-                }}>
-                  <FilterX className="h-4 w-4 mr-2" /> Limpar
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex flex-1 gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Número da OS (ex: 4801234567)"
+                    className="pl-9"
+                    value={searchInput}
+                    onChange={e => setSearchInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                  />
+                </div>
+                <Button onClick={handleSearch} disabled={isSearching}>
+                  {isSearching ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Search className="h-4 w-4 mr-2" />}
+                  Buscar
                 </Button>
-              )}
+                {searchTerm && (
+                  <Button variant="outline" onClick={() => {
+                    setSearchInput("");
+                    setSearchTerm("");
+                    loadInitialOrders(techMap);
+                  }}>
+                    <FilterX className="h-4 w-4 mr-2" /> Limpar
+                  </Button>
+                )}
+              </div>
+              
+              <div className="flex items-center gap-2 min-w-[260px]">
+                <Label htmlFor="survey-filter" className="text-xs shrink-0 font-bold">Pesquisa LP:</Label>
+                <Select value={surveyFilter} onValueChange={(v: any) => setSurveyFilter(v)}>
+                  <SelectTrigger id="survey-filter" className="h-10 text-sm">
+                    <SelectValue placeholder="Filtrar por pesquisa..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas as OSs</SelectItem>
+                    <SelectItem value="completed">Com Pesquisa Realizada</SelectItem>
+                    <SelectItem value="pending">Pesquisa LP Pendente</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             {searchTerm && (
               <p className="text-sm text-muted-foreground mt-2">
@@ -307,8 +336,10 @@ export default function ServiceOrdersPage() {
                 <CardTitle>Atendimentos Registrados</CardTitle>
                 <CardDescription>
                   {searchTerm
-                    ? `${serviceOrders.length} resultado(s) encontrado(s)`
-                    : `Exibindo os ${serviceOrders.length} registros mais recentes`}
+                    ? `${filteredServiceOrders.length} resultado(s) encontrado(s)`
+                    : surveyFilter !== 'all'
+                      ? `Exibindo ${filteredServiceOrders.length} OSs correspondentes ao filtro (de ${serviceOrders.length} carregadas)`
+                      : `Exibindo as ${serviceOrders.length} OSs mais recentes`}
                 </CardDescription>
               </div>
               {!searchTerm && (
@@ -338,7 +369,7 @@ export default function ServiceOrdersPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {serviceOrders.length > 0 ? serviceOrders.map(order => (
+                    {filteredServiceOrders.length > 0 ? filteredServiceOrders.map(order => (
                       <TableRow key={order.id}>
                         <TableCell className="font-mono">{order.serviceOrderNumber}</TableCell>
                         <TableCell>{format(order.date, 'dd/MM/yyyy')}</TableCell>
@@ -386,7 +417,7 @@ export default function ServiceOrdersPage() {
                     )) : (
                       <TableRow>
                         <TableCell colSpan={7} className="text-center h-24 text-muted-foreground">
-                          {searchTerm ? "Nenhuma OS encontrada para este número." : "Nenhuma ordem de serviço registrada."}
+                          {searchTerm ? "Nenhuma OS encontrada para este número." : surveyFilter !== 'all' ? "Nenhuma ordem de serviço corresponde a este filtro de pesquisa." : "Nenhuma ordem de serviço registrada."}
                         </TableCell>
                       </TableRow>
                     )}
