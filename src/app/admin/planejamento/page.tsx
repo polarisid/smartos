@@ -974,13 +974,34 @@ export default function PlanejamentoPage() {
               </Select>
             </div>
 
-            <div className="rounded-lg border border-violet-200 bg-violet-50/50 dark:border-violet-900/50 dark:bg-violet-955/20 p-3 text-xs text-violet-800 dark:text-violet-300 flex items-start gap-2">
-              <span className="text-base">🤖</span>
-              <div>
-                <p className="font-bold">Resumo da Otimização:</p>
-                <p className="mt-0.5">{optimizationSummary}</p>
-              </div>
-            </div>
+            {/* Optimization Summary Banner */}
+            {(() => {
+              const movedCount = proposedStops.filter((stop, i) => {
+                const origIdx = optimizingRoute?.stops.findIndex(s => s.serviceOrder === stop.serviceOrder) ?? -1;
+                return origIdx !== -1 && origIdx !== i;
+              }).length;
+              const unchangedCount = proposedStops.length - movedCount;
+
+              return (
+                <div className="rounded-xl border border-violet-200 bg-violet-50/60 dark:border-violet-900/50 dark:bg-violet-955/20 p-3 text-xs text-violet-900 dark:text-violet-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                  <div className="flex items-start gap-2">
+                    <span className="text-lg">🤖</span>
+                    <div>
+                      <p className="font-bold">Resumo da Otimização por IA:</p>
+                      <p className="mt-0.5 text-violet-700 dark:text-violet-300">{optimizationSummary}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px] shrink-0 self-end sm:self-auto font-medium">
+                    <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-800 font-bold">
+                      ⚡ {movedCount} alteradas
+                    </span>
+                    <span className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 px-2 py-0.5 rounded-full border border-slate-300 dark:border-slate-700 font-medium">
+                      ✓ {unchangedCount} mantidas
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Ordem Atual */}
@@ -989,16 +1010,36 @@ export default function PlanejamentoPage() {
                   <span>Ordem Atual</span>
                   <span className="text-[10px] font-normal">{optimizingRoute?.stops.length} paradas</span>
                 </h4>
-                <div className="space-y-1.5 max-h-[350px] overflow-y-auto pr-1">
-                  {optimizingRoute?.stops.map((stop, i) => (
-                    <div key={i} className="flex items-center gap-2 p-2 rounded-lg border bg-background text-xs">
-                      <span className="font-bold text-muted-foreground w-4 text-center">{i + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-mono font-semibold truncate">{stop.serviceOrder}</p>
-                        <p className="text-[10px] text-muted-foreground truncate">{stop.city} — {stop.neighborhood}</p>
+                <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
+                  {optimizingRoute?.stops.map((stop, i) => {
+                    const newIdx = proposedStops.findIndex(s => s.serviceOrder === stop.serviceOrder);
+                    const oldPos = i + 1;
+                    const newPos = newIdx !== -1 ? newIdx + 1 : oldPos;
+                    const isMoved = oldPos !== newPos;
+
+                    return (
+                      <div
+                        key={i}
+                        className={cn(
+                          "flex items-center gap-2 p-2 rounded-lg border bg-background text-xs transition-colors",
+                          isMoved && "border-slate-300/80 bg-slate-50/50 dark:bg-slate-900/40 dark:border-slate-800"
+                        )}
+                      >
+                        <span className="font-bold text-muted-foreground w-6 text-center text-xs shrink-0">#{oldPos}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <p className="font-mono font-semibold truncate">{stop.serviceOrder}</p>
+                            {isMoved && (
+                              <span className="text-[9px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
+                                Vai p/ #{newPos}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-muted-foreground truncate">{stop.city} — {stop.neighborhood}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1008,23 +1049,67 @@ export default function PlanejamentoPage() {
                   <span>Sugerido pela IA</span>
                   <span className="text-[10px] font-normal text-emerald-600 dark:text-emerald-400 font-bold">✨ Otimizado</span>
                 </h4>
-                <div className="space-y-1.5 max-h-[350px] overflow-y-auto pr-1">
-                  {proposedStops.map((stop, i) => (
-                    <div key={i} className="flex items-center gap-2 p-2 rounded-lg border border-violet-200 dark:border-violet-900 bg-background text-xs shadow-sm">
-                      <span className="font-bold text-violet-600 dark:text-violet-400 w-4 text-center">{i + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-mono font-semibold truncate flex items-center gap-1.5">
-                          {stop.serviceOrder}
-                          {stop.warrantyType === 'LP' && (
-                            <span className="bg-amber-100 text-amber-800 text-[9px] px-1 rounded font-bold">LP</span>
-                          )}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground truncate">
-                          <span className="font-medium text-foreground">{stop.city}</span> — {stop.neighborhood}
-                        </p>
+                <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
+                  {proposedStops.map((stop, i) => {
+                    const origIdx = optimizingRoute?.stops.findIndex(s => s.serviceOrder === stop.serviceOrder) ?? -1;
+                    const oldPos = origIdx !== -1 ? origIdx + 1 : i + 1;
+                    const newPos = i + 1;
+                    const isMoved = oldPos !== newPos;
+                    const posDiff = oldPos - newPos; // positive = moved up (earlier in route), negative = moved down
+
+                    return (
+                      <div
+                        key={i}
+                        className={cn(
+                          "flex items-center gap-2 p-2 rounded-lg border text-xs shadow-sm transition-all duration-200",
+                          isMoved
+                            ? posDiff > 0
+                              ? "border-emerald-400/80 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-955/40"
+                              : "border-amber-400/80 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-955/40"
+                            : "border-violet-200 dark:border-violet-900/60 bg-background"
+                        )}
+                      >
+                        <span className={cn(
+                          "font-black w-6 text-center text-xs shrink-0 py-0.5 rounded",
+                          isMoved
+                            ? posDiff > 0 ? "bg-emerald-600 text-white" : "bg-amber-600 text-white"
+                            : "text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-950"
+                        )}>
+                          #{newPos}
+                        </span>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <p className="font-mono font-bold truncate flex items-center gap-1.5">
+                              {stop.serviceOrder}
+                              {stop.warrantyType === 'LP' && (
+                                <span className="bg-amber-100 text-amber-800 text-[9px] px-1 rounded font-bold">LP</span>
+                              )}
+                            </p>
+                            {/* Movement indicator badge */}
+                            {isMoved ? (
+                              posDiff > 0 ? (
+                                <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800 flex items-center gap-0.5 shrink-0">
+                                  ▲ Subiu (#{oldPos} ➔ #{newPos})
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800 flex items-center gap-0.5 shrink-0">
+                                  ▼ Desceu (#{oldPos} ➔ #{newPos})
+                                </span>
+                              )
+                            ) : (
+                              <span className="text-[9px] text-muted-foreground font-medium shrink-0">
+                                Mantida #{newPos}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-muted-foreground truncate">
+                            <span className="font-medium text-foreground">{stop.city}</span> — {stop.neighborhood}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
