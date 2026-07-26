@@ -87,32 +87,33 @@ const CITY_COORDINATES: Record<string, { lat: number; lng: number }> = {
  */
 const NEIGHBORHOOD_ZONES: Record<string, number> = {
   // Aracaju (Norte -> Centro -> Sul)
-  "porto dantas": 10, "soledade": 11, "japaozinho": 12, "coqueiral": 13,
-  "bugio": 15, "jardim centenario": 16, "olaria": 17, "santos dumont": 18,
-  "18 do forte": 20, "cidade nova": 21, "santo antonio": 22, "bairro industrial": 23,
-  "centro": 30, "getulio vargas": 31, "cirurgia": 32, "suissa": 33,
-  "siqueira campos": 34, "america": 35, "novo paraiso": 36, "jose conrado de araujo": 37,
-  "sao jose": 38, "treze de julho": 39,
-  "salgado filho": 40, "grageru": 41, "jardins": 42, "luzia": 43,
-  "ponto novo": 44, "inacio barbosa": 45, "jabotiana": 46, "jk": 47,
-  "farolandia": 50, "augusto franco": 51, "coroa do meio": 52, "atalaia": 53,
-  "aruana": 54, "robalo": 55, "zona de expansao": 56, "mosqueiro": 57,
+  "aracaju:porto dantas": 10, "aracaju:soledade": 11, "aracaju:japaozinho": 12, "aracaju:coqueiral": 13,
+  "aracaju:bugio": 15, "aracaju:jardim centenario": 16, "aracaju:olaria": 17, "aracaju:santos dumont": 18,
+  "aracaju:18 do forte": 20, "aracaju:cidade nova": 21, "aracaju:santo antonio": 22, "aracaju:bairro industrial": 23,
+  "aracaju:centro": 30, "aracaju:getulio vargas": 31, "aracaju:cirurgia": 32, "aracaju:suissa": 33,
+  "aracaju:siqueira campos": 34, "aracaju:america": 35, "aracaju:novo paraiso": 36, "aracaju:jose conrado de araujo": 37,
+  "aracaju:sao jose": 38, "aracaju:treze de julho": 39,
+  "aracaju:salgado filho": 40, "aracaju:grageru": 41, "aracaju:jardins": 42, "aracaju:luzia": 43,
+  "aracaju:ponto novo": 44, "aracaju:inacio barbosa": 45, "aracaju:jabotiana": 46, "aracaju:jk": 47,
+  "aracaju:farolandia": 50, "aracaju:augusto franco": 51, "aracaju:coroa do meio": 52, "aracaju:atalaia": 53,
+  "aracaju:aruana": 54, "aracaju:robalo": 55, "aracaju:zona de expansao": 56, "aracaju:mosqueiro": 57,
 
   // Maceió (Centro -> Farol -> Orla -> Tabuleiro)
-  "pontal da barra": 10, "trapiche da barra": 11, "prado": 12, "jaragua": 13,
-  "poco": 15, "pajucara": 16, "ponta verde": 17, "jatiuca": 18, "cruz das almas": 19,
-  "farol": 25, "pinheiro": 26, "bebedouro": 27, "mutange": 28,
-  "tabuleiro do martins": 35, "cleto marques luz": 36, "santa lucia": 37,
-  "benedito bentes": 40,
+  "maceio:pontal da barra": 10, "maceio:trapiche da barra": 11, "maceio:prado": 12, "maceio:jaragua": 13,
+  "maceio:centro": 14, "maceio:poco": 15, "maceio:pajucara": 16, "maceio:ponta verde": 17, "maceio:jatiuca": 18, "maceio:cruz das almas": 19,
+  "maceio:farol": 25, "maceio:pinheiro": 26, "maceio:bebedouro": 27, "maceio:mutange": 28,
+  "maceio:tabuleiro do martins": 35, "maceio:cleto marques luz": 36, "maceio:santa lucia": 37,
+  "maceio:benedito bentes": 40,
 
   // Campina Grande
-  "centro": 10, "prata": 12, "alto branco": 14, "lauritzen": 15,
-  "catole": 20, "tres irmas": 22, "liberdade": 24, "cruzeiro": 25,
-  "bodocongo": 30, "malvinas": 32,
+  "campina grande:centro": 10, "campina grande:prata": 12, "campina grande:alto branco": 14, "campina grande:lauritzen": 15,
+  "campina grande:catole": 20, "campina grande:tres irmas": 22, "campina grande:liberdade": 24, "campina grande:cruzeiro": 25,
+  "campina grande:bodocongo": 30, "campina grande:malvinas": 32,
 };
 
-function getNeighborhoodZoneScore(nKey: string): number {
-  return NEIGHBORHOOD_ZONES[nKey] ?? 100;
+function getNeighborhoodZoneScore(cityKey: string, nKey: string): number {
+  const fullKey = `${cityKey}:${nKey}`;
+  return NEIGHBORHOOD_ZONES[fullKey] ?? NEIGHBORHOOD_ZONES[nKey] ?? 100;
 }
 
 /**
@@ -229,8 +230,8 @@ export function optimizeRouteStops(stops: RouteStop[], originCity: string = "Ara
     // Sort neighborhoods by geographic zone score first, then by stop count
     const sortedNeighborhoods = [...neighborhoodMap.entries()].sort(
       ([keyA, listA], [keyB, listB]) => {
-        const scoreA = getNeighborhoodZoneScore(keyA);
-        const scoreB = getNeighborhoodZoneScore(keyB);
+        const scoreA = getNeighborhoodZoneScore(cityKey, keyA);
+        const scoreB = getNeighborhoodZoneScore(cityKey, keyB);
         if (scoreA !== scoreB) return scoreA - scoreB;
         return listB.length - listA.length;
       }
