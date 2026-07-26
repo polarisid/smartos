@@ -196,6 +196,11 @@ export default function PlanejamentoPage() {
   const [formCalOpen, setFormCalOpen] = useState(false);
   const [parsedPreview, setParsedPreview] = useState<RouteStop[]>([]);
 
+  // Helper: Get true operational date of route (plannedDate → departureDate → createdAt)
+  const getRouteDate = useCallback((r: Route): Date => {
+    return r.plannedDate || r.departureDate || r.createdAt;
+  }, []);
+
   // ── Filter ALL routes (Drafts + Active) for current week ──
   const routesForWeek = useMemo(() => {
     const draftIds = new Set(draftRoutes.map(r => r.id));
@@ -207,31 +212,31 @@ export default function PlanejamentoPage() {
     end.setHours(23, 59, 59, 999);
 
     return combined.filter(r => {
-      const dateToTest = r.plannedDate || r.createdAt;
+      const dateToTest = getRouteDate(r);
       if (!dateToTest) return weekOffset === 0;
       return dateToTest >= start && dateToTest <= end;
     });
-  }, [draftRoutes, activeRoutes, weekStart, weekOffset]);
+  }, [draftRoutes, activeRoutes, weekStart, weekOffset, getRouteDate]);
 
   // ── Routes filtered by selected day ──
   const displayedRoutes = useMemo(() => {
     if (!selectedDay) return routesForWeek;
     return routesForWeek.filter(r => {
-      const d = r.plannedDate || r.createdAt;
+      const d = getRouteDate(r);
       if (!d) return false;
       return isSameDay(d, selectedDay);
     });
-  }, [routesForWeek, selectedDay]);
+  }, [routesForWeek, selectedDay, getRouteDate]);
 
   // ── Badge count per day ──
   const countPerDay = useMemo(() => {
     return weekDays.map(day =>
       routesForWeek.filter(r => {
-        const d = r.plannedDate || r.createdAt;
+        const d = getRouteDate(r);
         return d && isSameDay(d, day);
       }).length
     );
-  }, [routesForWeek, weekDays]);
+  }, [routesForWeek, weekDays, getRouteDate]);
 
   // ── Parse text preview ──
   const handleTextChange = useCallback((v: string) => {
@@ -256,6 +261,7 @@ export default function PlanejamentoPage() {
         isActive: false,
         isDraft: true,
         plannedDate: formPlannedDate,
+        departureDate: formPlannedDate,
         routeType: formRouteType,
         technicianId: tech?.id,
         technicianName: tech?.name,
@@ -300,7 +306,7 @@ export default function PlanejamentoPage() {
   const handlePublish = async (route: Route) => {
     setIsPublishing(route.id);
     try {
-      await routeService.publishRoute(route.id);
+      await routeService.publishRoute(route.id, route.plannedDate);
       await queryClient.invalidateQueries({ queryKey: ['routes', 'draft'] });
       await queryClient.invalidateQueries({ queryKey: ['routes', 'active'] });
       if (selectedRoute?.id === route.id) setSelectedRoute(null);
@@ -491,9 +497,9 @@ export default function PlanejamentoPage() {
                                 {route.routeType === 'capital' ? '🏙️ Capital' : '🌿 Interior'}
                               </Badge>
                             )}
-                            {(route.plannedDate || route.createdAt) && (
+                            {getRouteDate(route) && (
                               <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-slate-50 border-slate-200 text-slate-700">
-                                📅 {format(route.plannedDate || route.createdAt, 'EEE dd/MM', { locale: ptBR })}
+                                📅 {format(getRouteDate(route), 'EEE dd/MM', { locale: ptBR })}
                               </Badge>
                             )}
                           </div>

@@ -79,10 +79,14 @@ export const routeService = {
     return (data || []).map(this.mapFromDb);
   },
 
-  async publishRoute(id: string): Promise<void> {
+  async publishRoute(id: string, plannedDate?: Date): Promise<void> {
+    const updatePayload: any = { is_draft: false, is_active: true };
+    if (plannedDate) {
+      updatePayload.departure_date = plannedDate instanceof Date ? plannedDate.toISOString() : plannedDate;
+    }
     const { error } = await supabase
       .from('routes')
-      .update({ is_draft: false, is_active: true })
+      .update(updatePayload)
       .eq('id', id);
 
     if (error) throw error;
