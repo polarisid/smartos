@@ -57,6 +57,7 @@ const formSchema = z.object({
   partsRequested: z.string().optional(),
   productCollectedOrInstalled: z.string().optional(),
   cleaningPerformed: z.boolean().optional(),
+  samsungLpSurveyPerformed: z.boolean().optional(),
 });
 type FormValues = z.infer<typeof formSchema>;
 
@@ -177,6 +178,11 @@ export default function ServiceOrdersPage() {
   // --- EDIT / DELETE ---
   const handleOpenEditDialog = (order: ServiceOrder) => {
     setSelectedOrder(order);
+    const isSurveyYes = order.observations?.includes('[Pesquisa LP realizada: Sim]') || false;
+    const cleanObs = order.observations
+      ?.replace(/\n?\[Pesquisa LP realizada: (Sim|Não)\]/g, "")
+      .trim() || "";
+
     form.reset({
       serviceOrderNumber: order.serviceOrderNumber,
       serviceType: order.serviceType,
@@ -187,11 +193,12 @@ export default function ServiceOrdersPage() {
       symptomCode: order.symptomCode || "",
       repairCode: order.repairCode || "",
       replacedPart: order.replacedPart || "",
-      observations: order.observations || "",
+      observations: cleanObs,
       defectFound: order.defectFound || "",
       partsRequested: order.partsRequested || "",
       productCollectedOrInstalled: order.productCollectedOrInstalled || "",
       cleaningPerformed: order.cleaningPerformed || false,
+      samsungLpSurveyPerformed: isSurveyYes,
     });
     setIsFormDialogOpen(true);
   };
@@ -205,11 +212,16 @@ export default function ServiceOrdersPage() {
     if (!selectedOrder) return;
     setIsSubmitting(true);
     try {
+      const finalObs = data.samsungRepairType === 'LP'
+        ? `${data.observations || ''}\n[Pesquisa LP realizada: ${data.samsungLpSurveyPerformed ? 'Sim' : 'Não'}]`.trim()
+        : data.observations || '';
+
       const updatedData: Partial<ServiceOrder> = {
         ...data,
         equipmentType: data.equipmentType as "TV/AV" | "DA",
         serviceType: data.serviceType as any,
         samsungBudgetValue: data.samsungBudgetValue ? parseFloat(data.samsungBudgetValue) : 0,
+        observations: finalObs,
       };
       await serviceOrderService.update(selectedOrder.id, updatedData);
       setServiceOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, ...updatedData, technicianName: o.technicianName } : o));
@@ -331,7 +343,27 @@ export default function ServiceOrdersPage() {
                         <TableCell className="font-mono">{order.serviceOrderNumber}</TableCell>
                         <TableCell>{format(order.date, 'dd/MM/yyyy')}</TableCell>
                         <TableCell>{order.technicianName}</TableCell>
-                        <TableCell>{serviceTypeLabels[order.serviceType] || order.serviceType}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1.5 items-start">
+                            <span className="font-semibold text-slate-800 dark:text-slate-200">
+                              {serviceTypeLabels[order.serviceType] || order.serviceType}
+                              {order.samsungRepairType ? ` - ${order.samsungRepairType}` : ''}
+                            </span>
+                            {order.samsungRepairType === 'LP' && (
+                              <div>
+                                {order.observations?.includes('[Pesquisa LP realizada: Sim]') ? (
+                                  <Badge className="bg-green-50 hover:bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300 text-[10px] px-1.5 py-0 border-green-200">
+                                    ✓ Pesquisa Realizada
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="destructive" className="bg-rose-50 hover:bg-rose-50 text-rose-700 dark:bg-rose-955/20 dark:text-rose-300 text-[10px] px-1.5 py-0 border-rose-200">
+                                    ⚠ Pesquisa Pendente
+                                  </Badge>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           {order.samsungBudgetApproved && order.samsungBudgetValue ? (
                             <span className="font-mono text-green-600">
@@ -430,16 +462,35 @@ export default function ServiceOrdersPage() {
             </div>
 
             {watchedServiceType === 'reparo_samsung' && (
-              <div className="space-y-2">
-                <Label>Sub-tipo Reparo Samsung</Label>
-                <Select value={form.watch('samsungRepairType')} onValueChange={(v) => form.setValue('samsungRepairType', v)}>
-                  <SelectTrigger><SelectValue placeholder="LP / OW / VOID" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="LP">LP</SelectItem>
-                    <SelectItem value="OW">OW</SelectItem>
-                    <SelectItem value="VOID">VOID</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="space-y-4 pl-4 border-l-2 border-primary/50">
+                <div className="space-y-2">
+                  <Label>Sub-tipo Reparo Samsung</Label>
+                  <Select value={form.watch('samsungRepairType')} onValueChange={(v) => form.setValue('samsungRepairType', v)}>
+                    <SelectTrigger><SelectValue placeholder="LP / OW / VOID" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="LP">LP</SelectItem>
+                      <SelectItem value="OW">OW</SelectItem>
+                      <SelectItem value="VOID">VOID</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {form.watch('samsungRepairType') === 'LP' && (
+                  <div className="flex items-center justify-between rounded-lg border p-4 bg-amber-50/50 dark:bg-amber-955/10 border-amber-200 dark:border-amber-900">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="admin-lp-survey" className="font-bold text-amber-800 dark:text-amber-400">
+                        Pesquisa LP Realizada?
+                      </Label>
+                      <p className="text-xs text-amber-600 dark:text-amber-500">
+                        Marque se o técnico concluiu a pesquisa Medallia Contigo.
+                      </p>
+                    </div>
+                    <Switch 
+                      id="admin-lp-survey" 
+                      checked={form.watch('samsungLpSurveyPerformed') || false} 
+                      onCheckedChange={(c) => form.setValue('samsungLpSurveyPerformed', c)} 
+                    />
+                  </div>
+                )}
               </div>
             )}
 
