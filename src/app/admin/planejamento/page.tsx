@@ -346,25 +346,30 @@ export default function PlanejamentoPage() {
     });
   }, [allRoutes, weekStart, weekOffset, getRouteDate]);
 
-  // ── Routes filtered by selected day ──
+  // ── Routes visible in UI cards (Drafts + Active only, hiding inactive) ──
+  const activeAndDraftRoutesForWeek = useMemo(() => {
+    return routesForWeek.filter(r => r.isDraft || r.isActive);
+  }, [routesForWeek]);
+
+  // ── Routes filtered by selected day for UI cards ──
   const displayedRoutes = useMemo(() => {
-    if (!selectedDay) return routesForWeek;
-    return routesForWeek.filter(r => {
+    if (!selectedDay) return activeAndDraftRoutesForWeek;
+    return activeAndDraftRoutesForWeek.filter(r => {
       const d = getRouteDate(r);
       if (!d) return false;
       return isSameDay(d, selectedDay);
     });
-  }, [routesForWeek, selectedDay, getRouteDate]);
+  }, [activeAndDraftRoutesForWeek, selectedDay, getRouteDate]);
 
   // ── Badge count per day ──
   const countPerDay = useMemo(() => {
     return weekDays.map(day =>
-      routesForWeek.filter(r => {
+      activeAndDraftRoutesForWeek.filter(r => {
         const d = getRouteDate(r);
         return d && isSameDay(d, day);
       }).length
     );
-  }, [routesForWeek, weekDays, getRouteDate]);
+  }, [activeAndDraftRoutesForWeek, weekDays, getRouteDate]);
 
   // ── Parse text preview ──
   const handleTextChange = useCallback((v: string) => {
