@@ -92,7 +92,6 @@ function parseRouteText(text: string): RouteStop[] {
 
 // ─── Excel Export ────────────────────────────────────────────────────────────
 function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
-  const wb = XLSX.utils.book_new();
   const weekLabel = `${format(weekStart, 'dd/MM')} - ${format(weekEnd, 'dd/MM/yyyy')}`;
 
   const isCapital = (r: Route) =>
@@ -102,53 +101,171 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
   const capitalRoutes = routes.filter(isCapital);
   const interiorRoutes = routes.filter(r => !isCapital(r));
 
-  const STOP_HEADERS = ['OS', 'Nome Cliente', 'Cidade', 'Bairro', 'Modelo', 'Garantia', 'Turno', 'TAT', 'Peças', 'Técnico'];
+  const escapeXml = (str: string | number | undefined | null) => {
+    if (str === undefined || str === null) return "";
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  };
 
-  const stopToRow = (stop: RouteStop, routeName: string, techName?: string): string[] => [
-    stop.serviceOrder, stop.consumerName, stop.city, stop.neighborhood,
-    stop.model, stop.warrantyType, stop.turn, stop.tat,
-    stop.parts?.map(p => `${p.code}(x${p.quantity})`).join(', ') || '',
-    techName || routeName,
+  const FULL_HEADERS = [
+    'OS', 'Nome Cliente', 'Cidade', 'Bairro', 'Modelo', 'Garantia', 
+    'Turno', 'TAT', 'Peças', 'Técnico', 'ASC Job No.', 'UF', 
+    'Data de Solicitação', '1st Visit Date', 'TS', 'SPD', 'Status comment'
   ];
 
-  // ── ABA CAPITAL ─────────────────────────────────────────────────────────────
-  if (capitalRoutes.length > 0) {
-    const capitalData: (string[])[] = [];
-    capitalRoutes.forEach((route, idx) => {
-      if (idx > 0) capitalData.push([]); // spacer
+  const buildWorksheetXml = (sheetRoutes: Route[], sheetName: string) => {
+    let rowsXml = '';
+
+    sheetRoutes.forEach((route, rIdx) => {
+      // 1. Table Header Row (Black bg, White bold text - matching photo 2)
+      rowsXml += `   <Row ss:Height="22">\n`;
+      FULL_HEADERS.forEach(h => {
+        rowsXml += `    <Cell ss:StyleID="Header"><Data ss:Type="String">${escapeXml(h)}</Data></Cell>\n`;
+      });
+      rowsXml += `   </Row>\n`;
+
+      // 2. Data Rows (with thin grid borders)
+      route.stops.forEach(stop => {
+        const partsStr = stop.parts?.map(p => `${p.code}(x${p.quantity})`).join(', ') || '';
+        const rowVals = [
+          stop.serviceOrder || '',
+          stop.consumerName || '',
+          stop.city || '',
+          stop.neighborhood || '',
+          stop.model || '',
+          stop.warrantyType || '',
+          stop.turn || '',
+          stop.tat || '',
+          partsStr,
+          route.technicianName || '',
+          stop.ascJobNumber || '',
+          stop.state || '',
+          stop.requestDate || '',
+          stop.firstVisitDate || '',
+          stop.ts || '',
+          stop.productType || '',
+          stop.statusComment || ''
+        ];
+
+        rowsXml += `   <Row ss:Height="19">\n`;
+        rowVals.forEach(val => {
+          rowsXml += `    <Cell ss:StyleID="DataCell"><Data ss:Type="String">${escapeXml(val)}</Data></Cell>\n`;
+        });
+        rowsXml += `   </Row>\n`;
+      });
+
+      // 3. Empty spacer row
+      rowsXml += `   <Row ss:Height="10"/>\n`;
+
+      // 4. Route Metadata Block (Black label, White value - matching photo 2)
       const statusStr = route.isDraft ? '[Rascunho]' : '[Ativa]';
-      capitalData.push([`📍 ${route.name} ${statusStr}`, `Técnico: ${route.technicianName || '—'}`, `Motorista: ${route.driverName || '—'}`, `${route.stops.length} paradas`, '', '', '', '', '', '']);
-      capitalData.push(STOP_HEADERS);
-      route.stops.forEach(stop => capitalData.push(stopToRow(stop, route.name, route.technicianName)));
+      rowsXml += `   <Row ss:Height="20">\n`;
+      rowsXml += `    <Cell ss:StyleID="LabelBlack"><Data ss:Type="String">ROTA</Data></Cell>\n`;
+      rowsXml += `    <Cell ss:StyleID="ValueWhite"><Data ss:Type="String">${escapeXml(route.name + ' ' + statusStr)}</Data></Cell>\n`;
+      rowsXml += `   </Row>\n`;
+
+      rowsXml += `   <Row ss:Height="20">\n`;
+      rowsXml += `    <Cell ss:StyleID="LabelBlack"><Data ss:Type="String">TECNICO</Data></Cell>\n`;
+      rowsXml += `    <Cell ss:StyleID="ValueWhite"><Data ss:Type="String">${escapeXml(route.technicianName || '—')}</Data></Cell>\n`;
+      rowsXml += `   </Row>\n`;
+
+      rowsXml += `   <Row ss:Height="20">\n`;
+      rowsXml += `    <Cell ss:StyleID="LabelBlack"><Data ss:Type="String">MOTORISTA</Data></Cell>\n`;
+      rowsXml += `    <Cell ss:StyleID="ValueWhite"><Data ss:Type="String">${escapeXml(route.driverName ? 'Motorista: ' + route.driverName : '—')}</Data></Cell>\n`;
+      rowsXml += `   </Row>\n`;
+
+      // 5. Spacer between routes in the same sheet
+      if (rIdx < sheetRoutes.length - 1) {
+        rowsXml += `   <Row ss:Height="18"/>\n`;
+      }
     });
-    const wsCapital = XLSX.utils.aoa_to_sheet(capitalData);
-    wsCapital['!cols'] = [{ wch: 14 }, { wch: 28 }, { wch: 18 }, { wch: 20 }, { wch: 22 }, { wch: 10 }, { wch: 8 }, { wch: 6 }, { wch: 22 }, { wch: 18 }];
-    XLSX.utils.book_append_sheet(wb, wsCapital, 'Capital');
+
+    return ` <Worksheet ss:Name="${escapeXml(sheetName.substring(0, 31))}">\n  <Table>\n${rowsXml}  </Table>\n </Worksheet>\n`;
+  };
+
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#000000"/>
+  </Style>
+  <Style ss:ID="Header">
+   <Alignment ss:Vertical="Center" ss:Horizontal="Left"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#FFFFFF" ss:Bold="1"/>
+   <Interior ss:Color="#000000" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="DataCell">
+   <Alignment ss:Vertical="Center" ss:Horizontal="Left"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#000000"/>
+  </Style>
+  <Style ss:ID="LabelBlack">
+   <Alignment ss:Vertical="Center" ss:Horizontal="Left"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#FFFFFF" ss:Bold="1"/>
+   <Interior ss:Color="#000000" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="ValueWhite">
+   <Alignment ss:Vertical="Center" ss:Horizontal="Left"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#000000"/>
+  </Style>
+ </Styles>\n`;
+
+  if (capitalRoutes.length > 0) {
+    xml += buildWorksheetXml(capitalRoutes, 'Capital');
   }
 
-  // ── ABAS INTERIOR ────────────────────────────────────────────────────────────
   interiorRoutes.forEach(route => {
-    const statusStr = route.isDraft ? '[Rascunho]' : '[Ativa]';
-    const sheetData: (string[])[] = [
-      [`📍 ${route.name} ${statusStr}`],
-      [`Técnico: ${route.technicianName || '—'}`, `Motorista: ${route.driverName || '—'}`, `Paradas: ${route.stops.length}`, `Semana: ${weekLabel}`],
-      [],
-      STOP_HEADERS,
-      ...route.stops.map(stop => stopToRow(stop, route.name, route.technicianName)),
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(sheetData);
-    ws['!cols'] = [{ wch: 14 }, { wch: 28 }, { wch: 18 }, { wch: 20 }, { wch: 22 }, { wch: 10 }, { wch: 8 }, { wch: 6 }, { wch: 22 }, { wch: 18 }];
-    // Sanitize sheet name (max 31 chars, no special chars)
     const safeName = route.name.replace(/[:\\\/\?\*\[\]]/g, '').substring(0, 31);
-    XLSX.utils.book_append_sheet(wb, ws, safeName);
+    xml += buildWorksheetXml([route], safeName);
   });
 
-  if (wb.SheetNames.length === 0) {
-    const ws = XLSX.utils.aoa_to_sheet([['Nenhuma rota encontrada para esta semana.']]);
-    XLSX.utils.book_append_sheet(wb, ws, 'Planejamento');
+  if (capitalRoutes.length === 0 && interiorRoutes.length === 0) {
+    xml += ` <Worksheet ss:Name="Planejamento">\n  <Table>\n   <Row><Cell><Data ss:Type="String">Nenhuma rota encontrada para esta semana.</Data></Cell></Row>\n  </Table>\n </Worksheet>\n`;
   }
 
-  XLSX.writeFile(wb, `Planejamento_${weekLabel.replace(/\//g, '-')}.xlsx`);
+  xml += `</Workbook>`;
+
+  const blob = new Blob([xml], { type: 'application/vnd.ms-excel' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Planejamento_${weekLabel.replace(/\//g, '-')}.xls`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
