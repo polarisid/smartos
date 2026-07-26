@@ -18,7 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { useDraftRoutes, useTechnicians, useDrivers } from "@/hooks/queries";
+import { useDraftRoutes, useActiveRoutes, useTechnicians, useDrivers } from "@/hooks/queries";
 import { routeService } from "@/services/supabase/routeService";
 import { type Route, type RouteStop, type RoutePart } from "@/lib/data";
 import { optimizeRouteStops, describeOptimization } from "@/lib/routeOptimizer";
@@ -116,7 +116,8 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
     const capitalData: (string[])[] = [];
     capitalRoutes.forEach((route, idx) => {
       if (idx > 0) capitalData.push([]); // spacer
-      capitalData.push([`📍 ${route.name}`, `Técnico: ${route.technicianName || '—'}`, `Motorista: ${route.driverName || '—'}`, `${route.stops.length} paradas`, '', '', '', '', '', '']);
+      const statusStr = route.isDraft ? '[Rascunho]' : '[Ativa]';
+      capitalData.push([`📍 ${route.name} ${statusStr}`, `Técnico: ${route.technicianName || '—'}`, `Motorista: ${route.driverName || '—'}`, `${route.stops.length} paradas`, '', '', '', '', '', '']);
       capitalData.push(STOP_HEADERS);
       route.stops.forEach(stop => capitalData.push(stopToRow(stop, route.name, route.technicianName)));
     });
@@ -127,8 +128,9 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
 
   // ── ABAS INTERIOR ────────────────────────────────────────────────────────────
   interiorRoutes.forEach(route => {
+    const statusStr = route.isDraft ? '[Rascunho]' : '[Ativa]';
     const sheetData: (string[])[] = [
-      [`📍 ${route.name}`],
+      [`📍 ${route.name} ${statusStr}`],
       [`Técnico: ${route.technicianName || '—'}`, `Motorista: ${route.driverName || '—'}`, `Paradas: ${route.stops.length}`, `Semana: ${weekLabel}`],
       [],
       STOP_HEADERS,
@@ -142,7 +144,7 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
   });
 
   if (wb.SheetNames.length === 0) {
-    const ws = XLSX.utils.aoa_to_sheet([['Nenhuma rota planejada para esta semana.']]);
+    const ws = XLSX.utils.aoa_to_sheet([['Nenhuma rota encontrada para esta semana.']]);
     XLSX.utils.book_append_sheet(wb, ws, 'Planejamento');
   }
 
@@ -153,9 +155,12 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
 export default function PlanejamentoPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { data: draftRoutes = [], isLoading } = useDraftRoutes();
+  const { data: draftRoutes = [], isLoading: loadingDrafts } = useDraftRoutes();
+  const { data: activeRoutes = [], isLoading: loadingActive } = useActiveRoutes();
   const { data: technicians = [] } = useTechnicians();
   const { data: drivers = [] } = useDrivers();
+
+  const isLoading = loadingDrafts || loadingActive;
 
   // Week navigation
   const [weekOffset, setWeekOffset] = useState(0);
@@ -191,30 +196,40 @@ export default function PlanejamentoPage() {
   const [formCalOpen, setFormCalOpen] = useState(false);
   const [parsedPreview, setParsedPreview] = useState<RouteStop[]>([]);
 
-  // ── Filter routes for current week ──
+  // ── Filter ALL routes (Drafts + Active) for current week ──
   const routesForWeek = useMemo(() => {
+    const draftIds = new Set(draftRoutes.map(r => r.id));
+    const activeOnly = activeRoutes.filter(r => !draftIds.has(r.id));
+    const combined = [...draftRoutes, ...activeOnly];
+
     const start = weekStart;
     const end = addDays(weekStart, 6);
-    return draftRoutes.filter(r => {
-      if (!r.plannedDate) return weekOffset === 0; // unscheduled shown in current week
-      const d = r.plannedDate;
-      return d >= start && d <= end;
+    end.setHours(23, 59, 59, 999);
+
+    return combined.filter(r => {
+      const dateToTest = r.plannedDate || r.createdAt;
+      if (!dateToTest) return weekOffset === 0;
+      return dateToTest >= start && dateToTest <= end;
     });
-  }, [draftRoutes, weekStart, weekOffset]);
+  }, [draftRoutes, activeRoutes, weekStart, weekOffset]);
 
   // ── Routes filtered by selected day ──
   const displayedRoutes = useMemo(() => {
     if (!selectedDay) return routesForWeek;
     return routesForWeek.filter(r => {
-      if (!r.plannedDate) return false;
-      return isSameDay(r.plannedDate, selectedDay);
+      const d = r.plannedDate || r.createdAt;
+      if (!d) return false;
+      return isSameDay(d, selectedDay);
     });
   }, [routesForWeek, selectedDay]);
 
   // ── Badge count per day ──
   const countPerDay = useMemo(() => {
     return weekDays.map(day =>
-      routesForWeek.filter(r => r.plannedDate && isSameDay(r.plannedDate, day)).length
+      routesForWeek.filter(r => {
+        const d = r.plannedDate || r.createdAt;
+        return d && isSameDay(d, day);
+      }).length
     );
   }, [routesForWeek, weekDays]);
 
@@ -460,9 +475,15 @@ export default function PlanejamentoPage() {
                         <div className="flex-1 min-w-0">
                           <p className="font-bold text-sm truncate">{route.name}</p>
                           <div className="flex flex-wrap gap-1 mt-1">
-                            <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-amber-50 border-amber-200 text-amber-700">
-                              📝 Rascunho
-                            </Badge>
+                            {route.isDraft ? (
+                              <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-amber-50 border-amber-200 text-amber-700">
+                                📝 Rascunho
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-emerald-50 border-emerald-200 text-emerald-700">
+                                🚀 Publicada
+                              </Badge>
+                            )}
                             {route.routeType && (
                               <Badge variant="outline" className={cn("text-[10px] py-0 px-1.5",
                                 route.routeType === 'capital' ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-green-50 border-green-200 text-green-700"
@@ -470,9 +491,9 @@ export default function PlanejamentoPage() {
                                 {route.routeType === 'capital' ? '🏙️ Capital' : '🌿 Interior'}
                               </Badge>
                             )}
-                            {route.plannedDate && (
+                            {(route.plannedDate || route.createdAt) && (
                               <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-slate-50 border-slate-200 text-slate-700">
-                                📅 {format(route.plannedDate, 'EEE dd/MM', { locale: ptBR })}
+                                📅 {format(route.plannedDate || route.createdAt, 'EEE dd/MM', { locale: ptBR })}
                               </Badge>
                             )}
                           </div>
@@ -503,15 +524,21 @@ export default function PlanejamentoPage() {
                           {isOptimizing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3 text-violet-500" />}
                           IA
                         </Button>
-                        <Button
-                          size="sm"
-                          className="h-7 text-xs gap-1 flex-1 bg-emerald-600 hover:bg-emerald-700"
-                          disabled={publishing}
-                          onClick={() => handlePublish(route)}
-                        >
-                          {publishing ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-                          Publicar
-                        </Button>
+                        {route.isDraft ? (
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs gap-1 flex-1 bg-emerald-600 hover:bg-emerald-700"
+                            disabled={publishing}
+                            onClick={() => handlePublish(route)}
+                          >
+                            {publishing ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                            Publicar
+                          </Button>
+                        ) : (
+                          <Badge variant="outline" className="h-7 text-xs gap-1 flex-1 justify-center bg-emerald-50 text-emerald-700 border-emerald-200">
+                            ✓ Publicada
+                          </Badge>
+                        )}
                         <Button
                           size="sm"
                           variant="destructive"
