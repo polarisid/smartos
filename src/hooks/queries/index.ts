@@ -43,6 +43,14 @@ export function useDraftRoutes() {
   });
 }
 
+export function useAllRoutes() {
+  return useQuery({
+    queryKey: ['routes', 'all'],
+    queryFn: () => routeService.getAll(),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
 export function useReturns() {
   return useQuery({
     queryKey: ['returns'],

@@ -18,7 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { useDraftRoutes, useActiveRoutes, useTechnicians, useDrivers } from "@/hooks/queries";
+import { useAllRoutes, useTechnicians, useDrivers } from "@/hooks/queries";
 import { routeService } from "@/services/supabase/routeService";
 import { type Route, type RouteStop, type RoutePart } from "@/lib/data";
 import { optimizeRouteStops, describeOptimization } from "@/lib/routeOptimizer";
@@ -174,7 +174,7 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
       rowsXml += `   <Row ss:Height="10"/>\n`;
 
       // 4. Route Metadata Block (Black label, White value - matching photo 2)
-      const statusStr = route.isDraft ? '[Rascunho]' : '[Ativa]';
+      const statusStr = route.isDraft ? '[Rascunho]' : route.isActive ? '[Ativa]' : '[Inativa]';
       rowsXml += `   <Row ss:Height="20">\n`;
       rowsXml += `    <Cell ss:StyleID="LabelBlack"><Data ss:Type="String">ROTA</Data></Cell>\n`;
       rowsXml += `    <Cell ss:StyleID="ValueWhite"><Data ss:Type="String">${escapeXml(route.name + ' ' + statusStr)}</Data></Cell>\n`;
@@ -187,7 +187,7 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
 
       rowsXml += `   <Row ss:Height="20">\n`;
       rowsXml += `    <Cell ss:StyleID="LabelBlack"><Data ss:Type="String">MOTORISTA</Data></Cell>\n`;
-      rowsXml += `    <Cell ss:StyleID="ValueWhite"><Data ss:Type="String">${escapeXml(route.driverName ? 'Motorista: ' + route.driverName : '—')}</Data></Cell>\n`;
+      rowsXml += `    <Cell ss:StyleID="ValueWhite"><Data ss:Type="String">${escapeXml(route.driverName || '—')}</Data></Cell>\n`;
       rowsXml += `   </Row>\n`;
 
       // 5. Spacer between routes in the same sheet
@@ -284,12 +284,9 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
 export default function PlanejamentoPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { data: draftRoutes = [], isLoading: loadingDrafts } = useDraftRoutes();
-  const { data: activeRoutes = [], isLoading: loadingActive } = useActiveRoutes();
+  const { data: allRoutes = [], isLoading } = useAllRoutes();
   const { data: technicians = [] } = useTechnicians();
   const { data: drivers = [] } = useDrivers();
-
-  const isLoading = loadingDrafts || loadingActive;
 
   // Week navigation
   const [weekOffset, setWeekOffset] = useState(0);
@@ -336,22 +333,18 @@ export default function PlanejamentoPage() {
     return r.plannedDate || r.departureDate || r.createdAt;
   }, []);
 
-  // ── Filter ALL routes (Drafts + Active) for current week ──
+  // ── Filter ALL routes (Drafts + Active + Inactive) for current week ──
   const routesForWeek = useMemo(() => {
-    const draftIds = new Set(draftRoutes.map(r => r.id));
-    const activeOnly = activeRoutes.filter(r => !draftIds.has(r.id));
-    const combined = [...draftRoutes, ...activeOnly];
-
     const start = weekStart;
     const end = addDays(weekStart, 6);
     end.setHours(23, 59, 59, 999);
 
-    return combined.filter(r => {
+    return allRoutes.filter(r => {
       const dateToTest = getRouteDate(r);
       if (!dateToTest) return weekOffset === 0;
       return dateToTest >= start && dateToTest <= end;
     });
-  }, [draftRoutes, activeRoutes, weekStart, weekOffset, getRouteDate]);
+  }, [allRoutes, weekStart, weekOffset, getRouteDate]);
 
   // ── Routes filtered by selected day ──
   const displayedRoutes = useMemo(() => {
@@ -635,9 +628,13 @@ export default function PlanejamentoPage() {
                               <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-amber-50 border-amber-200 text-amber-700">
                                 📝 Rascunho
                               </Badge>
-                            ) : (
+                            ) : route.isActive ? (
                               <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-emerald-50 border-emerald-200 text-emerald-700">
                                 🚀 Publicada
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-slate-100 border-slate-300 text-slate-700">
+                                🏁 Inativa
                               </Badge>
                             )}
                             {route.routeType && (
@@ -690,9 +687,13 @@ export default function PlanejamentoPage() {
                             {publishing ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
                             Publicar
                           </Button>
-                        ) : (
+                        ) : route.isActive ? (
                           <Badge variant="outline" className="h-7 text-xs gap-1 flex-1 justify-center bg-emerald-50 text-emerald-700 border-emerald-200">
                             ✓ Publicada
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="h-7 text-xs gap-1 flex-1 justify-center bg-slate-100 text-slate-700 border-slate-300">
+                            ✓ Inativa
                           </Badge>
                         )}
                         <Button
