@@ -112,43 +112,55 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
   };
 
   const FULL_HEADERS = [
-    'OS', 'Nome Cliente', 'Cidade', 'Bairro', 'Modelo', 'Garantia', 
-    'Turno', 'TAT', 'Peças', 'Técnico', 'ASC Job No.', 'UF', 
-    'Data de Solicitação', '1st Visit Date', 'TS', 'SPD', 'Status comment'
+    'SO Nro.', 'ASC Job No.', 'Nome Consumidor', 'Cidade', 'Bairro', 'UF', 'Modelo', 'TURNO', 'TAT', 
+    'Data de Solicitação', '1st Visit Date', 'TS', 'OW/LP', 'SPD', 'Status comment',
+    'COD', 'DESCRICAO', 'QTD',
+    'COD', 'DESCRICAO', 'QTD',
+    'COD', 'DESCRICAO', 'QTD',
+    'COD', 'DESCRICAO', 'QTD',
+    'COD', 'DESCRICAO', 'QTD'
   ];
 
   const buildWorksheetXml = (sheetRoutes: Route[], sheetName: string) => {
     let rowsXml = '';
 
     sheetRoutes.forEach((route, rIdx) => {
-      // 1. Table Header Row (Black bg, White bold text - matching photo 2)
+      // 1. Table Header Row (Black bg, White bold text - matching input format)
       rowsXml += `   <Row ss:Height="22">\n`;
       FULL_HEADERS.forEach(h => {
         rowsXml += `    <Cell ss:StyleID="Header"><Data ss:Type="String">${escapeXml(h)}</Data></Cell>\n`;
       });
       rowsXml += `   </Row>\n`;
 
-      // 2. Data Rows (with thin grid borders)
+      // 2. Data Rows (with exact columns matching input format)
       route.stops.forEach(stop => {
-        const partsStr = stop.parts?.map(p => `${p.code}(x${p.quantity})`).join(', ') || '';
+        const p0 = stop.parts?.[0];
+        const p1 = stop.parts?.[1];
+        const p2 = stop.parts?.[2];
+        const p3 = stop.parts?.[3];
+        const p4 = stop.parts?.[4];
+
         const rowVals = [
           stop.serviceOrder || '',
+          stop.ascJobNumber || '',
           stop.consumerName || '',
           stop.city || '',
           stop.neighborhood || '',
+          stop.state || '',
           stop.model || '',
-          stop.warrantyType || '',
           stop.turn || '',
           stop.tat || '',
-          partsStr,
-          route.technicianName || '',
-          stop.ascJobNumber || '',
-          stop.state || '',
           stop.requestDate || '',
           stop.firstVisitDate || '',
           stop.ts || '',
+          stop.warrantyType || '',
           stop.productType || '',
-          stop.statusComment || ''
+          stop.statusComment || '',
+          p0?.code || '', p0?.description || '', p0?.quantity != null ? p0.quantity : '',
+          p1?.code || '', p1?.description || '', p1?.quantity != null ? p1.quantity : '',
+          p2?.code || '', p2?.description || '', p2?.quantity != null ? p2.quantity : '',
+          p3?.code || '', p3?.description || '', p3?.quantity != null ? p3.quantity : '',
+          p4?.code || '', p4?.description || '', p4?.quantity != null ? p4.quantity : '',
         ];
 
         rowsXml += `   <Row ss:Height="19">\n`;
