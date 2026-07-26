@@ -98,7 +98,7 @@ export function MobileRouteStopCard({
                             {stop.turn && <span className="text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 px-1.5 py-0.5 rounded">{stop.turn}</span>}
                             {stop.warrantyType === 'LP' && (
                                 <a 
-                                    href="https://survey.samsung.com" 
+                                    href="https://samsungcontigo.com/#/account/medalliaQrCode" 
                                     target="_blank" 
                                     rel="noopener noreferrer"
                                     onClick={(e) => e.stopPropagation()}

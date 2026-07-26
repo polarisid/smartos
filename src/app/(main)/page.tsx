@@ -1491,7 +1491,7 @@ const { toast } = useToast();
                                                                             size="sm" 
                                                                             variant="outline" 
                                                                             className="h-8 text-xs font-semibold border-amber-300 text-amber-800 bg-white hover:bg-amber-100/50 dark:bg-slate-900 dark:border-amber-900 dark:text-amber-300"
-                                                                            onClick={() => window.open('https://survey.samsung.com', '_blank')}
+                                                                            onClick={() => window.open('https://samsungcontigo.com/#/account/medalliaQrCode', '_blank')}
                                                                         >
                                                                             Abrir Link da Pesquisa 🔗
                                                                         </Button>

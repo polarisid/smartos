@@ -85,7 +85,7 @@ export function RouteDetailsRow({
                             )}
                             {stop.warrantyType === 'LP' && (
                                 <a 
-                                    href="https://survey.samsung.com" 
+                                    href="https://samsungcontigo.com/#/account/medalliaQrCode" 
                                     target="_blank" 
                                     rel="noopener noreferrer"
                                     onClick={(e) => e.stopPropagation()}
