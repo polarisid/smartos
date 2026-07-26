@@ -186,6 +186,12 @@ export default function PlanejamentoPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
 
+  // AI Optimization preview state
+  const [isOptimizeOpen, setIsOptimizeOpen] = useState(false);
+  const [optimizingRoute, setOptimizingRoute] = useState<Route | null>(null);
+  const [proposedStops, setProposedStops] = useState<RouteStop[]>([]);
+  const [optimizationSummary, setOptimizationSummary] = useState("");
+
   // Form state
   const [formName, setFormName] = useState("");
   const [formText, setFormText] = useState("");
@@ -286,20 +292,35 @@ export default function PlanejamentoPage() {
     setFormRouteType("capital"); setFormPlannedDate(undefined); setParsedPreview([]);
   };
 
-  // ── Optimize ──
-  const handleOptimize = (route: Route) => {
+  // ── Open AI Optimization Preview Modal ──
+  const handleOpenOptimize = (route: Route) => {
+    setOptimizingRoute(route);
+    const optimized = optimizeRouteStops(route.stops);
+    const summary = describeOptimization(route.stops, optimized);
+    setProposedStops(optimized);
+    setOptimizationSummary(summary);
+    setIsOptimizeOpen(true);
+  };
+
+  // ── Apply AI Optimization ──
+  const handleApplyOptimization = async () => {
+    if (!optimizingRoute) return;
     setIsOptimizing(true);
-    setTimeout(() => {
-      const optimized = optimizeRouteStops(route.stops);
-      const description = describeOptimization(route.stops, optimized);
-      routeService.update(route.id, { stops: optimized }).then(() => {
-        queryClient.invalidateQueries({ queryKey: ['routes', 'draft'] });
-        if (selectedRoute?.id === route.id) setSelectedRoute({ ...route, stops: optimized });
-        toast({ title: "🤖 Rota Otimizada!", description });
-      }).catch(e => {
-        toast({ variant: "destructive", title: "Erro ao otimizar", description: e.message });
-      }).finally(() => setIsOptimizing(false));
-    }, 600); // small delay for visual feedback
+    try {
+      await routeService.update(optimizingRoute.id, { stops: proposedStops });
+      await queryClient.invalidateQueries({ queryKey: ['routes', 'draft'] });
+      await queryClient.invalidateQueries({ queryKey: ['routes', 'active'] });
+      if (selectedRoute?.id === optimizingRoute.id) {
+        setSelectedRoute({ ...optimizingRoute, stops: proposedStops });
+      }
+      toast({ title: "🤖 Otimização Aplicada!", description: optimizationSummary });
+      setIsOptimizeOpen(false);
+      setOptimizingRoute(null);
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Erro ao otimizar", description: e.message });
+    } finally {
+      setIsOptimizing(false);
+    }
   };
 
   // ── Publish ──
@@ -525,7 +546,7 @@ export default function PlanejamentoPage() {
                           variant="outline"
                           className="h-7 text-xs gap-1 flex-1"
                           disabled={isOptimizing}
-                          onClick={() => handleOptimize(route)}
+                          onClick={() => handleOpenOptimize(route)}
                         >
                           {isOptimizing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3 text-violet-500" />}
                           IA
@@ -760,6 +781,91 @@ export default function PlanejamentoPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* ── AI Optimization Preview Dialog ── */}
+      <Dialog open={isOptimizeOpen} onOpenChange={setIsOptimizeOpen}>
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-violet-600 dark:text-violet-400">
+              <Sparkles className="h-5 w-5" />
+              Pré-visualização da Otimização por IA
+            </DialogTitle>
+            <DialogDescription>
+              Revise a nova ordem geográfica sugerida antes de aplicar à rota <span className="font-bold text-foreground">"{optimizingRoute?.name}"</span>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg border border-violet-200 bg-violet-50/50 dark:border-violet-900/50 dark:bg-violet-955/20 p-3 text-xs text-violet-800 dark:text-violet-300 flex items-start gap-2">
+              <span className="text-base">🤖</span>
+              <div>
+                <p className="font-bold">Resumo da Otimização:</p>
+                <p className="mt-0.5">{optimizationSummary}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Ordem Atual */}
+              <div className="border rounded-xl p-3 bg-muted/20">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center justify-between">
+                  <span>Ordem Atual</span>
+                  <span className="text-[10px] font-normal">{optimizingRoute?.stops.length} paradas</span>
+                </h4>
+                <div className="space-y-1.5 max-h-[350px] overflow-y-auto pr-1">
+                  {optimizingRoute?.stops.map((stop, i) => (
+                    <div key={i} className="flex items-center gap-2 p-2 rounded-lg border bg-background text-xs">
+                      <span className="font-bold text-muted-foreground w-4 text-center">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-mono font-semibold truncate">{stop.serviceOrder}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">{stop.city} — {stop.neighborhood}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Ordem Sugerida pela IA */}
+              <div className="border border-violet-200 dark:border-violet-900/50 rounded-xl p-3 bg-violet-50/20 dark:bg-violet-955/10">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300 mb-2 flex items-center justify-between">
+                  <span>Sugerido pela IA</span>
+                  <span className="text-[10px] font-normal text-emerald-600 dark:text-emerald-400 font-bold">✨ Otimizado</span>
+                </h4>
+                <div className="space-y-1.5 max-h-[350px] overflow-y-auto pr-1">
+                  {proposedStops.map((stop, i) => (
+                    <div key={i} className="flex items-center gap-2 p-2 rounded-lg border border-violet-200 dark:border-violet-900 bg-background text-xs shadow-sm">
+                      <span className="font-bold text-violet-600 dark:text-violet-400 w-4 text-center">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-mono font-semibold truncate flex items-center gap-1.5">
+                          {stop.serviceOrder}
+                          {stop.warrantyType === 'LP' && (
+                            <span className="bg-amber-100 text-amber-800 text-[9px] px-1 rounded font-bold">LP</span>
+                          )}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground truncate">
+                          <span className="font-medium text-foreground">{stop.city}</span> — {stop.neighborhood}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setIsOptimizeOpen(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleApplyOptimization} 
+              disabled={isOptimizing}
+              className="bg-violet-600 hover:bg-violet-700 text-white gap-2"
+            >
+              {isOptimizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              Aplicar Otimização ✅
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
