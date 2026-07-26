@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ChevronDown, MessageSquare, History, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ServiceOrder, RouteStop } from "@/lib/data";
+import { Badge } from "@/components/ui/badge";
 
 export function RouteDetailsRow({ 
     stop, 
@@ -74,13 +75,25 @@ export function RouteDetailsRow({
             <CollapsibleTrigger asChild>
                 <TableRow className={cn("cursor-pointer", getRowClass())}>
                     <TableCell className="font-mono">
-                        <span className="flex items-center gap-1.5">
+                        <span className="flex flex-wrap items-center gap-1.5">
                             {stop.serviceOrder}
                             {stop.isReallocated && (
                                 <span className="text-[9px] bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-bold px-1.5 py-0.5 rounded-full uppercase">Realocado</span>
                             )}
                             {hasPreviousVisits && !isCompleted && !isPending && !stop.isReallocated && (
                                 <History className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
+                            )}
+                            {stop.warrantyType === 'LP' && (
+                                <a 
+                                    href="https://survey.samsung.com" 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <Badge className="bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 text-[10px] px-1.5 py-0.5 border-amber-300 gap-1 flex items-center cursor-pointer">
+                                        📋 Pesquisa LP
+                                    </Badge>
+                                </a>
                             )}
                         </span>
                     </TableCell>

@@ -128,6 +128,7 @@ const formSchema = z.object({
   cleaningPerformed: z.boolean().optional(),
   isFinalized: z.boolean().default(true),
   pendingReason: z.string().optional(),
+  samsungLpSurveyPerformed: z.boolean().optional(),
 }).superRefine((data, ctx) => {
   if (data.isFinalized === false) {
     if (!data.pendingReason) {
@@ -619,6 +620,7 @@ const { toast } = useToast();
       cleaningPerformed: false,
       isFinalized: true,
       pendingReason: "",
+      samsungLpSurveyPerformed: false,
     },
   });
 
@@ -698,6 +700,7 @@ const { toast } = useToast();
   const watchedEquipmentType = form.watch("equipmentType");
   const watchedTechnician = form.watch("technician");
   const watchedPreset = form.watch("presetId");
+  const watchedSamsungRepairType = form.watch("samsungRepairType");
   const watchedServiceOrderNumber = form.watch("serviceOrderNumber");
   const { resetField, setValue } = form;
 
@@ -788,6 +791,15 @@ const { toast } = useToast();
             const inferred = inferEquipmentType(foundStop);
             if (inferred && form.getValues("equipmentType") !== inferred) {
                 setValue("equipmentType", inferred);
+            }
+            // Auto-select Samsung LP repair if the stop has LP warrantyType
+            if (foundStop.warrantyType === 'LP') {
+                if (form.getValues("serviceType") !== 'reparo_samsung') {
+                    setValue("serviceType", 'reparo_samsung');
+                }
+                if (form.getValues("samsungRepairType") !== 'LP') {
+                    setValue("samsungRepairType", 'LP');
+                }
             }
         }
         
@@ -886,6 +898,7 @@ const { toast } = useToast();
 
     const optionalParts = [
         data.replacedPart ? `- **Peça Trocada:** ${data.replacedPart}` : '',
+        data.samsungRepairType === 'LP' ? `- **Pesquisa de Satisfação LP:** ${data.samsungLpSurveyPerformed ? 'Realizada' : 'NÃO realizada'}` : '',
         data.observations ? `- **Observações:** ${data.observations}` : ''
     ].filter(Boolean);
 
@@ -921,7 +934,9 @@ const { toast } = useToast();
             symptomCode: data.symptomCode || '',
             repairCode: data.repairCode || '',
             replacedPart: data.replacedPart || '',
-            observations: data.observations || '',
+            observations: data.samsungRepairType === 'LP'
+                ? `${data.observations || ''}\n[Pesquisa LP realizada: ${data.samsungLpSurveyPerformed ? 'Sim' : 'Não'}]`.trim()
+                : data.observations || '',
             defectFound: data.defectFound || '',
             partsRequested: data.partsRequested || '',
             productCollectedOrInstalled: data.productCollectedOrInstalled || '',
@@ -991,7 +1006,8 @@ const { toast } = useToast();
         collectionType: "",
         cleaningPerformed: false,
         isFinalized: true,
-pendingReason: "",
+        pendingReason: "",
+        samsungLpSurveyPerformed: false,
     });
      setGeneratedText("");
     setOsIsSaved(false);
@@ -1442,20 +1458,59 @@ pendingReason: "",
                                                     )}
 
                                                     {watchedServiceType === 'reparo_samsung' && (
-                                                        <FormField control={form.control} name="samsungRepairType" render={({ field }) => (
-                                                            <FormItem className="pl-4 border-l-2 border-primary/50">
-                                                                <FormLabel>Sub-tipo Reparo Samsung</FormLabel>
-                                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                                    <FormControl><SelectTrigger><SelectValue placeholder="LP / OW / VOID" /></SelectTrigger></FormControl>
-                                                                    <SelectContent>
-                                                                        <SelectItem value="LP">LP</SelectItem>
-                                                                        <SelectItem value="OW">OW</SelectItem>
-                                                                        <SelectItem value="VOID">VOID</SelectItem>
-                                                                    </SelectContent>
-                                                                </Select>
-                                                                <FormMessage />
-                                                            </FormItem>
-                                                        )}/>
+                                                        <div className="space-y-4">
+                                                            <FormField control={form.control} name="samsungRepairType" render={({ field }) => (
+                                                                <FormItem className="pl-4 border-l-2 border-primary/50">
+                                                                    <FormLabel>Sub-tipo Reparo Samsung</FormLabel>
+                                                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                                        <FormControl><SelectTrigger><SelectValue placeholder="LP / OW / VOID" /></SelectTrigger></FormControl>
+                                                                        <SelectContent>
+                                                                            <SelectItem value="LP">LP</SelectItem>
+                                                                            <SelectItem value="OW">OW</SelectItem>
+                                                                            <SelectItem value="VOID">VOID</SelectItem>
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                    <FormMessage />
+                                                                </FormItem>
+                                                            )}/>
+
+                                                            {watchedSamsungRepairType === 'LP' && (
+                                                                <div className="pl-4 border-l-2 border-amber-500 bg-amber-50/50 dark:bg-amber-955/10 p-3 rounded-r-lg space-y-3 mt-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                                                                    <div className="flex items-start gap-2.5">
+                                                                        <span className="text-xl">📋</span>
+                                                                        <div className="space-y-0.5">
+                                                                            <h5 className="text-sm font-bold text-amber-800 dark:text-amber-400">Pesquisa de Satisfação LP Obrigatória</h5>
+                                                                            <p className="text-xs text-amber-700/80 dark:text-amber-300/80 leading-snug">
+                                                                                Samsung exige que seja feita a pesquisa de satisfação para todo atendimento sub-tipo LP.
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex gap-2">
+                                                                        <Button 
+                                                                            type="button" 
+                                                                            size="sm" 
+                                                                            variant="outline" 
+                                                                            className="h-8 text-xs font-semibold border-amber-300 text-amber-800 bg-white hover:bg-amber-100/50 dark:bg-slate-900 dark:border-amber-900 dark:text-amber-300"
+                                                                            onClick={() => window.open('https://survey.samsung.com', '_blank')}
+                                                                        >
+                                                                            Abrir Link da Pesquisa 🔗
+                                                                        </Button>
+                                                                    </div>
+                                                                    <FormField control={form.control} name="samsungLpSurveyPerformed" render={({ field }) => (
+                                                                        <FormItem className="flex flex-row items-center justify-between rounded-lg border border-amber-200 dark:border-amber-900 bg-white dark:bg-slate-900 p-3 shadow-sm">
+                                                                            <div className="space-y-0.5">
+                                                                                <FormLabel className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                                                                                    Realizou a pesquisa de satisfação com o cliente?
+                                                                                </FormLabel>
+                                                                            </div>
+                                                                            <FormControl>
+                                                                                <Switch checked={field.value || false} onCheckedChange={field.onChange} />
+                                                                            </FormControl>
+                                                                        </FormItem>
+                                                                    )}/>
+                                                                </div>
+                                                             )}
+                                                        </div>
                                                     )}
 
                                                     {watchedServiceType === 'visita_orcamento_samsung' && (
