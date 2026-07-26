@@ -9,8 +9,6 @@ export const routeService = {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    
-    // Map snake_case from DB to camelCase
     return data.map(this.mapFromDb);
   },
 
@@ -22,8 +20,8 @@ export const routeService = {
       .single();
 
     if (error) {
-        if (error.code === 'PGRST116') return null;
-        throw error;
+      if (error.code === 'PGRST116') return null;
+      throw error;
     }
     return this.mapFromDb(data);
   },
@@ -70,11 +68,32 @@ export const routeService = {
     return data.map(this.mapFromDb);
   },
 
+  async getDraftRoutes(): Promise<Route[]> {
+    const { data, error } = await supabase
+      .from('routes')
+      .select('*')
+      .eq('is_draft', true)
+      .order('planned_date', { ascending: true });
+
+    if (error) throw error;
+    return (data || []).map(this.mapFromDb);
+  },
+
+  async publishRoute(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('routes')
+      .update({ is_draft: false, is_active: true })
+      .eq('id', id);
+
+    if (error) throw error;
+  },
+
   async getInactiveRoutesPaginated(pageSize: number, cutoffDate?: Date, lastVisible?: number): Promise<{ routes: Route[], lastVisible: number | null }> {
     let query = supabase
       .from('routes')
       .select('*')
       .eq('is_active', false)
+      .eq('is_draft', false)
       .order('created_at', { ascending: false });
 
     if (cutoffDate) {
@@ -90,7 +109,7 @@ export const routeService = {
     const { data, error } = await query;
 
     if (error) throw error;
-    
+
     const newLastVisible = (lastVisible || 0) + (data?.length || 0);
 
     return {
@@ -107,7 +126,6 @@ export const routeService = {
     await this.update(id, { isActive: false, arrivalDate: arrivalDate });
   },
 
-  // Helpers to map between DB and App
   mapFromDb(row: any): Route {
     return {
       id: row.id,
@@ -115,6 +133,8 @@ export const routeService = {
       stops: row.stops || [],
       isActive: row.is_active,
       isCanceled: row.is_canceled,
+      isDraft: row.is_draft || false,
+      plannedDate: row.planned_date ? new Date(row.planned_date) : undefined,
       departureDate: row.departure_date ? new Date(row.departure_date) : undefined,
       arrivalDate: row.arrival_date ? new Date(row.arrival_date) : undefined,
       routeType: row.route_type,
@@ -134,6 +154,8 @@ export const routeService = {
     if (obj.stops !== undefined) row.stops = obj.stops;
     if (obj.isActive !== undefined) row.is_active = obj.isActive;
     if (obj.isCanceled !== undefined) row.is_canceled = obj.isCanceled;
+    if (obj.isDraft !== undefined) row.is_draft = obj.isDraft;
+    if (obj.plannedDate !== undefined) row.planned_date = obj.plannedDate instanceof Date ? obj.plannedDate.toISOString() : obj.plannedDate;
     if (obj.departureDate !== undefined) row.departure_date = obj.departureDate instanceof Date ? obj.departureDate.toISOString() : obj.departureDate;
     if (obj.arrivalDate !== undefined) row.arrival_date = obj.arrivalDate instanceof Date ? obj.arrivalDate.toISOString() : obj.arrivalDate;
     if (obj.routeType !== undefined) row.route_type = obj.routeType;

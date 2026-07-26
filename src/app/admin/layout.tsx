@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Wrench, LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity } from "lucide-react"
+import { Wrench, LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays } from "lucide-react"
 
 // Static nav items defined outside component to prevent re-allocation on re-render
 const NAV_ITEMS = [
@@ -34,6 +34,7 @@ const NAV_ITEMS = [
   { href: '/admin/presets', label: 'Presets', Icon: Bookmark, tooltip: 'Presets' },
   { href: '/admin/returns', label: 'Retornos', Icon: History, tooltip: 'Retornos' },
   { href: '/admin/routes', label: 'Rotas', Icon: Route, tooltip: 'Rotas' },
+  { href: '/admin/planejamento', label: 'Planejamento', Icon: CalendarDays, tooltip: 'Planejamento de Rotas' },
   { href: '/admin/part-separation', label: 'Conferência de Peças', Icon: PackageSearch, tooltip: 'Conferência de Peças' },
   { href: '/admin/checklists', label: 'Checklists', Icon: ClipboardList, tooltip: 'Checklists' },
   { href: '/admin/triage', label: 'Triagem IA', Icon: Target, tooltip: 'Triagem Assistida por IA' },

@@ -200,6 +200,8 @@ export type Route = {
     createdAt: Date;
     isActive: boolean;
     isCanceled?: boolean;
+    isDraft?: boolean;
+    plannedDate?: Date;
     departureDate?: Date;
     arrivalDate?: Date;
     routeType?: 'capital' | 'interior';
