@@ -132,8 +132,11 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
     r.routeType === 'capital' ||
     r.name?.toLowerCase().includes('capital');
 
-  const capitalRoutes = routes.filter(isCapital);
-  const interiorRoutes = routes.filter(r => !isCapital(r));
+  // Ignorar rotas canceladas no export da planilha
+  const validRoutes = routes.filter(r => !r.isCanceled);
+
+  const capitalRoutes = validRoutes.filter(isCapital);
+  const interiorRoutes = validRoutes.filter(r => !isCapital(r));
 
   const escapeXml = (str: string | number | undefined | null) => {
     if (str === undefined || str === null) return "";
@@ -666,7 +669,8 @@ export default function PlanejamentoPage() {
 
   // ── Excel export ──
   const handleExport = () => {
-    exportWeekToExcel(routesForWeek, weekStart, weekEnd);
+    const validRoutes = routesForWeek.filter(r => !r.isCanceled);
+    exportWeekToExcel(validRoutes, weekStart, weekEnd);
     toast({ title: "📥 Planilha gerada!", description: "O download foi iniciado." });
   };
 
