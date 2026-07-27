@@ -1494,11 +1494,12 @@ const { toast } = useToast();
                                                                                         const soNum = form.getValues('serviceOrderNumber') || currentRouteStop?.serviceOrder || '';
                                                                                         if (soNum) {
                                                                                             await copyToClipboard(soNum);
-                                                                                            toast({
-                                                                                                title: "OS Copiada! 📋",
-                                                                                                description: `Número ${soNum} copiado para a área de transferência.`,
-                                                                                            });
                                                                                         }
+                                                                                        form.setValue('samsungLpSurveyPerformed', true);
+                                                                                        toast({
+                                                                                            title: "OS Copiada e Pesquisa Marcada! 📋",
+                                                                                            description: `Número ${soNum} copiado. Pesquisa LP marcada como realizada.`,
+                                                                                        });
                                                                                         window.open('https://samsungcontigo.com/#/account/signTechnician', '_blank', 'noopener,noreferrer');
                                                                                     }}
                                                                                 >
