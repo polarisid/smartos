@@ -1475,7 +1475,7 @@ const { toast } = useToast();
                                                                 </FormItem>
                                                             )}/>
 
-                                                            {watchedSamsungRepairType === 'LP' && (
+                                                            {((currentRouteStop && currentRouteStop.warrantyType === 'LP') || (!currentRouteStop && watchedSamsungRepairType === 'LP')) && (
                                                                 <div className="pl-4 border-l-2 border-amber-500 bg-amber-50/50 dark:bg-amber-955/10 p-3 rounded-r-lg space-y-3 mt-2 animate-in fade-in slide-in-from-top-2 duration-300">
                                                                     <div className="flex items-start gap-2.5">
                                                                         <span className="text-xl">📋</span>
