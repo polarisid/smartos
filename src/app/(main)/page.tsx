@@ -899,12 +899,12 @@ const { toast } = useToast();
 
     const optionalParts = [
         data.replacedPart ? `- **Peça Trocada:** ${data.replacedPart}` : '',
-        data.samsungRepairType === 'LP' ? `- **Pesquisa de Satisfação LP:** ${data.samsungLpSurveyPerformed ? 'Realizada' : 'NÃO realizada'}` : '',
+        ((data.samsungRepairType === 'LP' || currentRouteStop?.warrantyType === 'LP') && data.samsungLpSurveyPerformed) ? `- **Pesquisa de Satisfação LP:** Realizada` : '',
         data.observations ? `- **Observações:** ${data.observations}` : ''
     ].filter(Boolean);
 
     return [...baseTextParts, ...serviceSpecificParts, ...optionalParts].filter(Boolean).join('\n');
-  }, [allFormValues, technicians, assistantName, symptomCodes, repairCodes]);
+  }, [allFormValues, technicians, assistantName, symptomCodes, repairCodes, currentRouteStop]);
 
   const onSubmit = async (data: FormValues) => {
     // Bloquear envio se há peças da rota não revisadas
@@ -935,8 +935,8 @@ const { toast } = useToast();
             symptomCode: data.symptomCode || '',
             repairCode: data.repairCode || '',
             replacedPart: data.replacedPart || '',
-            observations: data.samsungRepairType === 'LP'
-                ? `${data.observations || ''}\n[Pesquisa LP realizada: ${data.samsungLpSurveyPerformed ? 'Sim' : 'Não'}]`.trim()
+            observations: ((data.samsungRepairType === 'LP' || currentRouteStop?.warrantyType === 'LP') && data.samsungLpSurveyPerformed)
+                ? `${data.observations || ''}\n[Pesquisa LP realizada: Sim]`.trim()
                 : data.observations || '',
             defectFound: data.defectFound || '',
             partsRequested: data.partsRequested || '',

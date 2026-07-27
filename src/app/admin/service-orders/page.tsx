@@ -225,8 +225,8 @@ export default function ServiceOrdersPage() {
     if (!selectedOrder) return;
     setIsSubmitting(true);
     try {
-      const finalObs = data.samsungRepairType === 'LP'
-        ? `${data.observations || ''}\n[Pesquisa LP realizada: ${data.samsungLpSurveyPerformed ? 'Sim' : 'Não'}]`.trim()
+      const finalObs = (data.samsungRepairType === 'LP' && data.samsungLpSurveyPerformed)
+        ? `${data.observations || ''}\n[Pesquisa LP realizada: Sim]`.trim()
         : data.observations || '';
 
       const updatedData: Partial<ServiceOrder> = {
