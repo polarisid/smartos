@@ -10,6 +10,7 @@ import { ChevronDown, MessageSquare, History, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ServiceOrder, RouteStop } from "@/lib/data";
 import { Badge } from "@/components/ui/badge";
+import { copyToClipboard } from "@/lib/clipboard";
 
 export function RouteDetailsRow({ 
     stop, 
@@ -84,16 +85,24 @@ export function RouteDetailsRow({
                                 <History className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
                             )}
                             {stop.warrantyType === 'LP' && (
-                                <a 
-                                    href="https://samsungcontigo.com/#/account/medalliaQrCode" 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
+                                <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        await copyToClipboard(stop.serviceOrder);
+                                        toast({
+                                            title: "OS Copiada! 📋",
+                                            description: `Número ${stop.serviceOrder} copiado para a área de transferência.`,
+                                        });
+                                        window.open("https://samsungcontigo.com/#/account/medalliaQrCode", "_blank", "noopener,noreferrer");
+                                    }}
+                                    className="focus:outline-none"
                                 >
                                     <Badge className="bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 text-[10px] px-1.5 py-0.5 border-amber-300 gap-1 flex items-center cursor-pointer">
                                         📋 Pesquisa LP
                                     </Badge>
-                                </a>
+                                </button>
                             )}
                         </span>
                     </TableCell>

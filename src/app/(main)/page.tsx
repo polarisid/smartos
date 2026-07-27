@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format, isAfter, startOfMonth, startOfYear, subDays, differenceInDays } from "date-fns";
 import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator, type Route, type RouteStop, type Chargeback, type RoutePart, type ChecklistTemplate, type ChecklistField } from "@/lib/data";
+import { copyToClipboard } from "@/lib/clipboard";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -1483,18 +1484,28 @@ const { toast } = useToast();
                                                                             <p className="text-xs text-amber-700/80 dark:text-amber-300/80 leading-snug">
                                                                                 Samsung exige que seja feita a pesquisa de satisfação para todo atendimento sub-tipo LP.
                                                                             </p>
+                                                                            <div className="flex gap-2">
+                                                                                <Button 
+                                                                                    type="button" 
+                                                                                    size="sm" 
+                                                                                    variant="outline" 
+                                                                                    className="h-8 text-xs font-semibold border-amber-300 text-amber-800 bg-white hover:bg-amber-100/50 dark:bg-slate-900 dark:border-amber-900 dark:text-amber-300"
+                                                                                    onClick={async () => {
+                                                                                        const soNum = form.getValues('serviceOrderNumber') || currentRouteStop?.serviceOrder || '';
+                                                                                        if (soNum) {
+                                                                                            await copyToClipboard(soNum);
+                                                                                            toast({
+                                                                                                title: "OS Copiada! 📋",
+                                                                                                description: `Número ${soNum} copiado para a área de transferência.`,
+                                                                                            });
+                                                                                        }
+                                                                                        window.open('https://samsungcontigo.com/#/account/medalliaQrCode', '_blank', 'noopener,noreferrer');
+                                                                                    }}
+                                                                                >
+                                                                                    Abrir Link da Pesquisa 🔗
+                                                                                </Button>
+                                                                            </div>
                                                                         </div>
-                                                                    </div>
-                                                                    <div className="flex gap-2">
-                                                                        <Button 
-                                                                            type="button" 
-                                                                            size="sm" 
-                                                                            variant="outline" 
-                                                                            className="h-8 text-xs font-semibold border-amber-300 text-amber-800 bg-white hover:bg-amber-100/50 dark:bg-slate-900 dark:border-amber-900 dark:text-amber-300"
-                                                                            onClick={() => window.open('https://samsungcontigo.com/#/account/medalliaQrCode', '_blank')}
-                                                                        >
-                                                                            Abrir Link da Pesquisa 🔗
-                                                                        </Button>
                                                                     </div>
                                                                     <FormField control={form.control} name="samsungLpSurveyPerformed" render={({ field }) => (
                                                                         <FormItem className="flex flex-row items-center justify-between rounded-lg border border-amber-200 dark:border-amber-900 bg-white dark:bg-slate-900 p-3 shadow-sm">

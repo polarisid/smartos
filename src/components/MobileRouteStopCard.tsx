@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ChevronDown, MessageSquare, XCircle, Calendar, MapPin, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ServiceOrder, RouteStop } from "@/lib/data";
+import { copyToClipboard } from "@/lib/clipboard";
 
 export function MobileRouteStopCard({ 
     stop, 
@@ -97,16 +98,24 @@ export function MobileRouteStopCard({
                             {stop.firstVisitDate && <span className="text-[9px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 px-1.5 py-0.5 rounded flex items-center gap-1"><Calendar className="h-3 w-3" />{stop.firstVisitDate}</span>}
                             {stop.turn && <span className="text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 px-1.5 py-0.5 rounded">{stop.turn}</span>}
                             {stop.warrantyType === 'LP' && (
-                                <a 
-                                    href="https://samsungcontigo.com/#/account/medalliaQrCode" 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
+                                <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        await copyToClipboard(stop.serviceOrder);
+                                        toast({
+                                            title: "OS Copiada! 📋",
+                                            description: `Número ${stop.serviceOrder} copiado para a área de transferência.`,
+                                        });
+                                        window.open("https://samsungcontigo.com/#/account/medalliaQrCode", "_blank", "noopener,noreferrer");
+                                    }}
+                                    className="focus:outline-none"
                                 >
-                                    <span className="text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 px-1.5 py-0.5 rounded flex items-center gap-1 border border-amber-300 cursor-pointer">
+                                    <span className="text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 px-1.5 py-0.5 rounded flex items-center gap-1 border border-amber-300 cursor-pointer hover:bg-amber-200 transition-colors">
                                         📋 Pesquisa LP
                                     </span>
-                                </a>
+                                </button>
                             )}
                         </div>
                         <p className={cn("font-mono font-black text-lg tracking-tight text-foreground leading-none", (isCompleted || stop.isReallocated) && "line-through opacity-60")}>{stop.serviceOrder}</p>
