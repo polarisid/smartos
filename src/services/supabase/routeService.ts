@@ -49,6 +49,10 @@ export const routeService = {
   },
 
   async remove(id: string): Promise<void> {
+    const route = await this.getById(id);
+    if (route && route.isActive) {
+      throw new Error("Uma rota já postada/publicada não pode ser excluída. É possível apenas inativá-la ou cancelá-la.");
+    }
     const { error } = await supabase
       .from('routes')
       .delete()

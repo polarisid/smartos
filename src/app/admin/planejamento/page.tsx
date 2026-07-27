@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -20,18 +20,52 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAllRoutes, useTechnicians, useDrivers } from "@/hooks/queries";
 import { routeService } from "@/services/supabase/routeService";
+import { configService } from "@/services/supabase/configService";
 import { type Route, type RouteStop, type RoutePart } from "@/lib/data";
 import { optimizeRouteStops, describeOptimization } from "@/lib/routeOptimizer";
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, CheckCircle2,
   Sparkles, Download, MapPin, Calendar, Users, Truck,
-  Eye, Loader2, List
+  Eye, Loader2, List, Edit, Copy
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComp } from "@/components/ui/calendar";
 
 const DynamicalRouteMap = dynamic(() => import('@/components/RouteMap'), { ssr: false });
+
+// ─── formatStopsToText (converts RouteStops back to TSV text format for editing) ──
+function formatStopsToText(stops: RouteStop[]): string {
+  if (!stops || stops.length === 0) return "";
+  const header = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD";
+  const rows = stops.map(s => {
+    const p0 = s.parts?.[0];
+    const partCode = p0?.code || "";
+    const partDesc = p0?.description || "";
+    const partQty = p0?.quantity ? String(p0.quantity) : "";
+    return [
+      s.serviceOrder || "",
+      s.ascJobNumber || "",
+      s.consumerName || "",
+      s.city || "",
+      s.neighborhood || "",
+      s.state || "",
+      s.model || "",
+      s.turn || "",
+      s.tat || "",
+      s.requestDate || "",
+      s.firstVisitDate || "",
+      s.ts || "",
+      s.warrantyType || "",
+      s.productType || "",
+      s.statusComment || "",
+      partCode,
+      partDesc,
+      partQty
+    ].join("\t");
+  });
+  return [header, ...rows].join("\n");
+}
 
 // ─── parseRouteText (same as admin/routes) ──────────────────────────────────
 function parseRouteText(text: string): RouteStop[] {
@@ -325,7 +359,19 @@ export default function PlanejamentoPage() {
     return Array.from(set);
   }, [optimizingRoute]);
 
-  // Form state
+  // Configured default base address
+  const [defaultBaseAddress, setDefaultBaseAddress] = useState("Aracaju");
+
+  useEffect(() => {
+    configService.getBaseAddress().then(base => {
+      if (base) {
+        setDefaultBaseAddress(base);
+        setOriginCity(base);
+      }
+    }).catch(console.error);
+  }, []);
+
+  // Form state (Create)
   const [formName, setFormName] = useState("");
   const [formText, setFormText] = useState("");
   const [formTechnicianId, setFormTechnicianId] = useState("");
@@ -334,6 +380,20 @@ export default function PlanejamentoPage() {
   const [formPlannedDate, setFormPlannedDate] = useState<Date | undefined>(undefined);
   const [formCalOpen, setFormCalOpen] = useState(false);
   const [parsedPreview, setParsedPreview] = useState<RouteStop[]>([]);
+
+  // Edit Dialog state
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editingRoute, setEditingRoute] = useState<Route | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editText, setEditText] = useState("");
+  const [editTechnicianId, setEditTechnicianId] = useState("");
+  const [editDriverId, setEditDriverId] = useState("");
+  const [editRouteType, setEditRouteType] = useState<"capital" | "interior">("capital");
+  const [editPlannedDate, setEditPlannedDate] = useState<Date | undefined>(undefined);
+  const [editCalOpen, setEditCalOpen] = useState(false);
+  const [editParsedPreview, setEditParsedPreview] = useState<RouteStop[]>([]);
+  const [isUpdatingRoute, setIsUpdatingRoute] = useState(false);
+  const [isDuplicating, setIsDuplicating] = useState<string | null>(null);
 
   // Helper: Get true operational date of route (plannedDate → departureDate → createdAt)
   const getRouteDate = useCallback((r: Route): Date => {
@@ -426,10 +486,114 @@ export default function PlanejamentoPage() {
     setFormRouteType("capital"); setFormPlannedDate(undefined); setParsedPreview([]);
   };
 
+  // ── Open Edit Route Modal ──
+  const handleOpenEdit = (route: Route) => {
+    setEditingRoute(route);
+    setEditName(route.name);
+    setEditTechnicianId(route.technicianId || "");
+    setEditDriverId(route.driverId || "");
+    setEditRouteType(route.routeType || "capital");
+    const d = getRouteDate(route);
+    setEditPlannedDate(d);
+    const formatted = formatStopsToText(route.stops);
+    setEditText(formatted);
+    setEditParsedPreview(route.stops);
+    setIsEditOpen(true);
+  };
+
+  const handleEditTextChange = (v: string) => {
+    setEditText(v);
+    const stops = parseRouteText(v);
+    setEditParsedPreview(stops);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingRoute) return;
+    if (!editName.trim() || editParsedPreview.length === 0) {
+      toast({ variant: "destructive", title: "Preencha o nome e mantenha pelo menos 1 parada válida." });
+      return;
+    }
+    setIsUpdatingRoute(true);
+    try {
+      const tech = technicians.find(t => t.id === editTechnicianId);
+      const driver = drivers.find(d => d.id === editDriverId);
+
+      await routeService.update(editingRoute.id, {
+        name: editName.trim(),
+        stops: editParsedPreview,
+        plannedDate: editPlannedDate,
+        departureDate: editPlannedDate,
+        routeType: editRouteType,
+        technicianId: tech?.id || "",
+        technicianName: tech?.name || "",
+        driverId: driver?.id || "",
+        driverName: driver?.name || "",
+        driverPhone: (driver as any)?.phone || "",
+      });
+
+      await queryClient.invalidateQueries({ queryKey: ['routes', 'draft'] });
+      await queryClient.invalidateQueries({ queryKey: ['routes', 'active'] });
+      await queryClient.invalidateQueries({ queryKey: ['routes'] });
+
+      if (selectedRoute?.id === editingRoute.id) {
+        setSelectedRoute({
+          ...editingRoute,
+          name: editName.trim(),
+          stops: editParsedPreview,
+          plannedDate: editPlannedDate,
+          departureDate: editPlannedDate,
+          routeType: editRouteType,
+          technicianId: tech?.id || "",
+          technicianName: tech?.name || "",
+          driverId: driver?.id || "",
+          driverName: driver?.name || "",
+        });
+      }
+
+      toast({ title: "Rota atualizada com sucesso!" });
+      setIsEditOpen(false);
+      setEditingRoute(null);
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Erro ao atualizar rota", description: e.message });
+    } finally {
+      setIsUpdatingRoute(false);
+    }
+  };
+
+  // ── Duplicate / Copy Route ──
+  const handleDuplicateRoute = async (route: Route) => {
+    setIsDuplicating(route.id);
+    try {
+      const copyName = `Cópia de ${route.name}`;
+      await routeService.create({
+        name: copyName,
+        stops: route.stops,
+        isActive: false,
+        isDraft: true,
+        plannedDate: getRouteDate(route),
+        departureDate: getRouteDate(route),
+        routeType: route.routeType || "capital",
+        technicianId: route.technicianId,
+        technicianName: route.technicianName,
+        driverId: route.driverId,
+        driverName: route.driverName,
+        driverPhone: route.driverPhone,
+        createdAt: new Date(),
+      });
+      await queryClient.invalidateQueries({ queryKey: ['routes', 'draft'] });
+      await queryClient.invalidateQueries({ queryKey: ['routes'] });
+      toast({ title: "Rota copiada com sucesso!", description: `Criado rascunho "${copyName}".` });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Erro ao copiar rota", description: e.message });
+    } finally {
+      setIsDuplicating(null);
+    }
+  };
+
   // ── Open AI Optimization Preview Modal ──
   const handleOpenOptimize = (route: Route) => {
     setOptimizingRoute(route);
-    const initialOrigin = "Aracaju";
+    const initialOrigin = defaultBaseAddress || "Aracaju";
     setOriginCity(initialOrigin);
     const optimized = optimizeRouteStops(route.stops, initialOrigin);
     const summary = describeOptimization(route.stops, optimized, initialOrigin);
@@ -694,13 +858,37 @@ export default function PlanejamentoPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-7 text-xs gap-1 flex-1"
+                          className="h-7 text-xs gap-1"
+                          title="Otimizar percurso via IA"
                           disabled={isOptimizing}
                           onClick={() => handleOpenOptimize(route)}
                         >
                           {isOptimizing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3 text-violet-500" />}
                           IA
                         </Button>
+
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs gap-1"
+                          title="Editar rota / paradas"
+                          onClick={() => handleOpenEdit(route)}
+                        >
+                          <Edit className="h-3 w-3 text-blue-500" />
+                          Editar
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs gap-1 px-2"
+                          title="Copiar/Duplicar rota"
+                          disabled={isDuplicating === route.id}
+                          onClick={() => handleDuplicateRoute(route)}
+                        >
+                          {isDuplicating === route.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Copy className="h-3 w-3 text-amber-500" />}
+                        </Button>
+
                         {route.isDraft ? (
                           <Button
                             size="sm"
@@ -720,11 +908,18 @@ export default function PlanejamentoPage() {
                             ✓ Inativa
                           </Badge>
                         )}
+
                         <Button
                           size="sm"
-                          variant="destructive"
-                          className="h-7 text-xs px-2"
-                          onClick={() => { setRouteToDelete(route); setIsDeleteOpen(true); }}
+                          variant={route.isActive ? "outline" : "destructive"}
+                          className={cn("h-7 text-xs px-2", route.isActive && "opacity-40 cursor-not-allowed")}
+                          disabled={route.isActive}
+                          title={route.isActive ? "Rotas já publicadas não podem ser excluídas" : "Excluir rascunho"}
+                          onClick={() => {
+                            if (route.isActive) return;
+                            setRouteToDelete(route);
+                            setIsDeleteOpen(true);
+                          }}
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -912,6 +1107,113 @@ export default function PlanejamentoPage() {
             <Button onClick={handleCreate} disabled={isSaving || !formName.trim() || parsedPreview.length === 0} className="gap-2">
               {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               Salvar Rascunho
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Dialog ── */}
+      <Dialog open={isEditOpen} onOpenChange={open => { setIsEditOpen(open); if (!open) setEditingRoute(null); }}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="h-5 w-5 text-blue-500" />
+              Editar Rota — {editingRoute?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Altere os detalhes da rota ou cole/modifique as paradas e ordens de serviço.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5 col-span-2">
+                <Label>Nome da Rota *</Label>
+                <Input placeholder="Nome da Rota" value={editName} onChange={e => setEditName(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tipo de Rota</Label>
+                <Select value={editRouteType} onValueChange={(v: any) => setEditRouteType(v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="capital">🏙️ Capital</SelectItem>
+                    <SelectItem value="interior">🌿 Interior</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Data Planejada</Label>
+                <Popover open={editCalOpen} onOpenChange={setEditCalOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal">
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {editPlannedDate ? format(editPlannedDate, 'dd/MM/yyyy') : 'Selecionar data...'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <CalendarComp
+                      mode="single"
+                      selected={editPlannedDate}
+                      onSelect={d => { setEditPlannedDate(d); setEditCalOpen(false); }}
+                      locale={ptBR}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Técnico</Label>
+                <Select value={editTechnicianId} onValueChange={setEditTechnicianId}>
+                  <SelectTrigger><SelectValue placeholder="Selecionar..." /></SelectTrigger>
+                  <SelectContent>
+                    {technicians.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Motorista</Label>
+                <Select value={editDriverId} onValueChange={setEditDriverId}>
+                  <SelectTrigger><SelectValue placeholder="Selecionar..." /></SelectTrigger>
+                  <SelectContent>
+                    {drivers.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>
+                Texto das Visitas e Paradas (Tabela/Planilha) *
+                {editParsedPreview.length > 0 && (
+                  <span className="ml-2 text-xs font-normal text-emerald-600">✓ {editParsedPreview.length} OSs válidas</span>
+                )}
+              </Label>
+              <Textarea
+                placeholder="Cole ou edite o conteúdo das paradas..."
+                className="min-h-[180px] font-mono text-xs"
+                value={editText}
+                onChange={e => handleEditTextChange(e.target.value)}
+              />
+              {editParsedPreview.length > 0 && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20 p-2">
+                  <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-1.5">Paradas reconhecidas ({editParsedPreview.length}):</p>
+                  <div className="max-h-40 overflow-y-auto space-y-0.5">
+                    {editParsedPreview.map((s, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        <span className="text-muted-foreground w-5 text-right">{i+1}.</span>
+                        <span className="font-mono font-semibold">{s.serviceOrder}</span>
+                        <span className="text-muted-foreground truncate">{s.consumerName}</span>
+                        <span className="text-muted-foreground">{s.city}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancelar</Button>
+            <Button onClick={handleSaveEdit} disabled={isUpdatingRoute || !editName.trim() || editParsedPreview.length === 0} className="gap-2 bg-blue-600 hover:bg-blue-700">
+              {isUpdatingRoute ? <Loader2 className="h-4 w-4 animate-spin" /> : <Edit className="h-4 w-4" />}
+              Salvar Alterações
             </Button>
           </DialogFooter>
         </DialogContent>
