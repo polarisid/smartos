@@ -1499,7 +1499,7 @@ const { toast } = useToast();
                                                                                                 description: `Número ${soNum} copiado para a área de transferência.`,
                                                                                             });
                                                                                         }
-                                                                                        window.open('https://samsungcontigo.com/#/account/medalliaQrCode', '_blank', 'noopener,noreferrer');
+                                                                                        window.open('https://samsungcontigo.com/#/account/signTechnician', '_blank', 'noopener,noreferrer');
                                                                                     }}
                                                                                 >
                                                                                     Abrir Link da Pesquisa 🔗

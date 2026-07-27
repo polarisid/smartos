@@ -108,7 +108,7 @@ export function MobileRouteStopCard({
                                             title: "OS Copiada! 📋",
                                             description: `Número ${stop.serviceOrder} copiado para a área de transferência.`,
                                         });
-                                        window.open("https://samsungcontigo.com/#/account/medalliaQrCode", "_blank", "noopener,noreferrer");
+                                        window.open("https://samsungcontigo.com/#/account/signTechnician", "_blank", "noopener,noreferrer");
                                     }}
                                     className="focus:outline-none"
                                 >
