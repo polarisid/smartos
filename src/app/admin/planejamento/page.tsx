@@ -674,342 +674,374 @@ export default function PlanejamentoPage() {
     toast({ title: "📥 Planilha gerada!", description: "O download foi iniciado." });
   };
 
+  // ─── Derived week stats ────────────────────────────────────────────────────
+  const weekStats = useMemo(() => ({
+    total: activeAndDraftRoutesForWeek.length,
+    published: activeAndDraftRoutesForWeek.filter(r => r.isActive).length,
+    drafts: activeAndDraftRoutesForWeek.filter(r => r.isDraft).length,
+    totalStops: activeAndDraftRoutesForWeek.reduce((s, r) => s + r.stops.length, 0),
+  }), [activeAndDraftRoutesForWeek]);
+
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <>
       <div className="flex flex-col gap-6 p-4 sm:p-6 min-h-screen">
 
         {/* ── Header ── */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <Calendar className="h-6 w-6 text-primary" />
               Planejamento de Rotas
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Crie rascunhos de rotas e publique quando estiver pronto. As rotas ficam invisíveis para os técnicos até a publicação.
+              Crie rascunhos e publique quando estiver pronto. As rotas ficam invisíveis aos técnicos até a publicação.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
               <Download className="h-4 w-4" />
               Baixar Semana (Excel)
             </Button>
             <Button size="sm" onClick={() => setIsCreateOpen(true)} className="gap-2">
               <Plus className="h-4 w-4" />
-              Nova Rota Planejada
+              Nova Rota
             </Button>
           </div>
         </div>
 
-        {/* ── Weekly Calendar ── */}
-        <Card className="border-border/50">
-          <CardContent className="pt-4 pb-3 px-4">
-            <div className="flex items-center justify-between mb-4">
-              <Button variant="ghost" size="icon" onClick={() => { setWeekOffset(w => w - 1); setSelectedDay(null); }}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <div className="text-center">
-                <span className="font-semibold text-sm">
-                  {format(weekStart, "dd 'de' MMMM", { locale: ptBR })} —{' '}
-                  {format(weekEnd, "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
-                </span>
-                {weekOffset === 0 && <span className="ml-2 text-[10px] font-bold text-primary uppercase tracking-wider">Esta semana</span>}
-                {weekOffset > 0 && <span className="ml-2 text-[10px] font-bold text-emerald-500 uppercase tracking-wider">Semana futura</span>}
-                {weekOffset < 0 && <span className="ml-2 text-[10px] font-bold text-amber-500 uppercase tracking-wider">Semana passada</span>}
-              </div>
-              <Button variant="ghost" size="icon" onClick={() => { setWeekOffset(w => w + 1); setSelectedDay(null); }}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+        {/* ── Week Stats Bar ── */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="rounded-xl border border-border/60 bg-card p-3.5 flex items-center gap-3 shadow-sm">
+            <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+              <MapPin className="h-4.5 w-4.5 text-primary" />
             </div>
-            <div className="grid grid-cols-7 gap-1">
-              {weekDays.map((day, i) => {
-                const isToday = isSameDay(day, new Date());
-                const isSelected = selectedDay && isSameDay(day, selectedDay);
-                const count = countPerDay[i];
-                return (
-                  <button
-                    key={i}
-                    onClick={() => setSelectedDay(isSelected ? null : day)}
-                    className={cn(
-                      "flex flex-col items-center gap-1 py-2 px-1 rounded-xl border text-xs font-medium transition-all duration-200",
-                      isSelected ? "bg-primary text-primary-foreground border-primary shadow-md" :
-                      isToday ? "border-primary/40 bg-primary/5 text-primary" :
-                      "border-transparent hover:border-border hover:bg-muted/50 text-muted-foreground"
-                    )}
-                  >
-                    <span className="text-[10px] uppercase tracking-wider">
-                      {format(day, 'EEE', { locale: ptBR }).slice(0, 3)}
-                    </span>
-                    <span className={cn("text-lg font-bold", isToday && !isSelected && "text-primary")}>{format(day, 'd')}</span>
-                    {count > 0 ? (
-                      <span className={cn(
-                        "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center",
-                        isSelected ? "bg-primary-foreground/20 text-primary-foreground" : "bg-primary/10 text-primary"
-                      )}>
-                        {count}
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-transparent">0</span>
-                    )}
-                  </button>
-                );
-              })}
+            <div>
+              <p className="text-2xl font-black text-foreground leading-none">{weekStats.total}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">Rotas na semana</p>
             </div>
-            {selectedDay && (
-              <p className="text-xs text-muted-foreground mt-2 text-center">
-                Mostrando rotas de{' '}
-                <span className="font-semibold text-foreground">{format(selectedDay, "EEEE, dd 'de' MMMM", { locale: ptBR })}</span>
-                {' '}— <button className="text-primary underline" onClick={() => setSelectedDay(null)}>ver semana completa</button>
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* ── Main Content: Draft List + Preview ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-
-          {/* Draft list */}
-          <div className="lg:col-span-2 flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">
-                {selectedDay
-                  ? `Rascunhos — ${format(selectedDay, 'EEEE', { locale: ptBR })}`
-                  : `Rascunhos da Semana`}
-                {' '}
-                <span className="normal-case font-normal">({displayedRoutes.length})</span>
-              </h2>
-            </div>
-
-            {isLoading ? (
-              <div className="space-y-3">
-                {[1,2,3].map(i => <Skeleton key={i} className="h-28 rounded-xl" />)}
-              </div>
-            ) : displayedRoutes.length === 0 ? (
-              <Card className="border-dashed border-2 bg-transparent">
-                <CardContent className="py-10 text-center text-muted-foreground">
-                  <Calendar className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                  <p className="font-medium">Nenhuma rota planejada</p>
-                  <p className="text-xs mt-1">
-                    {selectedDay ? `para ${format(selectedDay, "dd/MM")}` : "para esta semana"}
-                  </p>
-                  <Button size="sm" variant="outline" className="mt-4 gap-2" onClick={() => setIsCreateOpen(true)}>
-                    <Plus className="h-3.5 w-3.5" /> Criar Rascunho
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              displayedRoutes.map(route => {
-                const isSelected = selectedRoute?.id === route.id;
-                const publishing = isPublishing === route.id;
-                return (
-                  <Card
-                    key={route.id}
-                    onClick={() => setSelectedRoute(isSelected ? null : route)}
-                    className={cn(
-                      "cursor-pointer transition-all duration-200 border hover:shadow-md",
-                      isSelected ? "border-primary/50 bg-primary/5 shadow-md" : "border-border/50 hover:border-border"
-                    )}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-bold text-sm truncate">{route.name}</p>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {route.isDraft ? (
-                              <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-amber-50 border-amber-200 text-amber-700">
-                                📝 Rascunho
-                              </Badge>
-                            ) : route.isActive ? (
-                              <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-emerald-50 border-emerald-200 text-emerald-700">
-                                🚀 Publicada
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-slate-100 border-slate-300 text-slate-700">
-                                🏁 Inativa
-                              </Badge>
-                            )}
-                            {route.routeType && (
-                              <Badge variant="outline" className={cn("text-[10px] py-0 px-1.5",
-                                route.routeType === 'capital' ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-green-50 border-green-200 text-green-700"
-                              )}>
-                                {route.routeType === 'capital' ? '🏙️ Capital' : '🌿 Interior'}
-                              </Badge>
-                            )}
-                            {getRouteDate(route) && (
-                              <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-slate-50 border-slate-200 text-slate-700">
-                                📅 {format(getRouteDate(route), 'EEE dd/MM', { locale: ptBR })}
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <p className="text-2xl font-black text-primary">{route.stops.length}</p>
-                          <p className="text-[10px] text-muted-foreground">paradas</p>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col gap-0.5 text-xs text-muted-foreground mb-3">
-                        {route.technicianName && (
-                          <span className="flex items-center gap-1"><Users className="h-3 w-3" />{route.technicianName}</span>
-                        )}
-                        {route.driverName && (
-                          <span className="flex items-center gap-1"><Truck className="h-3 w-3" />{route.driverName}</span>
-                        )}
-                      </div>
-
-                      <div className="flex gap-1.5 flex-wrap" onClick={e => e.stopPropagation()}>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs gap-1"
-                          title="Otimizar percurso via IA"
-                          disabled={isOptimizing}
-                          onClick={() => handleOpenOptimize(route)}
-                        >
-                          {isOptimizing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3 text-violet-500" />}
-                          IA
-                        </Button>
-
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs gap-1"
-                          title="Editar rota / paradas"
-                          onClick={() => handleOpenEdit(route)}
-                        >
-                          <Edit className="h-3 w-3 text-blue-500" />
-                          Editar
-                        </Button>
-
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs gap-1 px-2"
-                          title="Copiar/Duplicar rota"
-                          disabled={isDuplicating === route.id}
-                          onClick={() => handleDuplicateRoute(route)}
-                        >
-                          {isDuplicating === route.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Copy className="h-3 w-3 text-amber-500" />}
-                        </Button>
-
-                        {route.isDraft ? (
-                          <Button
-                            size="sm"
-                            className="h-7 text-xs gap-1 flex-1 bg-emerald-600 hover:bg-emerald-700"
-                            disabled={publishing}
-                            onClick={() => handlePublish(route)}
-                          >
-                            {publishing ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-                            Publicar
-                          </Button>
-                        ) : route.isActive ? (
-                          <Badge variant="outline" className="h-7 text-xs gap-1 flex-1 justify-center bg-emerald-50 text-emerald-700 border-emerald-200">
-                            ✓ Publicada
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="h-7 text-xs gap-1 flex-1 justify-center bg-slate-100 text-slate-700 border-slate-300">
-                            ✓ Inativa
-                          </Badge>
-                        )}
-
-                        <Button
-                          size="sm"
-                          variant={route.isActive ? "outline" : "destructive"}
-                          className={cn("h-7 text-xs px-2", route.isActive && "opacity-40 cursor-not-allowed")}
-                          disabled={route.isActive}
-                          title={route.isActive ? "Rotas já publicadas não podem ser excluídas" : "Excluir rascunho"}
-                          onClick={() => {
-                            if (route.isActive) return;
-                            setRouteToDelete(route);
-                            setIsDeleteOpen(true);
-                          }}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })
-            )}
           </div>
-
-          {/* Preview panel */}
-          <div className="lg:col-span-3">
-            {selectedRoute ? (
-              <Card className="border-border/50 sticky top-4">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-base">{selectedRoute.name}</CardTitle>
-                      <CardDescription className="text-xs mt-0.5">
-                        {selectedRoute.stops.length} paradas — {selectedRoute.technicianName || "Sem técnico"}
-                      </CardDescription>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1.5 text-xs"
-                      onClick={() => setShowMap(v => !v)}
-                    >
-                      {showMap ? <List className="h-3.5 w-3.5" /> : <MapPin className="h-3.5 w-3.5" />}
-                      {showMap ? "Lista" : "Mapa"}
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {showMap ? (
-                    <div className="h-72 rounded-b-xl overflow-hidden">
-                      <DynamicalRouteMap routes={[selectedRoute]} activeStops={[]} />
-                    </div>
-                  ) : (
-                    <div className="overflow-auto max-h-[520px]">
-                      <table className="w-full text-xs">
-                        <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm">
-                          <tr>
-                            <th className="px-3 py-2 text-left font-semibold text-muted-foreground w-8">#</th>
-                            <th className="px-3 py-2 text-left font-semibold text-muted-foreground">OS</th>
-                            <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Nome</th>
-                            <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Cidade / Bairro</th>
-                            <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Modelo</th>
-                            <th className="px-3 py-2 text-left font-semibold text-muted-foreground">TAT</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {selectedRoute.stops.map((stop, i) => (
-                            <tr key={i} className={cn("border-t border-border/30", i % 2 === 0 ? "bg-background" : "bg-muted/20")}>
-                              <td className="px-3 py-1.5 text-muted-foreground">{i + 1}</td>
-                              <td className="px-3 py-1.5 font-mono font-semibold">{stop.serviceOrder}</td>
-                              <td className="px-3 py-1.5">{stop.consumerName}</td>
-                              <td className="px-3 py-1.5 text-muted-foreground">
-                                <span>{stop.city}</span>
-                                {stop.neighborhood && <span className="text-[10px] block opacity-70">{stop.neighborhood}</span>}
-                              </td>
-                              <td className="px-3 py-1.5 text-muted-foreground">{stop.model}</td>
-                              <td className="px-3 py-1.5">
-                                {stop.warrantyType === 'LP' && <span className="bg-amber-100 text-amber-700 text-[9px] font-bold px-1 rounded mr-1">LP</span>}
-                                {stop.tat}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="h-full flex items-center justify-center text-center text-muted-foreground py-20 border-2 border-dashed border-border/50 rounded-xl">
-                <div>
-                  <Eye className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                  <p className="font-medium">Selecione um rascunho</p>
-                  <p className="text-xs mt-1">para visualizar as paradas ou o mapa</p>
-                </div>
-              </div>
-            )}
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 dark:bg-emerald-950/20 dark:border-emerald-900/50 p-3.5 flex items-center gap-3 shadow-sm">
+            <div className="h-9 w-9 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="h-4.5 w-4.5 text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-black text-emerald-700 dark:text-emerald-400 leading-none">{weekStats.published}</p>
+              <p className="text-[11px] text-emerald-600/80 dark:text-emerald-500 mt-0.5">Publicadas</p>
+            </div>
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-900/50 p-3.5 flex items-center gap-3 shadow-sm">
+            <div className="h-9 w-9 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
+              <Edit className="h-4.5 w-4.5 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-black text-amber-700 dark:text-amber-400 leading-none">{weekStats.drafts}</p>
+              <p className="text-[11px] text-amber-600/80 dark:text-amber-500 mt-0.5">Rascunhos</p>
+            </div>
+          </div>
+          <div className="rounded-xl border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 dark:border-blue-900/50 p-3.5 flex items-center gap-3 shadow-sm">
+            <div className="h-9 w-9 rounded-lg bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center shrink-0">
+              <Users className="h-4.5 w-4.5 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-black text-blue-700 dark:text-blue-400 leading-none">{weekStats.totalStops}</p>
+              <p className="text-[11px] text-blue-600/80 dark:text-blue-500 mt-0.5">Total de paradas</p>
+            </div>
           </div>
         </div>
+
+        {/* ── Week Navigator ── */}
+        <Card className="border-border/50 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border/40">
+            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => { setWeekOffset(w => w - 1); setSelectedDay(null); }}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="text-center">
+              <p className="font-bold text-sm tracking-tight">
+                {format(weekStart, "dd 'de' MMMM", { locale: ptBR })} — {format(weekEnd, "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+              </p>
+              <div className="flex items-center justify-center gap-1.5 mt-0.5">
+                {weekOffset === 0 && <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-primary/10 rounded-full px-2 py-0.5 uppercase tracking-wider">● Esta semana</span>}
+                {weekOffset > 0 && <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 rounded-full px-2 py-0.5 uppercase tracking-wider">↑ Semana futura</span>}
+                {weekOffset < 0 && <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/40 rounded-full px-2 py-0.5 uppercase tracking-wider">↓ Semana passada</span>}
+                {weekOffset !== 0 && (
+                  <button onClick={() => { setWeekOffset(0); setSelectedDay(null); }} className="text-[10px] text-muted-foreground hover:text-primary underline ml-1">Hoje</button>
+                )}
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => { setWeekOffset(w => w + 1); setSelectedDay(null); }}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </Card>
+
+        {/* ── Kanban Board: one column per day ── */}
+        <div className="overflow-x-auto pb-2">
+          <div className="grid grid-cols-7 gap-3 min-w-[900px]">
+            {weekDays.map((day, i) => {
+              const isToday = isSameDay(day, new Date());
+              const isWeekend = i >= 5;
+              const dayRoutes = activeAndDraftRoutesForWeek.filter(r => {
+                const d = getRouteDate(r);
+                return d && isSameDay(d, day);
+              });
+              const totalStops = dayRoutes.reduce((s, r) => s + r.stops.length, 0);
+              return (
+                <div key={i} className="flex flex-col gap-2 min-w-0">
+                  {/* Day header */}
+                  <div className={cn(
+                    "rounded-xl px-3 py-2.5 text-center border",
+                    isToday
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : isWeekend
+                      ? "bg-muted/40 border-border/30 text-muted-foreground"
+                      : "bg-card border-border/50 text-foreground"
+                  )}>
+                    <p className={cn("text-[10px] uppercase tracking-widest font-bold opacity-70", isToday && "opacity-100")}>
+                      {format(day, 'EEE', { locale: ptBR }).slice(0, 3)}
+                    </p>
+                    <p className="text-xl font-black leading-tight">{format(day, 'd')}</p>
+                    {dayRoutes.length > 0 ? (
+                      <p className={cn("text-[10px] mt-0.5", isToday ? "opacity-80" : "text-muted-foreground")}>
+                        {dayRoutes.length} rota{dayRoutes.length !== 1 ? 's' : ''} · {totalStops} par.
+                      </p>
+                    ) : (
+                      <p className={cn("text-[10px] mt-0.5 opacity-40", isToday && "opacity-60")}>vazio</p>
+                    )}
+                  </div>
+
+                  {/* Route mini-cards for this day */}
+                  <div className="flex flex-col gap-2">
+                    {dayRoutes.length === 0 ? (
+                      <button
+                        onClick={() => setIsCreateOpen(true)}
+                        className="rounded-lg border-2 border-dashed border-border/30 py-5 text-center hover:border-primary/30 hover:bg-muted/20 transition-colors group"
+                      >
+                        <Plus className="h-4 w-4 mx-auto text-muted-foreground/40 group-hover:text-primary/50 transition-colors" />
+                      </button>
+                    ) : (
+                      dayRoutes.map(route => {
+                        const isSelected = selectedRoute?.id === route.id;
+                        const publishing = isPublishing === route.id;
+                        const lpCount = route.stops.filter(s => s.warrantyType === 'LP').length;
+                        const borderColor = route.isDraft
+                          ? 'border-l-amber-400'
+                          : route.isActive
+                          ? 'border-l-emerald-500'
+                          : 'border-l-slate-400';
+                        return (
+                          <div
+                            key={route.id}
+                            onClick={() => setSelectedRoute(isSelected ? null : route)}
+                            className={cn(
+                              "rounded-lg border border-l-4 cursor-pointer transition-all duration-150 overflow-hidden",
+                              borderColor,
+                              isSelected
+                                ? "bg-primary/5 border-primary/30 shadow-md"
+                                : "bg-card hover:shadow-sm hover:border-primary/20 border-border/40"
+                            )}
+                          >
+                            <div className="px-2.5 pt-2 pb-2">
+                              {/* Route name */}
+                              <p className="font-bold text-[11px] leading-tight line-clamp-2 mb-1.5">{route.name}</p>
+
+                              {/* Badges */}
+                              <div className="flex flex-wrap gap-0.5 mb-2">
+                                {route.isDraft ? (
+                                  <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">Rascunho</span>
+                                ) : route.isActive ? (
+                                  <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">Publicada</span>
+                                ) : (
+                                  <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">Inativa</span>
+                                )}
+                                {route.routeType && (
+                                  <span className={cn("text-[9px] font-bold px-1 py-0.5 rounded",
+                                    route.routeType === 'capital' ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400" : "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
+                                  )}>
+                                    {route.routeType === 'capital' ? 'Capital' : 'Interior'}
+                                  </span>
+                                )}
+                                {lpCount > 0 && (
+                                  <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400">
+                                    ⚡{lpCount}LP
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Stats row */}
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex flex-col gap-0.5">
+                                  {route.technicianName && (
+                                    <span className="text-[10px] text-muted-foreground flex items-center gap-0.5 truncate max-w-[90px]">
+                                      <Users className="h-2.5 w-2.5 shrink-0" />
+                                      <span className="truncate">{route.technicianName.split(' ')[0]}</span>
+                                    </span>
+                                  )}
+                                  {route.driverName && (
+                                    <span className="text-[10px] text-muted-foreground flex items-center gap-0.5 truncate max-w-[90px]">
+                                      <Truck className="h-2.5 w-2.5 shrink-0" />
+                                      <span className="truncate">{route.driverName.split(' ')[0]}</span>
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <p className="text-lg font-black text-primary leading-none">{route.stops.length}</p>
+                                  <p className="text-[8px] text-muted-foreground uppercase">par.</p>
+                                </div>
+                              </div>
+
+                              {/* Action buttons */}
+                              <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                                <button
+                                  className="flex-1 h-6 text-[9px] font-semibold rounded border border-violet-200 text-violet-700 hover:bg-violet-50 dark:border-violet-800 dark:text-violet-400 flex items-center justify-center gap-0.5 transition-colors"
+                                  title="IA Otimizar"
+                                  disabled={isOptimizing}
+                                  onClick={() => handleOpenOptimize(route)}
+                                >
+                                  <Sparkles className="h-2.5 w-2.5" /> IA
+                                </button>
+                                <button
+                                  className="flex-1 h-6 text-[9px] font-semibold rounded border border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 flex items-center justify-center gap-0.5 transition-colors"
+                                  onClick={() => handleOpenEdit(route)}
+                                >
+                                  <Edit className="h-2.5 w-2.5" /> Edit
+                                </button>
+                                <button
+                                  className="h-6 w-6 rounded border border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400 flex items-center justify-center transition-colors"
+                                  title="Duplicar"
+                                  disabled={isDuplicating === route.id}
+                                  onClick={() => handleDuplicateRoute(route)}
+                                >
+                                  {isDuplicating === route.id ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Copy className="h-2.5 w-2.5" />}
+                                </button>
+                                {!route.isActive && (
+                                  <button
+                                    className="h-6 w-6 rounded border border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 flex items-center justify-center transition-colors"
+                                    onClick={() => { setRouteToDelete(route); setIsDeleteOpen(true); }}
+                                  >
+                                    <Trash2 className="h-2.5 w-2.5" />
+                                  </button>
+                                )}
+                                {route.isDraft && (
+                                  <button
+                                    className="flex-1 h-6 text-[9px] font-semibold rounded bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-0.5 transition-colors"
+                                    disabled={publishing}
+                                    onClick={() => handlePublish(route)}
+                                  >
+                                    {publishing ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle2 className="h-2.5 w-2.5" />}
+                                    Pub.
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Route detail panel (shown when route is selected) ── */}
+        {selectedRoute && (
+          <div className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
+            <div className="px-4 py-3.5 border-b border-border/40 flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setSelectedRoute(null)} className="text-muted-foreground hover:text-foreground transition-colors">
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <h3 className="font-bold text-sm leading-tight truncate">{selectedRoute.name}</h3>
+                </div>
+                <div className="flex flex-wrap gap-2 mt-1.5 ml-6">
+                  <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    <MapPin className="h-3 w-3" />{selectedRoute.stops.length} paradas
+                  </span>
+                  {selectedRoute.technicianName && (
+                    <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                      <Users className="h-3 w-3" />{selectedRoute.technicianName}
+                    </span>
+                  )}
+                  {selectedRoute.driverName && (
+                    <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                      <Truck className="h-3 w-3" />{selectedRoute.driverName}
+                    </span>
+                  )}
+                  {selectedRoute.stops.filter(s => s.warrantyType === 'LP').length > 0 && (
+                    <span className="text-[11px] font-bold text-orange-600 flex items-center gap-1">
+                      ⚡ {selectedRoute.stops.filter(s => s.warrantyType === 'LP').length} LP
+                    </span>
+                  )}
+                </div>
+              </div>
+              <Button size="sm" variant="outline" className="gap-1.5 text-xs shrink-0 h-8" onClick={() => setShowMap(v => !v)}>
+                {showMap ? <List className="h-3.5 w-3.5" /> : <MapPin className="h-3.5 w-3.5" />}
+                {showMap ? 'Lista' : 'Mapa'}
+              </Button>
+            </div>
+            {showMap ? (
+              <div className="h-72 overflow-hidden">
+                <DynamicalRouteMap routes={[selectedRoute]} activeStops={[]} />
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-muted/90 backdrop-blur-sm border-b border-border/40">
+                    <tr>
+                      <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground w-8">#</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">OS</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Cliente</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Cidade / Bairro</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Modelo</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">TAT / Tipo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/20">
+                    {selectedRoute.stops.map((stop, i) => (
+                      <tr key={i} className={cn("hover:bg-muted/30 transition-colors", i % 2 === 0 ? "bg-background" : "bg-muted/10")}>
+                        <td className="px-3 py-2">
+                          <span className="h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold text-muted-foreground">
+                            {i + 1}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="font-mono text-[11px] font-bold bg-muted/50 px-1.5 py-0.5 rounded">{stop.serviceOrder}</span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <p className="font-medium leading-tight max-w-[140px]">{stop.consumerName}</p>
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          <p className="font-medium text-foreground">{stop.city}</p>
+                          {stop.neighborhood && <p className="text-[10px] opacity-60">{stop.neighborhood}</p>}
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground max-w-[100px]">
+                          <span className="block truncate">{stop.model}</span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-col gap-0.5 items-start">
+                            {stop.warrantyType && (
+                              <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-md",
+                                stop.warrantyType === 'LP'
+                                  ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400"
+                                  : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                              )}>
+                                {stop.warrantyType}
+                              </span>
+                            )}
+                            {stop.tat && <span className="text-[10px] text-muted-foreground">{stop.tat}</span>}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Create Dialog ── */}
