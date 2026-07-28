@@ -67,6 +67,63 @@ function formatStopsToText(stops: RouteStop[]): string {
   return [header, ...rows].join("\n");
 }
 
+// ─── getRouteDayInfo (calculates start/end and stops per day for minimal kanban cards) ──
+function getRouteDayInfo(route: Route, day: Date) {
+  const dayStr = format(day, 'dd/MM/yyyy');
+  const dayStrAlt = format(day, 'yyyy-MM-dd');
+  const dayStrShort = format(day, 'dd/MM/yy');
+
+  const stopsForThisDay = route.stops.filter(s => {
+    const fvd = (s.firstVisitDate || '').trim();
+    return fvd === dayStr || fvd === dayStrAlt || fvd === dayStrShort;
+  });
+
+  const dates: Date[] = [];
+  if (route.plannedDate) dates.push(new Date(route.plannedDate));
+  if (route.departureDate) dates.push(new Date(route.departureDate));
+
+  route.stops.forEach(s => {
+    if (s.firstVisitDate) {
+      const parts = s.firstVisitDate.trim().split('/');
+      if (parts.length === 3) {
+        const d = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        let y = parseInt(parts[2], 10);
+        if (y < 100) y += 2000;
+        if (!isNaN(d) && !isNaN(m) && !isNaN(y) && y >= 2026 && m >= 0 && m <= 11) {
+          dates.push(new Date(y, m, d));
+        }
+      } else if (s.firstVisitDate.includes('-')) {
+        const p = parseISO(s.firstVisitDate);
+        if (!isNaN(p.getTime()) && p.getFullYear() >= 2026) dates.push(p);
+      }
+    }
+  });
+
+  if (dates.length === 0) {
+    const base = route.plannedDate || route.departureDate || route.createdAt;
+    if (base) dates.push(new Date(base));
+  }
+
+  const timestamps = dates.map(d => d.getTime());
+  const minDate = new Date(Math.min(...timestamps));
+  const maxDate = new Date(Math.max(...timestamps));
+
+  const isSameMinMax = isSameDay(minDate, maxDate);
+  const isStartDay = isSameDay(minDate, day);
+  const isEndDay = isSameDay(maxDate, day);
+
+  return {
+    stopsTodayCount: stopsForThisDay.length,
+    totalStopsCount: route.stops.length,
+    isStartDay,
+    isEndDay,
+    isMultiDay: !isSameMinMax,
+    minDate,
+    maxDate
+  };
+}
+
 // ─── parseRouteText (same as admin/routes) ──────────────────────────────────
 function parseRouteText(text: string): RouteStop[] {
   if (!text.trim()) return [];
@@ -1018,15 +1075,67 @@ export default function PlanejamentoPage() {
                       </button>
                     ) : (
                       dayRoutes.map(route => {
+                        const dayInfo = getRouteDayInfo(route, day);
                         const isSelected = selectedRoute?.id === route.id;
                         const publishing = isPublishing === route.id;
                         const lpCount = route.stops.filter(s => s.warrantyType === 'LP').length;
-                        const isInterior = route.routeType === 'interior' || route.name?.toLowerCase().includes('interior');
+
+                        {/* ── Minimal Continuation Chip for multi-day route ── */}
+                        if (dayInfo.isMultiDay && !dayInfo.isStartDay) {
+                          return (
+                            <div
+                              key={route.id}
+                              onClick={() => setSelectedRoute(isSelected ? null : route)}
+                              className={cn(
+                                "rounded-lg border-2 border-l-4 cursor-pointer transition-all duration-150 p-2 text-xs overflow-hidden",
+                                dayInfo.isEndDay
+                                  ? "border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40"
+                                  : "border-l-blue-500 bg-blue-50/40 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900/40",
+                                isSelected
+                                  ? "ring-2 ring-violet-500 border-violet-500 shadow-md bg-violet-500/15"
+                                  : "hover:border-primary/40 hover:shadow-xs"
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-1 mb-1">
+                                <span className={cn(
+                                  "text-[9px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-1",
+                                  dayInfo.isEndDay
+                                    ? "bg-emerald-600 text-white"
+                                    : "bg-blue-600 text-white"
+                                )}>
+                                  {dayInfo.isEndDay ? "🏁 Término" : "🔄 Percurso"}
+                                </span>
+                                <span className="text-[10px] font-black text-foreground">
+                                  {dayInfo.stopsTodayCount > 0 ? `${dayInfo.stopsTodayCount} OS hoje` : 'Em trânsito'}
+                                </span>
+                              </div>
+
+                              <p className="font-bold text-[11px] leading-tight truncate text-foreground mb-1">
+                                {route.name}
+                              </p>
+
+                              <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-1 border-t border-border/30">
+                                {route.technicianName && (
+                                  <span className="flex items-center gap-0.5 truncate max-w-[100px]">
+                                    <Users className="h-2.5 w-2.5 shrink-0" />
+                                    <span className="truncate">{route.technicianName.split(' ')[0]}</span>
+                                  </span>
+                                )}
+                                <span className="text-[9px] opacity-70">
+                                  ({route.stops.length} total)
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        {/* ── Primary Full Card (start day or single day) ── */}
                         const borderColor = route.isDraft
                           ? 'border-l-amber-400'
                           : route.isActive
                           ? 'border-l-emerald-500'
                           : 'border-l-slate-400';
+
                         return (
                           <div
                             key={route.id}
@@ -1040,17 +1149,18 @@ export default function PlanejamentoPage() {
                             )}
                           >
                             <div className="px-2.5 pt-2 pb-2">
-                              {/* Continuity banner for interior/multi-day routes */}
-                              {isInterior && (
-                                <div className="-mx-2.5 -mt-2 mb-2 px-2 py-0.5 bg-green-600/10 border-b border-green-500/20 flex items-center gap-1">
-                                  <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                                  <span className="text-[8px] font-bold text-green-700 dark:text-green-400 uppercase tracking-wider">Interior · multi-dia</span>
-                                  <div className="ml-auto flex gap-0.5">
-                                    {[0,1,2].map(d => <div key={d} className="h-1.5 w-1.5 rounded-full bg-green-400/60" />)}
-                                    <div className="h-0.5 w-3 bg-green-400/40 rounded-full self-center" />
-                                  </div>
+                              {/* Multi-day Start Banner */}
+                              {dayInfo.isMultiDay && (
+                                <div className="-mx-2.5 -mt-2 mb-2 px-2 py-0.5 bg-violet-600/15 border-b border-violet-500/30 flex items-center justify-between gap-1">
+                                  <span className="text-[8px] font-black text-violet-700 dark:text-violet-300 uppercase tracking-wider">
+                                    🚩 Início Rota Multi-dia
+                                  </span>
+                                  <span className="text-[8px] font-bold text-violet-600 dark:text-violet-400">
+                                    {format(dayInfo.minDate, 'dd/MM')} ➔ {format(dayInfo.maxDate, 'dd/MM')}
+                                  </span>
                                 </div>
                               )}
+
                               {/* Route name */}
                               <p className="font-bold text-[11px] leading-tight line-clamp-2 mb-1.5">{route.name}</p>
 
@@ -1094,8 +1204,12 @@ export default function PlanejamentoPage() {
                                   )}
                                 </div>
                                 <div className="text-right shrink-0">
-                                  <p className="text-lg font-black text-primary leading-none">{route.stops.length}</p>
-                                  <p className="text-[8px] text-muted-foreground uppercase">par.</p>
+                                  <p className="text-lg font-black text-primary leading-none">
+                                    {dayInfo.stopsTodayCount > 0 && dayInfo.isMultiDay ? dayInfo.stopsTodayCount : route.stops.length}
+                                  </p>
+                                  <p className="text-[8px] text-muted-foreground uppercase">
+                                    {dayInfo.isMultiDay ? `par. hoje (${route.stops.length} total)` : 'paradas'}
+                                  </p>
                                 </div>
                               </div>
 
