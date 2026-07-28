@@ -601,6 +601,13 @@ export default function PlanejamentoPage() {
     };
   }, [selectedRoute, weekDays]);
 
+  // ── List of multi-day routes in current week, sorted by total stops descending ──
+  const multiDayRoutes = useMemo(() => {
+    return activeAndDraftRoutesForWeek
+      .filter(r => getRouteDayInfo(r, weekDays[0]).isMultiDay)
+      .sort((a, b) => b.stops.length - a.stops.length);
+  }, [activeAndDraftRoutesForWeek, weekDays]);
+
   // ── Parse text preview ──
   const handleTextChange = useCallback((v: string) => {
     setFormText(v);
@@ -935,6 +942,112 @@ export default function PlanejamentoPage() {
           </div>
         </Card>
 
+        {/* ── Multi-Day Route Linear Tracks Matrix (Gantt View) ── */}
+        {multiDayRoutes.length > 0 && (
+          <Card className="border-border/60 bg-card p-3.5 overflow-hidden shadow-xs">
+            <div className="flex items-center justify-between mb-3 border-b border-border/40 pb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">🛤️</span>
+                <div>
+                  <h3 className="font-extrabold text-xs tracking-tight text-foreground uppercase">
+                    Linhas de Percurso Multi-dia ({multiDayRoutes.length})
+                  </h3>
+                  <p className="text-[10px] text-muted-foreground">
+                    Acompanhe em formato linear contínuo o percurso e paradas das rotas longas na semana
+                  </p>
+                </div>
+              </div>
+              <span className="text-[9px] font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded-full uppercase">
+                Visão Linear Seg ➔ Dom
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <div className="min-w-[850px] space-y-2">
+                {/* Header Days Row */}
+                <div className="grid grid-cols-12 gap-2 text-[10px] font-extrabold text-muted-foreground px-2">
+                  <div className="col-span-3">ROTA / TÉCNICO</div>
+                  <div className="col-span-9 grid grid-cols-7 gap-1 text-center">
+                    {weekDays.map((d, idx) => (
+                      <span key={idx} className={cn("text-[9px] uppercase tracking-wider", isSameDay(d, new Date()) && "text-primary font-black")}>
+                        {format(d, 'EEE d', { locale: ptBR })}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Route Tracks */}
+                {multiDayRoutes.map((r) => {
+                  const isSelected = selectedRoute?.id === r.id;
+                  return (
+                    <div
+                      key={r.id}
+                      onClick={() => setSelectedRoute(isSelected ? null : r)}
+                      className={cn(
+                        "grid grid-cols-12 gap-2 items-center p-2 rounded-xl border transition-all cursor-pointer",
+                        isSelected
+                          ? "bg-violet-500/15 border-violet-500 shadow-md ring-2 ring-violet-500/40"
+                          : "bg-muted/20 hover:bg-muted/40 border-border/40"
+                      )}
+                    >
+                      {/* Left Title */}
+                      <div className="col-span-3 min-w-0 pr-1">
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <p className="font-extrabold text-[11px] text-foreground truncate">{r.name}</p>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                          {r.technicianName && <span className="truncate">👤 {r.technicianName.split(' ')[0]}</span>}
+                          <span className="font-extrabold text-primary shrink-0">{r.stops.length} OS total</span>
+                        </div>
+                      </div>
+
+                      {/* Right 7-Day Linear Segment Track */}
+                      <div className="col-span-9 grid grid-cols-7 gap-1">
+                        {weekDays.map((d, idx) => {
+                          const dayInfo = getRouteDayInfo(r, d);
+                          const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+                          const minDayStart = new Date(dayInfo.minDate.getFullYear(), dayInfo.minDate.getMonth(), dayInfo.minDate.getDate()).getTime();
+                          const maxDayStart = new Date(dayInfo.maxDate.getFullYear(), dayInfo.maxDate.getMonth(), dayInfo.maxDate.getDate()).getTime();
+
+                          const isCovered = dayStart >= minDayStart && dayStart <= maxDayStart;
+                          const isStart = isSameDay(dayInfo.minDate, d);
+                          const isEnd = isSameDay(dayInfo.maxDate, d);
+
+                          if (!isCovered) {
+                            return (
+                              <div key={idx} className="h-7 rounded-md bg-muted/10 border border-dashed border-border/20 flex items-center justify-center opacity-30">
+                                <span className="text-[8px] text-muted-foreground">·</span>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div
+                              key={idx}
+                              className={cn(
+                                "h-7 rounded-md flex flex-col items-center justify-center px-1 text-[9px] font-bold transition-all relative border",
+                                isStart
+                                  ? "bg-violet-600 text-white border-violet-500 shadow-xs"
+                                  : isEnd
+                                  ? "bg-emerald-600 text-white border-emerald-500 shadow-xs"
+                                  : "bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-400/30"
+                              )}
+                            >
+                              <span className="font-black text-[9px] leading-tight">
+                                {dayInfo.stopsTodayCount > 0 ? `${dayInfo.stopsTodayCount} OS` : 'Trânsito'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </Card>
+        )}
+
         {/* ── Route Extension Banner (shows when a route is clicked) ── */}
         {selectedRoute && selectedRouteSpan && (
           <div className="rounded-xl border border-violet-500/30 bg-gradient-to-r from-violet-500/10 via-purple-500/5 to-indigo-500/10 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm transition-all animate-in fade-in duration-200 mb-3">
@@ -1001,13 +1114,32 @@ export default function PlanejamentoPage() {
               const dayStrAlt = format(day, 'yyyy-MM-dd');
               const dayStrShort = format(day, 'dd/MM/yy');
 
-              const dayRoutes = activeAndDraftRoutesForWeek.filter(r => {
-                const d = getRouteDate(r);
-                if (d && isSameDay(d, day)) return true;
-                return r.stops.some(s => {
-                  const fvd = (s.firstVisitDate || '').trim();
-                  return fvd === dayStr || fvd === dayStrAlt || fvd === dayStrShort;
-                });
+              const unfilteredDayRoutes = activeAndDraftRoutesForWeek.filter(r => {
+                const dayInfo = getRouteDayInfo(r, day);
+                if (dayInfo.isStartDay || dayInfo.stopsTodayCount > 0) return true;
+                if (dayInfo.isMultiDay) {
+                  const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+                  const minDayStart = new Date(dayInfo.minDate.getFullYear(), dayInfo.minDate.getMonth(), dayInfo.minDate.getDate()).getTime();
+                  const maxDayStart = new Date(dayInfo.maxDate.getFullYear(), dayInfo.maxDate.getMonth(), dayInfo.maxDate.getDate()).getTime();
+                  return dayStart >= minDayStart && dayStart <= maxDayStart;
+                }
+                return false;
+              });
+
+              // Sort multi-day routes to top of columns to align horizontal tracks cleanly
+              const dayRoutes = [...unfilteredDayRoutes].sort((a, b) => {
+                const infoA = getRouteDayInfo(a, day);
+                const infoB = getRouteDayInfo(b, day);
+
+                if (infoA.isMultiDay && !infoB.isMultiDay) return -1;
+                if (!infoA.isMultiDay && infoB.isMultiDay) return 1;
+
+                if (infoA.isMultiDay && infoB.isMultiDay) {
+                  if (b.stops.length !== a.stops.length) return b.stops.length - a.stops.length;
+                  return (a.name || '').localeCompare(b.name || '');
+                }
+
+                return (a.name || '').localeCompare(b.name || '');
               });
 
               let dayStopsCount = 0;
