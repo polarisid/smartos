@@ -971,30 +971,58 @@ export default function PlanejamentoPage() {
                     )}
                   </div>
 
-                  {/* Expanded day OS panel */}
-                  {isDayExpanded && dayRoutes.length > 0 && (
-                    <div className="rounded-lg border border-primary/20 bg-primary/5 p-2 text-xs">
-                      <p className="font-bold text-[10px] text-primary uppercase tracking-wider mb-1.5">
-                        {format(day, "EEEE dd/MM", { locale: ptBR })} — {totalStops} OS{totalStops !== 1 ? 's' : ''}
-                      </p>
-                      {dayRoutes.map((r, ri) => (
-                        <div key={ri} className="mb-2 last:mb-0">
-                          <p className="font-semibold text-[10px] truncate text-foreground leading-tight mb-0.5">{r.name}</p>
-                          <div className="space-y-0.5">
-                            {r.stops.map((s, si) => (
-                              <div key={si} className="flex items-center gap-1 text-[9px] text-muted-foreground">
-                                <span className="font-mono font-bold text-foreground shrink-0">{s.serviceOrder}</span>
-                                <span className="truncate">{s.consumerName}</span>
-                                {s.warrantyType === 'LP' && (
-                                  <span className="shrink-0 font-bold text-orange-600">LP</span>
-                                )}
-                              </div>
-                            ))}
+                  {/* Expanded day OS panel — filtered by 1st Visit Date */}
+                  {isDayExpanded && (() => {
+                    const dayStr = format(day, 'dd/MM/yyyy');
+                    const dayStrAlt = format(day, 'yyyy-MM-dd');
+                    // Look across ALL week routes so multi-day interior routes are included
+                    const stopsForDay: { routeName: string; stop: typeof activeAndDraftRoutesForWeek[0]['stops'][0] }[] = [];
+                    activeAndDraftRoutesForWeek.forEach(r => {
+                      r.stops.forEach(s => {
+                        const fvd = (s.firstVisitDate || '').trim();
+                        if (fvd === dayStr || fvd === dayStrAlt || fvd === format(day, 'dd/MM/yy')) {
+                          stopsForDay.push({ routeName: r.name, stop: s });
+                        }
+                      });
+                    });
+
+                    if (stopsForDay.length === 0) return null;
+
+                    // Group by route name for display
+                    const grouped: Record<string, typeof stopsForDay> = {};
+                    stopsForDay.forEach(item => {
+                      if (!grouped[item.routeName]) grouped[item.routeName] = [];
+                      grouped[item.routeName].push(item);
+                    });
+
+                    return (
+                      <div className="rounded-lg border border-primary/20 bg-primary/5 p-2 text-xs">
+                        <p className="font-bold text-[10px] text-primary uppercase tracking-wider mb-1.5">
+                          {format(day, "EEEE dd/MM", { locale: ptBR })} — {stopsForDay.length} OS{stopsForDay.length !== 1 ? 's' : ''} programada{stopsForDay.length !== 1 ? 's' : ''}
+                        </p>
+                        {Object.entries(grouped).map(([routeName, items], gi) => (
+                          <div key={gi} className="mb-2 last:mb-0">
+                            <p className="font-semibold text-[10px] truncate text-foreground leading-tight mb-0.5 flex items-center gap-1">
+                              <span className="h-1 w-1 rounded-full bg-primary/60 shrink-0" />
+                              {routeName}
+                            </p>
+                            <div className="space-y-0.5 pl-2">
+                              {items.map(({ stop: s }, si) => (
+                                <div key={si} className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                                  <span className="font-mono font-bold text-foreground shrink-0">{s.serviceOrder}</span>
+                                  <span className="truncate">{s.consumerName}</span>
+                                  {s.city && <span className="shrink-0 text-muted-foreground/60">· {s.city}</span>}
+                                  {s.warrantyType === 'LP' && (
+                                    <span className="shrink-0 font-bold text-orange-600">LP</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}
