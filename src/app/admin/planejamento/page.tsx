@@ -453,6 +453,80 @@ export default function PlanejamentoPage() {
     );
   }, [activeAndDraftRoutesForWeek, weekDays, getRouteDate]);
 
+  // ── Date span calculation for selected route ──
+  const selectedRouteSpan = useMemo(() => {
+    if (!selectedRoute) return null;
+
+    const dates: Date[] = [];
+    const baseDate = getRouteDate(selectedRoute);
+    if (baseDate) dates.push(new Date(baseDate));
+
+    selectedRoute.stops.forEach(s => {
+      if (s.firstVisitDate) {
+        const parts = s.firstVisitDate.trim().split('/');
+        if (parts.length === 3) {
+          const day = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1;
+          let year = parseInt(parts[2], 10);
+          if (year < 100) year += 2000;
+          if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+            dates.push(new Date(year, month, day));
+          }
+        } else if (s.firstVisitDate.includes('-')) {
+          const p = parseISO(s.firstVisitDate);
+          if (!isNaN(p.getTime())) dates.push(p);
+        }
+      }
+    });
+
+    if (dates.length === 0) return null;
+
+    const timestamps = dates.map(d => d.getTime());
+    const minTime = Math.min(...timestamps);
+    const maxTime = Math.max(...timestamps);
+    const minDate = new Date(minTime);
+    const maxDate = new Date(maxTime);
+
+    const coveredIndices: number[] = [];
+    const stopsCountPerDay: Record<number, number> = {};
+
+    weekDays.forEach((day, idx) => {
+      const dayStr = format(day, 'dd/MM/yyyy');
+      const dayStrAlt = format(day, 'yyyy-MM-dd');
+      const dayStrShort = format(day, 'dd/MM/yy');
+
+      const stopsForThisDay = selectedRoute.stops.filter(s => {
+        const fvd = (s.firstVisitDate || '').trim();
+        return fvd === dayStr || fvd === dayStrAlt || fvd === dayStrShort;
+      });
+
+      const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+      const minDayStart = new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate()).getTime();
+      const maxDayStart = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate()).getTime();
+
+      const isInRange = dayStart >= minDayStart && dayStart <= maxDayStart;
+
+      if (stopsForThisDay.length > 0 || isInRange) {
+        coveredIndices.push(idx);
+        stopsCountPerDay[idx] = stopsForThisDay.length;
+      }
+    });
+
+    const isMultiDay = coveredIndices.length > 1 || !isSameDay(minDate, maxDate);
+
+    return {
+      minDate,
+      maxDate,
+      coveredIndices,
+      stopsCountPerDay,
+      totalDays: coveredIndices.length,
+      isMultiDay,
+      formattedRange: isSameDay(minDate, maxDate)
+        ? format(minDate, "EEE, dd/MM", { locale: ptBR })
+        : `${format(minDate, "EEE dd/MM", { locale: ptBR })} ➔ ${format(maxDate, "EEE dd/MM", { locale: ptBR })}`
+    };
+  }, [selectedRoute, weekDays, getRouteDate]);
+
   // ── Parse text preview ──
   const handleTextChange = useCallback((v: string) => {
     setFormText(v);
@@ -787,6 +861,62 @@ export default function PlanejamentoPage() {
           </div>
         </Card>
 
+        {/* ── Route Extension Banner (shows when a route is clicked) ── */}
+        {selectedRoute && selectedRouteSpan && (
+          <div className="rounded-xl border border-violet-500/30 bg-gradient-to-r from-violet-500/10 via-purple-500/5 to-indigo-500/10 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm transition-all animate-in fade-in duration-200 mb-3">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-xl bg-violet-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">
+                <Calendar className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-extrabold text-xs text-foreground truncate max-w-[300px]">
+                    {selectedRoute.name}
+                  </span>
+                  {selectedRouteSpan.isMultiDay ? (
+                    <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-violet-600 text-white uppercase tracking-wider shadow-xs">
+                      Multi-dia ({selectedRouteSpan.totalDays} dias na semana)
+                    </span>
+                  ) : (
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 uppercase tracking-wider">
+                      1 Dia
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Estende-se na semana de <strong className="text-foreground font-semibold">{selectedRouteSpan.formattedRange}</strong> · Total de {selectedRoute.stops.length} paradas
+                </p>
+              </div>
+            </div>
+
+            {/* Timeline Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
+              {weekDays.map((day, idx) => {
+                const isCovered = selectedRouteSpan.coveredIndices.includes(idx);
+                const stopsCount = selectedRouteSpan.stopsCountPerDay[idx] || 0;
+                return (
+                  <div
+                    key={idx}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 shrink-0 transition-all border",
+                      isCovered
+                        ? "bg-violet-600 text-white border-violet-500 shadow-sm ring-2 ring-violet-400/40"
+                        : "bg-muted/30 text-muted-foreground border-transparent opacity-40"
+                    )}
+                  >
+                    <span>{format(day, 'EEE', { locale: ptBR }).slice(0, 3).toUpperCase()} {format(day, 'd')}</span>
+                    {stopsCount > 0 && (
+                      <span className="bg-white/20 text-white text-[9px] px-1.5 rounded-full font-black">
+                        {stopsCount} OS
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* ── Kanban Board: one column per day ── */}
         <div className="overflow-x-auto pb-2">
           <div className="grid grid-cols-7 gap-3 min-w-[900px]">
@@ -799,28 +929,37 @@ export default function PlanejamentoPage() {
               });
               const totalStops = dayRoutes.reduce((s, r) => s + r.stops.length, 0);
               const isDayExpanded = expandedDayIndex === i;
+
+              const isCoveredBySelected = selectedRouteSpan?.coveredIndices.includes(i);
+              const stopsForSelectedOnDay = selectedRouteSpan?.stopsCountPerDay[i] || 0;
+
               return (
                 <div key={i} className="flex flex-col gap-2 min-w-0">
                   {/* Day header — clickable to expand OS list */}
                   <button
                     onClick={() => setExpandedDayIndex(isDayExpanded ? null : i)}
                     className={cn(
-                      "rounded-xl px-3 py-2.5 text-center border w-full transition-all duration-150",
-                      isDayExpanded
+                      "rounded-xl px-3 py-2.5 text-center border w-full transition-all duration-150 relative overflow-hidden",
+                      isCoveredBySelected
+                        ? "ring-2 ring-violet-500 border-violet-500 bg-violet-500/10 text-foreground shadow-md"
+                        : isDayExpanded
                         ? "ring-2 ring-primary/40"
-                        : "",
-                      isToday
+                        : isToday
                         ? "bg-primary text-primary-foreground border-primary shadow-sm"
                         : isWeekend
                         ? "bg-muted/40 border-border/30 text-muted-foreground"
                         : "bg-card border-border/50 text-foreground hover:bg-muted/30"
                     )}
                   >
-                    <p className={cn("text-[10px] uppercase tracking-widest font-bold opacity-70", isToday && "opacity-100")}>
+                    <p className={cn("text-[10px] uppercase tracking-widest font-bold opacity-70", (isToday || isCoveredBySelected) && "opacity-100")}>
                       {format(day, 'EEE', { locale: ptBR }).slice(0, 3)}
                     </p>
                     <p className="text-xl font-black leading-tight">{format(day, 'd')}</p>
-                    {dayRoutes.length > 0 ? (
+                    {isCoveredBySelected ? (
+                      <p className="text-[9px] font-black text-violet-700 dark:text-violet-300 mt-0.5 bg-violet-500/20 py-0.5 rounded">
+                        ⚡ Rota ativa ({stopsForSelectedOnDay} OS)
+                      </p>
+                    ) : dayRoutes.length > 0 ? (
                       <p className={cn("text-[10px] mt-0.5", isToday ? "opacity-80" : "text-muted-foreground")}>
                         {dayRoutes.length} rota{dayRoutes.length !== 1 ? 's' : ''} · {totalStops} par.
                       </p>
@@ -857,7 +996,7 @@ export default function PlanejamentoPage() {
                               "rounded-lg border border-l-4 cursor-pointer transition-all duration-150 overflow-hidden",
                               borderColor,
                               isSelected
-                                ? "bg-primary/5 border-primary/30 shadow-md"
+                                ? "bg-violet-500/15 border-violet-500 shadow-md ring-2 ring-violet-500/50"
                                 : "bg-card hover:shadow-sm hover:border-primary/20 border-border/40"
                             )}
                           >
@@ -1057,6 +1196,12 @@ export default function PlanejamentoPage() {
                   {selectedRoute.stops.filter(s => s.warrantyType === 'LP').length > 0 && (
                     <span className="text-[11px] font-bold text-orange-600 flex items-center gap-1">
                       ⚡ {selectedRoute.stops.filter(s => s.warrantyType === 'LP').length} LP
+                    </span>
+                  )}
+                  {selectedRouteSpan && selectedRouteSpan.isMultiDay && (
+                    <span className="text-[11px] font-bold text-violet-700 dark:text-violet-300 bg-violet-100 dark:bg-violet-950/60 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      {selectedRouteSpan.formattedRange} ({selectedRouteSpan.totalDays} dias)
                     </span>
                   )}
                 </div>
