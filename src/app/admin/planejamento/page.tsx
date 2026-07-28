@@ -395,6 +395,7 @@ export default function PlanejamentoPage() {
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   // Expanded day OS panel (index of weekDay)
   const [expandedDayIndex, setExpandedDayIndex] = useState<number | null>(null);
+  const [copiedDayIndex, setCopiedDayIndex] = useState<number | null>(null);
 
   // Selected route for preview
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
@@ -1289,9 +1290,35 @@ export default function PlanejamentoPage() {
 
                     return (
                       <div className="rounded-lg border border-primary/20 bg-primary/5 p-2 text-xs">
-                        <p className="font-bold text-[10px] text-primary uppercase tracking-wider mb-1.5">
-                          {format(day, "EEEE dd/MM", { locale: ptBR })} — {stopsForDay.length} OS{stopsForDay.length !== 1 ? 's' : ''} programada{stopsForDay.length !== 1 ? 's' : ''}
-                        </p>
+                        <div className="flex items-center justify-between gap-1 mb-1.5 pb-1 border-b border-primary/10">
+                          <p className="font-bold text-[10px] text-primary uppercase tracking-wider">
+                            {format(day, "EEEE dd/MM", { locale: ptBR })} — {stopsForDay.length} OS{stopsForDay.length !== 1 ? 's' : ''}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const textToCopy = stopsForDay.map(item => item.stop.serviceOrder).filter(Boolean).join('\n');
+                              navigator.clipboard.writeText(textToCopy).then(() => {
+                                setCopiedDayIndex(i);
+                                toast({ title: "OSs copiadas!", description: `${stopsForDay.length} ordens de serviço copiadas (uma por linha).` });
+                                setTimeout(() => setCopiedDayIndex(null), 2000);
+                              });
+                            }}
+                            className={cn(
+                              "flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded transition-all shrink-0 border",
+                              copiedDayIndex === i
+                                ? "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-300"
+                                : "bg-primary/10 hover:bg-primary/20 text-primary border-primary/20"
+                            )}
+                            title="Copiar lista de OSs (uma por linha)"
+                          >
+                            {copiedDayIndex === i ? (
+                              <><CheckCircle2 className="h-2.5 w-2.5" /> OSs Copiadas!</>
+                            ) : (
+                              <><Copy className="h-2.5 w-2.5" /> Copiar OSs</>
+                            )}
+                          </button>
+                        </div>
                         {Object.entries(grouped).map(([routeName, items], gi) => (
                           <div key={gi} className="mb-2 last:mb-0">
                             <p className="font-semibold text-[10px] truncate text-foreground leading-tight mb-0.5 flex items-center gap-1">
