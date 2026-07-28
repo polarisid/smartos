@@ -458,8 +458,11 @@ export default function PlanejamentoPage() {
     if (!selectedRoute) return null;
 
     const dates: Date[] = [];
-    const baseDate = getRouteDate(selectedRoute);
-    if (baseDate) dates.push(new Date(baseDate));
+
+    // 1. Collect operational dates ONLY (do NOT use createdAt!)
+    if (selectedRoute.plannedDate) dates.push(new Date(selectedRoute.plannedDate));
+    if (selectedRoute.departureDate) dates.push(new Date(selectedRoute.departureDate));
+    if (selectedRoute.arrivalDate) dates.push(new Date(selectedRoute.arrivalDate));
 
     selectedRoute.stops.forEach(s => {
       if (s.firstVisitDate) {
@@ -469,12 +472,12 @@ export default function PlanejamentoPage() {
           const month = parseInt(parts[1], 10) - 1;
           let year = parseInt(parts[2], 10);
           if (year < 100) year += 2000;
-          if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+          if (!isNaN(day) && !isNaN(month) && !isNaN(year) && year >= 2026 && month >= 0 && month <= 11) {
             dates.push(new Date(year, month, day));
           }
         } else if (s.firstVisitDate.includes('-')) {
           const p = parseISO(s.firstVisitDate);
-          if (!isNaN(p.getTime())) dates.push(p);
+          if (!isNaN(p.getTime()) && p.getFullYear() >= 2026) dates.push(p);
         }
       }
     });
@@ -486,6 +489,8 @@ export default function PlanejamentoPage() {
     const maxTime = Math.max(...timestamps);
     const minDate = new Date(minTime);
     const maxDate = new Date(maxTime);
+
+    const isSameDayStartEnd = isSameDay(minDate, maxDate);
 
     const coveredIndices: number[] = [];
     const stopsCountPerDay: Record<number, number> = {};
@@ -504,15 +509,26 @@ export default function PlanejamentoPage() {
       const minDayStart = new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate()).getTime();
       const maxDayStart = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate()).getTime();
 
-      const isInRange = dayStart >= minDayStart && dayStart <= maxDayStart;
+      const isExactDateMatch = (selectedRoute.plannedDate && isSameDay(new Date(selectedRoute.plannedDate), day)) ||
+                               (selectedRoute.departureDate && isSameDay(new Date(selectedRoute.departureDate), day));
 
-      if (stopsForThisDay.length > 0 || isInRange) {
+      let isCovered = false;
+
+      if (isSameDayStartEnd) {
+        // Single day route: only cover if exact date match or has stops for this day
+        isCovered = stopsForThisDay.length > 0 || isExactDateMatch || isSameDay(minDate, day);
+      } else {
+        // Multi-day route: cover days in the range minDate -> maxDate
+        isCovered = stopsForThisDay.length > 0 || (dayStart >= minDayStart && dayStart <= maxDayStart);
+      }
+
+      if (isCovered) {
         coveredIndices.push(idx);
         stopsCountPerDay[idx] = stopsForThisDay.length;
       }
     });
 
-    const isMultiDay = coveredIndices.length > 1 || !isSameDay(minDate, maxDate);
+    const isMultiDay = coveredIndices.length > 1 && !isSameDayStartEnd;
 
     return {
       minDate,
@@ -521,11 +537,11 @@ export default function PlanejamentoPage() {
       stopsCountPerDay,
       totalDays: coveredIndices.length,
       isMultiDay,
-      formattedRange: isSameDay(minDate, maxDate)
+      formattedRange: isSameDayStartEnd
         ? format(minDate, "EEE, dd/MM", { locale: ptBR })
         : `${format(minDate, "EEE dd/MM", { locale: ptBR })} ➔ ${format(maxDate, "EEE dd/MM", { locale: ptBR })}`
     };
-  }, [selectedRoute, weekDays, getRouteDate]);
+  }, [selectedRoute, weekDays]);
 
   // ── Parse text preview ──
   const handleTextChange = useCallback((v: string) => {
