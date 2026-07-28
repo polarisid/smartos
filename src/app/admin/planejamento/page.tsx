@@ -336,10 +336,22 @@ export default function PlanejamentoPage() {
 
   // Selected day
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  // Expanded day OS panel (index of weekDay)
+  const [expandedDayIndex, setExpandedDayIndex] = useState<number | null>(null);
 
   // Selected route for preview
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [showMap, setShowMap] = useState(false);
+
+  // Header template
+  const HEADER_TEMPLATE = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD";
+  const [headerCopied, setHeaderCopied] = useState(false);
+  const handleCopyHeader = () => {
+    navigator.clipboard.writeText(HEADER_TEMPLATE).then(() => {
+      setHeaderCopied(true);
+      setTimeout(() => setHeaderCopied(false), 2000);
+    });
+  };
 
   // Dialog states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -786,17 +798,24 @@ export default function PlanejamentoPage() {
                 return d && isSameDay(d, day);
               });
               const totalStops = dayRoutes.reduce((s, r) => s + r.stops.length, 0);
+              const isDayExpanded = expandedDayIndex === i;
               return (
                 <div key={i} className="flex flex-col gap-2 min-w-0">
-                  {/* Day header */}
-                  <div className={cn(
-                    "rounded-xl px-3 py-2.5 text-center border",
-                    isToday
-                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                      : isWeekend
-                      ? "bg-muted/40 border-border/30 text-muted-foreground"
-                      : "bg-card border-border/50 text-foreground"
-                  )}>
+                  {/* Day header — clickable to expand OS list */}
+                  <button
+                    onClick={() => setExpandedDayIndex(isDayExpanded ? null : i)}
+                    className={cn(
+                      "rounded-xl px-3 py-2.5 text-center border w-full transition-all duration-150",
+                      isDayExpanded
+                        ? "ring-2 ring-primary/40"
+                        : "",
+                      isToday
+                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                        : isWeekend
+                        ? "bg-muted/40 border-border/30 text-muted-foreground"
+                        : "bg-card border-border/50 text-foreground hover:bg-muted/30"
+                    )}
+                  >
                     <p className={cn("text-[10px] uppercase tracking-widest font-bold opacity-70", isToday && "opacity-100")}>
                       {format(day, 'EEE', { locale: ptBR }).slice(0, 3)}
                     </p>
@@ -808,7 +827,7 @@ export default function PlanejamentoPage() {
                     ) : (
                       <p className={cn("text-[10px] mt-0.5 opacity-40", isToday && "opacity-60")}>vazio</p>
                     )}
-                  </div>
+                  </button>
 
                   {/* Route mini-cards for this day */}
                   <div className="flex flex-col gap-2">
@@ -824,6 +843,7 @@ export default function PlanejamentoPage() {
                         const isSelected = selectedRoute?.id === route.id;
                         const publishing = isPublishing === route.id;
                         const lpCount = route.stops.filter(s => s.warrantyType === 'LP').length;
+                        const isInterior = route.routeType === 'interior' || route.name?.toLowerCase().includes('interior');
                         const borderColor = route.isDraft
                           ? 'border-l-amber-400'
                           : route.isActive
@@ -842,6 +862,17 @@ export default function PlanejamentoPage() {
                             )}
                           >
                             <div className="px-2.5 pt-2 pb-2">
+                              {/* Continuity banner for interior/multi-day routes */}
+                              {isInterior && (
+                                <div className="-mx-2.5 -mt-2 mb-2 px-2 py-0.5 bg-green-600/10 border-b border-green-500/20 flex items-center gap-1">
+                                  <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                                  <span className="text-[8px] font-bold text-green-700 dark:text-green-400 uppercase tracking-wider">Interior · multi-dia</span>
+                                  <div className="ml-auto flex gap-0.5">
+                                    {[0,1,2].map(d => <div key={d} className="h-1.5 w-1.5 rounded-full bg-green-400/60" />)}
+                                    <div className="h-0.5 w-3 bg-green-400/40 rounded-full self-center" />
+                                  </div>
+                                </div>
+                              )}
                               {/* Route name */}
                               <p className="font-bold text-[11px] leading-tight line-clamp-2 mb-1.5">{route.name}</p>
 
@@ -939,6 +970,31 @@ export default function PlanejamentoPage() {
                       })
                     )}
                   </div>
+
+                  {/* Expanded day OS panel */}
+                  {isDayExpanded && dayRoutes.length > 0 && (
+                    <div className="rounded-lg border border-primary/20 bg-primary/5 p-2 text-xs">
+                      <p className="font-bold text-[10px] text-primary uppercase tracking-wider mb-1.5">
+                        {format(day, "EEEE dd/MM", { locale: ptBR })} — {totalStops} OS{totalStops !== 1 ? 's' : ''}
+                      </p>
+                      {dayRoutes.map((r, ri) => (
+                        <div key={ri} className="mb-2 last:mb-0">
+                          <p className="font-semibold text-[10px] truncate text-foreground leading-tight mb-0.5">{r.name}</p>
+                          <div className="space-y-0.5">
+                            {r.stops.map((s, si) => (
+                              <div key={si} className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                                <span className="font-mono font-bold text-foreground shrink-0">{s.serviceOrder}</span>
+                                <span className="truncate">{s.consumerName}</span>
+                                {s.warrantyType === 'LP' && (
+                                  <span className="shrink-0 font-bold text-orange-600">LP</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1109,12 +1165,30 @@ export default function PlanejamentoPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>
-                OSs da Planilha Samsung *
-                {parsedPreview.length > 0 && (
-                  <span className="ml-2 text-xs font-normal text-emerald-600">✓ {parsedPreview.length} OSs detectadas</span>
-                )}
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label>
+                  OSs da Planilha Samsung *
+                  {parsedPreview.length > 0 && (
+                    <span className="ml-2 text-xs font-normal text-emerald-600">✓ {parsedPreview.length} OSs detectadas</span>
+                  )}
+                </Label>
+                <button
+                  type="button"
+                  onClick={handleCopyHeader}
+                  className={cn(
+                    "flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md border transition-all duration-150",
+                    headerCopied
+                      ? "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-400"
+                      : "bg-muted/50 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  {headerCopied ? (
+                    <><CheckCircle2 className="h-3 w-3" /> Copiado!</>
+                  ) : (
+                    <><Copy className="h-3 w-3" /> Copiar cabeçalho padrão</>
+                  )}
+                </button>
+              </div>
               <Textarea
                 placeholder="Cole aqui o conteúdo da planilha Excel (Ctrl+A → Ctrl+C na planilha e cole aqui)..."
                 className="min-h-[180px] font-mono text-xs"
@@ -1216,12 +1290,30 @@ export default function PlanejamentoPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>
-                Texto das Visitas e Paradas (Tabela/Planilha) *
-                {editParsedPreview.length > 0 && (
-                  <span className="ml-2 text-xs font-normal text-emerald-600">✓ {editParsedPreview.length} OSs válidas</span>
-                )}
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label>
+                  Texto das Visitas e Paradas (Tabela/Planilha) *
+                  {editParsedPreview.length > 0 && (
+                    <span className="ml-2 text-xs font-normal text-emerald-600">✓ {editParsedPreview.length} OSs válidas</span>
+                  )}
+                </Label>
+                <button
+                  type="button"
+                  onClick={handleCopyHeader}
+                  className={cn(
+                    "flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md border transition-all duration-150",
+                    headerCopied
+                      ? "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-400"
+                      : "bg-muted/50 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  {headerCopied ? (
+                    <><CheckCircle2 className="h-3 w-3" /> Copiado!</>
+                  ) : (
+                    <><Copy className="h-3 w-3" /> Copiar cabeçalho padrão</>
+                  )}
+                </button>
+              </div>
               <Textarea
                 placeholder="Cole ou edite o conteúdo das paradas..."
                 className="min-h-[180px] font-mono text-xs"
