@@ -24,7 +24,7 @@ import { configService } from "@/services/supabase/configService";
 import { type Route, type RouteStop, type RoutePart } from "@/lib/data";
 import { optimizeRouteStops, describeOptimization } from "@/lib/routeOptimizer";
 import {
-  ChevronLeft, ChevronRight, Plus, Trash2, CheckCircle2,
+  ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Trash2, CheckCircle2,
   Sparkles, Download, MapPin, Calendar, Users, Truck,
   Eye, Loader2, List, Edit, Copy
 } from "lucide-react";
@@ -396,6 +396,7 @@ export default function PlanejamentoPage() {
   // Expanded day OS panel (index of weekDay)
   const [expandedDayIndex, setExpandedDayIndex] = useState<number | null>(null);
   const [copiedDayIndex, setCopiedDayIndex] = useState<number | null>(null);
+  const [isTracksExpanded, setIsTracksExpanded] = useState(false);
 
   // Selected route for preview
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
@@ -944,107 +945,116 @@ export default function PlanejamentoPage() {
 
         {/* ── Multi-Day Route Linear Tracks Matrix (Gantt View) ── */}
         {multiDayRoutes.length > 0 && (
-          <Card className="border-border/60 bg-card p-3.5 overflow-hidden shadow-xs">
-            <div className="flex items-center justify-between mb-3 border-b border-border/40 pb-2">
+          <Card className="border-border/60 bg-card p-3 overflow-hidden shadow-xs">
+            <div
+              onClick={() => setIsTracksExpanded(v => !v)}
+              className="flex items-center justify-between cursor-pointer group select-none"
+            >
               <div className="flex items-center gap-2">
                 <span className="text-sm">🛤️</span>
                 <div>
-                  <h3 className="font-extrabold text-xs tracking-tight text-foreground uppercase">
+                  <h3 className="font-extrabold text-xs tracking-tight text-foreground uppercase group-hover:text-primary transition-colors flex items-center gap-2">
                     Linhas de Percurso Multi-dia ({multiDayRoutes.length})
+                    <span className="text-[9px] font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded-full normal-case">
+                      {isTracksExpanded ? "Recolher visão linear" : "Clique para expandir visão linear"}
+                    </span>
                   </h3>
-                  <p className="text-[10px] text-muted-foreground">
-                    Acompanhe em formato linear contínuo o percurso e paradas das rotas longas na semana
-                  </p>
                 </div>
               </div>
-              <span className="text-[9px] font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded-full uppercase">
-                Visão Linear Seg ➔ Dom
-              </span>
+              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 font-bold">
+                {isTracksExpanded ? (
+                  <><ChevronUp className="h-3.5 w-3.5" /> Minimizar</>
+                ) : (
+                  <><ChevronDown className="h-3.5 w-3.5" /> Expandir Visão Linear</>
+                )}
+              </Button>
             </div>
 
-            <div className="overflow-x-auto">
-              <div className="min-w-[850px] space-y-2">
-                {/* Header Days Row */}
-                <div className="grid grid-cols-12 gap-2 text-[10px] font-extrabold text-muted-foreground px-2">
-                  <div className="col-span-3">ROTA / TÉCNICO</div>
-                  <div className="col-span-9 grid grid-cols-7 gap-1 text-center">
-                    {weekDays.map((d, idx) => (
-                      <span key={idx} className={cn("text-[9px] uppercase tracking-wider", isSameDay(d, new Date()) && "text-primary font-black")}>
-                        {format(d, 'EEE d', { locale: ptBR })}
-                      </span>
-                    ))}
+            {isTracksExpanded && (
+              <div className="mt-3 pt-3 border-t border-border/40 overflow-x-auto animate-in fade-in duration-200">
+                <div className="min-w-[850px] space-y-2">
+                  {/* Header Days Row */}
+                  <div className="grid grid-cols-12 gap-2 text-[10px] font-extrabold text-muted-foreground px-2">
+                    <div className="col-span-3">ROTA / TÉCNICO</div>
+                    <div className="col-span-9 grid grid-cols-7 gap-1 text-center">
+                      {weekDays.map((d, idx) => (
+                        <span key={idx} className={cn("text-[9px] uppercase tracking-wider", isSameDay(d, new Date()) && "text-primary font-black")}>
+                          {format(d, 'EEE d', { locale: ptBR })}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>
 
-                {/* Route Tracks */}
-                {multiDayRoutes.map((r) => {
-                  const isSelected = selectedRoute?.id === r.id;
-                  return (
-                    <div
-                      key={r.id}
-                      onClick={() => setSelectedRoute(isSelected ? null : r)}
-                      className={cn(
-                        "grid grid-cols-12 gap-2 items-center p-2 rounded-xl border transition-all cursor-pointer",
-                        isSelected
-                          ? "bg-violet-500/15 border-violet-500 shadow-md ring-2 ring-violet-500/40"
-                          : "bg-muted/20 hover:bg-muted/40 border-border/40"
-                      )}
-                    >
-                      {/* Left Title */}
-                      <div className="col-span-3 min-w-0 pr-1">
-                        <div className="flex items-center gap-1 mb-0.5">
-                          <p className="font-extrabold text-[11px] text-foreground truncate">{r.name}</p>
+                  {/* Route Tracks */}
+                  {multiDayRoutes.map((r) => {
+                    const isSelected = selectedRoute?.id === r.id;
+                    return (
+                      <div
+                        key={r.id}
+                        onClick={() => setSelectedRoute(isSelected ? null : r)}
+                        className={cn(
+                          "grid grid-cols-12 gap-2 items-center p-2 rounded-xl border transition-all cursor-pointer",
+                          isSelected
+                            ? "bg-violet-500/15 border-violet-500 shadow-md ring-2 ring-violet-500/40"
+                            : "bg-muted/20 hover:bg-muted/40 border-border/40"
+                        )}
+                      >
+                        {/* Left Title */}
+                        <div className="col-span-3 min-w-0 pr-1">
+                          <div className="flex items-center gap-1 mb-0.5">
+                            <p className="font-extrabold text-[11px] text-foreground truncate">{r.name}</p>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                            {r.technicianName && <span className="truncate">👤 {r.technicianName.split(' ')[0]}</span>}
+                            <span className="font-extrabold text-primary shrink-0">{r.stops.length} OS total</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                          {r.technicianName && <span className="truncate">👤 {r.technicianName.split(' ')[0]}</span>}
-                          <span className="font-extrabold text-primary shrink-0">{r.stops.length} OS total</span>
-                        </div>
-                      </div>
 
-                      {/* Right 7-Day Linear Segment Track */}
-                      <div className="col-span-9 grid grid-cols-7 gap-1">
-                        {weekDays.map((d, idx) => {
-                          const dayInfo = getRouteDayInfo(r, d);
-                          const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-                          const minDayStart = new Date(dayInfo.minDate.getFullYear(), dayInfo.minDate.getMonth(), dayInfo.minDate.getDate()).getTime();
-                          const maxDayStart = new Date(dayInfo.maxDate.getFullYear(), dayInfo.maxDate.getMonth(), dayInfo.maxDate.getDate()).getTime();
+                        {/* Right 7-Day Linear Segment Track */}
+                        <div className="col-span-9 grid grid-cols-7 gap-1">
+                          {weekDays.map((d, idx) => {
+                            const dayInfo = getRouteDayInfo(r, d);
+                            const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+                            const minDayStart = new Date(dayInfo.minDate.getFullYear(), dayInfo.minDate.getMonth(), dayInfo.minDate.getDate()).getTime();
+                            const maxDayStart = new Date(dayInfo.maxDate.getFullYear(), dayInfo.maxDate.getMonth(), dayInfo.maxDate.getDate()).getTime();
 
-                          const isCovered = dayStart >= minDayStart && dayStart <= maxDayStart;
-                          const isStart = isSameDay(dayInfo.minDate, d);
-                          const isEnd = isSameDay(dayInfo.maxDate, d);
+                            const isCovered = dayStart >= minDayStart && dayStart <= maxDayStart;
+                            const isStart = isSameDay(dayInfo.minDate, d);
+                            const isEnd = isSameDay(dayInfo.maxDate, d);
 
-                          if (!isCovered) {
+                            if (!isCovered) {
+                              return (
+                                <div key={idx} className="h-7 rounded-md bg-muted/10 border border-dashed border-border/20 flex items-center justify-center opacity-30">
+                                  <span className="text-[8px] text-muted-foreground">·</span>
+                                </div>
+                              );
+                            }
+
                             return (
-                              <div key={idx} className="h-7 rounded-md bg-muted/10 border border-dashed border-border/20 flex items-center justify-center opacity-30">
-                                <span className="text-[8px] text-muted-foreground">·</span>
+                              <div
+                                key={idx}
+                                className={cn(
+                                  "h-7 rounded-md flex flex-col items-center justify-center px-1 text-[9px] font-bold transition-all relative border",
+                                  isStart
+                                    ? "bg-violet-600 text-white border-violet-500 shadow-xs"
+                                    : isEnd
+                                    ? "bg-emerald-600 text-white border-emerald-500 shadow-xs"
+                                    : "bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-400/30"
+                                )}
+                              >
+                                <span className="font-black text-[9px] leading-tight">
+                                  {dayInfo.stopsTodayCount > 0 ? `${dayInfo.stopsTodayCount} OS` : 'Trânsito'}
+                                </span>
                               </div>
                             );
-                          }
-
-                          return (
-                            <div
-                              key={idx}
-                              className={cn(
-                                "h-7 rounded-md flex flex-col items-center justify-center px-1 text-[9px] font-bold transition-all relative border",
-                                isStart
-                                  ? "bg-violet-600 text-white border-violet-500 shadow-xs"
-                                  : isEnd
-                                  ? "bg-emerald-600 text-white border-emerald-500 shadow-xs"
-                                  : "bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-400/30"
-                              )}
-                            >
-                              <span className="font-black text-[9px] leading-tight">
-                                {dayInfo.stopsTodayCount > 0 ? `${dayInfo.stopsTodayCount} OS` : 'Trânsito'}
-                              </span>
-                            </div>
-                          );
-                        })}
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
           </Card>
         )}
 
