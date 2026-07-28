@@ -939,11 +939,34 @@ export default function PlanejamentoPage() {
             {weekDays.map((day, i) => {
               const isToday = isSameDay(day, new Date());
               const isWeekend = i >= 5;
+              const dayStr = format(day, 'dd/MM/yyyy');
+              const dayStrAlt = format(day, 'yyyy-MM-dd');
+              const dayStrShort = format(day, 'dd/MM/yy');
+
               const dayRoutes = activeAndDraftRoutesForWeek.filter(r => {
                 const d = getRouteDate(r);
-                return d && isSameDay(d, day);
+                if (d && isSameDay(d, day)) return true;
+                return r.stops.some(s => {
+                  const fvd = (s.firstVisitDate || '').trim();
+                  return fvd === dayStr || fvd === dayStrAlt || fvd === dayStrShort;
+                });
               });
-              const totalStops = dayRoutes.reduce((s, r) => s + r.stops.length, 0);
+
+              let dayStopsCount = 0;
+              activeAndDraftRoutesForWeek.forEach(r => {
+                const rDate = getRouteDate(r);
+                const routeIsOnThisDay = rDate && isSameDay(rDate, day);
+
+                r.stops.forEach(s => {
+                  const fvd = (s.firstVisitDate || '').trim();
+                  if (fvd === dayStr || fvd === dayStrAlt || fvd === dayStrShort) {
+                    dayStopsCount++;
+                  } else if (!fvd && routeIsOnThisDay) {
+                    dayStopsCount++;
+                  }
+                });
+              });
+
               const isDayExpanded = expandedDayIndex === i;
 
               const isCoveredBySelected = selectedRouteSpan?.coveredIndices.includes(i);
@@ -975,9 +998,9 @@ export default function PlanejamentoPage() {
                       <p className="text-[9px] font-black text-violet-700 dark:text-violet-300 mt-0.5 bg-violet-500/20 py-0.5 rounded">
                         ⚡ Rota ativa ({stopsForSelectedOnDay} OS)
                       </p>
-                    ) : dayRoutes.length > 0 ? (
+                    ) : dayStopsCount > 0 || dayRoutes.length > 0 ? (
                       <p className={cn("text-[10px] mt-0.5", isToday ? "opacity-80" : "text-muted-foreground")}>
-                        {dayRoutes.length} rota{dayRoutes.length !== 1 ? 's' : ''} · {totalStops} par.
+                        {dayRoutes.length > 0 ? `${dayRoutes.length} rota${dayRoutes.length !== 1 ? 's' : ''} · ` : ''}{dayStopsCount} par.
                       </p>
                     ) : (
                       <p className={cn("text-[10px] mt-0.5 opacity-40", isToday && "opacity-60")}>vazio</p>
