@@ -23,8 +23,11 @@ function parseTatDays(tat: string): number {
 /**
  * Approximate GPS coordinates for cities in Northeast Brazil (Sergipe, Alagoas, Paraíba, Pernambuco, Bahia)
  */
+/**
+ * Approximate GPS coordinates for cities in Northeast Brazil (Sergipe, Alagoas, Bahia, Pernambuco, Paraíba)
+ */
 const CITY_COORDINATES: Record<string, { lat: number; lng: number }> = {
-  // Sergipe
+  // ── Sergipe (SE) ──
   "aracaju": { lat: -10.9472, lng: -37.0731 },
   "nossa senhora do socorro": { lat: -10.8546, lng: -37.1264 },
   "socorro": { lat: -10.8546, lng: -37.1264 },
@@ -32,23 +35,72 @@ const CITY_COORDINATES: Record<string, { lat: number; lng: number }> = {
   "sao cristovao": { lat: -11.0147, lng: -37.2064 },
   "laranjeiras": { lat: -10.8039, lng: -37.1714 },
   "maruim": { lat: -10.7408, lng: -37.0817 },
-  "itabaiana": { lat: -10.6853, lng: -37.4269 },
-  "lagarto": { lat: -10.9172, lng: -37.6631 },
-  "estancia": { lat: -11.2683, lng: -37.4383 },
-  "propria": { lat: -10.2108, lng: -36.8417 },
-  "capela": { lat: -10.5036, lng: -37.0528 },
-  "igreja nova": { lat: -10.1264, lng: -36.6617 },
-  "tobias barreto": { lat: -11.1839, lng: -37.9986 },
-  "simao dias": { lat: -10.7439, lng: -37.8108 },
-  "nossa senhora da gloria": { lat: -10.2189, lng: -37.4217 },
-  "itaporanga d'ajuda": { lat: -10.9972, lng: -37.3056 },
+  "santo amaro das brotas": { lat: -10.7889, lng: -36.9897 },
+  "rosario do catete": { lat: -10.6969, lng: -37.0306 },
+  "siriri": { lat: -10.6028, lng: -37.1128 },
+  "general maynard": { lat: -10.6917, lng: -36.9856 },
+  "carmopolis": { lat: -10.6453, lng: -36.9889 },
   "japaratuba": { lat: -10.5939, lng: -36.9381 },
+  "pirambu": { lat: -10.7408, lng: -36.8569 },
+  "capela": { lat: -10.5036, lng: -37.0528 },
+  "aquidaba": { lat: -10.2811, lng: -37.0183 },
+  "graccho cardoso": { lat: -10.2264, lng: -37.2028 },
+  "cumbe": { lat: -10.3547, lng: -37.1792 },
+  "feira nova": { lat: -10.2667, lng: -37.3147 },
+  "nossa senhora das dores": { lat: -10.4939, lng: -37.1908 },
+  "riachuelo": { lat: -10.7783, lng: -37.1856 },
+  "divina pastora": { lat: -10.6789, lng: -37.1478 },
+  "santa rosa de lima": { lat: -10.6483, lng: -37.1953 },
+  "itabaiana": { lat: -10.6853, lng: -37.4269 },
+  "campo do brito": { lat: -10.7331, lng: -37.4928 },
+  "macambira": { lat: -10.7139, lng: -37.5458 },
+  "sao domingos": { lat: -10.7917, lng: -37.5681 },
+  "areia branca": { lat: -10.7583, lng: -37.3556 },
+  "malhador": { lat: -10.6578, lng: -37.3064 },
+  "moita bonita": { lat: -10.5772, lng: -37.3428 },
+  "ribeiropolis": { lat: -10.5386, lng: -37.4267 },
+  "lagarto": { lat: -10.9172, lng: -37.6631 },
+  "simao dias": { lat: -10.7439, lng: -37.8108 },
+  "riachao do dantas": { lat: -10.9089, lng: -37.7214 },
+  "tobias barreto": { lat: -11.1839, lng: -37.9986 },
+  "poco verde": { lat: -10.7089, lng: -38.1814 },
+  "salgado": { lat: -11.0319, lng: -37.4728 },
+  "boquim": { lat: -11.1464, lng: -37.6214 },
+  "pedrinhas": { lat: -11.1897, lng: -37.5258 },
+  "araua": { lat: -11.2608, lng: -37.6239 },
+  "estancia": { lat: -11.2683, lng: -37.4383 },
+  "umbauba": { lat: -11.3831, lng: -37.6569 },
+  "itabaianinha": { lat: -11.2739, lng: -37.7892 },
+  "cristinapolis": { lat: -11.4747, lng: -37.7553 },
+  "tomar do geru": { lat: -11.3739, lng: -37.8428 },
+  "indiaroba": { lat: -11.5189, lng: -37.5117 },
+  "santa luzia do itanhy": { lat: -11.3528, lng: -37.4478 },
+  "nossa senhora da gloria": { lat: -10.2189, lng: -37.4217 },
+  "monte alegre de sergipe": { lat: -10.0264, lng: -37.5611 },
+  "porto da folha": { lat: -9.9172, lng: -37.2778 },
+  "gararu": { lat: -9.9667, lng: -37.0833 },
+  "poco redondo": { lat: -9.8064, lng: -37.6839 },
+  "caninde de sao francisco": { lat: -9.6439, lng: -37.7894 },
+  "nossa senhora de lourdes": { lat: -10.1583, lng: -37.0542 },
+  "itabi": { lat: -10.1264, lng: -37.1028 },
+  "propria": { lat: -10.2108, lng: -36.8417 },
   "neopolis": { lat: -10.3208, lng: -36.5794 },
+  "santana do sao francisco": { lat: -10.2889, lng: -36.6083 },
+  "japoata": { lat: -10.3478, lng: -36.8028 },
+  "pacatuba": { lat: -10.4539, lng: -36.6528 },
+  "ilha das flores": { lat: -10.4358, lng: -36.5397 },
+  "telha": { lat: -10.2108, lng: -36.8833 },
+  "cedro de sao joao": { lat: -10.2528, lng: -36.8833 },
+  "itaporanga d'ajuda": { lat: -10.9972, lng: -37.3056 },
+  "itaporanga": { lat: -10.9972, lng: -37.3056 },
 
-  // Alagoas
+  // ── Alagoas (AL) ──
   "maceio": { lat: -9.6658, lng: -35.7353 },
   "arapiraca": { lat: -9.7517, lng: -36.6606 },
   "penedo": { lat: -10.2906, lng: -36.5864 },
+  "porto real do colegio": { lat: -10.1864, lng: -36.8394 },
+  "sao bras": { lat: -10.1311, lng: -36.8839 },
+  "igreja nova": { lat: -10.1264, lng: -36.6617 },
   "palmeira dos indios": { lat: -9.4072, lng: -36.6264 },
   "delmiro gouveia": { lat: -9.3878, lng: -37.9981 },
   "uniao dos palmares": { lat: -9.1628, lng: -36.0317 },
@@ -57,29 +109,57 @@ const CITY_COORDINATES: Record<string, { lat: number; lng: number }> = {
   "marechal deodoro": { lat: -9.7117, lng: -35.8956 },
   "campo alegre": { lat: -9.7817, lng: -36.3508 },
   "sao miguel dos campos": { lat: -9.7811, lng: -36.0944 },
+  "teotonio vilela": { lat: -9.9056, lng: -36.3556 },
+  "junqueiro": { lat: -9.9306, lng: -36.4756 },
+  "batalha": { lat: -9.6789, lng: -37.1244 },
+  "pao de acucar": { lat: -9.7489, lng: -37.4364 },
+  "olho d'agua das flores": { lat: -9.5358, lng: -37.2956 },
+  "santana do ipanema": { lat: -9.3789, lng: -37.2439 },
 
-  // Paraíba
-  "joao pessoa": { lat: -7.1195, lng: -34.8450 },
-  "campina grande": { lat: -7.2219, lng: -35.8828 },
-  "santa rita": { lat: -7.1139, lng: -34.9781 },
-  "patos": { lat: -7.0264, lng: -37.2797 },
-  "bayeux": { lat: -7.1256, lng: -34.9328 },
-  "cabedelo": { lat: -6.9811, lng: -34.8339 },
+  // ── Bahia (BA) ──
+  "salvador": { lat: -12.9777, lng: -38.5016 },
+  "feira de santana": { lat: -12.2664, lng: -38.9664 },
+  "alagoinhas": { lat: -12.1356, lng: -38.4192 },
+  "paulo afonso": { lat: -9.4069, lng: -38.2208 },
+  "juazeiro": { lat: -9.4144, lng: -40.5033 },
+  "rio real": { lat: -11.4839, lng: -37.9333 },
+  "jandaira": { lat: -11.5647, lng: -37.5256 },
+  "conde": { lat: -11.8139, lng: -37.6117 },
+  "esplanada": { lat: -11.7961, lng: -37.9547 },
+  "entre rios": { lat: -11.9419, lng: -38.0839 },
+  "catu": { lat: -12.3528, lng: -38.3789 },
+  "pojuca": { lat: -12.4319, lng: -38.3347 },
+  "camacari": { lat: -12.6975, lng: -38.3242 },
+  "simoes filho": { lat: -12.7864, lng: -38.4039 },
+  "lauro de freitas": { lat: -12.8947, lng: -38.3272 },
+  "senhor do bonfim": { lat: -10.4619, lng: -40.1881 },
+  "jacobina": { lat: -11.1811, lng: -40.5186 },
+  "serrinha": { lat: -11.6608, lng: -39.0069 },
+  "ribeira do pombal": { lat: -10.8358, lng: -38.5367 },
+  "cipo": { lat: -11.0664, lng: -38.5139 },
+  "jeremoabo": { lat: -10.0739, lng: -38.4808 },
 
-  // Pernambuco
+  // ── Pernambuco (PE) ──
   "recife": { lat: -8.0476, lng: -34.8770 },
   "olinda": { lat: -8.0089, lng: -34.8553 },
   "jaboatao dos guararapes": { lat: -8.1131, lng: -35.0147 },
   "caruaru": { lat: -8.2839, lng: -35.9761 },
   "petrolina": { lat: -9.3892, lng: -40.5028 },
   "garanhuns": { lat: -8.8906, lng: -36.4928 },
+  "arcoverde": { lat: -8.4189, lng: -37.0539 },
+  "serra talhada": { lat: -7.9908, lng: -38.2981 },
+  "salgueiro": { lat: -8.0739, lng: -39.1197 },
 
-  // Bahia
-  "salvador": { lat: -12.9777, lng: -38.5016 },
-  "feira de santana": { lat: -12.2664, lng: -38.9664 },
-  "alagoinhas": { lat: -12.1356, lng: -38.4192 },
-  "paulo afonso": { lat: -9.4069, lng: -38.2208 },
-  "juazeiro": { lat: -9.4144, lng: -40.5033 },
+  // ── Paraíba (PB) ──
+  "joao pessoa": { lat: -7.1195, lng: -34.8450 },
+  "campina grande": { lat: -7.2219, lng: -35.8828 },
+  "santa rita": { lat: -7.1139, lng: -34.9781 },
+  "patos": { lat: -7.0264, lng: -37.2797 },
+  "bayeux": { lat: -7.1256, lng: -34.9328 },
+  "cabedelo": { lat: -6.9811, lng: -34.8339 },
+  "guarabira": { lat: -6.8539, lng: -35.4889 },
+  "sousa": { lat: -6.7619, lng: -38.2258 },
+  "cajazeiras": { lat: -6.8889, lng: -38.5583 }
 };
 
 /**
@@ -146,8 +226,8 @@ function getCityDistance(cityA: string, cityB: string): number {
  * using Nearest Neighbor TSP clustering.
  *
  * Hierarchical Optimization:
- * 1. CIDADE: Nearest-Neighbor TSP starting from originCity (Base).
- * 2. BAIRRO: Strict grouping by neighborhood + geographic zone sequence.
+ * 1. CIDADE + UF (ESTADO): Grouping by City + State cluster, Nearest-Neighbor TSP starting from originCity (Base).
+ * 2. BAIRRO: Grouping strictly by neighborhood (bairro) within each city.
  * 3. PARADA/OS: Sorted by TAT urgency (LP/OW priority) within each neighborhood.
  *
  * @param stops - Array of RouteStop objects
@@ -157,88 +237,86 @@ function getCityDistance(cityA: string, cityB: string): number {
 export function optimizeRouteStops(stops: RouteStop[], originCity: string = "Aracaju"): RouteStop[] {
   if (!stops || stops.length <= 1) return stops;
 
-  // Step 1: Group by city
-  const cityMap = new Map<string, { rawName: string; stops: RouteStop[] }>();
+  // Step 1: Group by location cluster (Cidade + UF)
+  const locationClusterMap = new Map<string, { rawCity: string; rawState: string; stops: RouteStop[] }>();
+
   for (const stop of stops) {
-    const cityKey = normalize(stop.city) || "sem_cidade";
-    if (!cityMap.has(cityKey)) {
-      cityMap.set(cityKey, { rawName: stop.city || "Sem Cidade", stops: [] });
+    const cityNorm = normalize(stop.city) || "sem_cidade";
+    const stateNorm = normalize(stop.state) || "se";
+    const clusterKey = `${cityNorm}|${stateNorm}`;
+
+    if (!locationClusterMap.has(clusterKey)) {
+      locationClusterMap.set(clusterKey, {
+        rawCity: stop.city || "Sem Cidade",
+        rawState: stop.state || "SE",
+        stops: []
+      });
     }
-    cityMap.get(cityKey)!.stops.push(stop);
+    locationClusterMap.get(clusterKey)!.stops.push(stop);
   }
 
-  // Step 2: Nearest-Neighbor TSP city ordering starting from originCity
-  const unvisited = new Set(cityMap.keys());
-  const orderedCityKeys: string[] = [];
+  // Step 2: Nearest-Neighbor TSP city ordering starting from originCity (Base)
+  const unvisited = new Set(locationClusterMap.keys());
+  const orderedClusterKeys: string[] = [];
 
-  let currentCityKey = normalize(originCity);
-  if (!cityMap.has(currentCityKey) && unvisited.size > 0) {
-    // Find closest city in route to the requested origin
-    let closestKey = Array.from(unvisited)[0];
-    let minDistance = Infinity;
-    for (const key of unvisited) {
-      const d = getCityDistance(originCity, cityMap.get(key)!.rawName);
-      if (d < minDistance) {
-        minDistance = d;
-        closestKey = key;
-      }
-    }
-    currentCityKey = closestKey;
-  }
+  let currentClusterKey = Array.from(unvisited).find(k => k.startsWith(normalize(originCity))) || Array.from(unvisited)[0];
 
   while (unvisited.size > 0) {
-    if (unvisited.has(currentCityKey)) {
-      orderedCityKeys.push(currentCityKey);
-      unvisited.delete(currentCityKey);
+    if (unvisited.has(currentClusterKey)) {
+      orderedClusterKeys.push(currentClusterKey);
+      unvisited.delete(currentClusterKey);
     }
 
     if (unvisited.size === 0) break;
 
-    // Find nearest next city
+    // Find nearest next city cluster
     let nearestKey = Array.from(unvisited)[0];
     let minDistance = Infinity;
 
+    const currentCluster = locationClusterMap.get(currentClusterKey);
+    const currentName = currentCluster?.rawCity || currentClusterKey.split('|')[0];
+
     for (const candidateKey of unvisited) {
-      const d = getCityDistance(
-        cityMap.get(currentCityKey)?.rawName || currentCityKey,
-        cityMap.get(candidateKey)?.rawName || candidateKey
-      );
+      const candidateCluster = locationClusterMap.get(candidateKey);
+      const candidateName = candidateCluster?.rawCity || candidateKey.split('|')[0];
+
+      const d = getCityDistance(currentName, candidateName);
       if (d < minDistance) {
         minDistance = d;
         nearestKey = candidateKey;
       }
     }
 
-    currentCityKey = nearestKey;
+    currentClusterKey = nearestKey;
   }
 
-  // Step 3: Flatten ordered cities with neighborhood & TAT sorting inside
+  // Step 3: Within each City, group strictly by Bairro (Neighborhood)
   const result: RouteStop[] = [];
 
-  for (const cityKey of orderedCityKeys) {
-    const cityData = cityMap.get(cityKey);
-    if (!cityData) continue;
+  for (const clusterKey of orderedClusterKeys) {
+    const clusterData = locationClusterMap.get(clusterKey);
+    if (!clusterData) continue;
 
-    // Group stops strictly by neighborhood
+    // Group stops by neighborhood (Bairro)
     const neighborhoodMap = new Map<string, RouteStop[]>();
-    for (const stop of cityData.stops) {
+    for (const stop of clusterData.stops) {
       const nKey = normalize(stop.neighborhood) || "sem_bairro";
       if (!neighborhoodMap.has(nKey)) neighborhoodMap.set(nKey, []);
       neighborhoodMap.get(nKey)!.push(stop);
     }
 
-    // Sort neighborhoods by geographic zone score first, then by stop count
+    // Sort neighborhoods by zone score or stop count
     const sortedNeighborhoods = [...neighborhoodMap.entries()].sort(
       ([keyA, listA], [keyB, listB]) => {
-        const scoreA = getNeighborhoodZoneScore(cityKey, keyA);
-        const scoreB = getNeighborhoodZoneScore(cityKey, keyB);
+        const scoreA = getNeighborhoodZoneScore(clusterData.rawCity, keyA);
+        const scoreB = getNeighborhoodZoneScore(clusterData.rawCity, keyB);
         if (scoreA !== scoreB) return scoreA - scoreB;
         return listB.length - listA.length;
       }
     );
 
     for (const [, neighborhoodStops] of sortedNeighborhoods) {
-      // Sort within neighborhood by TAT ascending (most urgent first)
+      // Sort within neighborhood by TAT urgency (LP/OW priority first)
       const sortedByTat = [...neighborhoodStops].sort(
         (a, b) => parseTatDays(a.tat) - parseTatDays(b.tat)
       );
