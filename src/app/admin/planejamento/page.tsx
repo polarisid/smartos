@@ -1874,29 +1874,16 @@ export default function PlanejamentoPage() {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            {/* Ponto de Saída / Base Selector */}
+            {/* Ponto de Saída / Base Display */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-muted/40 p-3 rounded-xl border border-border/50">
               <div className="flex items-center gap-2 text-xs">
                 <MapPin className="h-4 w-4 text-primary shrink-0" />
                 <span className="font-bold text-foreground">Ponto de Saída & Retorno (Base):</span>
               </div>
-              <Select value={originCity} onValueChange={handleOriginChange}>
-                <SelectTrigger className="w-full sm:w-[220px] h-8 text-xs bg-background">
-                  <SelectValue placeholder="Selecione a base..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Aracaju">📍 Aracaju (Base Principal)</SelectItem>
-                  <SelectItem value="Maceió">📍 Maceió</SelectItem>
-                  <SelectItem value="Arapiraca">📍 Arapiraca</SelectItem>
-                  <SelectItem value="Campina Grande">📍 Campina Grande</SelectItem>
-                  <SelectItem value="João Pessoa">📍 João Pessoa</SelectItem>
-                  <SelectItem value="Recife">📍 Recife</SelectItem>
-                  <SelectItem value="Salvador">📍 Salvador</SelectItem>
-                  {routeCities.map(c => (
-                    <SelectItem key={c} value={c}>📍 {c}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-xs font-bold text-primary flex items-center gap-1.5 shrink-0">
+                <span>📍</span>
+                <span>{defaultBaseAddress || originCity || "Aracaju"}</span>
+              </div>
             </div>
 
             {/* Optimization Summary Banner */}

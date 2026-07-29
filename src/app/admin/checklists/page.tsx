@@ -198,6 +198,9 @@ export default function ChecklistsPage() {
     const [formData, setFormData] = useState<{ name: string; pdfUrl: string; type: 'counter' | 'field' }>({ name: '', pdfUrl: '', type: 'field' });
     
     const availablePdfs = [
+        { name: "Carta Troca", path: "/checklists/carta_troca.pdf" },
+        { name: "Descarte de Peça", path: "/checklists/descarte_peça.pdf" },
+        { name: "Checklist Oficial", path: "/checklists/oficial.pdf" },
         { name: "Checklist TV/AV - INHOME", path: "/checklists/checklist-tv-av-inhome.pdf" },
         { name: "Checklist Linha Branca (DA)", path: "/checklists/da.pdf" },
         { name: "Checklist TV Reparo", path: "/checklists/checklist_tv_reparo.pdf" },
@@ -221,6 +224,27 @@ export default function ChecklistsPage() {
             setIsLoading(true);
             try {
                 const data = await checklistService.getAll();
+                // Ensure Carta Troca template exists in database
+                const hasCartaTroca = data.some((t: any) => t.pdfUrl === '/checklists/carta_troca.pdf' || (t.name || '').toLowerCase().includes('carta troca'));
+                if (!hasCartaTroca) {
+                    try {
+                        const newDocId = await checklistService.create({
+                            name: "Carta Troca",
+                            pdfUrl: "/checklists/carta_troca.pdf",
+                            type: "field",
+                            fields: []
+                        });
+                        data.unshift({
+                            id: newDocId,
+                            name: "Carta Troca",
+                            pdfUrl: "/checklists/carta_troca.pdf",
+                            type: "field",
+                            fields: []
+                        });
+                    } catch (err) {
+                        console.error("Auto-creation of Carta Troca failed:", err);
+                    }
+                }
                 setTemplates(data);
             } catch (error) {
                 console.error("Error fetching checklist templates:", error);
