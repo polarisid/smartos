@@ -426,6 +426,7 @@ export default function PlanejamentoPage() {
   const [originCity, setOriginCity] = useState("Aracaju");
   const [proposedStops, setProposedStops] = useState<RouteStop[]>([]);
   const [optimizationSummary, setOptimizationSummary] = useState("");
+  const [optimizeViewTab, setOptimizeViewTab] = useState<'list' | 'map'>('list');
 
   const routeCities = useMemo(() => {
     if (!optimizingRoute) return [];
@@ -1915,116 +1916,210 @@ export default function PlanejamentoPage() {
               );
             })()}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Ordem Atual */}
-              <div className="border rounded-xl p-3 bg-muted/20">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center justify-between">
-                  <span>Ordem Atual</span>
-                  <span className="text-[10px] font-normal">{optimizingRoute?.stops.length} paradas</span>
-                </h4>
-                <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
-                  {optimizingRoute?.stops.map((stop, i) => {
-                    const newIdx = proposedStops.findIndex(s => s.serviceOrder === stop.serviceOrder);
-                    const oldPos = i + 1;
-                    const newPos = newIdx !== -1 ? newIdx + 1 : oldPos;
-                    const isMoved = oldPos !== newPos;
-
-                    return (
-                      <div
-                        key={i}
-                        className={cn(
-                          "flex items-center gap-2 p-2 rounded-lg border bg-background text-xs transition-colors",
-                          isMoved && "border-slate-300/80 bg-slate-50/50 dark:bg-slate-900/40 dark:border-slate-800"
-                        )}
-                      >
-                        <span className="font-bold text-muted-foreground w-6 text-center text-xs shrink-0">#{oldPos}</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-1">
-                            <p className="font-mono font-semibold truncate">{stop.serviceOrder}</p>
-                            {isMoved && (
-                              <span className="text-[9px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
-                                Vai p/ #{newPos}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[10px] text-muted-foreground truncate">{stop.city} — {stop.neighborhood}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+            {/* View Mode Toggle: Lista vs Mapa */}
+            <div className="flex items-center justify-between border-b border-border/40 pb-2">
+              <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-lg border border-border/40">
+                <button
+                  type="button"
+                  onClick={() => setOptimizeViewTab('list')}
+                  className={cn(
+                    "px-3 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all",
+                    optimizeViewTab === 'list'
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <List className="h-3.5 w-3.5" /> Comparativo em Lista
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOptimizeViewTab('map')}
+                  className={cn(
+                    "px-3 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all",
+                    optimizeViewTab === 'map'
+                      ? "bg-violet-600 text-white shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <MapPin className="h-3.5 w-3.5" /> 🗺️ Ver no Mapa (Antes / Depois)
+                </button>
               </div>
 
-              {/* Ordem Sugerida pela IA */}
-              <div className="border border-violet-200 dark:border-violet-900/50 rounded-xl p-3 bg-violet-50/20 dark:bg-violet-955/10">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300 mb-2 flex items-center justify-between">
-                  <span>Sugerido pela IA</span>
-                  <span className="text-[10px] font-normal text-emerald-600 dark:text-emerald-400 font-bold">✨ Otimizado</span>
-                </h4>
-                <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
-                  {proposedStops.map((stop, i) => {
-                    const origIdx = optimizingRoute?.stops.findIndex(s => s.serviceOrder === stop.serviceOrder) ?? -1;
-                    const oldPos = origIdx !== -1 ? origIdx + 1 : i + 1;
-                    const newPos = i + 1;
-                    const isMoved = oldPos !== newPos;
-                    const posDiff = oldPos - newPos; // positive = moved up (earlier in route), negative = moved down
-
-                    return (
-                      <div
-                        key={i}
-                        className={cn(
-                          "flex items-center gap-2 p-2 rounded-lg border text-xs shadow-sm transition-all duration-200",
-                          isMoved
-                            ? posDiff > 0
-                              ? "border-emerald-400/80 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-955/40"
-                              : "border-amber-400/80 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-955/40"
-                            : "border-violet-200 dark:border-violet-900/60 bg-background"
-                        )}
-                      >
-                        <span className={cn(
-                          "font-black w-6 text-center text-xs shrink-0 py-0.5 rounded",
-                          isMoved
-                            ? posDiff > 0 ? "bg-emerald-600 text-white" : "bg-amber-600 text-white"
-                            : "text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-950"
-                        )}>
-                          #{newPos}
-                        </span>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-1">
-                            <p className="font-mono font-bold truncate flex items-center gap-1.5">
-                              {stop.serviceOrder}
-                              {stop.warrantyType === 'LP' && (
-                                <span className="bg-amber-100 text-amber-800 text-[9px] px-1 rounded font-bold">LP</span>
-                              )}
-                            </p>
-                            {/* Movement indicator badge */}
-                            {isMoved ? (
-                              posDiff > 0 ? (
-                                <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800 flex items-center gap-0.5 shrink-0">
-                                  ▲ Subiu (#{oldPos} ➔ #{newPos})
-                                </span>
-                              ) : (
-                                <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800 flex items-center gap-0.5 shrink-0">
-                                  ▼ Desceu (#{oldPos} ➔ #{newPos})
-                                </span>
-                              )
-                            ) : (
-                              <span className="text-[9px] text-muted-foreground font-medium shrink-0">
-                                Mantida #{newPos}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[10px] text-muted-foreground truncate">
-                            <span className="font-medium text-foreground">{stop.city}</span> — {stop.neighborhood}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              <span className="text-[10px] text-muted-foreground font-medium hidden sm:inline">
+                {optimizeViewTab === 'map' ? 'Linha Vermelha = Atual · Linha Verde = Otimizado' : 'Exibindo posições'}
+              </span>
             </div>
+
+            {optimizeViewTab === 'map' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Mapa Antes (Ordem Atual) */}
+                <div className="border border-red-200 dark:border-red-900/50 rounded-xl p-3 bg-red-50/20 dark:bg-red-950/10">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-red-600 dark:text-red-400 flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                      Percurso Atual (Antes)
+                    </h4>
+                    <span className="text-[10px] font-bold text-red-600 bg-red-100 dark:bg-red-900/40 px-2 py-0.5 rounded-full">
+                      🔴 Linha Vermelha
+                    </span>
+                  </div>
+                  <div className="h-[360px] rounded-lg overflow-hidden border border-red-200/60 dark:border-red-900/40">
+                    {optimizingRoute && (
+                      <DynamicalRouteMap
+                        routes={[optimizingRoute]}
+                        activeStops={optimizingRoute.stops.map(s => ({
+                          stop: s,
+                          route: optimizingRoute,
+                          status: 'todo' as const
+                        }))}
+                        showPolyline={true}
+                        polylineColor="#ef4444"
+                        height="100%"
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Mapa Depois (Sugerido pela IA) */}
+                <div className="border border-emerald-200 dark:border-emerald-900/50 rounded-xl p-3 bg-emerald-50/20 dark:bg-emerald-950/10">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                      Sugerido pela IA (Depois)
+                    </h4>
+                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 rounded-full">
+                      🟢 Linha Verde
+                    </span>
+                  </div>
+                  <div className="h-[360px] rounded-lg overflow-hidden border border-emerald-200/60 dark:border-emerald-900/40">
+                    {optimizingRoute && (
+                      <DynamicalRouteMap
+                        routes={[optimizingRoute]}
+                        activeStops={proposedStops.map(s => ({
+                          stop: s,
+                          route: optimizingRoute,
+                          status: 'todo' as const
+                        }))}
+                        showPolyline={true}
+                        polylineColor="#10b981"
+                        height="100%"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Ordem Atual */}
+                <div className="border rounded-xl p-3 bg-muted/20">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center justify-between">
+                    <span>Ordem Atual</span>
+                    <span className="text-[10px] font-normal">{optimizingRoute?.stops.length} paradas</span>
+                  </h4>
+                  <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
+                    {optimizingRoute?.stops.map((stop, i) => {
+                      const newIdx = proposedStops.findIndex(s => s.serviceOrder === stop.serviceOrder);
+                      const oldPos = i + 1;
+                      const newPos = newIdx !== -1 ? newIdx + 1 : oldPos;
+                      const isMoved = oldPos !== newPos;
+
+                      return (
+                        <div
+                          key={i}
+                          className={cn(
+                            "flex items-center gap-2 p-2 rounded-lg border bg-background text-xs transition-colors",
+                            isMoved && "border-slate-300/80 bg-slate-50/50 dark:bg-slate-900/40 dark:border-slate-800"
+                          )}
+                        >
+                          <span className="font-bold text-muted-foreground w-6 text-center text-xs shrink-0">#{oldPos}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <p className="font-mono font-semibold truncate">{stop.serviceOrder}</p>
+                              {isMoved && (
+                                <span className="text-[9px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
+                                  Vai p/ #{newPos}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-muted-foreground truncate">{stop.city} — {stop.neighborhood}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Ordem Sugerida pela IA */}
+                <div className="border border-violet-200 dark:border-violet-900/50 rounded-xl p-3 bg-violet-50/20 dark:bg-violet-955/10">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300 mb-2 flex items-center justify-between">
+                    <span>Sugerido pela IA</span>
+                    <span className="text-[10px] font-normal text-emerald-600 dark:text-emerald-400 font-bold">✨ Otimizado</span>
+                  </h4>
+                  <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
+                    {proposedStops.map((stop, i) => {
+                      const origIdx = optimizingRoute?.stops.findIndex(s => s.serviceOrder === stop.serviceOrder) ?? -1;
+                      const oldPos = origIdx !== -1 ? origIdx + 1 : i + 1;
+                      const newPos = i + 1;
+                      const isMoved = oldPos !== newPos;
+                      const posDiff = oldPos - newPos; // positive = moved up (earlier in route), negative = moved down
+
+                      return (
+                        <div
+                          key={i}
+                          className={cn(
+                            "flex items-center gap-2 p-2 rounded-lg border text-xs shadow-sm transition-all duration-200",
+                            isMoved
+                              ? posDiff > 0
+                                ? "border-emerald-400/80 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-955/40"
+                                : "border-amber-400/80 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-955/40"
+                              : "border-violet-200 dark:border-violet-900/60 bg-background"
+                          )}
+                        >
+                          <span className={cn(
+                            "font-black w-6 text-center text-xs shrink-0 py-0.5 rounded",
+                            isMoved
+                              ? posDiff > 0 ? "bg-emerald-600 text-white" : "bg-amber-600 text-white"
+                              : "text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-950"
+                          )}>
+                            #{newPos}
+                          </span>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <p className="font-mono font-bold truncate flex items-center gap-1.5">
+                                {stop.serviceOrder}
+                                {stop.warrantyType === 'LP' && (
+                                  <span className="bg-amber-100 text-amber-800 text-[9px] px-1 rounded font-bold">LP</span>
+                                )}
+                              </p>
+                              {/* Movement indicator badge */}
+                              {isMoved ? (
+                                posDiff > 0 ? (
+                                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800 flex items-center gap-0.5 shrink-0">
+                                    ▲ Subiu (#{oldPos} ➔ #{newPos})
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800 flex items-center gap-0.5 shrink-0">
+                                    ▼ Desceu (#{oldPos} ➔ #{newPos})
+                                  </span>
+                                )
+                              ) : (
+                                <span className="text-[9px] text-muted-foreground font-medium shrink-0">
+                                  Mantida #{newPos}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-muted-foreground truncate">
+                              <span className="font-medium text-foreground">{stop.city}</span> — {stop.neighborhood}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0">

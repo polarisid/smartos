@@ -43,6 +43,9 @@ type MapStop = {
 interface RouteMapProps {
     routes: Route[];
     activeStops: { stop: RouteStop, route: Route, status: 'completed' | 'pending' | 'todo' }[];
+    showPolyline?: boolean;
+    polylineColor?: string;
+    height?: string;
 }
 
 function MapBounds({ stops }: { stops: MapStop[] }) {
@@ -51,14 +54,13 @@ function MapBounds({ stops }: { stops: MapStop[] }) {
         if (stops.length === 0) return;
         const bounds = L.latLngBounds(stops.map(s => s.coords));
         if (bounds.isValid()) {
-            // Using flyToBounds for a smooth animation when switching routes
-            map.flyToBounds(bounds, { padding: [50, 50], maxZoom: 12, duration: 1.5 });
+            map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 12, duration: 1.2 });
         }
     }, [stops, map]);
     return null;
 }
 
-export default function RouteMap({ routes, activeStops }: RouteMapProps) {
+export default function RouteMap({ routes, activeStops, showPolyline = true, polylineColor = '#8b5cf6', height = '500px' }: RouteMapProps) {
     const [mapStops, setMapStops] = useState<MapStop[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -66,18 +68,15 @@ export default function RouteMap({ routes, activeStops }: RouteMapProps) {
         let isMounted = true;
         setLoading(true);
 
-        // Clear markers that are no longer in the activeStops list
         setMapStops(prev => prev.filter(p => activeStops.some(a => a.stop.serviceOrder === p.stop.serviceOrder)));
 
         const loadCoords = async () => {
             const loaded: MapStop[] = [];
             for (const item of activeStops) {
                 if (!isMounted) break;
-                // Fetch coordinates sequentially to respect rate limit
                 const coords = await getCoordinates(item.stop.city, item.stop.neighborhood, item.stop.state, item.stop.addressDetails);
                 if (coords) {
                     loaded.push({ ...item, coords });
-                    // Update state incrementally so map doesn't stay completely blank for a minute
                     setMapStops(prev => {
                         const existing = prev.find(p => p.stop.serviceOrder === item.stop.serviceOrder);
                         if (existing) return prev;
@@ -95,21 +94,18 @@ export default function RouteMap({ routes, activeStops }: RouteMapProps) {
         };
     }, [activeStops]);
 
-
-
     return (
-        <div className="w-full h-full min-h-[500px] bg-slate-900 rounded-xl overflow-hidden border border-slate-800 relative z-0">
+        <div style={{ height }} className="w-full min-h-[300px] bg-slate-900 rounded-xl overflow-hidden border border-slate-800 relative z-0">
             {mapStops.length === 0 && loading && (
-                <div className="absolute inset-0 z-10 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-slate-300">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
-                    <p>Buscando localizações no satélite...</p>
-                    <p className="text-xs text-slate-500 mt-2">Pode levar alguns segundos pois é um serviço sem recarga.</p>
+                <div className="absolute inset-0 z-10 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-slate-300 p-4 text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-2"></div>
+                    <p className="text-xs">Buscando localizações no satélite...</p>
                 </div>
             )}
             
             <MapContainer 
-                center={[-12.9714, -38.5014]} // Salvador default
-                zoom={6} 
+                center={[-10.9472, -37.0731]}
+                zoom={10} 
                 style={{ height: '100%', width: '100%', zIndex: 0 }}
                 className="z-0"
             >
@@ -119,6 +115,13 @@ export default function RouteMap({ routes, activeStops }: RouteMapProps) {
                 />
                 
                 <MapBounds stops={mapStops} />
+
+                {showPolyline && mapStops.length > 1 && (
+                    <Polyline
+                        positions={mapStops.map(s => s.coords)}
+                        pathOptions={{ color: polylineColor, weight: 3.5, opacity: 0.85, dashArray: '6, 6' }}
+                    />
+                )}
 
                 {mapStops.map((item, idx) => {
                     const originalIndex = activeStops.findIndex(a => a.stop.serviceOrder === item.stop.serviceOrder) + 1;
@@ -143,7 +146,7 @@ export default function RouteMap({ routes, activeStops }: RouteMapProps) {
                                     
                                     <div className="text-xs space-y-1 mb-2">
                                         <p><strong>Rota:</strong> {item.route.name}</p>
-                                        <p><strong>Téc:</strong> {item.route.technicianName}</p>
+                                        {item.route.technicianName && <p><strong>Téc:</strong> {item.route.technicianName}</p>}
                                         <p><strong>Turno/Produto:</strong> {item.stop.turn} • {item.stop.productType}</p>
                                     </div>
                                     <div className="mt-2 text-center text-xs font-bold rounded-md py-1 bg-slate-100">
