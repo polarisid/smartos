@@ -1974,6 +1974,7 @@ export default function PlanejamentoPage() {
                         }))}
                         showPolyline={true}
                         polylineColor="#ef4444"
+                        baseAddress={defaultBaseAddress || originCity}
                         height="100%"
                       />
                     )}
@@ -2002,6 +2003,7 @@ export default function PlanejamentoPage() {
                         }))}
                         showPolyline={true}
                         polylineColor="#10b981"
+                        baseAddress={defaultBaseAddress || originCity}
                         height="100%"
                       />
                     )}
