@@ -22,63 +22,88 @@ const STATE_NAMES: Record<string, string> = {
 };
 
 const CITY_FALLBACK_COORDINATES: Record<string, [number, number]> = {
+  // ── Sergipe (SE) - Todos os 75 municípios ──
+  "amparo de sao francisco": [-10.1333, -36.9333],
+  "aquidaba": [-10.2811, -37.0183],
   "aracaju": [-10.9472, -37.0731],
+  "araua": [-11.2608, -37.6239],
+  "areia branca": [-10.7583, -37.3556],
+  "barra dos coqueiros": [-10.9089, -37.0381],
+  "boquim": [-11.1464, -37.6214],
+  "brejo grande": [-10.4333, -36.4667],
+  "campo do brito": [-10.7331, -37.4928],
+  "canhoba": [-10.1333, -36.9833],
+  "caninde de sao francisco": [-9.6439, -37.7894],
+  "capela": [-10.5036, -37.0528],
+  "carira": [-10.3608, -37.7008],
+  "carmopolis": [-10.6453, -36.9889],
+  "cedro de sao joao": [-10.2528, -36.8839],
+  "cristinapolis": [-11.4747, -37.7553],
+  "cumbe": [-10.3547, -37.1792],
+  "divina pastora": [-10.6789, -37.1478],
+  "estancia": [-11.2683, -37.4383],
+  "feira nova": [-10.2667, -37.3147],
+  "gararu": [-9.9667, -37.0833],
+  "general maynard": [-10.6917, -36.9856],
+  "graccho cardoso": [-10.2264, -37.2028],
+  "ilha das flores": [-10.4333, -36.5333],
+  "indiaroba": [-11.5189, -37.5117],
+  "itabaiana": [-10.6853, -37.4269],
+  "itabaianinha": [-11.2739, -37.7892],
+  "itabi": [-10.1264, -37.1028],
+  "itaporanga d'ajuda": [-10.9961, -37.3056],
+  "itaporanga": [-10.9961, -37.3056],
+  "japaratuba": [-10.5939, -36.9381],
+  "japoata": [-10.3508, -36.8008],
+  "lagarto": [-10.9172, -37.6631],
+  "laranjeiras": [-10.8039, -37.1714],
+  "macambira": [-10.7139, -37.5458],
+  "malhada dos bois": [-10.3500, -36.9333],
+  "malhador": [-10.6578, -37.3064],
+  "maruim": [-10.7408, -37.0817],
+  "moita bonita": [-10.5772, -37.3428],
+  "monte alegre de sergipe": [-10.0264, -37.5611],
+  "muribeca": [-10.4333, -36.9667],
+  "neopolis": [-10.3208, -36.5794],
+  "nossa senhora aparecida": [-10.4439, -37.4892],
+  "aparecida": [-10.4439, -37.4892],
+  "nossa senhora da gloria": [-10.2189, -37.4217],
+  "gloria": [-10.2189, -37.4217],
+  "nossa senhora das dores": [-10.4939, -37.1908],
+  "dores": [-10.4939, -37.1908],
   "nossa senhora do socorro": [-10.8546, -37.1264],
   "socorro": [-10.8546, -37.1264],
-  "barra dos coqueiros": [-10.9089, -37.0381],
-  "sao cristovao": [-11.0147, -37.2064],
-  "laranjeiras": [-10.8039, -37.1714],
-  "maruim": [-10.7408, -37.0817],
-  "santo amaro das brotas": [-10.7889, -36.9897],
-  "rosario do catete": [-10.6969, -37.0306],
-  "siriri": [-10.6028, -37.1128],
-  "general maynard": [-10.6917, -36.9856],
-  "carmopolis": [-10.6453, -36.9889],
-  "japaratuba": [-10.5939, -36.9381],
-  "pirambu": [-10.7408, -36.8569],
-  "capela": [-10.5036, -37.0528],
-  "aquidaba": [-10.2811, -37.0183],
-  "graccho cardoso": [-10.2264, -37.2028],
-  "cumbe": [-10.3547, -37.1792],
-  "feira nova": [-10.2667, -37.3147],
-  "nossa senhora das dores": [-10.4939, -37.1908],
-  "riachuelo": [-10.7783, -37.1856],
-  "divina pastora": [-10.6789, -37.1478],
-  "santa rosa de lima": [-10.6483, -37.1953],
-  "itabaiana": [-10.6853, -37.4269],
-  "campo do brito": [-10.7331, -37.4928],
-  "macambira": [-10.7139, -37.5458],
-  "sao domingos": [-10.7917, -37.5681],
-  "areia branca": [-10.7583, -37.3556],
-  "malhador": [-10.6578, -37.3064],
-  "moita bonita": [-10.5772, -37.3428],
-  "ribeiropolis": [-10.5386, -37.4267],
-  "lagarto": [-10.9172, -37.6631],
-  "simao dias": [-10.7439, -37.8108],
-  "riachao do dantas": [-10.9089, -37.7214],
-  "tobias barreto": [-11.1839, -37.9986],
-  "poco verde": [-10.7089, -38.1814],
-  "salgado": [-11.0319, -37.4728],
-  "boquim": [-11.1464, -37.6214],
+  "pacatuba": [-10.4508, -36.6508],
+  "pedra mole": [-10.6139, -37.5189],
   "pedrinhas": [-11.1897, -37.5258],
-  "araua": [-11.2608, -37.6239],
-  "estancia": [-11.2683, -37.4383],
-  "umbauba": [-11.3831, -37.6569],
-  "itabaianinha": [-11.2739, -37.7892],
-  "cristinapolis": [-11.4747, -37.7553],
-  "tomar do geru": [-11.3739, -37.8428],
-  "indiaroba": [-11.5189, -37.5117],
-  "santa luzia do itanhy": [-11.3528, -37.4478],
-  "nossa senhora da gloria": [-10.2189, -37.4217],
-  "monte alegre de sergipe": [-10.0264, -37.5611],
-  "porto da folha": [-9.9172, -37.2778],
-  "gararu": [-9.9667, -37.0833],
+  "pinhao": [-10.5694, -37.5819],
+  "pirambu": [-10.7408, -36.8569],
   "poco redondo": [-9.8064, -37.6839],
-  "caninde de sao francisco": [-9.6439, -37.7894],
-  "nossa senhora de lourdes": [-10.1583, -37.0542],
-  "itabi": [-10.1264, -37.1028],
+  "poco verde": [-10.7089, -38.1814],
+  "porto da folha": [-9.9172, -37.2778],
   "propria": [-10.2108, -36.8417],
-  "neopolis": [-10.3208, -36.5794],
+  "riachao do dantas": [-10.9089, -37.7214],
+  "riachuelo": [-10.7783, -37.1856],
+  "ribeiropolis": [-10.5386, -37.4267],
+  "rosario do catete": [-10.6969, -37.0306],
+  "salgado": [-11.0319, -37.4728],
+  "santa luzia do itanhy": [-11.3528, -37.4478],
+  "santana do sao francisco": [-10.2833, -36.6000],
+  "santa rosa de lima": [-10.6483, -37.1953],
+  "santo amaro das brotas": [-10.7889, -36.9897],
+  "sao cristovao": [-11.0147, -37.2064],
+  "sao domingos": [-10.7917, -37.5681],
+  "sao francisco": [-10.3333, -36.8839],
+  "sao miguel do aleixo": [-10.3889, -37.3808],
+  "aleixo": [-10.3889, -37.3808],
+  "simao dias": [-10.7439, -37.8108],
+  "siriri": [-10.6028, -37.1128],
+  "telha": [-10.2117, -36.8839],
+  "tobias barreto": [-11.1839, -37.9986],
+  "tomar do geru": [-11.3739, -37.8428],
+  "umbauba": [-11.3831, -37.6569],
+
+  // ── Alagoas (AL) / Bahia (BA) / Pernambuco (PE) / Paraíba (PB) ──
   "maceio": [-9.6658, -35.7353],
   "arapiraca": [-9.7517, -36.6606],
   "penedo": [-10.2906, -36.5864],
@@ -92,11 +117,36 @@ const CITY_FALLBACK_COORDINATES: Record<string, [number, number]> = {
   "campina grande": [-7.2219, -35.8828]
 };
 
-function isValidBrazilCoords(coords: [number, number]): boolean {
+const STATE_BOUNDING_BOXES: Record<string, { minLat: number; maxLat: number; minLng: number; maxLng: number }> = {
+  'se': { minLat: -11.75, maxLat: -9.30, minLng: -38.45, maxLng: -36.20 },
+  'al': { minLat: -10.60, maxLat: -8.70, minLng: -38.35, maxLng: -35.05 },
+  'ba': { minLat: -18.45, maxLat: -8.40, minLng: -46.70, maxLng: -37.20 },
+  'pe': { minLat: -9.60, maxLat: -7.00, minLng: -41.45, maxLng: -34.70 },
+  'pb': { minLat: -8.45, maxLat: -5.90, minLng: -38.90, maxLng: -34.70 },
+  'rn': { minLat: -6.90, maxLat: -4.80, minLng: -38.60, maxLng: -34.90 },
+  'ce': { minLat: -7.90, maxLat: -2.70, minLng: -41.50, maxLng: -37.20 },
+};
+
+function isValidStateCoords(coords: [number, number], state: string): boolean {
     if (!coords || !Array.isArray(coords) || coords.length !== 2) return false;
     const [lat, lng] = coords;
-    // Valid Brazil bounding box: Lat between -34 and 5.5, Lng between -74 and -32
-    return lat >= -34.0 && lat <= 5.5 && lng >= -74.0 && lng <= -32.0;
+    if (isNaN(lat) || isNaN(lng)) return false;
+
+    // Valid Brazil bounding box check
+    if (lat < -34.0 || lat > 5.5 || lng < -74.0 || lng > -32.0) return false;
+
+    // Specific state bounding box check if state is configured
+    const stKey = (state || '').trim().toLowerCase();
+    const box = STATE_BOUNDING_BOXES[stKey];
+    if (box) {
+        return lat >= box.minLat && lat <= box.maxLat && lng >= box.minLng && lng <= box.maxLng;
+    }
+
+    return true;
+}
+
+function isValidBrazilCoords(coords: [number, number]): boolean {
+    return isValidStateCoords(coords, '');
 }
 
 function normalizeStr(str: string): string {
@@ -121,16 +171,16 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
 
     const key = `geocode_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
     
-    // Check localStorage cache with strict Brazil bounds validation
+    // Check localStorage cache with strict state bounds validation
     if (typeof window !== 'undefined') {
         const cached = localStorage.getItem(key);
         if (cached) {
             try {
                 const parsed = JSON.parse(cached);
-                if (isValidBrazilCoords(parsed)) {
+                if (isValidStateCoords(parsed, rawState)) {
                     return parsed;
                 } else {
-                    // Purge bad cached location (e.g. Paraguay or Sweden)
+                    // Purge bad cached location (e.g. Paraguay or Paraná)
                     localStorage.removeItem(key);
                 }
             } catch(e) {}
@@ -150,8 +200,8 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
                 const data0 = await res0.json();
                 if (data0 && data0.length > 0) {
                     const coords: [number, number] = [parseFloat(data0[0].lat), parseFloat(data0[0].lon)];
-                    if (isValidBrazilCoords(coords)) {
-                        saveCache(key, coords);
+                    if (isValidStateCoords(coords, rawState)) {
+                        saveCache(key, coords, rawState);
                         return coords;
                     }
                 }
@@ -168,8 +218,8 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
                 const data1 = await res1.json();
                 if (data1 && data1.length > 0) {
                     const coords: [number, number] = [parseFloat(data1[0].lat), parseFloat(data1[0].lon)];
-                    if (isValidBrazilCoords(coords)) {
-                        saveCache(key, coords);
+                    if (isValidStateCoords(coords, rawState)) {
+                        saveCache(key, coords, rawState);
                         return coords;
                     }
                 }
@@ -186,10 +236,10 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
             const data2 = await res2.json();
             if (data2 && data2.length > 0) {
                 const coords: [number, number] = [parseFloat(data2[0].lat), parseFloat(data2[0].lon)];
-                if (isValidBrazilCoords(coords)) {
+                if (isValidStateCoords(coords, rawState)) {
                     coords[0] += (Math.random() - 0.5) * 0.008;
                     coords[1] += (Math.random() - 0.5) * 0.008;
-                    saveCache(key, coords);
+                    saveCache(key, coords, rawState);
                     return coords;
                 }
             }
@@ -200,21 +250,23 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
     }
 
     // Step 4: Fallback to static city coordinates in Brazil
-    const knownCoords = CITY_FALLBACK_COORDINATES[cityNorm];
+    const knownCoords = CITY_FALLBACK_COORDINATES[cityNorm] ||
+      Object.entries(CITY_FALLBACK_COORDINATES).find(([k]) => cityNorm.length >= 4 && (cityNorm.includes(k) || k.includes(cityNorm)))?.[1];
+
     if (knownCoords) {
         const fallbackCoords: [number, number] = [
-            knownCoords[0] + (Math.random() - 0.5) * 0.01,
-            knownCoords[1] + (Math.random() - 0.5) * 0.01
+            knownCoords[0] + (Math.random() - 0.5) * 0.008,
+            knownCoords[1] + (Math.random() - 0.5) * 0.008
         ];
-        saveCache(key, fallbackCoords);
+        saveCache(key, fallbackCoords, rawState);
         return fallbackCoords;
     }
 
     return null;
 }
 
-function saveCache(key: string, coords: [number, number]) {
-    if (typeof window !== 'undefined' && isValidBrazilCoords(coords)) {
+function saveCache(key: string, coords: [number, number], state: string = '') {
+    if (typeof window !== 'undefined' && isValidStateCoords(coords, state)) {
         localStorage.setItem(key, JSON.stringify(coords));
     }
 }
