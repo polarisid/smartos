@@ -37,13 +37,30 @@ const DynamicalRouteMap = dynamic(() => import('@/components/RouteMap'), { ssr: 
 // ─── formatStopsToText (converts RouteStops back to TSV text format for editing) ──
 function formatStopsToText(stops: RouteStop[]): string {
   if (!stops || stops.length === 0) return "";
-  const header = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD";
+
+  // Determine maximum number of parts across all stops (minimum 5 columns)
+  let maxParts = 5;
+  stops.forEach(s => {
+    if (s.parts && s.parts.length > maxParts) {
+      maxParts = s.parts.length;
+    }
+  });
+
+  const baseHeaders = [
+    "SO Nro.", "ASC Job No.", "Nome Consumidor", "Cidade", "Bairro", "UF", "Modelo", "TURNO", "TAT", 
+    "Data de Solicitação", "1st Visit Date", "TS", "OW/LP", "SPD", "Status comment"
+  ];
+  
+  const partHeaders: string[] = [];
+  for (let i = 0; i < maxParts; i++) {
+    const num = i === 0 ? "" : String(i + 1);
+    partHeaders.push(`COD${num}`, `DESCRICAO${num}`, `QTD${num}`);
+  }
+
+  const header = [...baseHeaders, ...partHeaders].join("\t");
+
   const rows = stops.map(s => {
-    const p0 = s.parts?.[0];
-    const partCode = p0?.code || "";
-    const partDesc = p0?.description || "";
-    const partQty = p0?.quantity ? String(p0.quantity) : "";
-    return [
+    const baseCols = [
       s.serviceOrder || "",
       s.ascJobNumber || "",
       s.consumerName || "",
@@ -58,12 +75,22 @@ function formatStopsToText(stops: RouteStop[]): string {
       s.ts || "",
       s.warrantyType || "",
       s.productType || "",
-      s.statusComment || "",
-      partCode,
-      partDesc,
-      partQty
-    ].join("\t");
+      s.statusComment || ""
+    ];
+
+    const partCols: string[] = [];
+    for (let i = 0; i < maxParts; i++) {
+      const p = s.parts?.[i];
+      partCols.push(
+        p?.code || "",
+        p?.description || "",
+        p?.quantity != null ? String(p.quantity) : ""
+      );
+    }
+
+    return [...baseCols, ...partCols].join("\t");
   });
+
   return [header, ...rows].join("\n");
 }
 
@@ -124,7 +151,7 @@ function getRouteDayInfo(route: Route, day: Date) {
   };
 }
 
-// ─── parseRouteText (same as admin/routes) ──────────────────────────────────
+// ─── parseRouteText (supports multiple parts COD/COD2/COD3... and flexible turn headers) ──
 function parseRouteText(text: string): RouteStop[] {
   if (!text.trim()) return [];
   const lines = text.trim().replace(/\r\n/g, '\n').split('\n');
@@ -135,48 +162,112 @@ function parseRouteText(text: string): RouteStop[] {
     hasTabs ? line.split('\t').map(c => c.trim().replace(/ {2,}/g, ' '))
             : line.replace(/[\s\t]{2,}/g, '\t').split('\t').map(c => c.trim());
   const headers = getColumns(headerLine).map(h => h.toLowerCase());
-  const getIndex = (name: string | string[]) => {
-    const names = Array.isArray(name) ? name : [name];
-    for (const n of names) { const i = headers.indexOf(n.toLowerCase()); if (i !== -1) return i; }
+
+  const getIndex = (names: string | string[]) => {
+    const nameList = Array.isArray(names) ? names : [names];
+    for (const n of nameList) {
+      const i = headers.indexOf(n.toLowerCase());
+      if (i !== -1) return i;
+    }
+    for (const n of nameList) {
+      const i = headers.findIndex(h => h.includes(n.toLowerCase()));
+      if (i !== -1) return i;
+    }
     return -1;
   };
+
   const hi = {
-    soNro: getIndex('so nro.'), ascJobNo: getIndex('asc job no.'),
-    consumerName: getIndex('nome consumidor'), city: getIndex('cidade'),
-    neighborhood: getIndex('bairro'), state: getIndex('uf'),
-    model: getIndex('modelo'), turn: getIndex('turno'), tat: getIndex('tat'),
-    requestDate: getIndex('data de solicitação'), firstVisitDate: getIndex('1st visit date'),
-    ts: getIndex('ts'), warrantyType: getIndex('ow/lp'),
-    productType: getIndex('spd'), statusComment: getIndex('status comment'),
+    soNro: getIndex(['so nro.', 'so nro', 'ordem de servico', 'os', 'nro os', 'so']),
+    ascJobNo: getIndex(['asc job no.', 'asc job no', 'asc job']),
+    consumerName: getIndex(['nome consumidor', 'consumidor', 'cliente', 'nome cliente']),
+    city: getIndex(['cidade', 'city']),
+    neighborhood: getIndex(['bairro', 'bairro/distrito']),
+    state: getIndex(['uf', 'estado', 'st']),
+    model: getIndex(['modelo', 'model']),
+    turn: getIndex(['turno', 'turno atendimento', 'turno atend.', 'periodo', 'período', 'horario', 'horário']),
+    tat: getIndex(['tat']),
+    requestDate: getIndex(['data de solicitação', 'data solicitacao', 'data sol']),
+    firstVisitDate: getIndex(['1st visit date', 'primeira visita', 'data visita', 'agendamento']),
+    ts: getIndex(['ts']),
+    warrantyType: getIndex(['ow/lp', 'garantia', 'tipo garantia']),
+    productType: getIndex(['spd', 'produto', 'tipo produto']),
+    statusComment: getIndex(['status comment', 'status', 'comentario']),
   };
-  const partColumns: { codeIndex: number; qtyIndex: number; descIndex?: number }[] = [];
+
+  const partColumns: { codeIndex: number; qtyIndex?: number; descIndex?: number }[] = [];
+
   headers.forEach((header, index) => {
-    if (header === 'cod') {
-      const ci = index; let qi = -1; let di = -1;
-      if (headers[index + 1]?.toLowerCase() === 'qtd') qi = index + 1;
-      else if (['descricao','descrição'].includes(headers[index + 1]?.toLowerCase()) && headers[index + 2]?.toLowerCase() === 'qtd') { di = index + 1; qi = index + 2; }
-      if (qi !== -1) partColumns.push({ codeIndex: ci, qtyIndex: qi, descIndex: di !== -1 ? di : undefined });
+    const cleanHeader = header.replace(/[^a-z0-9]/g, '');
+    const isCodHeader = cleanHeader.startsWith('cod') || cleanHeader.startsWith('codigo');
+
+    if (isCodHeader) {
+      const codeIndex = index;
+      let qtyIndex: number | undefined = undefined;
+      let descIndex: number | undefined = undefined;
+
+      for (let offset = 1; offset <= 3; offset++) {
+        const nextHeader = (headers[index + offset] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (!nextHeader) break;
+
+        if (nextHeader.startsWith('desc')) {
+          descIndex = index + offset;
+        } else if (nextHeader.startsWith('qtd') || nextHeader.startsWith('quant')) {
+          qtyIndex = index + offset;
+        }
+      }
+
+      partColumns.push({ codeIndex, qtyIndex, descIndex });
     }
   });
+
   return lines.map(line => {
     const cols = getColumns(line);
-    const so = cols[hi.soNro]?.trim();
-    if (!so) return null;
+    const so = hi.soNro !== -1 ? cols[hi.soNro]?.trim() : cols[0]?.trim();
+    if (!so || so.toLowerCase().includes('so nro')) return null;
+
     const parts: RoutePart[] = [];
     partColumns.forEach(pc => {
       const code = cols[pc.codeIndex]?.trim();
-      const qty = parseInt(cols[pc.qtyIndex]?.trim(), 10);
-      if (code && !isNaN(qty) && qty > 0) parts.push({ code, description: pc.descIndex ? (cols[pc.descIndex]?.trim() || '') : '', quantity: qty, trackingCode: '' });
+      if (!code) return;
+
+      let quantity = 1;
+      if (pc.qtyIndex !== undefined) {
+        const rawQty = parseInt(cols[pc.qtyIndex]?.trim() || '', 10);
+        if (!isNaN(rawQty) && rawQty > 0) {
+          quantity = rawQty;
+        }
+      }
+
+      const description = pc.descIndex !== undefined ? (cols[pc.descIndex]?.trim() || '') : '';
+
+      if (!parts.some(p => p.code === code)) {
+        parts.push({
+          code,
+          description,
+          quantity,
+          trackingCode: ''
+        });
+      }
     });
+
     return {
-      serviceOrder: so, ascJobNumber: cols[hi.ascJobNo]?.trim() || '',
-      consumerName: cols[hi.consumerName]?.trim() || '', city: cols[hi.city]?.trim() || '',
-      neighborhood: cols[hi.neighborhood]?.trim() || '', state: cols[hi.state]?.trim() || '',
-      model: cols[hi.model]?.trim() || '', turn: cols[hi.turn]?.trim() || '',
-      tat: cols[hi.tat]?.trim() || '', requestDate: cols[hi.requestDate]?.trim() || '',
-      firstVisitDate: cols[hi.firstVisitDate]?.trim() || '', ts: cols[hi.ts]?.trim() || '',
-      warrantyType: cols[hi.warrantyType]?.trim() || '', productType: cols[hi.productType]?.trim() || '',
-      statusComment: cols[hi.statusComment]?.trim() || '', parts, stopType: 'padrao' as const,
+      serviceOrder: so,
+      ascJobNumber: hi.ascJobNo !== -1 ? (cols[hi.ascJobNo]?.trim() || '') : '',
+      consumerName: hi.consumerName !== -1 ? (cols[hi.consumerName]?.trim() || '') : '',
+      city: hi.city !== -1 ? (cols[hi.city]?.trim() || '') : '',
+      neighborhood: hi.neighborhood !== -1 ? (cols[hi.neighborhood]?.trim() || '') : '',
+      state: hi.state !== -1 ? (cols[hi.state]?.trim() || '') : '',
+      model: hi.model !== -1 ? (cols[hi.model]?.trim() || '') : '',
+      turn: hi.turn !== -1 ? (cols[hi.turn]?.trim() || '') : '',
+      tat: hi.tat !== -1 ? (cols[hi.tat]?.trim() || '') : '',
+      requestDate: hi.requestDate !== -1 ? (cols[hi.requestDate]?.trim() || '') : '',
+      firstVisitDate: hi.firstVisitDate !== -1 ? (cols[hi.firstVisitDate]?.trim() || '') : '',
+      ts: hi.ts !== -1 ? (cols[hi.ts]?.trim() || '') : '',
+      warrantyType: hi.warrantyType !== -1 ? (cols[hi.warrantyType]?.trim() || '') : '',
+      productType: hi.productType !== -1 ? (cols[hi.productType]?.trim() || '') : '',
+      statusComment: hi.statusComment !== -1 ? (cols[hi.statusComment]?.trim() || '') : '',
+      parts,
+      stopType: 'padrao' as const,
     } as RouteStop;
   }).filter((s): s is RouteStop => s !== null);
 }
@@ -1548,6 +1639,8 @@ export default function PlanejamentoPage() {
                       <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Cliente</th>
                       <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Cidade / Bairro</th>
                       <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Modelo</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Turno</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Peças</th>
                       <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">TAT / Tipo</th>
                     </tr>
                   </thead>
@@ -1566,11 +1659,33 @@ export default function PlanejamentoPage() {
                           <p className="font-medium leading-tight max-w-[140px]">{stop.consumerName}</p>
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">
-                          <p className="font-medium text-foreground">{stop.city}</p>
+                          <p className="font-medium text-foreground">{stop.city}{stop.state ? ` (${stop.state.toUpperCase()})` : ''}</p>
                           {stop.neighborhood && <p className="text-[10px] opacity-60">{stop.neighborhood}</p>}
                         </td>
                         <td className="px-3 py-2 text-muted-foreground max-w-[100px]">
                           <span className="block truncate">{stop.model}</span>
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {stop.turn ? (
+                            <span className="text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 px-1.5 py-0.5 rounded">
+                              {stop.turn}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] opacity-40">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          {stop.parts && stop.parts.length > 0 ? (
+                            <div className="flex flex-wrap gap-1 max-w-[200px]">
+                              {stop.parts.map((p, pi) => (
+                                <span key={pi} className="text-[9px] font-mono font-bold bg-muted/80 px-1 py-0.5 rounded border border-border/40 truncate">
+                                  {p.code} <span className="text-primary font-black">x{p.quantity}</span>
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[10px] opacity-40">—</span>
+                          )}
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex flex-col gap-0.5 items-start">
@@ -1693,14 +1808,24 @@ export default function PlanejamentoPage() {
               />
               {parsedPreview.length > 0 && (
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20 p-2">
-                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 mb-1.5">Pré-visualização das paradas:</p>
+                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 mb-1.5">Pré-visualização das paradas ({parsedPreview.length}):</p>
                   <div className="max-h-40 overflow-y-auto space-y-0.5">
                     {parsedPreview.map((s, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs">
-                        <span className="text-muted-foreground w-5 text-right">{i+1}.</span>
-                        <span className="font-mono font-semibold">{s.serviceOrder}</span>
-                        <span className="text-muted-foreground truncate">{s.consumerName}</span>
-                        <span className="text-muted-foreground">{s.city}</span>
+                      <div key={i} className="flex items-center flex-wrap gap-1.5 text-xs py-0.5 border-b border-border/20 last:border-0">
+                        <span className="text-muted-foreground w-5 text-right font-bold">{i+1}.</span>
+                        <span className="font-mono font-bold">{s.serviceOrder}</span>
+                        <span className="text-muted-foreground truncate max-w-[110px]">{s.consumerName}</span>
+                        <span className="text-muted-foreground font-medium">{s.city}</span>
+                        {s.turn && (
+                          <span className="text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 px-1.5 py-0.2 rounded">
+                            {s.turn}
+                          </span>
+                        )}
+                        {s.parts && s.parts.length > 0 && (
+                          <span className="text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 px-1.5 py-0.2 rounded">
+                            📦 {s.parts.length} peça{s.parts.length > 1 ? 's' : ''}: {s.parts.map(p => `${p.code}${p.quantity > 1 ? ` x${p.quantity}` : ''}`).join(', ')}
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1817,15 +1942,25 @@ export default function PlanejamentoPage() {
                 onChange={e => handleEditTextChange(e.target.value)}
               />
               {editParsedPreview.length > 0 && (
-                <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20 p-2">
+                <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-955/20 p-2">
                   <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-1.5">Paradas reconhecidas ({editParsedPreview.length}):</p>
                   <div className="max-h-40 overflow-y-auto space-y-0.5">
                     {editParsedPreview.map((s, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs">
-                        <span className="text-muted-foreground w-5 text-right">{i+1}.</span>
-                        <span className="font-mono font-semibold">{s.serviceOrder}</span>
-                        <span className="text-muted-foreground truncate">{s.consumerName}</span>
-                        <span className="text-muted-foreground">{s.city}</span>
+                      <div key={i} className="flex items-center flex-wrap gap-1.5 text-xs py-0.5 border-b border-border/20 last:border-0">
+                        <span className="text-muted-foreground w-5 text-right font-bold">{i+1}.</span>
+                        <span className="font-mono font-bold">{s.serviceOrder}</span>
+                        <span className="text-muted-foreground truncate max-w-[110px]">{s.consumerName}</span>
+                        <span className="text-muted-foreground font-medium">{s.city}</span>
+                        {s.turn && (
+                          <span className="text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 px-1.5 py-0.2 rounded">
+                            {s.turn}
+                          </span>
+                        )}
+                        {s.parts && s.parts.length > 0 && (
+                          <span className="text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 px-1.5 py-0.2 rounded">
+                            📦 {s.parts.length} peça{s.parts.length > 1 ? 's' : ''}: {s.parts.map(p => `${p.code}${p.quantity > 1 ? ` x${p.quantity}` : ''}`).join(', ')}
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>

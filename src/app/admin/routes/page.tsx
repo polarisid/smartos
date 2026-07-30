@@ -51,7 +51,6 @@ const DynamicalRouteMap = dynamic(() => import('@/components/RouteMap'), { ssr: 
 function parseRouteText(text: string): RouteStop[] {
     if (!text.trim()) return [];
 
-    // Normalize line endings and split into lines
     const lines = text.trim().replace(/\r\n/g, '\n').split('\n');
     const headerLine = lines.shift()?.trim();
     if (!headerLine) return [];
@@ -67,103 +66,116 @@ function parseRouteText(text: string): RouteStop[] {
 
     const headers = getColumns(headerLine).map(h => h.toLowerCase());
     
-    // Dynamically find indices of headers
-    const getIndex = (name: string | string[]) => {
-        const names = Array.isArray(name) ? name : [name];
-        for (const n of names) {
+    const getIndex = (names: string | string[]) => {
+        const nameList = Array.isArray(names) ? names : [names];
+        for (const n of nameList) {
             const index = headers.indexOf(n.toLowerCase());
+            if (index !== -1) return index;
+        }
+        for (const n of nameList) {
+            const index = headers.findIndex(h => h.includes(n.toLowerCase()));
             if (index !== -1) return index;
         }
         return -1;
     };
 
     const headerIndices = {
-        soNro: getIndex('so nro.'),
-        ascJobNo: getIndex('asc job no.'),
-        consumerName: getIndex('nome consumidor'),
-        city: getIndex('cidade'),
-        neighborhood: getIndex('bairro'),
-        state: getIndex('uf'),
-        model: getIndex('modelo'),
-        turn: getIndex('turno'),
-        tat: getIndex('tat'),
-        requestDate: getIndex('data de solicitação'),
-        firstVisitDate: getIndex('1st visit date'),
-        ts: getIndex('ts'),
-        warrantyType: getIndex('ow/lp'),
-        productType: getIndex('spd'),
-        statusComment: getIndex('status comment'),
+        soNro: getIndex(['so nro.', 'so nro', 'ordem de servico', 'os', 'nro os', 'so']),
+        ascJobNo: getIndex(['asc job no.', 'asc job no', 'asc job']),
+        consumerName: getIndex(['nome consumidor', 'consumidor', 'cliente', 'nome cliente']),
+        city: getIndex(['cidade', 'city']),
+        neighborhood: getIndex(['bairro', 'bairro/distrito']),
+        state: getIndex(['uf', 'estado', 'st']),
+        model: getIndex(['modelo', 'model']),
+        turn: getIndex(['turno', 'turno atendimento', 'turno atend.', 'periodo', 'período', 'horario', 'horário']),
+        tat: getIndex(['tat']),
+        requestDate: getIndex(['data de solicitação', 'data solicitacao', 'data sol']),
+        firstVisitDate: getIndex(['1st visit date', 'primeira visita', 'data visita', 'agendamento']),
+        ts: getIndex(['ts']),
+        warrantyType: getIndex(['ow/lp', 'garantia', 'tipo garantia']),
+        productType: getIndex(['spd', 'produto', 'tipo produto']),
+        statusComment: getIndex(['status comment', 'status', 'comentario']),
     };
     
-    // Find all indices for parts
-    const partColumns: { codeIndex: number; qtyIndex: number; descIndex?: number }[] = [];
+    const partColumns: { codeIndex: number; qtyIndex?: number; descIndex?: number }[] = [];
     headers.forEach((header, index) => {
-        if (header === 'cod') {
+        const cleanHeader = header.replace(/[^a-z0-9]/g, '');
+        const isCodHeader = cleanHeader.startsWith('cod') || cleanHeader.startsWith('codigo');
+
+        if (isCodHeader) {
             const codeIndex = index;
-            let qtyIndex = -1;
-            let descIndex = -1;
-            
-            // Look for QTD and DESCRICAO in the next columns
-            if (headers[index + 1]?.toLowerCase() === 'qtd') {
-                qtyIndex = index + 1;
-            } else if (headers[index + 1]?.toLowerCase() === 'descricao' && headers[index + 2]?.toLowerCase() === 'qtd') {
-                descIndex = index + 1;
-                qtyIndex = index + 2;
-            } else if (headers[index + 1]?.toLowerCase() === 'descrição' && headers[index + 2]?.toLowerCase() === 'qtd') {
-                descIndex = index + 1;
-                qtyIndex = index + 2;
+            let qtyIndex: number | undefined = undefined;
+            let descIndex: number | undefined = undefined;
+
+            for (let offset = 1; offset <= 3; offset++) {
+                const nextHeader = (headers[index + offset] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (!nextHeader) break;
+
+                if (nextHeader.startsWith('desc')) {
+                    descIndex = index + offset;
+                } else if (nextHeader.startsWith('qtd') || nextHeader.startsWith('quant')) {
+                    qtyIndex = index + offset;
+                }
             }
-            
-            if (qtyIndex !== -1) {
-                partColumns.push({ codeIndex, qtyIndex, descIndex: descIndex !== -1 ? descIndex : undefined });
-            }
+
+            partColumns.push({ codeIndex, qtyIndex, descIndex });
         }
     });
 
     return lines.map(line => {
         const columns = getColumns(line);
 
-        // Basic validation: ensure the line has enough columns to be a valid entry
-        const serviceOrder = columns[headerIndices.soNro]?.trim();
-        if (!serviceOrder) {
+        const serviceOrder = headerIndices.soNro !== -1 ? columns[headerIndices.soNro]?.trim() : columns[0]?.trim();
+        if (!serviceOrder || serviceOrder.toLowerCase().includes('so nro')) {
             return null;
         }
 
         const parts: RoutePart[] = [];
         partColumns.forEach(pc => {
             const code = columns[pc.codeIndex]?.trim();
-            const quantityStr = columns[pc.qtyIndex]?.trim();
-            if (code && quantityStr) {
-                const quantity = parseInt(quantityStr, 10);
-                if (!isNaN(quantity) && quantity > 0) {
-                    parts.push({
-                        code: code,
-                        description: pc.descIndex ? (columns[pc.descIndex]?.trim() || '') : '',
-                        quantity: quantity,
-                        trackingCode: ''
-                    });
+            if (!code) return;
+
+            let quantity = 1;
+            if (pc.qtyIndex !== undefined) {
+                const quantityStr = columns[pc.qtyIndex]?.trim();
+                if (quantityStr) {
+                    const parsedQty = parseInt(quantityStr, 10);
+                    if (!isNaN(parsedQty) && parsedQty > 0) {
+                        quantity = parsedQty;
+                    }
                 }
+            }
+
+            const description = pc.descIndex !== undefined ? (columns[pc.descIndex]?.trim() || '') : '';
+
+            if (!parts.some(p => p.code === code)) {
+                parts.push({
+                    code: code,
+                    description: description,
+                    quantity: quantity,
+                    trackingCode: ''
+                });
             }
         });
         
         return {
             serviceOrder: serviceOrder,
-            ascJobNumber: columns[headerIndices.ascJobNo]?.trim() || '',
-            consumerName: columns[headerIndices.consumerName]?.trim() || '',
-            city: columns[headerIndices.city]?.trim() || '',
-            neighborhood: columns[headerIndices.neighborhood]?.trim() || '',
-            state: columns[headerIndices.state]?.trim() || '',
-            model: columns[headerIndices.model]?.trim() || '',
-            turn: columns[headerIndices.turn]?.trim() || '',
-            tat: columns[headerIndices.tat]?.trim() || '',
-            requestDate: columns[headerIndices.requestDate]?.trim() || '',
-            firstVisitDate: columns[headerIndices.firstVisitDate]?.trim() || '',
-            ts: columns[headerIndices.ts]?.trim() || '',
-            warrantyType: columns[headerIndices.warrantyType]?.trim() || '',
-            productType: columns[headerIndices.productType]?.trim() || '',
-            statusComment: columns[headerIndices.statusComment]?.trim() || '',
+            ascJobNumber: headerIndices.ascJobNo !== -1 ? (columns[headerIndices.ascJobNo]?.trim() || '') : '',
+            consumerName: headerIndices.consumerName !== -1 ? (columns[headerIndices.consumerName]?.trim() || '') : '',
+            city: headerIndices.city !== -1 ? (columns[headerIndices.city]?.trim() || '') : '',
+            neighborhood: headerIndices.neighborhood !== -1 ? (columns[headerIndices.neighborhood]?.trim() || '') : '',
+            state: headerIndices.state !== -1 ? (columns[headerIndices.state]?.trim() || '') : '',
+            model: headerIndices.model !== -1 ? (columns[headerIndices.model]?.trim() || '') : '',
+            turn: headerIndices.turn !== -1 ? (columns[headerIndices.turn]?.trim() || '') : '',
+            tat: headerIndices.tat !== -1 ? (columns[headerIndices.tat]?.trim() || '') : '',
+            requestDate: headerIndices.requestDate !== -1 ? (columns[headerIndices.requestDate]?.trim() || '') : '',
+            firstVisitDate: headerIndices.firstVisitDate !== -1 ? (columns[headerIndices.firstVisitDate]?.trim() || '') : '',
+            ts: headerIndices.ts !== -1 ? (columns[headerIndices.ts]?.trim() || '') : '',
+            warrantyType: headerIndices.warrantyType !== -1 ? (columns[headerIndices.warrantyType]?.trim() || '') : '',
+            productType: headerIndices.productType !== -1 ? (columns[headerIndices.productType]?.trim() || '') : '',
+            statusComment: headerIndices.statusComment !== -1 ? (columns[headerIndices.statusComment]?.trim() || '') : '',
             parts: parts,
-            stopType: 'padrao' as const, // Default value
+            stopType: 'padrao' as const,
         } as RouteStop;
     }).filter((stop): stop is RouteStop => stop !== null);
 }
@@ -171,7 +183,27 @@ function parseRouteText(text: string): RouteStop[] {
 
 function reconstructRouteText(stops: RouteStop[]): string {
     if (!stops || stops.length === 0) return "";
-    const header = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD";
+
+    let maxParts = 5;
+    stops.forEach(s => {
+        if (s.parts && s.parts.length > maxParts) {
+            maxParts = s.parts.length;
+        }
+    });
+
+    const baseHeaders = [
+        "SO Nro.", "ASC Job No.", "Nome Consumidor", "Cidade", "Bairro", "UF", "Modelo", "TURNO", "TAT",
+        "Data de Solicitação", "1st Visit Date", "TS", "OW/LP", "SPD", "Status comment"
+    ];
+
+    const partHeaders: string[] = [];
+    for (let i = 0; i < maxParts; i++) {
+        const num = i === 0 ? "" : String(i + 1);
+        partHeaders.push(`COD${num}`, `DESCRICAO${num}`, `QTD${num}`);
+    }
+
+    const header = [...baseHeaders, ...partHeaders].join("\t");
+
     const lines = stops.map(stop => {
         const baseColumns = [
             stop.serviceOrder || '',
@@ -190,9 +222,20 @@ function reconstructRouteText(stops: RouteStop[]): string {
             stop.productType || '',
             stop.statusComment || '',
         ];
-        const partColumns = (stop.parts || []).flatMap(p => [p.code, p.description, p.quantity.toString()]);
+
+        const partColumns: string[] = [];
+        for (let i = 0; i < maxParts; i++) {
+            const p = stop.parts?.[i];
+            partColumns.push(
+                p?.code || '',
+                p?.description || '',
+                p?.quantity != null ? String(p.quantity) : ''
+            );
+        }
+
         return [...baseColumns, ...partColumns].join('\t');
     });
+
     return [header, ...lines].join('\n');
 }
 
