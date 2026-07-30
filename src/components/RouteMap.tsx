@@ -4,7 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { getCoordinates } from '@/lib/geocode';
+import { getCoordinates, parseFullAddress } from '@/lib/geocode';
+import { configService } from '@/services/supabase/configService';
 import { Route, RouteStop } from '@/lib/data';
 
 // Fix for default Leaflet icons in Webpack/Next.js
@@ -16,6 +17,14 @@ L.Icon.Default.mergeOptions({
     shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
+function getHaversineDistance(c1: [number, number], c2: [number, number]): number {
+    const dLat = (c2[0] - c1[0]) * Math.PI / 180;
+    const dLng = (c2[1] - c1[1]) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(c1[0] * Math.PI / 180) * Math.cos(c2[0] * Math.PI / 180) *
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 // Custom DivIcons with sequential index numbers
 const getCustomIcon = (color: 'green' | 'blue' | 'yellow', index: number) => {
@@ -82,46 +91,67 @@ export default function RouteMap({
     baseAddress = "Avenida Barão de Maruim, 83, São José, Aracaju - SE"
 }: RouteMapProps) {
     const [mapStops, setMapStops] = useState<MapStop[]>([]);
-    const [baseCoords, setBaseCoords] = useState<[number, number] | null>([-10.9142, -37.0545]); // Default Barão de Maruim
+    const [baseCoords, setBaseCoords] = useState<[number, number] | null>([-10.9142, -37.0545]);
     const [roadPolyline, setRoadPolyline] = useState<[number, number][]>([]);
     const [loading, setLoading] = useState(true);
 
-    // 1. Fetch Base coordinates
+    // 1. Fetch Base coordinates dynamically from baseAddress or configService
     useEffect(() => {
-        if (!baseAddress) return;
-        getCoordinates("Aracaju", "São José", "SE", baseAddress).then(coords => {
+        const resolveBase = async () => {
+            let addr = baseAddress;
+            if (!addr || addr.includes("Avenida Barão de Maruim")) {
+                const configBase = await configService.getBaseAddress();
+                if (configBase) addr = configBase;
+            }
+            if (!addr) return;
+
+            const { city, state, street } = parseFullAddress(addr);
+            const coords = await getCoordinates(city, "", state, street || addr);
             if (coords) setBaseCoords(coords);
-        }).catch(console.error);
+        };
+
+        resolveBase().catch(console.error);
     }, [baseAddress]);
 
-    // 2. Fetch Stop coordinates
+    // 2. Fetch Stop coordinates in parallel
     useEffect(() => {
         let isMounted = true;
         setLoading(true);
 
-        setMapStops(prev => prev.filter(p => activeStops.some(a => a.stop.serviceOrder === p.stop.serviceOrder)));
+        if (!activeStops || activeStops.length === 0) {
+            setMapStops([]);
+            setLoading(false);
+            return;
+        }
 
         const loadCoords = async () => {
-            const loaded: MapStop[] = [];
-            for (const item of activeStops) {
-                if (!isMounted) break;
-                const coords = await getCoordinates(item.stop.city, item.stop.neighborhood, item.stop.state, item.stop.addressDetails);
-                if (coords) {
-                    loaded.push({ ...item, coords });
-                    setMapStops(prev => {
-                        const existing = prev.find(p => p.stop.serviceOrder === item.stop.serviceOrder);
-                        if (existing) return prev;
-                        return [...prev, { ...item, coords }];
-                    });
+            try {
+                const promises = activeStops.map(async (item) => {
+                    const coords = await getCoordinates(item.stop.city, item.stop.neighborhood, item.stop.state, item.stop.addressDetails);
+                    return coords ? { ...item, coords } : null;
+                });
+                const results = await Promise.all(promises);
+                const loaded = results.filter((r): r is MapStop => r !== null);
+                if (isMounted) {
+                    setMapStops(loaded);
+                    setLoading(false);
                 }
+            } catch (err) {
+                console.error("Failed to load map coordinates:", err);
+                if (isMounted) setLoading(false);
             }
-            if (isMounted) setLoading(false);
         };
 
         loadCoords();
 
+        // Safety timeout to guarantee loading spinner resolves within 3.5 seconds max
+        const timer = setTimeout(() => {
+            if (isMounted) setLoading(false);
+        }, 3500);
+
         return () => {
             isMounted = false;
+            clearTimeout(timer);
         };
     }, [activeStops]);
 
@@ -133,9 +163,20 @@ export default function RouteMap({
         }
 
         const waypoints: [number, number][] = [];
-        if (baseCoords) waypoints.push(baseCoords);
+        
+        // Include baseCoords if it is within reasonable distance (< 400 km) of the stops
+        let includeBase = false;
+        if (baseCoords && mapStops.length > 0) {
+            const firstStop = mapStops[0].coords;
+            const dist = getHaversineDistance(baseCoords, firstStop);
+            if (dist < 400) {
+                includeBase = true;
+                waypoints.push(baseCoords);
+            }
+        }
+
         mapStops.forEach(s => waypoints.push(s.coords));
-        if (baseCoords) waypoints.push(baseCoords); // Return to base
+        if (includeBase && baseCoords) waypoints.push(baseCoords); // Return to base
 
         if (waypoints.length < 2) return;
 

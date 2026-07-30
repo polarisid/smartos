@@ -23,6 +23,7 @@ import { routeService } from "@/services/supabase/routeService";
 import { configService } from "@/services/supabase/configService";
 import { type Route, type RouteStop, type RoutePart } from "@/lib/data";
 import { optimizeRouteStops, describeOptimization } from "@/lib/routeOptimizer";
+import { parseFullAddress } from "@/lib/geocode";
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Trash2, CheckCircle2,
   Sparkles, Download, MapPin, Calendar, Users, Truck,
@@ -532,7 +533,8 @@ export default function PlanejamentoPage() {
     configService.getBaseAddress().then(base => {
       if (base) {
         setDefaultBaseAddress(base);
-        setOriginCity(base);
+        const { city } = parseFullAddress(base);
+        setOriginCity(city || base);
       }
     }).catch(console.error);
   }, []);

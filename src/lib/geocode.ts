@@ -103,7 +103,7 @@ const CITY_FALLBACK_COORDINATES: Record<string, [number, number]> = {
   "tomar do geru": [-11.3739, -37.8428],
   "umbauba": [-11.3831, -37.6569],
 
-  // ── Alagoas (AL) / Bahia (BA) / Pernambuco (PE) / Paraíba (PB) ──
+  // ── Alagoas (AL) / Bahia (BA) / Pernambuco (PE) / Paraíba (PB) / Maranhão (MA) ──
   "maceio": [-9.6658, -35.7353],
   "arapiraca": [-9.7517, -36.6606],
   "penedo": [-10.2906, -36.5864],
@@ -114,7 +114,13 @@ const CITY_FALLBACK_COORDINATES: Record<string, [number, number]> = {
   "caruaru": [-8.2839, -35.9761],
   "petrolina": [-9.3892, -40.5028],
   "joao pessoa": [-7.1195, -34.8450],
-  "campina grande": [-7.2219, -35.8828]
+  "campina grande": [-7.2219, -35.8828],
+  "sao luis": [-2.5307, -44.3068],
+  "imperatriz": [-5.5264, -47.4917],
+  "caxias": [-4.8589, -43.3556],
+  "timon": [-5.0939, -42.8364],
+  "sao jose de ribamar": [-2.5619, -44.0542],
+  "paco do lumiar": [-2.5317, -44.1081]
 };
 
 const STATE_BOUNDING_BOXES: Record<string, { minLat: number; maxLat: number; minLng: number; maxLng: number }> = {
@@ -132,7 +138,54 @@ const STATE_BOUNDING_BOXES: Record<string, { minLat: number; maxLat: number; min
   'rio grande do norte': { minLat: -6.90, maxLat: -4.80, minLng: -38.60, maxLng: -34.90 },
   'ce': { minLat: -7.90, maxLat: -2.70, minLng: -41.50, maxLng: -37.20 },
   'ceara': { minLat: -7.90, maxLat: -2.70, minLng: -41.50, maxLng: -37.20 },
+  'ma': { minLat: -10.50, maxLat: -1.00, minLng: -48.90, maxLng: -41.70 },
+  'maranhao': { minLat: -10.50, maxLat: -1.00, minLng: -48.90, maxLng: -41.70 },
 };
+
+/**
+ * Extracts city, state, and street address details from a full base address string.
+ * Example: "Av. da Universidade, 5-1 - Cohafuma, São Luís - MA, 65074-380"
+ * => { city: "São Luís", state: "MA", street: "Av. da Universidade, 5-1 - Cohafuma" }
+ */
+export function parseFullAddress(address: string): { city: string; state: string; street: string } {
+  if (!address || !address.trim()) {
+    return { city: 'Aracaju', state: 'SE', street: '' };
+  }
+
+  const clean = address.trim();
+  const parts = clean.split(',').map(p => p.trim());
+  let state = 'SE';
+  let city = 'Aracaju';
+  let street = clean;
+
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    const dashMatch = p.match(/^([A-Za-zÀ-ÖØ-öø-ÿ\s]+)\s*[-,\/]\s*([A-Za-z]{2})$/i);
+    if (dashMatch) {
+      city = dashMatch[1].trim();
+      state = dashMatch[2].trim().toUpperCase();
+      street = parts.slice(0, i).join(', ');
+      return { city, state, street };
+    }
+
+    const stateOnlyMatch = p.match(/^([A-Za-z]{2})(?:\s*,\s*\d{5}-?\d{3})?$/i);
+    if (stateOnlyMatch && i > 0) {
+      state = stateOnlyMatch[1].trim().toUpperCase();
+      city = parts[i - 1].replace(/[-,\/]/g, '').trim();
+      street = parts.slice(0, i - 1).join(', ');
+      return { city, state, street };
+    }
+  }
+
+  const regexMatch = clean.match(/(?:,\s*|\s+-\s+)?([A-Za-zÀ-ÖØ-öø-ÿ\s]{3,})\s*[-,\/]\s*([A-Za-z]{2})/i);
+  if (regexMatch) {
+    city = regexMatch[1].trim();
+    state = regexMatch[2].trim().toUpperCase();
+    return { city, state, street: clean };
+  }
+
+  return { city: 'Aracaju', state: 'SE', street: clean };
+}
 
 function isValidStateCoords(coords: [number, number], state: string): boolean {
     if (!coords || !Array.isArray(coords) || coords.length !== 2) return false;
