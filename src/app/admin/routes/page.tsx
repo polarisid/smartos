@@ -86,6 +86,7 @@ function parseRouteText(text: string): RouteStop[] {
         city: getIndex(['cidade', 'city']),
         neighborhood: getIndex(['bairro', 'bairro/distrito']),
         state: getIndex(['uf', 'estado', 'st']),
+        zipCode: getIndex(['cep', 'codigo postal', 'zip', 'zip code', 'zipcode']),
         model: getIndex(['modelo', 'model']),
         turn: getIndex(['turno', 'turno atendimento', 'turno atend.', 'periodo', 'período', 'horario', 'horário']),
         tat: getIndex(['tat']),
@@ -165,6 +166,7 @@ function parseRouteText(text: string): RouteStop[] {
             city: headerIndices.city !== -1 ? (columns[headerIndices.city]?.trim() || '') : '',
             neighborhood: headerIndices.neighborhood !== -1 ? (columns[headerIndices.neighborhood]?.trim() || '') : '',
             state: headerIndices.state !== -1 ? (columns[headerIndices.state]?.trim() || '') : '',
+            zipCode: headerIndices.zipCode !== -1 ? (columns[headerIndices.zipCode]?.trim() || '') : '',
             model: headerIndices.model !== -1 ? (columns[headerIndices.model]?.trim() || '') : '',
             turn: headerIndices.turn !== -1 ? (columns[headerIndices.turn]?.trim() || '') : '',
             tat: headerIndices.tat !== -1 ? (columns[headerIndices.tat]?.trim() || '') : '',
@@ -192,7 +194,7 @@ function reconstructRouteText(stops: RouteStop[]): string {
     });
 
     const baseHeaders = [
-        "SO Nro.", "ASC Job No.", "Nome Consumidor", "Cidade", "Bairro", "UF", "Modelo", "TURNO", "TAT",
+        "SO Nro.", "ASC Job No.", "Nome Consumidor", "Cidade", "Bairro", "UF", "CEP", "Modelo", "TURNO", "TAT",
         "Data de Solicitação", "1st Visit Date", "TS", "OW/LP", "SPD", "Status comment"
     ];
 
@@ -212,6 +214,7 @@ function reconstructRouteText(stops: RouteStop[]): string {
             stop.city || '',
             stop.neighborhood || '',
             stop.state || '',
+            stop.zipCode || '',
             stop.model || '',
             stop.turn || '',
             stop.tat || '',
@@ -414,6 +417,7 @@ function RouteForm({
             warrantyType: manualStopData.warrantyType.trim(),
             stopType: manualStopData.stopType,
             state: '',
+            zipCode: '',
             turn: '',
             tat: '',
             requestDate: '',

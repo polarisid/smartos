@@ -17,13 +17,13 @@ export function RouteDetailsRow({
     index, 
     serviceOrders, 
     routeCreatedAt, 
-    visitTemplate 
+    visitTemplate = '' 
 }: { 
     stop: RouteStop, 
     index: number, 
     serviceOrders: ServiceOrder[], 
     routeCreatedAt: Date,
-    visitTemplate: string
+    visitTemplate?: string
 }) {
     const { toast } = useToast();
     
@@ -143,6 +143,15 @@ export function RouteDetailsRow({
                                 <p className="font-semibold text-xs mb-1">Nome Consumidor:</p>
                                 <p className="text-sm text-foreground">{stop.consumerName || "N/A"}</p>
                             </div>
+                            <div className="flex flex-wrap gap-x-6 gap-y-2">
+                                <div>
+                                    <p className="font-semibold text-xs mb-1">Endereço:</p>
+                                    <p className="text-sm text-foreground">
+                                        {[stop.neighborhood, stop.city, stop.state?.toUpperCase()].filter(Boolean).join(', ')}
+                                        {stop.zipCode && <span className="ml-2 font-mono text-xs bg-muted px-1.5 py-0.5 rounded">CEP: {stop.zipCode}</span>}
+                                    </p>
+                                </div>
+                            </div>
                              <div>
                                 <p className="font-semibold text-xs mb-1">Detalhes:</p>
                                 <p className="text-sm text-foreground">{stop.ascJobNumber} / {stop.ts} / {stop.warrantyType}</p>
@@ -219,10 +228,21 @@ export function RouteDetailsRow({
                                 </div>
                             )}
                             {(() => {
-                                const addressQuery = stop.addressDetails
-                                    ? encodeURIComponent(`${stop.addressDetails}, ${stop.neighborhood}, ${stop.city}`)
-                                    : encodeURIComponent(`${stop.neighborhood ? stop.neighborhood + ', ' : ''}${stop.city}`);
-
+                                // Build the most precise address query possible:
+                                // Priority: CEP (zip) > addressDetails + city > neighborhood + city
+                                const buildAddressQuery = () => {
+                                    if (stop.zipCode) {
+                                        // CEP gives street-level precision in Brazil
+                                        const parts = [stop.zipCode, 'Brasil'];
+                                        if (stop.addressDetails) parts.unshift(stop.addressDetails);
+                                        return encodeURIComponent(parts.join(', '));
+                                    }
+                                    if (stop.addressDetails) {
+                                        return encodeURIComponent(`${stop.addressDetails}, ${stop.neighborhood}, ${stop.city}`);
+                                    }
+                                    return encodeURIComponent(`${stop.neighborhood ? stop.neighborhood + ', ' : ''}${stop.city}`);
+                                };
+                                const addressQuery = buildAddressQuery();
                             return (
                                 <div className="border-t pt-2 flex items-center gap-2">
                                     <Button size="sm" variant="outline" onClick={handleCopyVisitText}>

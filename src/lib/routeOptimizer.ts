@@ -386,8 +386,20 @@ export function optimizeRouteStops(stops: RouteStop[], originCity: string = "Ara
   // Step 2b: Apply 2-Opt local search refinement to eliminate crossing paths & optimize circuit loop
   const orderedClusterKeys = apply2Opt(initialClusterKeys, locationClusterMap, originCity);
 
-  // Step 3: Within each City, group strictly by Bairro (Neighborhood)
+  // Step 3: Within each City, group strictly by Bairro (Neighborhood),
+  // then sub-group by CEP prefix (3 digits = sub-region) for maximum location precision
   const result: RouteStop[] = [];
+
+  /**
+   * Extracts the postal sub-region key from a Brazilian CEP.
+   * The first 3 digits identify the postal region (e.g. "491" for part of Aracaju).
+   * Returns '' if no CEP is available.
+   */
+  function getCepSubRegion(zipCode: string): string {
+    if (!zipCode) return '';
+    const digits = zipCode.replace(/\D/g, '');
+    return digits.length >= 3 ? digits.slice(0, 3) : '';
+  }
 
   for (const clusterKey of orderedClusterKeys) {
     const clusterData = locationClusterMap.get(clusterKey);
@@ -412,11 +424,42 @@ export function optimizeRouteStops(stops: RouteStop[], originCity: string = "Ara
     );
 
     for (const [, neighborhoodStops] of sortedNeighborhoods) {
-      // Sort within neighborhood by TAT urgency (LP/OW priority first)
-      const sortedByTat = [...neighborhoodStops].sort(
-        (a, b) => parseTatDays(a.tat) - parseTatDays(b.tat)
-      );
-      result.push(...sortedByTat);
+      // Check if any stop in this neighborhood has a CEP
+      const hasCep = neighborhoodStops.some(s => s.zipCode);
+
+      if (hasCep) {
+        // Sub-group by CEP prefix (3 digits = postal sub-region) for finer proximity
+        const cepGroupMap = new Map<string, RouteStop[]>();
+        for (const stop of neighborhoodStops) {
+          const cepKey = getCepSubRegion(stop.zipCode) || 'sem_cep';
+          if (!cepGroupMap.has(cepKey)) cepGroupMap.set(cepKey, []);
+          cepGroupMap.get(cepKey)!.push(stop);
+        }
+
+        // Sort CEP groups: numbered groups (real CEP) first, then unnamed
+        const sortedCepGroups = [...cepGroupMap.entries()].sort(([a], [b]) => {
+          if (a === 'sem_cep') return 1;
+          if (b === 'sem_cep') return -1;
+          return a.localeCompare(b);
+        });
+
+        for (const [, cepStops] of sortedCepGroups) {
+          // Sort within each CEP sub-group by full CEP (most precise) then TAT urgency
+          const sortedByCep = [...cepStops].sort((a, b) => {
+            const cepA = (a.zipCode || '').replace(/\D/g, '');
+            const cepB = (b.zipCode || '').replace(/\D/g, '');
+            if (cepA && cepB && cepA !== cepB) return cepA.localeCompare(cepB);
+            return parseTatDays(a.tat) - parseTatDays(b.tat);
+          });
+          result.push(...sortedByCep);
+        }
+      } else {
+        // No CEP available: fall back to TAT urgency ordering
+        const sortedByTat = [...neighborhoodStops].sort(
+          (a, b) => parseTatDays(a.tat) - parseTatDays(b.tat)
+        );
+        result.push(...sortedByTat);
+      }
     }
   }
 

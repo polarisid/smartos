@@ -173,6 +173,7 @@ export type RouteStop = {
     city: string;
     neighborhood: string;
     state: string;
+    zipCode: string;
     model: string;
     turn: string;
     tat: string;
