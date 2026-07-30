@@ -147,7 +147,7 @@ export function MobileRouteStopCard({
                 <div className="grid grid-cols-2 gap-2 text-sm bg-background/60 p-2 rounded border border-border/40">
                     <div>
                         <p className="text-[9px] uppercase font-bold text-muted-foreground">Local</p>
-                        <p className="text-xs font-semibold leading-tight line-clamp-1">{stop.city} - {stop.neighborhood}</p>
+                        <p className="text-xs font-semibold leading-tight line-clamp-1">{stop.city}{stop.state ? ` (${stop.state.toUpperCase()})` : ''} - {stop.neighborhood}</p>
                     </div>
                     <div>
                         <p className="text-[9px] uppercase font-bold text-muted-foreground">Produto</p>

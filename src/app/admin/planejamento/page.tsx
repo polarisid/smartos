@@ -1982,7 +1982,7 @@ export default function PlanejamentoPage() {
                 </div>
 
                 {/* Mapa Depois (Sugerido pela IA) */}
-                <div className="border border-emerald-200 dark:border-emerald-900/50 rounded-xl p-3 bg-emerald-50/20 dark:bg-emerald-950/10">
+                <div className="border border-emerald-200 dark:border-emerald-900/50 rounded-xl p-3 bg-emerald-50/20 dark:bg-emerald-955/10">
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
                       <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -2043,7 +2043,15 @@ export default function PlanejamentoPage() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-[10px] text-muted-foreground truncate">{stop.city} — {stop.neighborhood}</p>
+                            <p className="text-[10px] text-muted-foreground truncate flex items-center flex-wrap gap-1">
+                              <span className="font-medium text-foreground">{stop.city}</span>
+                              {stop.state && (
+                                <span className="text-[9px] font-extrabold uppercase text-slate-700 bg-slate-200/80 dark:text-slate-300 dark:bg-slate-800 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-700">
+                                  {stop.state.toUpperCase()}
+                                </span>
+                              )}
+                              <span>— {stop.neighborhood}</span>
+                            </p>
                           </div>
                         </div>
                       );
@@ -2063,7 +2071,7 @@ export default function PlanejamentoPage() {
                       const oldPos = origIdx !== -1 ? origIdx + 1 : i + 1;
                       const newPos = i + 1;
                       const isMoved = oldPos !== newPos;
-                      const posDiff = oldPos - newPos; // positive = moved up (earlier in route), negative = moved down
+                      const posDiff = oldPos - newPos;
 
                       return (
                         <div
@@ -2094,14 +2102,13 @@ export default function PlanejamentoPage() {
                                   <span className="bg-amber-100 text-amber-800 text-[9px] px-1 rounded font-bold">LP</span>
                                 )}
                               </p>
-                              {/* Movement indicator badge */}
                               {isMoved ? (
                                 posDiff > 0 ? (
-                                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800 flex items-center gap-0.5 shrink-0">
+                                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-955 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800 flex items-center gap-0.5 shrink-0">
                                     ▲ Subiu (#{oldPos} ➔ #{newPos})
                                   </span>
                                 ) : (
-                                  <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800 flex items-center gap-0.5 shrink-0">
+                                  <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-955 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800 flex items-center gap-0.5 shrink-0">
                                     ▼ Desceu (#{oldPos} ➔ #{newPos})
                                   </span>
                                 )
@@ -2111,8 +2118,14 @@ export default function PlanejamentoPage() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-[10px] text-muted-foreground truncate">
-                              <span className="font-medium text-foreground">{stop.city}</span> — {stop.neighborhood}
+                            <p className="text-[10px] text-muted-foreground truncate flex items-center flex-wrap gap-1">
+                              <span className="font-medium text-foreground">{stop.city}</span>
+                              {stop.state && (
+                                <span className="text-[9px] font-extrabold uppercase text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-955 px-1 py-0.5 rounded border border-violet-300 dark:border-violet-800">
+                                  {stop.state.toUpperCase()}
+                                </span>
+                              )}
+                              <span>— {stop.neighborhood}</span>
                             </p>
                           </div>
                         </div>
