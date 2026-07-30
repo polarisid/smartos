@@ -119,12 +119,19 @@ const CITY_FALLBACK_COORDINATES: Record<string, [number, number]> = {
 
 const STATE_BOUNDING_BOXES: Record<string, { minLat: number; maxLat: number; minLng: number; maxLng: number }> = {
   'se': { minLat: -11.75, maxLat: -9.30, minLng: -38.45, maxLng: -36.20 },
+  'sergipe': { minLat: -11.75, maxLat: -9.30, minLng: -38.45, maxLng: -36.20 },
   'al': { minLat: -10.60, maxLat: -8.70, minLng: -38.35, maxLng: -35.05 },
+  'alagoas': { minLat: -10.60, maxLat: -8.70, minLng: -38.35, maxLng: -35.05 },
   'ba': { minLat: -18.45, maxLat: -8.40, minLng: -46.70, maxLng: -37.20 },
+  'bahia': { minLat: -18.45, maxLat: -8.40, minLng: -46.70, maxLng: -37.20 },
   'pe': { minLat: -9.60, maxLat: -7.00, minLng: -41.45, maxLng: -34.70 },
+  'pernambuco': { minLat: -9.60, maxLat: -7.00, minLng: -41.45, maxLng: -34.70 },
   'pb': { minLat: -8.45, maxLat: -5.90, minLng: -38.90, maxLng: -34.70 },
+  'paraiba': { minLat: -8.45, maxLat: -5.90, minLng: -38.90, maxLng: -34.70 },
   'rn': { minLat: -6.90, maxLat: -4.80, minLng: -38.60, maxLng: -34.90 },
+  'rio grande do norte': { minLat: -6.90, maxLat: -4.80, minLng: -38.60, maxLng: -34.90 },
   'ce': { minLat: -7.90, maxLat: -2.70, minLng: -41.50, maxLng: -37.20 },
+  'ceara': { minLat: -7.90, maxLat: -2.70, minLng: -41.50, maxLng: -37.20 },
 };
 
 function isValidStateCoords(coords: [number, number], state: string): boolean {
@@ -135,9 +142,9 @@ function isValidStateCoords(coords: [number, number], state: string): boolean {
     // Valid Brazil bounding box check
     if (lat < -34.0 || lat > 5.5 || lng < -74.0 || lng > -32.0) return false;
 
-    // Specific state bounding box check if state is configured
-    const stKey = (state || '').trim().toLowerCase();
-    const box = STATE_BOUNDING_BOXES[stKey];
+    // Specific state bounding box check if state is configured (defaults to Sergipe box)
+    const stKey = normalizeStr(state || 'SE');
+    const box = STATE_BOUNDING_BOXES[stKey] || STATE_BOUNDING_BOXES['se'];
     if (box) {
         return lat >= box.minLat && lat <= box.maxLat && lng >= box.minLng && lng <= box.maxLng;
     }
@@ -146,7 +153,7 @@ function isValidStateCoords(coords: [number, number], state: string): boolean {
 }
 
 function isValidBrazilCoords(coords: [number, number]): boolean {
-    return isValidStateCoords(coords, '');
+    return isValidStateCoords(coords, 'SE');
 }
 
 function normalizeStr(str: string): string {
@@ -155,6 +162,20 @@ function normalizeStr(str: string): string {
         .replace(/[\u0300-\u036f]/g, '')
         .toLowerCase()
         .trim();
+}
+
+// Automatically purge legacy invalid geocode cache from browser localStorage on load
+if (typeof window !== 'undefined') {
+    try {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.includes('geocode_') && !k.startsWith('v3_geocode_')) {
+                keysToRemove.push(k);
+            }
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+    } catch (e) {}
 }
 
 export async function getCoordinates(city: string, neighborhood: string, state: string, addressDetails?: string): Promise<[number, number] | null> {
@@ -169,7 +190,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
     const fullState = STATE_NAMES[rawState] || state || 'Sergipe';
     const safeAddress = addressDetails ? addressDetails.replace(/[^\w\s\u00C0-\u00FF,]/gi, '').trim() : '';
 
-    const key = `geocode_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
+    const key = `v3_geocode_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
     
     // Check localStorage cache with strict state bounds validation
     if (typeof window !== 'undefined') {
@@ -185,6 +206,20 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
                 }
             } catch(e) {}
         }
+    }
+
+    // Attempt 0: Fast fallback to static city coordinates in Brazil for Sergipe / Northeast cities
+    const knownCoords = CITY_FALLBACK_COORDINATES[cityNorm] ||
+      Object.entries(CITY_FALLBACK_COORDINATES).find(([k]) => cityNorm.length >= 4 && (cityNorm.includes(k) || k.includes(cityNorm)))?.[1];
+
+    // If no address details provided, return fast fallback coordinates to avoid slow / inaccurate OSM queries
+    if (!safeAddress && knownCoords && isValidStateCoords(knownCoords, rawState)) {
+        const fastCoords: [number, number] = [
+            knownCoords[0] + (Math.random() - 0.5) * 0.008,
+            knownCoords[1] + (Math.random() - 0.5) * 0.008
+        ];
+        saveCache(key, fastCoords, rawState);
+        return fastCoords;
     }
 
     // Add API rate limiter
@@ -250,9 +285,6 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
     }
 
     // Step 4: Fallback to static city coordinates in Brazil
-    const knownCoords = CITY_FALLBACK_COORDINATES[cityNorm] ||
-      Object.entries(CITY_FALLBACK_COORDINATES).find(([k]) => cityNorm.length >= 4 && (cityNorm.includes(k) || k.includes(cityNorm)))?.[1];
-
     if (knownCoords) {
         const fallbackCoords: [number, number] = [
             knownCoords[0] + (Math.random() - 0.5) * 0.008,
