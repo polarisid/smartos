@@ -48,7 +48,7 @@ function formatStopsToText(stops: RouteStop[]): string {
   });
 
   const baseHeaders = [
-    "SO Nro.", "ASC Job No.", "Nome Consumidor", "Cidade", "Bairro", "UF", "Modelo", "TURNO", "TAT", 
+    "SO Nro.", "ASC Job No.", "Nome Consumidor", "Cidade", "Bairro", "UF", "CEP", "Modelo", "TURNO", "TAT", 
     "Data de Solicitação", "1st Visit Date", "TS", "OW/LP", "SPD", "Status comment"
   ];
   
@@ -68,6 +68,7 @@ function formatStopsToText(stops: RouteStop[]): string {
       s.city || "",
       s.neighborhood || "",
       s.state || "",
+      s.zipCode || "",
       s.model || "",
       s.turn || "",
       s.tat || "",
@@ -184,6 +185,7 @@ function parseRouteText(text: string): RouteStop[] {
     city: getIndex(['cidade', 'city']),
     neighborhood: getIndex(['bairro', 'bairro/distrito']),
     state: getIndex(['uf', 'estado', 'st']),
+    zipCode: getIndex(['cep', 'codigo postal', 'zip', 'zip code', 'zipcode']),
     model: getIndex(['modelo', 'model']),
     turn: getIndex(['turno', 'turno atendimento', 'turno atend.', 'periodo', 'período', 'horario', 'horário']),
     tat: getIndex(['tat']),
@@ -258,6 +260,7 @@ function parseRouteText(text: string): RouteStop[] {
       city: hi.city !== -1 ? (cols[hi.city]?.trim() || '') : '',
       neighborhood: hi.neighborhood !== -1 ? (cols[hi.neighborhood]?.trim() || '') : '',
       state: hi.state !== -1 ? (cols[hi.state]?.trim() || '') : '',
+      zipCode: hi.zipCode !== -1 ? (cols[hi.zipCode]?.trim() || '') : '',
       model: hi.model !== -1 ? (cols[hi.model]?.trim() || '') : '',
       turn: hi.turn !== -1 ? (cols[hi.turn]?.trim() || '') : '',
       tat: hi.tat !== -1 ? (cols[hi.tat]?.trim() || '') : '',
@@ -298,7 +301,7 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
   };
 
   const FULL_HEADERS = [
-    'SO Nro.', 'ASC Job No.', 'Nome Consumidor', 'Cidade', 'Bairro', 'UF', 'Modelo', 'TURNO', 'TAT', 
+    'SO Nro.', 'ASC Job No.', 'Nome Consumidor', 'Cidade', 'Bairro', 'UF', 'CEP', 'Modelo', 'TURNO', 'TAT', 
     'Data de Solicitação', '1st Visit Date', 'TS', 'OW/LP', 'SPD', 'Status comment',
     'COD', 'DESCRICAO', 'QTD',
     'COD', 'DESCRICAO', 'QTD',
@@ -333,6 +336,7 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
           stop.city || '',
           stop.neighborhood || '',
           stop.state || '',
+          stop.zipCode || '',
           stop.model || '',
           stop.turn || '',
           stop.tat || '',
@@ -495,7 +499,7 @@ export default function PlanejamentoPage() {
   const [showMap, setShowMap] = useState(false);
 
   // Header template
-  const HEADER_TEMPLATE = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD";
+  const HEADER_TEMPLATE = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tCEP\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD";
   const [headerCopied, setHeaderCopied] = useState(false);
   const handleCopyHeader = () => {
     navigator.clipboard.writeText(HEADER_TEMPLATE).then(() => {
