@@ -197,6 +197,30 @@ function getNeighborhoodZoneScore(cityKey: string, nKey: string): number {
 }
 
 /**
+/**
+ * Resolves approximate coordinates for a city using exact or fuzzy normalized matching.
+ */
+function getCityCoordinates(cityName: string): { lat: number; lng: number } | null {
+  const norm = normalize(cityName)
+    .replace(/\bn\.?\s*sra\.?\b/g, "nossa senhora")
+    .replace(/\bsto\.?\b/g, "santo")
+    .replace(/\bsta\.?\b/g, "santa")
+    .replace(/\bs\.?\b/g, "sao")
+    .trim();
+
+  if (CITY_COORDINATES[norm]) return CITY_COORDINATES[norm];
+
+  // Try partial key matching
+  for (const [key, coords] of Object.entries(CITY_COORDINATES)) {
+    if (norm.length >= 4 && (norm.includes(key) || key.includes(norm))) {
+      return coords;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Calculates approximate distance in km between two cities.
  */
 function getCityDistance(cityA: string, cityB: string): number {
@@ -204,8 +228,8 @@ function getCityDistance(cityA: string, cityB: string): number {
   const normB = normalize(cityB);
   if (normA === normB) return 0;
 
-  const coordA = CITY_COORDINATES[normA];
-  const coordB = CITY_COORDINATES[normB];
+  const coordA = getCityCoordinates(cityA);
+  const coordB = getCityCoordinates(cityB);
 
   if (coordA && coordB) {
     const dLat = (coordB.lat - coordA.lat) * Math.PI / 180;
@@ -222,11 +246,66 @@ function getCityDistance(cityA: string, cityB: string): number {
 }
 
 /**
+ * 2-Opt local search refinement for circuit TSP starting and ending at originCity (Base).
+ * Repeatedly eliminates crossing edges and un-tangles circuit sequences to minimize total distance.
+ */
+function apply2Opt(clusterKeys: string[], clusterMap: Map<string, { rawCity: string }>, originCity: string): string[] {
+  if (clusterKeys.length <= 2) return clusterKeys;
+
+  let bestRoute = [...clusterKeys];
+
+  const getCityName = (key: string) => {
+    return clusterMap.get(key)?.rawCity || key.split('|')[0];
+  };
+
+  function calculateTotalCircuitDistance(route: string[]): number {
+    if (route.length === 0) return 0;
+    let total = getCityDistance(originCity, getCityName(route[0]));
+    for (let i = 0; i < route.length - 1; i++) {
+      total += getCityDistance(getCityName(route[i]), getCityName(route[i + 1]));
+    }
+    total += getCityDistance(getCityName(route[route.length - 1]), originCity);
+    return total;
+  }
+
+  let bestDist = calculateTotalCircuitDistance(bestRoute);
+  let improved = true;
+  let iterations = 0;
+  const maxIterations = 1000;
+
+  while (improved && iterations < maxIterations) {
+    improved = false;
+    iterations++;
+
+    for (let i = 0; i < bestRoute.length - 1; i++) {
+      for (let j = i + 1; j < bestRoute.length; j++) {
+        const candidateRoute = [
+          ...bestRoute.slice(0, i),
+          ...bestRoute.slice(i, j + 1).reverse(),
+          ...bestRoute.slice(j + 1)
+        ];
+
+        const candidateDist = calculateTotalCircuitDistance(candidateRoute);
+        if (candidateDist < bestDist - 0.001) {
+          bestRoute = candidateRoute;
+          bestDist = candidateDist;
+          improved = true;
+          break;
+        }
+      }
+      if (improved) break;
+    }
+  }
+
+  return bestRoute;
+}
+
+/**
  * Optimizes the order of route stops starting from an origin/departure city (Base)
- * using Nearest Neighbor TSP clustering.
+ * using 2-Opt refined TSP clustering.
  *
  * Hierarchical Optimization:
- * 1. CIDADE + UF (ESTADO): Grouping by City + State cluster, Nearest-Neighbor TSP starting from originCity (Base).
+ * 1. CIDADE + UF (ESTADO): Grouping by City + State cluster, 2-Opt TSP circuit optimization starting/returning to originCity (Base).
  * 2. BAIRRO: Grouping strictly by neighborhood (bairro) within each city.
  * 3. PARADA/OS: Sorted by TAT urgency (LP/OW priority) within each neighborhood.
  *
@@ -255,15 +334,15 @@ export function optimizeRouteStops(stops: RouteStop[], originCity: string = "Ara
     locationClusterMap.get(clusterKey)!.stops.push(stop);
   }
 
-  // Step 2: Nearest-Neighbor TSP city ordering starting from originCity (Base)
+  // Step 2: Nearest-Neighbor initial tour
   const unvisited = new Set(locationClusterMap.keys());
-  const orderedClusterKeys: string[] = [];
+  const initialClusterKeys: string[] = [];
 
   let currentClusterKey = Array.from(unvisited).find(k => k.startsWith(normalize(originCity))) || Array.from(unvisited)[0];
 
   while (unvisited.size > 0) {
     if (unvisited.has(currentClusterKey)) {
-      orderedClusterKeys.push(currentClusterKey);
+      initialClusterKeys.push(currentClusterKey);
       unvisited.delete(currentClusterKey);
     }
 
@@ -289,6 +368,9 @@ export function optimizeRouteStops(stops: RouteStop[], originCity: string = "Ara
 
     currentClusterKey = nearestKey;
   }
+
+  // Step 2b: Apply 2-Opt local search refinement to eliminate crossing paths & optimize circuit loop
+  const orderedClusterKeys = apply2Opt(initialClusterKeys, locationClusterMap, originCity);
 
   // Step 3: Within each City, group strictly by Bairro (Neighborhood)
   const result: RouteStop[] = [];
