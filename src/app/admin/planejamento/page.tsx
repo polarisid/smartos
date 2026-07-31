@@ -23,7 +23,7 @@ import { routeService } from "@/services/supabase/routeService";
 import { configService } from "@/services/supabase/configService";
 import { type Route, type RouteStop, type RoutePart } from "@/lib/data";
 import { optimizeRouteStops, describeOptimization } from "@/lib/routeOptimizer";
-import { parseFullAddress } from "@/lib/geocode";
+import { parseFullAddress, validateCepWithCityState } from "@/lib/geocode";
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Trash2, CheckCircle2,
   Sparkles, Download, MapPin, Calendar, Users, Truck,
@@ -707,11 +707,29 @@ export default function PlanejamentoPage() {
       .sort((a, b) => b.stops.length - a.stops.length);
   }, [activeAndDraftRoutesForWeek, weekDays]);
 
-  // ── Parse text preview ──
-  const handleTextChange = useCallback((v: string) => {
+  // ── Parse text preview & validate CEP vs City/UF ──
+  const handleTextChange = useCallback(async (v: string) => {
     setFormText(v);
     const stops = parseRouteText(v);
     setParsedPreview(stops);
+
+    // Asynchronously validate CEP mismatch for each stop
+    const validatedStops = await Promise.all(stops.map(async (stop) => {
+      if (stop.zipCode) {
+        const val = await validateCepWithCityState(stop.zipCode, stop.city, stop.state);
+        if (val.mismatch) {
+          return {
+            ...stop,
+            zipMismatch: true,
+            zipMismatchDetails: val.details,
+            suggestedCityState: `${val.suggestedCity}-${val.suggestedState}`
+          };
+        }
+      }
+      return stop;
+    }));
+
+    setParsedPreview(validatedStops);
   }, []);
 
   // ── Create draft ──
@@ -756,7 +774,7 @@ export default function PlanejamentoPage() {
   };
 
   // ── Open Edit Route Modal ──
-  const handleOpenEdit = (route: Route) => {
+  const handleOpenEdit = async (route: Route) => {
     setEditingRoute(route);
     setEditName(route.name);
     setEditTechnicianId(route.technicianId || "");
@@ -768,9 +786,26 @@ export default function PlanejamentoPage() {
     setEditText(formatted);
     setEditParsedPreview(route.stops);
     setIsEditOpen(true);
+
+    // Validate stops on open
+    const validatedStops = await Promise.all(route.stops.map(async (stop) => {
+      if (stop.zipCode) {
+        const val = await validateCepWithCityState(stop.zipCode, stop.city, stop.state);
+        if (val.mismatch) {
+          return {
+            ...stop,
+            zipMismatch: true,
+            zipMismatchDetails: val.details,
+            suggestedCityState: `${val.suggestedCity}-${val.suggestedState}`
+          };
+        }
+      }
+      return stop;
+    }));
+    setEditParsedPreview(validatedStops);
   };
 
-  const handleEditTextChange = (v: string) => {
+  const handleEditTextChange = async (v: string) => {
     setEditText(v);
     const stops = parseRouteText(v);
     setEditParsedPreview(stops);
@@ -1814,14 +1849,34 @@ export default function PlanejamentoPage() {
               />
               {parsedPreview.length > 0 && (
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20 p-2">
-                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 mb-1.5">Pré-visualização das paradas ({parsedPreview.length}):</p>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Pré-visualização das paradas ({parsedPreview.length}):</p>
+                    {parsedPreview.some(s => s.zipMismatch) && (
+                      <span className="text-[10px] font-bold text-red-600 bg-red-100 dark:bg-red-950 dark:text-red-300 px-1.5 py-0.5 rounded border border-red-300">
+                        ⚠️ Inconsistência de CEP detectada
+                      </span>
+                    )}
+                  </div>
                   <div className="max-h-40 overflow-y-auto space-y-0.5">
                     {parsedPreview.map((s, i) => (
-                      <div key={i} className="flex items-center flex-wrap gap-1.5 text-xs py-0.5 border-b border-border/20 last:border-0">
+                      <div key={i} className={cn(
+                        "flex items-center flex-wrap gap-1.5 text-xs py-1 px-1 rounded border-b border-border/20 last:border-0 transition-colors",
+                        s.zipMismatch && "bg-red-500/10 border-red-500/30"
+                      )}>
                         <span className="text-muted-foreground w-5 text-right font-bold">{i+1}.</span>
                         <span className="font-mono font-bold">{s.serviceOrder}</span>
                         <span className="text-muted-foreground truncate max-w-[110px]">{s.consumerName}</span>
-                        <span className="text-muted-foreground font-medium">{s.city}</span>
+                        <span className="text-muted-foreground font-medium">{s.city}{s.state ? `-${s.state}` : ''}</span>
+                        {s.zipCode && (
+                          <span className="font-mono text-[9px] text-muted-foreground bg-muted px-1 rounded">
+                            {s.zipCode}
+                          </span>
+                        )}
+                        {s.zipMismatch && (
+                          <span className="text-[9px] font-bold bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 px-1.5 py-0.2 rounded border border-red-300 flex items-center gap-1" title={s.zipMismatchDetails}>
+                            ⚠️ CEP de {s.suggestedCityState}
+                          </span>
+                        )}
                         {s.turn && (
                           <span className="text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 px-1.5 py-0.2 rounded">
                             {s.turn}
@@ -1949,14 +2004,34 @@ export default function PlanejamentoPage() {
               />
               {editParsedPreview.length > 0 && (
                 <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-955/20 p-2">
-                  <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-1.5">Paradas reconhecidas ({editParsedPreview.length}):</p>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-xs font-semibold text-blue-700 dark:text-blue-400">Paradas reconhecidas ({editParsedPreview.length}):</p>
+                    {editParsedPreview.some(s => s.zipMismatch) && (
+                      <span className="text-[10px] font-bold text-red-600 bg-red-100 dark:bg-red-955 dark:text-red-300 px-1.5 py-0.5 rounded border border-red-300">
+                        ⚠️ Inconsistência de CEP detectada
+                      </span>
+                    )}
+                  </div>
                   <div className="max-h-40 overflow-y-auto space-y-0.5">
                     {editParsedPreview.map((s, i) => (
-                      <div key={i} className="flex items-center flex-wrap gap-1.5 text-xs py-0.5 border-b border-border/20 last:border-0">
+                      <div key={i} className={cn(
+                        "flex items-center flex-wrap gap-1.5 text-xs py-1 px-1 rounded border-b border-border/20 last:border-0 transition-colors",
+                        s.zipMismatch && "bg-red-500/10 border-red-500/30"
+                      )}>
                         <span className="text-muted-foreground w-5 text-right font-bold">{i+1}.</span>
                         <span className="font-mono font-bold">{s.serviceOrder}</span>
                         <span className="text-muted-foreground truncate max-w-[110px]">{s.consumerName}</span>
-                        <span className="text-muted-foreground font-medium">{s.city}</span>
+                        <span className="text-muted-foreground font-medium">{s.city}{s.state ? `-${s.state}` : ''}</span>
+                        {s.zipCode && (
+                          <span className="font-mono text-[9px] text-muted-foreground bg-muted px-1 rounded">
+                            {s.zipCode}
+                          </span>
+                        )}
+                        {s.zipMismatch && (
+                          <span className="text-[9px] font-bold bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 px-1.5 py-0.2 rounded border border-red-300 flex items-center gap-1" title={s.zipMismatchDetails}>
+                            ⚠️ CEP de {s.suggestedCityState}
+                          </span>
+                        )}
                         {s.turn && (
                           <span className="text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 px-1.5 py-0.2 rounded">
                             {s.turn}

@@ -187,6 +187,54 @@ export function parseFullAddress(address: string): { city: string; state: string
   return { city: 'Aracaju', state: 'SE', street: clean };
 }
 
+/**
+ * Validates whether a Brazilian CEP matches the provided city and state.
+ * Returns information about mismatch and suggestions.
+ */
+export async function validateCepWithCityState(zipCode: string, city: string, state: string): Promise<{
+  isValid: boolean;
+  mismatch: boolean;
+  details?: string;
+  suggestedCity?: string;
+  suggestedState?: string;
+}> {
+  if (!zipCode) return { isValid: true, mismatch: false };
+  const cleanZip = zipCode.replace(/\D/g, '').trim();
+  if (cleanZip.length !== 8) return { isValid: true, mismatch: false };
+
+  try {
+    const res = await fetch(`https://viacep.com.br/ws/${cleanZip}/json/`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && !data.erro) {
+        const cepCity = (data.localidade || '').trim();
+        const cepState = (data.uf || '').trim().toUpperCase();
+
+        const inputCityNorm = normalizeStr(city || '');
+        const inputStateNorm = (state || '').trim().toUpperCase();
+
+        const cepCityNorm = normalizeStr(cepCity);
+
+        // Check state mismatch or city mismatch
+        const stateMismatch = inputStateNorm && cepState && inputStateNorm !== cepState;
+        const cityMismatch = inputCityNorm && cepCityNorm && !inputCityNorm.includes(cepCityNorm) && !cepCityNorm.includes(inputCityNorm);
+
+        if (stateMismatch || cityMismatch) {
+          return {
+            isValid: false,
+            mismatch: true,
+            details: `O CEP ${zipCode} pertence a ${cepCity}-${cepState}, mas consta como ${city || 'sem cidade'}-${state || 'SE'}.`,
+            suggestedCity: cepCity,
+            suggestedState: cepState,
+          };
+        }
+      }
+    }
+  } catch (e) {}
+
+  return { isValid: true, mismatch: false };
+}
+
 function isValidStateCoords(coords: [number, number], state: string): boolean {
     if (!coords || !Array.isArray(coords) || coords.length !== 2) return false;
     const [lat, lng] = coords;

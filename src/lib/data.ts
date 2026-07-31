@@ -192,6 +192,9 @@ export type RouteStop = {
     addressDetails?: string;
     isReallocated?: boolean;
     reallocatedToRouteName?: string;
+    zipMismatch?: boolean;
+    zipMismatchDetails?: string;
+    suggestedCityState?: string;
 }
 
 export type Route = {
