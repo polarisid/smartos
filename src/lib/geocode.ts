@@ -280,10 +280,40 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
     await delayQueue();
 
     try {
-        // Attempt 0: Direct CEP postal code query (Highest accuracy in Brazil)
+        // Attempt 0: ViaCEP lookup to get exact street & neighborhood from Brazilian CEP
         if (safeZip && safeZip.length === 8) {
+            try {
+                const viaCepRes = await fetch(`https://viacep.com.br/ws/${safeZip}/json/`);
+                if (viaCepRes.ok) {
+                    const viaCepData = await viaCepRes.json();
+                    if (viaCepData && !viaCepData.erro) {
+                        const streetFromCep = viaCepData.logradouro || safeAddress;
+                        const neighborhoodFromCep = viaCepData.bairro || safeNeighborhood;
+                        const cityFromCep = viaCepData.localidade || safeCity;
+                        const stateFromCep = viaCepData.uf || rawState;
+
+                        const qViaCep = `${streetFromCep ? streetFromCep + ', ' : ''}${neighborhoodFromCep ? neighborhoodFromCep + ', ' : ''}${cityFromCep}, ${stateFromCep}, Brasil`;
+                        const urlViaCep = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&q=${encodeURIComponent(qViaCep)}`;
+                        const resViaCep = await fetch(urlViaCep);
+                        if (resViaCep.ok) {
+                            const dataViaCep = await resViaCep.json();
+                            if (dataViaCep && dataViaCep.length > 0) {
+                                const coords: [number, number] = [parseFloat(dataViaCep[0].lat), parseFloat(dataViaCep[0].lon)];
+                                if (isValidStateCoords(coords, stateFromCep)) {
+                                    saveCache(key, coords, rawState);
+                                    return coords;
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn("ViaCEP lookup error, falling back to direct CEP/address search", e);
+            }
+
+            // Direct CEP query in Nominatim (fallback if ViaCEP is unavailable)
             const formattedCep = `${safeZip.slice(0, 5)}-${safeZip.slice(5)}`;
-            const qCep = `${formattedCep}, Brasil`;
+            const qCep = `${formattedCep}, ${safeCity || 'Brasil'}`;
             const urlCep = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&q=${encodeURIComponent(qCep)}`;
             const resCep = await fetch(urlCep);
             if (resCep.ok) {
