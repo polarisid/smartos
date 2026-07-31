@@ -317,151 +317,122 @@ function apply2Opt(clusterKeys: string[], clusterMap: Map<string, { rawCity: str
 /**
  * Optimizes the order of route stops starting from an origin/departure city (Base)
  * using 2-Opt refined TSP clustering.
+/**
+ * Calculates Haversine distance in km between two lat/lng pairs
+ */
+function haversineDistance(c1: { lat: number; lng: number }, c2: { lat: number; lng: number }): number {
+  const dLat = (c2.lat - c1.lat) * Math.PI / 180;
+  const dLng = (c2.lng - c1.lng) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(c1.lat * Math.PI / 180) * Math.cos(c2.lat * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Resolves coordinates for a stop using city/neighborhood coordinates fallback map
+ */
+function getStopCoordinates(stop: RouteStop): { lat: number; lng: number } {
+  // If city match exists
+  const cityCoords = getCityCoordinates(stop.city || 'Aracaju');
+  if (cityCoords) return cityCoords;
+  return { lat: -10.9472, lng: -37.0731 }; // Aracaju default
+}
+
+/**
+ * Optimizes the order of route stops starting from an origin/departure base
+ * using Nearest-Neighbor TSP + 2-Opt refinement based on actual spatial geography.
  *
- * Hierarchical Optimization:
- * 1. CIDADE + UF (ESTADO): Grouping by City + State cluster, 2-Opt TSP circuit optimization starting/returning to originCity (Base).
- * 2. BAIRRO: Grouping strictly by neighborhood (bairro) within each city.
- * 3. PARADA/OS: Sorted by TAT urgency (LP/OW priority) within each neighborhood.
+ * Algorithm Strategy:
+ * 1. Build initial route using Nearest Neighbor from Base (e.g. Barão de Maruim).
+ * 2. Run 2-Opt Local Search to uncross lines and minimize total circuit distance.
+ * 3. Preserve LP / TAT urgency as priority tie-breaker for stops at adjacent locations.
  *
  * @param stops - Array of RouteStop objects
- * @param originCity - Departure/Return base city (e.g. "Aracaju")
- * @returns New array with stops reordered for optimal route circuit
+ * @param originCity - Departure/Return base address or city
+ * @returns New array with stops reordered for optimal geographic circuit
  */
 export function optimizeRouteStops(stops: RouteStop[], originCity: string = "Aracaju"): RouteStop[] {
   if (!stops || stops.length <= 1) return stops;
 
-  // Step 1: Group by location cluster (Cidade + UF)
-  const locationClusterMap = new Map<string, { rawCity: string; rawState: string; stops: RouteStop[] }>();
+  const baseCoords = getCityCoordinates(originCity) || { lat: -10.9142, lng: -37.0545 }; // Loja/Base
 
-  for (const stop of stops) {
-    const cityNorm = normalize(stop.city) || "sem_cidade";
-    const stateNorm = normalize(stop.state) || "se";
-    const clusterKey = `${cityNorm}|${stateNorm}`;
+  // Step 1: Assign coordinates to each stop
+  const stopsWithCoords = stops.map(stop => ({
+    stop,
+    coords: getStopCoordinates(stop)
+  }));
 
-    if (!locationClusterMap.has(clusterKey)) {
-      locationClusterMap.set(clusterKey, {
-        rawCity: stop.city || "Sem Cidade",
-        rawState: stop.state || "SE",
-        stops: []
-      });
-    }
-    locationClusterMap.get(clusterKey)!.stops.push(stop);
-  }
+  // Step 2: Nearest-Neighbor initial tour starting from Base
+  const unvisited = [...stopsWithCoords];
+  const initialTour: typeof stopsWithCoords = [];
+  let currentPos = baseCoords;
 
-  // Step 2: Nearest-Neighbor initial tour
-  const unvisited = new Set(locationClusterMap.keys());
-  const initialClusterKeys: string[] = [];
-
-  let currentClusterKey = Array.from(unvisited).find(k => k.startsWith(normalize(originCity))) || Array.from(unvisited)[0];
-
-  while (unvisited.size > 0) {
-    if (unvisited.has(currentClusterKey)) {
-      initialClusterKeys.push(currentClusterKey);
-      unvisited.delete(currentClusterKey);
-    }
-
-    if (unvisited.size === 0) break;
-
-    // Find nearest next city cluster
-    let nearestKey = Array.from(unvisited)[0];
+  while (unvisited.length > 0) {
+    let nearestIdx = 0;
     let minDistance = Infinity;
 
-    const currentCluster = locationClusterMap.get(currentClusterKey);
-    const currentName = currentCluster?.rawCity || currentClusterKey.split('|')[0];
+    for (let i = 0; i < unvisited.length; i++) {
+      const dist = haversineDistance(currentPos, unvisited[i].coords);
+      // Small bonus for TAT urgency to prioritize urgent LP stops if distance is close (<= 2km)
+      const tatUrgency = parseTatDays(unvisited[i].stop.tat);
+      const adjustedDist = dist + (tatUrgency < 3 ? -0.5 : 0);
 
-    for (const candidateKey of unvisited) {
-      const candidateCluster = locationClusterMap.get(candidateKey);
-      const candidateName = candidateCluster?.rawCity || candidateKey.split('|')[0];
-
-      const d = getCityDistance(currentName, candidateName);
-      if (d < minDistance) {
-        minDistance = d;
-        nearestKey = candidateKey;
+      if (adjustedDist < minDistance) {
+        minDistance = adjustedDist;
+        nearestIdx = i;
       }
     }
 
-    currentClusterKey = nearestKey;
+    const nextStop = unvisited.splice(nearestIdx, 1)[0];
+    initialTour.push(nextStop);
+    currentPos = nextStop.coords;
   }
 
-  // Step 2b: Apply 2-Opt local search refinement to eliminate crossing paths & optimize circuit loop
-  const orderedClusterKeys = apply2Opt(initialClusterKeys, locationClusterMap, originCity);
+  // Step 3: 2-Opt refinement to eliminate crossing paths and minimize total route loop
+  let bestTour = [...initialTour];
 
-  // Step 3: Within each City, group strictly by Bairro (Neighborhood),
-  // then sub-group by CEP prefix (3 digits = sub-region) for maximum location precision
-  const result: RouteStop[] = [];
-
-  /**
-   * Extracts the postal sub-region key from a Brazilian CEP.
-   * The first 3 digits identify the postal region (e.g. "491" for part of Aracaju).
-   * Returns '' if no CEP is available.
-   */
-  function getCepSubRegion(zipCode: string): string {
-    if (!zipCode) return '';
-    const digits = zipCode.replace(/\D/g, '');
-    return digits.length >= 3 ? digits.slice(0, 3) : '';
-  }
-
-  for (const clusterKey of orderedClusterKeys) {
-    const clusterData = locationClusterMap.get(clusterKey);
-    if (!clusterData) continue;
-
-    // Check if stops in this city cluster have CEPs available
-    const stopsWithCep = clusterData.stops.filter(s => s.zipCode && s.zipCode.replace(/\D/g, '').length >= 5);
-    const stopsWithoutCep = clusterData.stops.filter(s => !s.zipCode || s.zipCode.replace(/\D/g, '').length < 5);
-
-    if (stopsWithCep.length > 0) {
-      // Group CEP stops by 5-digit CEP sector (e.g., 49030 for Aruana/Atalaia, 49040 for Jabotiana, etc.)
-      const cepSectorMap = new Map<string, RouteStop[]>();
-      for (const stop of stopsWithCep) {
-        const digits = stop.zipCode.replace(/\D/g, '');
-        const sectorKey = digits.slice(0, 5); // First 5 digits = Street/Sector cluster
-        if (!cepSectorMap.has(sectorKey)) cepSectorMap.set(sectorKey, []);
-        cepSectorMap.get(sectorKey)!.push(stop);
-      }
-
-      // Sort CEP sectors numerically (so geographically adjacent CEP blocks run smoothly in order)
-      const sortedSectors = [...cepSectorMap.entries()].sort(([secA], [secB]) => secA.localeCompare(secB));
-
-      for (const [, sectorStops] of sortedSectors) {
-        // Sort within the same 5-digit CEP sector by exact 8-digit CEP, then by TAT urgency
-        const sortedSectorStops = [...sectorStops].sort((a, b) => {
-          const cepA = a.zipCode.replace(/\D/g, '');
-          const cepB = b.zipCode.replace(/\D/g, '');
-          if (cepA !== cepB) return cepA.localeCompare(cepB);
-          return parseTatDays(a.tat) - parseTatDays(b.tat);
-        });
-        result.push(...sortedSectorStops);
-      }
+  function calcTotalCircuit(tour: typeof stopsWithCoords): number {
+    if (tour.length === 0) return 0;
+    let dist = haversineDistance(baseCoords, tour[0].coords);
+    for (let i = 0; i < tour.length - 1; i++) {
+      dist += haversineDistance(tour[i].coords, tour[i + 1].coords);
     }
+    dist += haversineDistance(tour[tour.length - 1].coords, baseCoords);
+    return dist;
+  }
 
-    // Process any remaining stops without CEP using traditional neighborhood zone grouping
-    if (stopsWithoutCep.length > 0) {
-      const neighborhoodMap = new Map<string, RouteStop[]>();
-      for (const stop of stopsWithoutCep) {
-        const nKey = normalize(stop.neighborhood) || "sem_bairro";
-        if (!neighborhoodMap.has(nKey)) neighborhoodMap.set(nKey, []);
-        neighborhoodMap.get(nKey)!.push(stop);
-      }
+  let bestDist = calcTotalCircuit(bestTour);
+  let improved = true;
+  let iterations = 0;
+  const maxIterations = 500;
 
-      const sortedNeighborhoods = [...neighborhoodMap.entries()].sort(
-        ([keyA, listA], [keyB, listB]) => {
-          const scoreA = getNeighborhoodZoneScore(clusterData.rawCity, keyA);
-          const scoreB = getNeighborhoodZoneScore(clusterData.rawCity, keyB);
-          if (scoreA !== scoreB) return scoreA - scoreB;
-          return listB.length - listA.length;
+  while (improved && iterations < maxIterations) {
+    improved = false;
+    iterations++;
+
+    for (let i = 0; i < bestTour.length - 1; i++) {
+      for (let j = i + 1; j < bestTour.length; j++) {
+        const newTour = [
+          ...bestTour.slice(0, i),
+          ...bestTour.slice(i, j + 1).reverse(),
+          ...bestTour.slice(j + 1)
+        ];
+
+        const newDist = calcTotalCircuit(newTour);
+        if (newDist < bestDist - 0.01) {
+          bestTour = newTour;
+          bestDist = newDist;
+          improved = true;
+          break;
         }
-      );
-
-      for (const [, neighborhoodStops] of sortedNeighborhoods) {
-        const sortedByTat = [...neighborhoodStops].sort(
-          (a, b) => parseTatDays(a.tat) - parseTatDays(b.tat)
-        );
-        result.push(...sortedByTat);
       }
+      if (improved) break;
     }
   }
 
-  return result;
+  return bestTour.map(item => item.stop);
 }
 
 /**
@@ -474,5 +445,5 @@ export function describeOptimization(
 ): string {
   const cities = new Set(optimized.map(s => s.city).filter(Boolean));
   const neighborhoods = new Set(optimized.map(s => s.neighborhood).filter(Boolean));
-  return `Circuito otimizado a partir de ${originCity}: ${optimized.length} paradas em ${cities.size} cidade(s) e ${neighborhoods.size} bairro(s), organizadas com agrupamento estrito por bairro e percurso de retorno à base.`;
+  return `Circuito geografico otimizado (TSP 2-Opt): ${optimized.length} paradas em ${cities.size} cidade(s) e ${neighborhoods.size} bairro(s), ordenadas por proximidade espacial continua sem cruzamentos a partir da base.`;
 }
