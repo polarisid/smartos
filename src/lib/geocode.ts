@@ -297,7 +297,18 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
     const fullState = STATE_NAMES[rawState] || state || 'Sergipe';
     const safeAddress = addressDetails ? addressDetails.replace(/[^\w\s\u00C0-\u00FF,]/gi, '').trim() : '';
 
-    const key = `v5_geocode_${safeZip}_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
+    let usableZip = safeZip;
+    if (safeZip && safeZip.length === 8 && safeCity) {
+        try {
+            const val = await validateCepWithCityState(safeZip, safeCity, rawState);
+            if (val.mismatch) {
+                console.warn(`[Geocode Strategy] CEP ${safeZip} não pertence a ${safeCity}-${rawState} (pertence a ${val.suggestedCity}-${val.suggestedState}). Ignorando CEP e usando estritamente UF/Cidade/Bairro da planilha.`);
+                usableZip = '';
+            }
+        } catch (e) {}
+    }
+
+    const key = `v6_geocode_${usableZip}_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
     
     // Check localStorage cache with strict state bounds validation
     if (typeof window !== 'undefined') {
@@ -312,17 +323,6 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
                 }
             } catch(e) {}
         }
-    }
-
-    let usableZip = safeZip;
-    if (safeZip && safeZip.length === 8 && safeCity) {
-        try {
-            const val = await validateCepWithCityState(safeZip, safeCity, rawState);
-            if (val.mismatch) {
-                console.warn(`[Geocode Strategy] CEP ${safeZip} não pertence a ${safeCity}-${rawState} (pertence a ${val.suggestedCity}-${val.suggestedState}). Ignorando CEP para posicionamento no mapa.`);
-                usableZip = '';
-            }
-        } catch (e) {}
     }
 
     const knownCoords = CITY_FALLBACK_COORDINATES[cityNorm] ||
