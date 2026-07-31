@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -94,8 +94,6 @@ async function fetchOsrmRoadDistances(
   const n = points.length - 1;
 
   const coordStr = points.map(([lat, lng]) => `${lng},${lat}`).join(';');
-  const sources = Array.from({ length: n }, (_, i) => i).join(';');
-  const dests   = Array.from({ length: n }, (_, i) => i + 1).join(';');
 
   const osrmEndpoints = [
     process.env.NEXT_PUBLIC_OSRM_URL ? `${process.env.NEXT_PUBLIC_OSRM_URL.replace(/\/$/, '')}/table/v1/driving/` : null,
@@ -105,12 +103,15 @@ async function fetchOsrmRoadDistances(
 
   for (const baseUrl of osrmEndpoints) {
     try {
-      const url = `${baseUrl}${coordStr}?sources=${sources}&destinations=${dests}&annotations=distance`;
+      const url = `${baseUrl}${coordStr}?annotations=distance`;
       const res  = await fetch(url);
       if (res.ok) {
         const json = await res.json();
         if (json.code === 'Ok' && json.distances) {
-          const resultKm = (json.distances as number[][]).map(row => Math.round(((row[0] ?? 0) / 1000) * 10) / 10);
+          const resultKm: number[] = [];
+          for (let i = 0; i < n; i++) {
+            resultKm.push(Math.round(((json.distances[i][i + 1] ?? 0) / 1000) * 10) / 10);
+          }
           if (resultKm.some(km => km > 0)) {
             return resultKm;
           }
@@ -630,6 +631,75 @@ export default function PlanejamentoPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
 
+  // ── Drag and Drop state ──
+  const dragItemIndex = useRef<number | null>(null);
+  const dragOverItemIndex = useRef<number | null>(null);
+
+  const handleDragStart = (index: number) => {
+    dragItemIndex.current = index;
+  };
+
+  const handleDragEnter = (index: number) => {
+    dragOverItemIndex.current = index;
+  };
+
+  const handleDragEnd = async () => {
+    if (dragItemIndex.current === null || dragOverItemIndex.current === null) return;
+    if (dragItemIndex.current === dragOverItemIndex.current) return;
+
+    const newStops = [...proposedStops];
+    const draggedItem = newStops[dragItemIndex.current];
+    newStops.splice(dragItemIndex.current, 1);
+    newStops.splice(dragOverItemIndex.current, 0, draggedItem);
+    
+    setProposedStops(newStops);
+    
+    dragItemIndex.current = null;
+    dragOverItemIndex.current = null;
+
+    // Recalculate distances for the new sequence
+    setSegsLoading(true);
+    try {
+      const propKm = await fetchOsrmRoadDistances(newStops, defaultBaseAddress || originCity || "Aracaju");
+      setPropSegsKm(propKm);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSegsLoading(false);
+    }
+  };
+
+  // ── Drag and Drop state (Main Table) ──
+  const tableDragItemIndex = useRef<number | null>(null);
+  const tableDragOverItemIndex = useRef<number | null>(null);
+
+  const handleTableDragStart = (index: number) => {
+    tableDragItemIndex.current = index;
+  };
+  const handleTableDragEnter = (index: number) => {
+    tableDragOverItemIndex.current = index;
+  };
+  const handleTableDragEnd = async () => {
+    if (tableDragItemIndex.current === null || tableDragOverItemIndex.current === null || !selectedRoute) return;
+    if (tableDragItemIndex.current === tableDragOverItemIndex.current) return;
+
+    const newStops = [...selectedRoute.stops];
+    const draggedItem = newStops[tableDragItemIndex.current];
+    newStops.splice(tableDragItemIndex.current, 1);
+    newStops.splice(tableDragOverItemIndex.current, 0, draggedItem);
+    
+    setSelectedRoute({ ...selectedRoute, stops: newStops });
+    
+    tableDragItemIndex.current = null;
+    tableDragOverItemIndex.current = null;
+    
+    try {
+      await routeService.update(selectedRoute.id, { stops: newStops });
+      await queryClient.invalidateQueries({ queryKey: ['routes'] });
+    } catch (err) {
+      console.error("Erro ao reordenar via drag and drop:", err);
+    }
+  };
   // AI Optimization preview state
   const [isOptimizeOpen, setIsOptimizeOpen] = useState(false);
   const [optimizingRoute, setOptimizingRoute] = useState<Route | null>(null);
@@ -1958,7 +2028,18 @@ export default function PlanejamentoPage() {
                   </thead>
                   <tbody className="divide-y divide-border/20">
                     {selectedRoute.stops.map((stop, i) => (
-                      <tr key={i} className={cn("hover:bg-muted/30 transition-colors", i % 2 === 0 ? "bg-background" : "bg-muted/10")}>
+                      <tr 
+                        key={i} 
+                        className={cn("hover:bg-muted/30 transition-colors cursor-move", i % 2 === 0 ? "bg-background" : "bg-muted/10")}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = "move";
+                          handleTableDragStart(i);
+                        }}
+                        onDragEnter={() => handleTableDragEnter(i)}
+                        onDragEnd={handleTableDragEnd}
+                        onDragOver={(e) => e.preventDefault()}
+                      >
                         <td className="px-3 py-2">
                           <span className="h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold text-muted-foreground">
                             {i + 1}
@@ -1996,14 +2077,74 @@ export default function PlanejamentoPage() {
                         <td className="px-3 py-2 text-muted-foreground max-w-[100px]">
                           <span className="block truncate">{stop.model}</span>
                         </td>
-                        <td className="px-3 py-2 text-muted-foreground">
-                          {stop.turn ? (
-                            <span className="text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 px-1.5 py-0.5 rounded">
-                              {stop.turn}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] opacity-40">—</span>
-                          )}
+                        <td className="px-3 py-2 min-w-[120px]">
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex gap-1">
+                              {['M', 'T', 'C'].map(turnPill => (
+                                <button
+                                  key={turnPill}
+                                  type="button"
+                                  onClick={async () => {
+                                    const val = stop.turn === turnPill ? '' : turnPill;
+                                    const newStops = selectedRoute.stops.map((st, idx) => idx === i ? { ...st, turn: val } : st);
+                                    setSelectedRoute({ ...selectedRoute, stops: newStops });
+                                    try {
+                                      await routeService.update(selectedRoute.id, { stops: newStops });
+                                      await queryClient.invalidateQueries({ queryKey: ['routes'] });
+                                    } catch (err) {}
+                                  }}
+                                  className={cn(
+                                    "h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-all border",
+                                    stop.turn === turnPill
+                                      ? "bg-purple-600 text-white border-purple-600 shadow-sm"
+                                      : "bg-background text-muted-foreground border-border hover:border-purple-300 hover:text-purple-600"
+                                  )}
+                                >
+                                  {turnPill}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex gap-1">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const val = !stop.confirmedByCall;
+                                  const newStops = selectedRoute.stops.map((st, idx) => idx === i ? { ...st, confirmedByCall: val } : st);
+                                  setSelectedRoute({ ...selectedRoute, stops: newStops });
+                                  try {
+                                    await routeService.update(selectedRoute.id, { stops: newStops });
+                                  } catch (err) {}
+                                }}
+                                className={cn(
+                                  "flex items-center gap-0.5 px-1.5 py-0.5 rounded border text-[9px] font-bold transition-colors",
+                                  stop.confirmedByCall
+                                    ? "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:border-emerald-800"
+                                    : "bg-background text-muted-foreground border-border hover:bg-muted"
+                                )}
+                              >
+                                LIG
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const val = !stop.confirmedByMessage;
+                                  const newStops = selectedRoute.stops.map((st, idx) => idx === i ? { ...st, confirmedByMessage: val } : st);
+                                  setSelectedRoute({ ...selectedRoute, stops: newStops });
+                                  try {
+                                    await routeService.update(selectedRoute.id, { stops: newStops });
+                                  } catch (err) {}
+                                }}
+                                className={cn(
+                                  "flex items-center gap-0.5 px-1.5 py-0.5 rounded border text-[9px] font-bold transition-colors",
+                                  stop.confirmedByMessage
+                                    ? "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-950 dark:border-blue-800"
+                                    : "bg-background text-muted-foreground border-border hover:bg-muted"
+                                )}
+                              >
+                                MSG
+                              </button>
+                            </div>
+                          </div>
                         </td>
                         <td className="px-3 py-2">
                           {stop.parts && stop.parts.length > 0 ? (
@@ -2779,8 +2920,16 @@ export default function PlanejamentoPage() {
                                 ) : null}
                               </div>
                               <div
+                                draggable
+                                onDragStart={(e) => {
+                                  e.dataTransfer.effectAllowed = "move";
+                                  handleDragStart(i);
+                                }}
+                                onDragEnter={() => handleDragEnter(i)}
+                                onDragEnd={handleDragEnd}
+                                onDragOver={(e) => e.preventDefault()}
                                 className={cn(
-                                  "flex flex-col gap-1.5 p-2.5 rounded-lg border text-xs shadow-xs transition-all duration-200",
+                                  "flex flex-col gap-1.5 p-2.5 rounded-lg border text-xs shadow-xs transition-all duration-200 cursor-move active:cursor-grabbing",
                                   isMoved
                                     ? posDiff > 0
                                       ? "border-emerald-400/80 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-955/40"

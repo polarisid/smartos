@@ -341,7 +341,10 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
     const safeZip = zipCode ? zipCode.replace(/\D/g, '').trim() : '';
     
     // Resolve 2-letter state codes to full state names (e.g. SE -> Sergipe, AL -> Alagoas, PB -> Paraíba)
-    const rawState = (state || 'SE').trim().toLowerCase();
+    const rawStateInput = (state || 'SE').trim().toLowerCase();
+    const rawState = rawStateInput.length === 2 
+        ? rawStateInput 
+        : (Object.entries(STATE_NAMES).find(([k, v]) => normalizeStr(v) === normalizeStr(rawStateInput))?.[0] || rawStateInput);
     const fullState = STATE_NAMES[rawState] || state || 'Sergipe';
     const safeAddress = addressDetails ? addressDetails.replace(/[^\w\s\u00C0-\u00FF,]/gi, '').trim() : '';
 
