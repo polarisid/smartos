@@ -56,12 +56,27 @@ Responda APENAS com um objeto JSON válido (sem markdown extra nem explicações
 }
 Note: "orderedIds" deve conter TODOS os IDs de 0 a ${stops.length - 1} na nova ordem sugerida de atendimento.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
+    let responseText = '';
 
-    const responseText = response.text || '';
+    // Model fallback chain: Gemini 2.5 Pro (Highest reasoning/spatial accuracy) -> Gemini 2.5 Flash -> Gemini 1.5 Pro
+    const modelsToTry = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-1.5-pro'];
+
+    for (const modelName of modelsToTry) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+        });
+
+        if (response && response.text) {
+          responseText = response.text;
+          break;
+        }
+      } catch (err) {
+        console.warn(`Model ${modelName} failed or unavailable, trying next model in chain...`, err);
+      }
+    }
+
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
 
     if (jsonMatch) {
