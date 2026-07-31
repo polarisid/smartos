@@ -231,19 +231,20 @@ if (typeof window !== 'undefined') {
     } catch (e) {}
 }
 
-export async function getCoordinates(city: string, neighborhood: string, state: string, addressDetails?: string): Promise<[number, number] | null> {
-    if (!city) return null;
+export async function getCoordinates(city: string, neighborhood: string, state: string, addressDetails?: string, zipCode?: string): Promise<[number, number] | null> {
+    if (!city && !zipCode) return null;
 
-    const safeCity = city.trim();
+    const safeCity = (city || '').trim();
     const cityNorm = normalizeStr(safeCity);
     const safeNeighborhood = neighborhood ? neighborhood.replace(/[^\w\s\u00C0-\u00FF]/gi, '').trim() : '';
+    const safeZip = zipCode ? zipCode.replace(/\D/g, '').trim() : '';
     
     // Resolve 2-letter state codes to full state names (e.g. SE -> Sergipe, AL -> Alagoas)
     const rawState = (state || 'SE').trim().toLowerCase();
     const fullState = STATE_NAMES[rawState] || state || 'Sergipe';
     const safeAddress = addressDetails ? addressDetails.replace(/[^\w\s\u00C0-\u00FF,]/gi, '').trim() : '';
 
-    const key = `v3_geocode_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
+    const key = `v4_geocode_${safeZip}_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
     
     // Check localStorage cache with strict state bounds validation
     if (typeof window !== 'undefined') {
@@ -279,6 +280,25 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
     await delayQueue();
 
     try {
+        // Attempt 0: Direct CEP postal code query (Highest accuracy in Brazil)
+        if (safeZip && safeZip.length === 8) {
+            const formattedCep = `${safeZip.slice(0, 5)}-${safeZip.slice(5)}`;
+            const qCep = `${formattedCep}, Brasil`;
+            const urlCep = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&q=${encodeURIComponent(qCep)}`;
+            const resCep = await fetch(urlCep);
+            if (resCep.ok) {
+                const dataCep = await resCep.json();
+                if (dataCep && dataCep.length > 0) {
+                    const coords: [number, number] = [parseFloat(dataCep[0].lat), parseFloat(dataCep[0].lon)];
+                    if (isValidStateCoords(coords, rawState)) {
+                        saveCache(key, coords, rawState);
+                        return coords;
+                    }
+                }
+            }
+            await delayQueue();
+        }
+
         // Attempt 1: Detailed address with countrycodes=br
         if (safeAddress) {
             const q0 = `${safeAddress}, ${safeNeighborhood ? safeNeighborhood + ', ' : ''}${safeCity}, ${fullState}, Brasil`;

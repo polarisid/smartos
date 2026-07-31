@@ -2004,7 +2004,7 @@ export default function PlanejamentoPage() {
       </AlertDialog>
       {/* ── AI Optimization Preview Dialog ── */}
       <Dialog open={isOptimizeOpen} onOpenChange={setIsOptimizeOpen}>
-        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[95vw] w-[1400px] max-h-[92vh] h-[92vh] flex flex-col p-4 sm:p-6 overflow-hidden">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-violet-600 dark:text-violet-400">
               <Sparkles className="h-5 w-5" />
@@ -2015,7 +2015,7 @@ export default function PlanejamentoPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
+          <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1">
             {/* Ponto de Saída / Base Display */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-muted/40 p-3 rounded-xl border border-border/50">
               <div className="flex items-center gap-2 text-xs">
@@ -2062,21 +2062,9 @@ export default function PlanejamentoPage() {
               <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-lg border border-border/40">
                 <button
                   type="button"
-                  onClick={() => setOptimizeViewTab('list')}
-                  className={cn(
-                    "px-3 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all",
-                    optimizeViewTab === 'list'
-                      ? "bg-primary text-primary-foreground shadow-xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <List className="h-3.5 w-3.5" /> Comparativo em Lista
-                </button>
-                <button
-                  type="button"
                   onClick={() => setOptimizeViewTab('map')}
                   className={cn(
-                    "px-3 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all",
+                    "px-3.5 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all",
                     optimizeViewTab === 'map'
                       ? "bg-violet-600 text-white shadow-xs"
                       : "text-muted-foreground hover:text-foreground"
@@ -2084,18 +2072,30 @@ export default function PlanejamentoPage() {
                 >
                   <MapPin className="h-3.5 w-3.5" /> 🗺️ Ver no Mapa (Antes / Depois)
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setOptimizeViewTab('list')}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all",
+                    optimizeViewTab === 'list'
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <List className="h-3.5 w-3.5" /> 📋 Comparativo em Lista & Editar Turnos
+                </button>
               </div>
 
-              <span className="text-[10px] text-muted-foreground font-medium hidden sm:inline">
-                {optimizeViewTab === 'map' ? 'Linha Vermelha = Atual · Linha Verde = Otimizado' : 'Exibindo posições'}
+              <span className="text-[11px] text-muted-foreground font-medium hidden sm:inline">
+                {optimizeViewTab === 'map' ? 'Vermelho = Ordem Atual · Verde = Otimizado por CEP/Geolocalização' : 'Organize posições e defina os turnos'}
               </span>
             </div>
 
             {optimizeViewTab === 'map' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-[560px]">
                 {/* Mapa Antes (Ordem Atual) */}
-                <div className="border border-red-200 dark:border-red-900/50 rounded-xl p-3 bg-red-50/20 dark:bg-red-950/10">
-                  <div className="flex items-center justify-between mb-2">
+                <div className="flex flex-col border border-red-200 dark:border-red-900/50 rounded-xl p-3 bg-red-50/20 dark:bg-red-950/10 h-full">
+                  <div className="flex items-center justify-between mb-2 shrink-0">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-red-600 dark:text-red-400 flex items-center gap-1.5">
                       <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
                       Percurso Atual (Antes)
@@ -2104,7 +2104,7 @@ export default function PlanejamentoPage() {
                       🔴 Linha Vermelha
                     </span>
                   </div>
-                  <div className="h-[360px] rounded-lg overflow-hidden border border-red-200/60 dark:border-red-900/40">
+                  <div className="flex-1 rounded-lg overflow-hidden border border-red-200/60 dark:border-red-900/40">
                     {optimizingRoute && (
                       <DynamicalRouteMap
                         routes={[optimizingRoute]}
@@ -2123,17 +2123,17 @@ export default function PlanejamentoPage() {
                 </div>
 
                 {/* Mapa Depois (Sugerido pela IA) */}
-                <div className="border border-emerald-200 dark:border-emerald-900/50 rounded-xl p-3 bg-emerald-50/20 dark:bg-emerald-955/10">
-                  <div className="flex items-center justify-between mb-2">
+                <div className="flex flex-col border border-emerald-200 dark:border-emerald-900/50 rounded-xl p-3 bg-emerald-50/20 dark:bg-emerald-955/10 h-full">
+                  <div className="flex items-center justify-between mb-2 shrink-0">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
                       <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                      Sugerido pela IA (Depois)
+                      Sugerido pela IA por CEP/Geolocalização (Depois)
                     </h4>
                     <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 rounded-full">
                       🟢 Linha Verde
                     </span>
                   </div>
-                  <div className="h-[360px] rounded-lg overflow-hidden border border-emerald-200/60 dark:border-emerald-900/40">
+                  <div className="flex-1 rounded-lg overflow-hidden border border-emerald-200/60 dark:border-emerald-900/40">
                     {optimizingRoute && (
                       <DynamicalRouteMap
                         routes={[optimizingRoute]}
@@ -2159,7 +2159,7 @@ export default function PlanejamentoPage() {
                     <span>Ordem Atual</span>
                     <span className="text-[10px] font-normal">{optimizingRoute?.stops.length} paradas</span>
                   </h4>
-                  <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
+                  <div className="space-y-2 max-h-[540px] overflow-y-auto pr-1">
                     {optimizingRoute?.stops.map((stop, i) => {
                       const newIdx = proposedStops.findIndex(s => s.serviceOrder === stop.serviceOrder);
                       const oldPos = i + 1;
@@ -2170,7 +2170,7 @@ export default function PlanejamentoPage() {
                         <div
                           key={i}
                           className={cn(
-                            "flex items-center gap-2 p-2 rounded-lg border bg-background text-xs transition-colors",
+                            "flex items-center gap-2 p-2.5 rounded-lg border bg-background text-xs transition-colors",
                             isMoved && "border-slate-300/80 bg-slate-50/50 dark:bg-slate-900/40 dark:border-slate-800"
                           )}
                         >
@@ -2184,7 +2184,7 @@ export default function PlanejamentoPage() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-[10px] text-muted-foreground truncate flex items-center flex-wrap gap-1">
+                            <p className="text-[10px] text-muted-foreground truncate flex items-center flex-wrap gap-1 mt-0.5">
                               <span className="font-medium text-foreground">{stop.city}</span>
                               {stop.state && (
                                 <span className="text-[9px] font-extrabold uppercase text-slate-700 bg-slate-200/80 dark:text-slate-300 dark:bg-slate-800 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-700">
@@ -2192,6 +2192,11 @@ export default function PlanejamentoPage() {
                                 </span>
                               )}
                               <span>— {stop.neighborhood}</span>
+                              {stop.zipCode && (
+                                <span className="font-mono text-[9px] bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 px-1 py-0.2 rounded border border-slate-200">
+                                  CEP: {stop.zipCode}
+                                </span>
+                              )}
                             </p>
                           </div>
                         </div>
@@ -2204,9 +2209,9 @@ export default function PlanejamentoPage() {
                 <div className="border border-violet-200 dark:border-violet-900/50 rounded-xl p-3 bg-violet-50/20 dark:bg-violet-955/10">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300 mb-2 flex items-center justify-between">
                     <span>Sugerido pela IA</span>
-                    <span className="text-[10px] font-normal text-emerald-600 dark:text-emerald-400 font-bold">✨ Otimizado</span>
+                    <span className="text-[10px] font-normal text-emerald-600 dark:text-emerald-400 font-bold">✨ Otimizado por CEP</span>
                   </h4>
-                  <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
+                  <div className="space-y-2 max-h-[540px] overflow-y-auto pr-1">
                     {proposedStops.map((stop, i) => {
                       const origIdx = optimizingRoute?.stops.findIndex(s => s.serviceOrder === stop.serviceOrder) ?? -1;
                       const oldPos = origIdx !== -1 ? origIdx + 1 : i + 1;
@@ -2218,7 +2223,7 @@ export default function PlanejamentoPage() {
                         <div
                           key={i}
                           className={cn(
-                            "flex items-center gap-2 p-2 rounded-lg border text-xs shadow-sm transition-all duration-200",
+                            "flex flex-col gap-1.5 p-2.5 rounded-lg border text-xs shadow-xs transition-all duration-200",
                             isMoved
                               ? posDiff > 0
                                 ? "border-emerald-400/80 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-955/40"
@@ -2226,48 +2231,75 @@ export default function PlanejamentoPage() {
                               : "border-violet-200 dark:border-violet-900/60 bg-background"
                           )}
                         >
-                          <span className={cn(
-                            "font-black w-6 text-center text-xs shrink-0 py-0.5 rounded",
-                            isMoved
-                              ? posDiff > 0 ? "bg-emerald-600 text-white" : "bg-amber-600 text-white"
-                              : "text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-950"
-                          )}>
-                            #{newPos}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className={cn(
+                              "font-black w-6 text-center text-xs shrink-0 py-0.5 rounded",
+                              isMoved
+                                ? posDiff > 0 ? "bg-emerald-600 text-white" : "bg-amber-600 text-white"
+                                : "text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-950"
+                            )}>
+                              #{newPos}
+                            </span>
 
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-1">
-                              <p className="font-mono font-bold truncate flex items-center gap-1.5">
-                                {stop.serviceOrder}
-                                {stop.warrantyType === 'LP' && (
-                                  <span className="bg-amber-100 text-amber-800 text-[9px] px-1 rounded font-bold">LP</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-1">
+                                <p className="font-mono font-bold truncate flex items-center gap-1.5">
+                                  {stop.serviceOrder}
+                                  {stop.warrantyType === 'LP' && (
+                                    <span className="bg-amber-100 text-amber-800 text-[9px] px-1 rounded font-bold">LP</span>
+                                  )}
+                                </p>
+                                {isMoved ? (
+                                  posDiff > 0 ? (
+                                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-955 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800 flex items-center gap-0.5 shrink-0">
+                                      ▲ Subiu (#{oldPos} ➔ #{newPos})
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-955 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800 flex items-center gap-0.5 shrink-0">
+                                      ▼ Desceu (#{oldPos} ➔ #{newPos})
+                                    </span>
+                                  )
+                                ) : (
+                                  <span className="text-[9px] text-muted-foreground font-medium shrink-0">
+                                    Mantida #{newPos}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-muted-foreground truncate flex items-center flex-wrap gap-1 mt-0.5">
+                                <span className="font-medium text-foreground">{stop.city}</span>
+                                {stop.state && (
+                                  <span className="text-[9px] font-extrabold uppercase text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-955 px-1 py-0.5 rounded border border-violet-300 dark:border-violet-800">
+                                    {stop.state.toUpperCase()}
+                                  </span>
+                                )}
+                                <span>— {stop.neighborhood}</span>
+                                {stop.zipCode && (
+                                  <span className="font-mono text-[9px] bg-violet-100/80 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 px-1 py-0.2 rounded border border-violet-200 font-semibold">
+                                    CEP: {stop.zipCode}
+                                  </span>
                                 )}
                               </p>
-                              {isMoved ? (
-                                posDiff > 0 ? (
-                                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-955 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800 flex items-center gap-0.5 shrink-0">
-                                    ▲ Subiu (#{oldPos} ➔ #{newPos})
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-955 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800 flex items-center gap-0.5 shrink-0">
-                                    ▼ Desceu (#{oldPos} ➔ #{newPos})
-                                  </span>
-                                )
-                              ) : (
-                                <span className="text-[9px] text-muted-foreground font-medium shrink-0">
-                                  Mantida #{newPos}
-                                </span>
-                              )}
                             </div>
-                            <p className="text-[10px] text-muted-foreground truncate flex items-center flex-wrap gap-1">
-                              <span className="font-medium text-foreground">{stop.city}</span>
-                              {stop.state && (
-                                <span className="text-[9px] font-extrabold uppercase text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-955 px-1 py-0.5 rounded border border-violet-300 dark:border-violet-800">
-                                  {stop.state.toUpperCase()}
-                                </span>
-                              )}
-                              <span>— {stop.neighborhood}</span>
-                            </p>
+                          </div>
+
+                          {/* Quick Turn Editor in Modal */}
+                          <div className="flex items-center gap-2 pt-1 border-t border-border/40">
+                            <span className="text-[10px] font-bold text-muted-foreground uppercase">Turno:</span>
+                            <input
+                              type="text"
+                              value={stop.turn || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, turn: val } : st));
+                              }}
+                              placeholder="Ex: Manhã / Tarde"
+                              className="h-6 text-[11px] px-2 rounded border border-input bg-background w-36 font-medium focus:ring-1 focus:ring-primary focus:outline-hidden"
+                            />
+                            {stop.firstVisitDate && (
+                              <span className="text-[10px] text-muted-foreground ml-auto">
+                                Visita: <span className="font-semibold text-foreground">{stop.firstVisitDate}</span>
+                              </span>
+                            )}
                           </div>
                         </div>
                       );

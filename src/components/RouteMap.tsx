@@ -127,7 +127,7 @@ export default function RouteMap({
         const loadCoords = async () => {
             try {
                 const promises = activeStops.map(async (item) => {
-                    const coords = await getCoordinates(item.stop.city, item.stop.neighborhood, item.stop.state, item.stop.addressDetails);
+                    const coords = await getCoordinates(item.stop.city, item.stop.neighborhood, item.stop.state, item.stop.addressDetails, item.stop.zipCode);
                     return coords ? { ...item, coords } : null;
                 });
                 const results = await Promise.all(promises);
