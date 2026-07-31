@@ -381,11 +381,26 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
   const escapeXml = (str: string | number | undefined | null) => {
     if (str === undefined || str === null) return "";
     return String(str)
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&apos;');
+  };
+
+  const usedSheetNames = new Set<string>();
+  const getUniqueSheetName = (name: string) => {
+    let clean = name.replace(/[:\\\/\?\*\[\]]/g, '').trim().substring(0, 30) || 'Rota';
+    let finalName = clean;
+    let counter = 1;
+    while (usedSheetNames.has(finalName.toLowerCase())) {
+      const suffix = ` (${counter})`;
+      finalName = clean.substring(0, 31 - suffix.length) + suffix;
+      counter++;
+    }
+    usedSheetNames.add(finalName.toLowerCase());
+    return finalName;
   };
 
   const FULL_HEADERS = [
@@ -405,14 +420,14 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
     let rowsXml = '';
 
     sheetRoutes.forEach((route, rIdx) => {
-      // 1. Table Header Row (Black bg, White bold text - matching input format)
+      // 1. Table Header Row (Black bg, White bold text)
       rowsXml += `   <Row ss:Height="22">\n`;
       FULL_HEADERS.forEach(h => {
         rowsXml += `    <Cell ss:StyleID="Header"><Data ss:Type="String">${escapeXml(h)}</Data></Cell>\n`;
       });
       rowsXml += `   </Row>\n`;
 
-      // 2. Data Rows (with exact columns matching input format)
+      // 2. Data Rows
       route.stops.forEach(stop => {
         const p0 = stop.parts?.[0];
         const p1 = stop.parts?.[1];
@@ -459,10 +474,10 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
         rowsXml += `   </Row>\n`;
       });
 
-      // 3. Empty spacer row
-      rowsXml += `   <Row ss:Height="10"/>\n`;
+      // 3. Spacer row (must NOT be empty self-closing tag for Excel compatibility)
+      rowsXml += `   <Row ss:Height="10"><Cell ss:StyleID="Default"><Data ss:Type="String"></Data></Cell></Row>\n`;
 
-      // 4. Route Metadata Block (Black label, White value - matching photo 2)
+      // 4. Route Metadata Block (Black label, White value)
       const statusStr = route.isDraft ? '[Rascunho]' : route.isActive ? '[Ativa]' : '[Inativa]';
       rowsXml += `   <Row ss:Height="20">\n`;
       rowsXml += `    <Cell ss:StyleID="LabelBlack"><Data ss:Type="String">ROTA</Data></Cell>\n`;
@@ -481,11 +496,12 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
 
       // 5. Spacer between routes in the same sheet
       if (rIdx < sheetRoutes.length - 1) {
-        rowsXml += `   <Row ss:Height="18"/>\n`;
+        rowsXml += `   <Row ss:Height="18"><Cell ss:StyleID="Default"><Data ss:Type="String"></Data></Cell></Row>\n`;
       }
     });
 
-    return ` <Worksheet ss:Name="${escapeXml(sheetName.substring(0, 31))}">\n  <Table>\n${rowsXml}  </Table>\n </Worksheet>\n`;
+    const uniqueSheetName = getUniqueSheetName(sheetName);
+    return ` <Worksheet ss:Name="${escapeXml(uniqueSheetName)}">\n  <Table>\n${rowsXml}  </Table>\n </Worksheet>\n`;
   };
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -548,8 +564,7 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
   }
 
   interiorRoutes.forEach(route => {
-    const safeName = route.name.replace(/[:\\\/\?\*\[\]]/g, '').substring(0, 31);
-    xml += buildWorksheetXml([route], safeName);
+    xml += buildWorksheetXml([route], route.name);
   });
 
   if (capitalRoutes.length === 0 && interiorRoutes.length === 0) {
