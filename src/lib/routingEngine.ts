@@ -27,25 +27,29 @@ export async function fetchOsrmDrivingMatrix(
     return osrmMatrixCache.get(cacheKey)!;
   }
 
-  try {
-    // OSRM expects coordinates in lng,lat order
-    const coordsStr = points.map(p => `${p.lng},${p.lat}`).join(';');
-    const url = `${OSRM_BASE_URL}/table/v1/driving/${coordsStr}?annotations=duration,distance`;
+  const coordsStr = points.map(p => `${p.lng},${p.lat}`).join(';');
+  const osrmEndpoints = [
+    OSRM_BASE_URL ? `${OSRM_BASE_URL}/table/v1/driving/` : null,
+    `https://router.project-osrm.org/table/v1/driving/`,
+    `https://routing.openstreetmap.de/routed-car/table/v1/driving/`
+  ].filter(Boolean) as string[];
 
-    const res = await fetch(url);
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    if (data.code === 'Ok' && data.durations) {
-      const result = {
-        durationMatrix: data.durations, // in seconds
-        distanceMatrix: data.distances || data.durations.map((row: number[]) => row.map(d => d * 15)) // fallback meters approx
-      };
-      osrmMatrixCache.set(cacheKey, result);
-      return result;
-    }
-  } catch (e) {
-    console.warn("OSRM Table API error, falling back to Haversine speed matrix", e);
+  for (const baseUrl of osrmEndpoints) {
+    try {
+      const url = `${baseUrl}${coordsStr}?annotations=duration,distance`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.code === 'Ok' && data.durations) {
+          const result = {
+            durationMatrix: data.durations, // in seconds
+            distanceMatrix: data.distances || data.durations.map((row: number[]) => row.map(d => d * 15)) // fallback meters approx
+          };
+          osrmMatrixCache.set(cacheKey, result);
+          return result;
+        }
+      }
+    } catch (e) {}
   }
 
   return null;

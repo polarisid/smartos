@@ -1,4 +1,5 @@
 import { type RouteStop } from "@/lib/data";
+import { getCoordinates, parseFullAddress } from "@/lib/geocode";
 
 /**
  * Normalizes a string for comparison: lowercase, no accents, trimmed.
@@ -399,6 +400,30 @@ export function optimizeRouteStopsSync(stops: RouteStop[], originCity: string = 
   return tourIndices.slice(1).map(idx => stops[idx - 1]);
 }
 
+async function resolveStopCoordAsync(stop: RouteStop): Promise<PointCoord> {
+  const coords = await getCoordinates(
+    stop.city,
+    stop.neighborhood,
+    stop.state || 'Sergipe',
+    stop.addressDetails,
+    stop.zipCode
+  );
+  if (coords) return { lat: coords[0], lng: coords[1] };
+  return getStopCoordinates(stop);
+}
+
+async function resolveBaseCoordAsync(baseAddress: string): Promise<PointCoord> {
+  const { city, state, street } = parseFullAddress(baseAddress);
+  const coords = await getCoordinates(
+    city || 'Aracaju',
+    '',
+    state || 'Sergipe',
+    street || baseAddress
+  );
+  if (coords) return { lat: coords[0], lng: coords[1] };
+  return getCityCoordinates(baseAddress) || { lat: -10.9142, lng: -37.0545 };
+}
+
 /**
  * Asynchronous High-Precision Highway Driving Time Optimizer (OSRM Real Driving Matrix + Held-Karp DP / Or-Opt)
  */
@@ -410,8 +435,12 @@ export async function optimizeRouteStopsAsync(
     return { stops, summary: "Poucas paradas para otimização.", totalDrivingMinutes: 0 };
   }
 
-  const baseCoords = getCityCoordinates(originCity) || { lat: -10.9142, lng: -37.0545 };
-  const allPoints: PointCoord[] = [baseCoords, ...stops.map(getStopCoordinates)];
+  const [baseCoord, ...resolvedStopCoords] = await Promise.all([
+    resolveBaseCoordAsync(originCity),
+    ...stops.map(resolveStopCoordAsync)
+  ]);
+
+  const allPoints: PointCoord[] = [baseCoord, ...resolvedStopCoords];
   const N = allPoints.length;
 
   // Try fetching exact OSRM Driving Matrix (by highway travel times)
