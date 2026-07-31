@@ -154,7 +154,7 @@ export default function RouteMap({
     const [baseCoords, setBaseCoords] = useState<[number, number] | null>([-10.9142, -37.0545]);
     const [routeLegs, setRouteLegs] = useState<RouteLeg[]>([]);
     const [loading, setLoading] = useState(true);
-    const [mapStyle, setMapStyle] = useState<'google' | 'google_satellite' | 'carto'>('google');
+    const [mapStyle, setMapStyle] = useState<'google' | 'google_satellite' | 'carto'>('carto');
 
     // 1. Fetch Base coordinates dynamically from baseAddress or configService
     useEffect(() => {
