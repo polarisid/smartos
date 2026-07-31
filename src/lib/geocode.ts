@@ -52,7 +52,9 @@ const CITY_FALLBACK_COORDINATES: Record<string, [number, number]> = {
   "itabaianinha": [-11.2739, -37.7892],
   "itabi": [-10.1264, -37.1028],
   "itaporanga d'ajuda": [-10.9961, -37.3056],
-  "itaporanga": [-10.9961, -37.3056],
+  "itaporanga_se": [-10.9961, -37.3056],
+  "itaporanga_pb": [-7.3044, -38.1506],
+  "itaporanga": [-7.3044, -38.1506],
   "japaratuba": [-10.5939, -36.9381],
   "japoata": [-10.3508, -36.8008],
   "lagarto": [-10.9172, -37.6631],
@@ -279,18 +281,37 @@ function getHaversineDistance(c1: [number, number], c2: [number, number]): numbe
     return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+export function getKnownCityCoords(cityNorm: string, state: string): [number, number] | undefined {
+    if (!cityNorm) return undefined;
+    const stCode = (state || 'SE').trim().toLowerCase();
+
+    // 1. Check state-scoped key first, e.g. "itaporanga_pb" or "itaporanga_se"
+    const stateScopedKey = `${cityNorm}_${stCode}`;
+    if (CITY_FALLBACK_COORDINATES[stateScopedKey]) {
+        return CITY_FALLBACK_COORDINATES[stateScopedKey];
+    }
+
+    // 2. Specific state collision overrides
+    if (cityNorm === 'itaporanga') {
+        if (stCode === 'pb' || stCode === 'paraiba') return [-7.3044, -38.1506];
+        if (stCode === 'se' || stCode === 'sergipe') return [-10.9961, -37.3056];
+    }
+
+    // 3. Fallback to general city key
+    return CITY_FALLBACK_COORDINATES[cityNorm] ||
+      Object.entries(CITY_FALLBACK_COORDINATES).find(([k]) => cityNorm.length >= 4 && (cityNorm.includes(k) || k.includes(cityNorm)))?.[1];
+}
+
 function isValidCityCoords(coords: [number, number], cityNorm: string, state: string): boolean {
     if (!isValidStateCoords(coords, state)) return false;
     if (!cityNorm) return true;
 
-    const knownCityCoords = CITY_FALLBACK_COORDINATES[cityNorm] ||
-      Object.entries(CITY_FALLBACK_COORDINATES).find(([k]) => cityNorm.length >= 4 && (cityNorm.includes(k) || k.includes(cityNorm)))?.[1];
-
+    const knownCityCoords = getKnownCityCoords(cityNorm, state);
     if (!knownCityCoords) return true;
 
     const distKm = getHaversineDistance(coords, knownCityCoords);
-    if (distKm > 30) {
-        console.warn(`[City Bounds Guard] Coordinate [${coords[0]}, ${coords[1]}] is ${distKm.toFixed(1)} km away from city '${cityNorm}' center. Rejecting wrong-city coordinate!`);
+    if (distKm > 40) {
+        console.warn(`[City Bounds Guard] Coordinate [${coords[0]}, ${coords[1]}] is ${distKm.toFixed(1)} km away from city '${cityNorm}' (${state}) center. Rejecting wrong-city coordinate!`);
         return false;
     }
 
@@ -303,7 +324,7 @@ if (typeof window !== 'undefined') {
         const keysToRemove: string[] = [];
         for (let i = 0; i < localStorage.length; i++) {
             const k = localStorage.key(i);
-            if (k && k.includes('geocode_') && !k.startsWith('v7_geocode_')) {
+            if (k && k.includes('geocode_') && !k.startsWith('v8_geocode_')) {
                 keysToRemove.push(k);
             }
         }
@@ -319,7 +340,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
     const safeNeighborhood = neighborhood ? neighborhood.replace(/[^\w\s\u00C0-\u00FF]/gi, '').trim() : '';
     const safeZip = zipCode ? zipCode.replace(/\D/g, '').trim() : '';
     
-    // Resolve 2-letter state codes to full state names (e.g. SE -> Sergipe, AL -> Alagoas)
+    // Resolve 2-letter state codes to full state names (e.g. SE -> Sergipe, AL -> Alagoas, PB -> Paraíba)
     const rawState = (state || 'SE').trim().toLowerCase();
     const fullState = STATE_NAMES[rawState] || state || 'Sergipe';
     const safeAddress = addressDetails ? addressDetails.replace(/[^\w\s\u00C0-\u00FF,]/gi, '').trim() : '';
@@ -335,7 +356,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
         } catch (e) {}
     }
 
-    const key = `v7_geocode_${usableZip}_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
+    const key = `v8_geocode_${usableZip}_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
     
     // Check localStorage cache with strict city bounds validation
     if (typeof window !== 'undefined') {
@@ -352,8 +373,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
         }
     }
 
-    const knownCoords = CITY_FALLBACK_COORDINATES[cityNorm] ||
-      Object.entries(CITY_FALLBACK_COORDINATES).find(([k]) => cityNorm.length >= 4 && (cityNorm.includes(k) || k.includes(cityNorm)))?.[1];
+    const knownCoords = getKnownCityCoords(cityNorm, rawState);
 
     // Attempt 00: Google Geocoding API (High-Precision Rooftop/Street Geocoding for Brazil)
     const googleApiKey = (typeof process !== 'undefined' && process.env)
