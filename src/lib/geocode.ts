@@ -211,12 +211,17 @@ export async function validateCepWithCityState(zipCode: string, city: string, st
         const cepState = (data.uf || '').trim().toUpperCase();
 
         const inputCityNorm = normalizeStr(city || '');
-        const inputStateNorm = (state || '').trim().toUpperCase();
+        const rawInputState = (state || '').trim().toLowerCase();
+        // Resolve 2-letter code if input is full name like 'Sergipe' -> 'SE'
+        const inputStateCode = (rawInputState.length === 2
+          ? rawInputState.toUpperCase()
+          : (Object.entries(STATE_NAMES).find(([k, v]) => normalizeStr(v) === normalizeStr(rawInputState))?.[0] || rawInputState).toUpperCase()
+        );
 
         const cepCityNorm = normalizeStr(cepCity);
 
         // Check state mismatch or city mismatch
-        const stateMismatch = inputStateNorm && cepState && inputStateNorm !== cepState;
+        const stateMismatch = inputStateCode && cepState && inputStateCode !== cepState;
         const cityMismatch = inputCityNorm && cepCityNorm && !inputCityNorm.includes(cepCityNorm) && !cepCityNorm.includes(inputCityNorm);
 
         if (stateMismatch || cityMismatch) {
