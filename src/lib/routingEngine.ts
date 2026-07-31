@@ -1,6 +1,12 @@
 import { RouteStop } from './data';
 import { getCityCoordinates } from './routeOptimizer';
 
+export const OSRM_BASE_URL = (
+  (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_OSRM_URL)
+    ? process.env.NEXT_PUBLIC_OSRM_URL
+    : 'https://router.project-osrm.org'
+).replace(/\/$/, '');
+
 // In-memory cache for OSRM matrix calls to prevent duplicate network hits
 const osrmMatrixCache = new Map<string, { durationMatrix: number[][]; distanceMatrix: number[][] }>();
 
@@ -8,7 +14,7 @@ export type PointCoord = { lat: number; lng: number };
 
 /**
  * Fetches exact driving time (seconds) and driving distance (meters) matrix
- * between all points using public OSRM Table API.
+ * between all points using OSRM Table API (self-hosted or public).
  */
 export async function fetchOsrmDrivingMatrix(
   points: PointCoord[]
@@ -24,7 +30,7 @@ export async function fetchOsrmDrivingMatrix(
   try {
     // OSRM expects coordinates in lng,lat order
     const coordsStr = points.map(p => `${p.lng},${p.lat}`).join(';');
-    const url = `https://router.project-osrm.org/table/v1/driving/${coordsStr}?annotations=duration,distance`;
+    const url = `${OSRM_BASE_URL}/table/v1/driving/${coordsStr}?annotations=duration,distance`;
 
     const res = await fetch(url);
     if (!res.ok) return null;

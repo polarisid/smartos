@@ -186,7 +186,8 @@ export default function RouteMap({
         const fetchSegment = async (points: [number, number][]): Promise<[number, number][]> => {
             if (points.length < 2) return points;
             const coordsStr = points.map(c => `${c[1]},${c[0]}`).join(';');
-            const url = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`;
+            const osrmBaseUrl = (process.env.NEXT_PUBLIC_OSRM_URL || 'https://router.project-osrm.org').replace(/\/$/, '');
+            const url = `${osrmBaseUrl}/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`;
             try {
                 const res = await fetch(url);
                 if (res.ok) {

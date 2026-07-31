@@ -162,7 +162,8 @@ async function fetchOsrmRoadDistances(
   const dests   = Array.from({ length: n }, (_, i) => i + 1).join(';');
 
   try {
-    const url = `https://router.project-osrm.org/table/v1/driving/${coordStr}` +
+    const osrmBaseUrl = (process.env.NEXT_PUBLIC_OSRM_URL || 'https://router.project-osrm.org').replace(/\/$/, '');
+    const url = `${osrmBaseUrl}/table/v1/driving/${coordStr}` +
                 `?sources=${sources}&destinations=${dests}&annotations=distance`;
     const res  = await fetch(url);
     const json = await res.json();

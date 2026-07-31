@@ -317,6 +317,34 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
     const knownCoords = CITY_FALLBACK_COORDINATES[cityNorm] ||
       Object.entries(CITY_FALLBACK_COORDINATES).find(([k]) => cityNorm.length >= 4 && (cityNorm.includes(k) || k.includes(cityNorm)))?.[1];
 
+    // Attempt 00: Google Geocoding API (High-Precision Rooftop/Street Geocoding for Brazil)
+    const googleApiKey = (typeof process !== 'undefined' && process.env)
+        ? (process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_GEOCODING_API_KEY || '')
+        : '';
+
+    if (googleApiKey) {
+        try {
+            const fullAddressQuery = [safeAddress, safeNeighborhood, safeCity, fullState, safeZip ? `CEP ${safeZip}` : '', 'Brasil']
+                .filter(Boolean)
+                .join(', ');
+            const googleUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(fullAddressQuery)}&components=country:BR&key=${googleApiKey}`;
+            const googleRes = await fetch(googleUrl);
+            if (googleRes.ok) {
+                const googleData = await googleRes.json();
+                if (googleData.status === 'OK' && googleData.results && googleData.results.length > 0) {
+                    const loc = googleData.results[0].geometry.location;
+                    const coords: [number, number] = [loc.lat, loc.lng];
+                    if (isValidStateCoords(coords, rawState)) {
+                        saveCache(key, coords, rawState);
+                        return coords;
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn("Google Geocoding API lookup failed, falling back to public providers", e);
+        }
+    }
+
     // Attempt 0: High-accuracy Brazilian CEP Geocoding API (AwesomeAPI & BrasilAPI)
     if (safeZip && safeZip.length === 8) {
         try {
