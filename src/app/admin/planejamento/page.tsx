@@ -207,12 +207,12 @@ function getRouteDayInfo(route: Route, day: Date) {
         const m = parseInt(parts[1], 10) - 1;
         let y = parseInt(parts[2], 10);
         if (y < 100) y += 2000;
-        if (!isNaN(d) && !isNaN(m) && !isNaN(y) && y >= 2026 && m >= 0 && m <= 11) {
+        if (!isNaN(d) && !isNaN(m) && !isNaN(y) && y >= 2020 && m >= 0 && m <= 11) {
           dates.push(new Date(y, m, d));
         }
       } else if (s.firstVisitDate.includes('-')) {
         const p = parseISO(s.firstVisitDate);
-        if (!isNaN(p.getTime()) && p.getFullYear() >= 2026) dates.push(p);
+        if (!isNaN(p.getTime()) && p.getFullYear() >= 2020) dates.push(p);
       }
     }
   });
@@ -677,9 +677,34 @@ export default function PlanejamentoPage() {
   const [isUpdatingRoute, setIsUpdatingRoute] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState<string | null>(null);
 
-  // Helper: Get true operational date of route (plannedDate → departureDate → createdAt)
+  // Helper: Get true operational date of route (plannedDate → departureDate → firstVisitDate → createdAt)
   const getRouteDate = useCallback((r: Route): Date => {
-    return r.plannedDate || r.departureDate || r.createdAt;
+    if (r.plannedDate) return new Date(r.plannedDate);
+    if (r.departureDate) return new Date(r.departureDate);
+
+    if (r.stops && r.stops.length > 0) {
+      for (const s of r.stops) {
+        if (s.firstVisitDate) {
+          const parts = s.firstVisitDate.trim().split('/');
+          if (parts.length === 3) {
+            const day = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10) - 1;
+            let year = parseInt(parts[2], 10);
+            if (year < 100) year += 2000;
+            if (!isNaN(day) && !isNaN(month) && !isNaN(year) && year >= 2020 && month >= 0 && month <= 11) {
+              return new Date(year, month, day);
+            }
+          } else if (s.firstVisitDate.includes('-')) {
+            try {
+              const d = parseISO(s.firstVisitDate);
+              if (!isNaN(d.getTime())) return d;
+            } catch {}
+          }
+        }
+      }
+    }
+
+    return new Date(r.createdAt);
   }, []);
 
   // ── Filter ALL routes (Drafts + Active + Inactive) for current week ──
@@ -688,10 +713,34 @@ export default function PlanejamentoPage() {
     const end = addDays(weekStart, 6);
     end.setHours(23, 59, 59, 999);
 
+    const parseFvd = (fvd: string): Date | null => {
+      const parts = fvd.trim().split('/');
+      if (parts.length === 3) {
+        const day = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        let year = parseInt(parts[2], 10);
+        if (year < 100) year += 2000;
+        if (!isNaN(day) && !isNaN(month) && !isNaN(year)) return new Date(year, month, day);
+      }
+      if (fvd.includes('-')) {
+        try { const d = parseISO(fvd); if (!isNaN(d.getTime())) return d; } catch {}
+      }
+      return null;
+    };
+
     return allRoutes.filter(r => {
-      const dateToTest = getRouteDate(r);
-      if (!dateToTest) return weekOffset === 0;
-      return dateToTest >= start && dateToTest <= end;
+      const routeDate = getRouteDate(r);
+      // Check if route's own planned/departure date is in the week
+      if (routeDate && routeDate >= start && routeDate <= end) return true;
+      // Check if any stop's firstVisitDate falls in the week
+      if (r.stops?.some(s => {
+        if (!s.firstVisitDate) return false;
+        const d = parseFvd(s.firstVisitDate);
+        return d && d >= start && d <= end;
+      })) return true;
+      // Fallback: current week shows routes without any date
+      if (!routeDate && weekOffset === 0) return true;
+      return false;
     });
   }, [allRoutes, weekStart, weekOffset, getRouteDate]);
 
@@ -1885,6 +1934,7 @@ export default function PlanejamentoPage() {
                       <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">OS</th>
                       <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Cliente</th>
                       <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Cidade / Bairro</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">1st Visit Date 📅</th>
                       <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Modelo</th>
                       <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Turno</th>
                       <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Peças</th>
@@ -1908,6 +1958,25 @@ export default function PlanejamentoPage() {
                         <td className="px-3 py-2 text-muted-foreground">
                           <p className="font-medium text-foreground">{stop.city}{stop.state ? ` (${stop.state.toUpperCase()})` : ''}</p>
                           {stop.neighborhood && <p className="text-[10px] opacity-60">{stop.neighborhood}</p>}
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            placeholder="DD/MM/YYYY"
+                            value={stop.firstVisitDate || ''}
+                            onChange={async (e) => {
+                              const val = e.target.value;
+                              const newStops = selectedRoute.stops.map((s, idx) => idx === i ? { ...s, firstVisitDate: val } : s);
+                              setSelectedRoute({ ...selectedRoute, stops: newStops });
+                              try {
+                                await routeService.update(selectedRoute.id, { stops: newStops });
+                                await queryClient.invalidateQueries({ queryKey: ['routes'] });
+                              } catch (err) {
+                                console.error("Erro ao atualizar 1st Visit Date:", err);
+                              }
+                            }}
+                            className="w-24 text-[11px] font-mono font-semibold text-primary px-1.5 py-0.5 rounded border border-border/60 bg-muted/30 focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
                         </td>
                         <td className="px-3 py-2 text-muted-foreground max-w-[100px]">
                           <span className="block truncate">{stop.model}</span>
