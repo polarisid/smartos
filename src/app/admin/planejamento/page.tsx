@@ -24,7 +24,7 @@ import { configService } from "@/services/supabase/configService";
 import { type Route, type RouteStop, type RoutePart } from "@/lib/data";
 import { optimizeRouteStops, optimizeRouteStopsAsync, describeOptimization } from "@/lib/routeOptimizer";
 import { optimizeRouteWithGeminiAI } from "@/services/aiRouteService";
-import { parseFullAddress, validateCepWithCityState } from "@/lib/geocode";
+import { parseFullAddress, validateCepWithCityState, getCoordinates } from "@/lib/geocode";
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Trash2, CheckCircle2,
   Sparkles, Download, MapPin, Calendar, Users, Truck,
@@ -47,135 +47,79 @@ function haversineKm(a: [number, number], b: [number, number]): number {
   return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
 }
 
-/** Cache simples para evitar chamadas repetidas ao mesmo CEP / endereço */
-const _geocodeCache = new Map<string, [number, number] | null>();
-
-/**
- * Busca endereço completo na API pública ViaCEP e então geocodifica via
- * Nominatim (OpenStreetMap). Retorna [lat, lng].
- *
- * Fluxo: CEP → viacep.com.br → {logradouro, bairro, localidade, uf}
- *         → Nominatim → {lat, lon}
- */
-async function geocodeByZip(zip: string): Promise<[number, number] | null> {
-  const clean = zip.replace(/\D/g, '');
-  if (clean.length !== 8) return null;
-  if (_geocodeCache.has(clean)) return _geocodeCache.get(clean)!;
-
-  try {
-    // 1. ViaCEP — endereço completo
-    const cepRes = await fetch(`https://viacep.com.br/ws/${clean}/json/`);
-    const cepData = await cepRes.json();
-    if (cepData.erro) { _geocodeCache.set(clean, null); return null; }
-
-    const { logradouro, bairro, localidade, uf } = cepData;
-    // Monta query rica: "Rua X, Bairro Y, Cidade, UF, Brasil"
-    const query = [logradouro, bairro, localidade, uf, 'Brasil']
-      .filter(Boolean).join(', ');
-
-    // 2. Nominatim — coordenadas
-    const nomRes = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
-      { headers: { 'Accept-Language': 'pt-BR', 'User-Agent': 'SmartOS/1.0' } }
-    );
-    const nomData = await nomRes.json();
-    if (nomData?.[0]) {
-      const coord: [number, number] = [parseFloat(nomData[0].lat), parseFloat(nomData[0].lon)];
-      _geocodeCache.set(clean, coord);
-      return coord;
-    }
-  } catch { /* ignore */ }
-
-  _geocodeCache.set(clean, null);
-  return null;
-}
-
-/**
- * Geocodifica por cidade/UF via Nominatim (fallback quando não há CEP).
- */
-async function geocodeByCityState(city: string, state = 'Sergipe'): Promise<[number, number] | null> {
-  const key = `${city}|${state}`;
-  if (_geocodeCache.has(key)) return _geocodeCache.get(key)!;
-
-  try {
-    const query = encodeURIComponent(`${city}, ${state}, Brasil`);
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1`,
-      { headers: { 'Accept-Language': 'pt-BR', 'User-Agent': 'SmartOS/1.0' } }
-    );
-    const data = await res.json();
-    if (data?.[0]) {
-      const coord: [number, number] = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-      _geocodeCache.set(key, coord);
-      return coord;
-    }
-  } catch { /* ignore */ }
-
-  _geocodeCache.set(key, null);
-  return null;
-}
-
-/**
- * Retorna coordenada da parada: prioriza CEP via ViaCEP, depois cidade+UF.
- */
 async function geocodeStop(stop: RouteStop): Promise<[number, number] | null> {
-  if (stop.zipCode) {
-    const coord = await geocodeByZip(stop.zipCode);
-    if (coord) return coord;
-  }
-  if (stop.city) {
-    return geocodeByCityState(stop.city, stop.state || 'Sergipe');
-  }
-  return null;
+  return getCoordinates(
+    stop.city,
+    stop.neighborhood,
+    stop.state || 'Sergipe',
+    stop.addressDetails,
+    stop.zipCode
+  );
+}
+
+async function geocodeBase(baseAddress: string): Promise<[number, number] | null> {
+  const { city, state, street } = parseFullAddress(baseAddress);
+  return getCoordinates(
+    city || 'Aracaju',
+    '',
+    state || 'Sergipe',
+    street || baseAddress
+  );
 }
 
 /**
- * Busca distâncias REAIS de rodovia via OSRM Table API (público, sem chave).
- * Geocodifica via ViaCEP + Nominatim. Retorna km por trecho:
- * [base→p1, p1→p2, ..., pN→base]
+ * Busca distâncias REAIS de rodovia via OSRM Table API com suporte a múltiplos servidores e fallback.
+ * Retorna km por trecho: [base→p1, p1→p2, ..., pN→base]
  */
 async function fetchOsrmRoadDistances(
   stops: RouteStop[],
   baseAddress: string
 ): Promise<number[]> {
-  const DEFAULT: [number, number] = [-10.9472, -37.0731]; // Aracaju
+  const DEFAULT: [number, number] = [-10.9142, -37.0545]; // Base Aracaju
 
-  // 1. Geocodificar base e todas as paradas em paralelo
   const [baseCoord, ...stopCoords] = await Promise.all([
-    geocodeByCityState(baseAddress),
+    geocodeBase(baseAddress),
     ...stops.map(geocodeStop),
   ]);
 
   const base = baseCoord ?? DEFAULT;
-  // Monta sequência completa: base → p1 → p2 → ... → pN → base
   const points: [number, number][] = [
     base,
     ...stopCoords.map(c => c ?? base),
     base,
   ];
 
-  // 2. OSRM Table API: pede a diagonal da matriz (trecho a trecho)
-  // OSRM usa coordenadas no formato lng,lat
-  const coordStr = points.map(([lat, lng]) => `${lng},${lat}`).join(';');
+  if (points.length < 2) return [];
   const n = points.length - 1;
+
+  const coordStr = points.map(([lat, lng]) => `${lng},${lat}`).join(';');
   const sources = Array.from({ length: n }, (_, i) => i).join(';');
   const dests   = Array.from({ length: n }, (_, i) => i + 1).join(';');
 
-  try {
-    const osrmBaseUrl = (process.env.NEXT_PUBLIC_OSRM_URL || 'https://router.project-osrm.org').replace(/\/$/, '');
-    const url = `${osrmBaseUrl}/table/v1/driving/${coordStr}` +
-                `?sources=${sources}&destinations=${dests}&annotations=distance`;
-    const res  = await fetch(url);
-    const json = await res.json();
+  const osrmEndpoints = [
+    process.env.NEXT_PUBLIC_OSRM_URL ? `${process.env.NEXT_PUBLIC_OSRM_URL.replace(/\/$/, '')}/table/v1/driving/` : null,
+    `https://router.project-osrm.org/table/v1/driving/`,
+    `https://routing.openstreetmap.de/routed-car/table/v1/driving/`
+  ].filter(Boolean) as string[];
 
-    if (json.code === 'Ok' && json.distances) {
-      // distances[i][0] = distância do source i ao dest correspondente (metros)
-      return (json.distances as number[][]).map(row => (row[0] ?? 0) / 1000);
-    }
-  } catch { /* fallback */ }
+  for (const baseUrl of osrmEndpoints) {
+    try {
+      const url = `${baseUrl}${coordStr}?sources=${sources}&destinations=${dests}&annotations=distance`;
+      const res  = await fetch(url);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.code === 'Ok' && json.distances) {
+          const resultKm = (json.distances as number[][]).map(row => Math.round(((row[0] ?? 0) / 1000) * 10) / 10);
+          if (resultKm.some(km => km > 0)) {
+            return resultKm;
+          }
+        }
+      }
+    } catch { /* try next endpoint */ }
+  }
 
-  // Fallback: haversine em linha reta
-  return Array.from({ length: n }, (_, i) => haversineKm(points[i], points[i + 1]));
+  // Fallback Haversine caso OSRM esteja indisponível no momento
+  return Array.from({ length: n }, (_, i) => Math.round(haversineKm(points[i], points[i + 1]) * 10) / 10);
 }
 
 
