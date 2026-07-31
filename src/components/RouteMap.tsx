@@ -51,6 +51,25 @@ const getStoreIcon = () => {
     });
 };
 
+const getLegBadgeIcon = (legNumber: number) => {
+    return L.divIcon({
+        className: 'custom-leg-badge-icon',
+        html: `<div class="px-1.5 py-0.5 rounded-full bg-slate-900/90 text-white text-[9px] font-extrabold border border-emerald-400/80 shadow-md backdrop-blur-sm pointer-events-none flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>T${legNumber}</div>`,
+        iconSize: [36, 18],
+        iconAnchor: [18, 9],
+    });
+};
+
+type RouteLeg = {
+    id: string;
+    fromLabel: string;
+    toLabel: string;
+    coords: [number, number][];
+    midpoint: [number, number];
+    distanceKm: number;
+    durationMin: number;
+};
+
 type MapStop = {
     stop: RouteStop;
     route: Route;
@@ -65,6 +84,47 @@ interface RouteMapProps {
     polylineColor?: string;
     height?: string;
     baseAddress?: string;
+}
+
+async function fetchLegRoadPath(
+    p1: [number, number],
+    p2: [number, number]
+): Promise<{ coords: [number, number][]; distanceKm: number; durationMin: number }> {
+    const coordsStr = `${p1[1]},${p1[0]};${p2[1]},${p2[0]}`;
+    const customOsrm = (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_OSRM_URL)
+        ? `${process.env.NEXT_PUBLIC_OSRM_URL.replace(/\/$/, '')}/route/v1/driving/`
+        : null;
+
+    const endpoints = [
+        customOsrm,
+        `https://router.project-osrm.org/route/v1/driving/`,
+        `https://routing.openstreetmap.de/routed-car/route/v1/driving/`
+    ].filter(Boolean) as string[];
+
+    for (const baseUrl of endpoints) {
+        try {
+            const res = await fetch(`${baseUrl}${coordsStr}?overview=full&geometries=geojson`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.routes && data.routes[0] && data.routes[0].geometry) {
+                    const r = data.routes[0];
+                    const roadCoords: [number, number][] = r.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]]);
+                    return {
+                        coords: roadCoords.length > 0 ? roadCoords : [p1, p2],
+                        distanceKm: Math.round((r.distance / 1000) * 10) / 10,
+                        durationMin: Math.round(r.duration / 60)
+                    };
+                }
+            }
+        } catch (e) {}
+    }
+
+    const dist = getHaversineDistance(p1, p2);
+    return {
+        coords: [p1, p2],
+        distanceKm: Math.round(dist * 10) / 10,
+        durationMin: Math.round((dist / 60) * 60)
+    };
 }
 
 function MapBounds({ stops, baseCoords }: { stops: MapStop[]; baseCoords?: [number, number] | null }) {
@@ -92,7 +152,7 @@ export default function RouteMap({
 }: RouteMapProps) {
     const [mapStops, setMapStops] = useState<MapStop[]>([]);
     const [baseCoords, setBaseCoords] = useState<[number, number] | null>([-10.9142, -37.0545]);
-    const [roadPolyline, setRoadPolyline] = useState<[number, number][]>([]);
+    const [routeLegs, setRouteLegs] = useState<RouteLeg[]>([]);
     const [loading, setLoading] = useState(true);
     const [mapStyle, setMapStyle] = useState<'google' | 'google_satellite' | 'carto'>('google');
 
@@ -145,7 +205,6 @@ export default function RouteMap({
 
         loadCoords();
 
-        // Safety timeout to guarantee loading spinner resolves within 3.5 seconds max
         const timer = setTimeout(() => {
             if (isMounted) setLoading(false);
         }, 3500);
@@ -156,89 +215,61 @@ export default function RouteMap({
         };
     }, [activeStops]);
 
-    // 3. Fetch OSRM Road Routing (Tracejar pelas vias)
+    // 3. Fetch Leg-by-Leg Highway Routing
     useEffect(() => {
         if (!showPolyline || mapStops.length === 0) {
-            setRoadPolyline([]);
+            setRouteLegs([]);
             return;
         }
 
-        const waypoints: [number, number][] = [];
-        
-        // Include baseCoords if it is within reasonable distance (< 400 km) of the stops
-        let includeBase = false;
-        if (baseCoords && mapStops.length > 0) {
-            const firstStop = mapStops[0].coords;
-            const dist = getHaversineDistance(baseCoords, firstStop);
-            if (dist < 400) {
-                includeBase = true;
-                waypoints.push(baseCoords);
-            }
-        }
-
-        mapStops.forEach(s => waypoints.push(s.coords));
-        if (includeBase && baseCoords) waypoints.push(baseCoords); // Return to base
-
-        if (waypoints.length < 2) return;
-
         let isMounted = true;
 
-        // Helper to fetch driving polyline segment for up to 10 waypoints
-        const fetchSegment = async (points: [number, number][]): Promise<[number, number][]> => {
-            if (points.length < 2) return points;
-            const coordsStr = points.map(c => `${c[1]},${c[0]}`).join(';');
-            const osrmBaseUrl = (process.env.NEXT_PUBLIC_OSRM_URL || 'https://router.project-osrm.org').replace(/\/$/, '');
-            const url = `${osrmBaseUrl}/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`;
-            try {
-                const res = await fetch(url);
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.routes && data.routes[0] && data.routes[0].geometry) {
-                        return data.routes[0].geometry.coordinates.map(
-                            (c: [number, number]) => [c[1], c[0]]
-                        );
-                    }
-                }
-            } catch (e) {}
-            return points;
-        };
+        const pointsWithLabels: { label: string; coords: [number, number] }[] = [];
+        if (baseCoords) {
+            pointsWithLabels.push({ label: 'Base (Loja)', coords: baseCoords });
+        }
+        mapStops.forEach((s, idx) => {
+            pointsWithLabels.push({
+                label: `#${idx + 1} (${s.stop.city} - ${s.stop.neighborhood})`,
+                coords: s.coords
+            });
+        });
+        if (baseCoords) {
+            pointsWithLabels.push({ label: 'Retorno Base', coords: baseCoords });
+        }
 
-        const loadFullPolyline = async () => {
-            try {
-                // Chunk waypoints into overlapping blocks of max 8 points to prevent OSRM URL limits and sampling loss
-                const fullPath: [number, number][] = [];
-                const chunkSize = 8;
+        if (pointsWithLabels.length < 2) return;
 
-                for (let i = 0; i < waypoints.length - 1; i += chunkSize - 1) {
-                    const chunk = waypoints.slice(i, i + chunkSize);
-                    const segmentPath = await fetchSegment(chunk);
-                    if (fullPath.length > 0 && segmentPath.length > 0) {
-                        fullPath.push(...segmentPath.slice(1));
-                    } else {
-                        fullPath.push(...segmentPath);
-                    }
-                }
+        const loadLegs = async () => {
+            const legs: RouteLeg[] = [];
+            for (let i = 0; i < pointsWithLabels.length - 1; i++) {
+                const from = pointsWithLabels[i];
+                const to = pointsWithLabels[i + 1];
 
-                if (isMounted) {
-                    setRoadPolyline(fullPath.length > 0 ? fullPath : waypoints);
-                }
-            } catch (err) {
-                console.error("OSRM full routing fallback:", err);
-                if (isMounted) setRoadPolyline(waypoints);
+                const legData = await fetchLegRoadPath(from.coords, to.coords);
+                const midIdx = Math.floor(legData.coords.length / 2);
+                const midpoint = legData.coords[midIdx] || from.coords;
+
+                legs.push({
+                    id: `leg-${i}-${from.label}-${to.label}`,
+                    fromLabel: from.label,
+                    toLabel: to.label,
+                    coords: legData.coords,
+                    midpoint,
+                    distanceKm: legData.distanceKm,
+                    durationMin: legData.durationMin
+                });
+            }
+
+            if (isMounted) {
+                setRouteLegs(legs);
             }
         };
 
-        loadFullPolyline();
+        loadLegs();
 
         return () => { isMounted = false; };
     }, [mapStops, baseCoords, showPolyline]);
-
-    // Fallback polyline if OSRM is loading
-    const activePolyline = roadPolyline.length > 0
-        ? roadPolyline
-        : baseCoords
-        ? [baseCoords, ...mapStops.map(s => s.coords), baseCoords]
-        : mapStops.map(s => s.coords);
 
     return (
         <div style={{ height }} className="w-full min-h-[300px] bg-slate-900 rounded-xl overflow-hidden border border-slate-800 relative z-0">
@@ -320,13 +351,47 @@ export default function RouteMap({
                     </Marker>
                 )}
 
-                {/* Road Polyline along streets */}
-                {showPolyline && activePolyline.length > 1 && (
-                    <Polyline
-                        positions={activePolyline}
-                        pathOptions={{ color: polylineColor, weight: 4, opacity: 0.85 }}
-                    />
-                )}
+                {/* Road Polyline along actual highway network */}
+                {showPolyline && routeLegs.map((leg, idx) => (
+                    <React.Fragment key={leg.id}>
+                        {/* High-contrast dark shadow outline */}
+                        <Polyline
+                            positions={leg.coords}
+                            pathOptions={{ color: '#0f172a', weight: 7, opacity: 0.6, lineCap: 'round', lineJoin: 'round' }}
+                        />
+                        {/* Bright foreground polyline following roads */}
+                        <Polyline
+                            positions={leg.coords}
+                            pathOptions={{ color: polylineColor || '#6366f1', weight: 4.5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }}
+                        >
+                            <Popup className="custom-popup">
+                                <div className="p-1 text-xs">
+                                    <h4 className="font-bold text-slate-900 text-xs mb-1">
+                                        🛣️ Trecho #{idx + 1}
+                                    </h4>
+                                    <p className="text-slate-700 font-medium mb-1">
+                                        {leg.fromLabel} ➔ {leg.toLabel}
+                                    </p>
+                                    <div className="flex items-center gap-2 text-[11px] font-semibold text-violet-700 bg-violet-50 dark:bg-violet-950 p-1 rounded">
+                                        <span>📏 {leg.distanceKm} km</span>
+                                        <span>⏱️ {leg.durationMin} min</span>
+                                    </div>
+                                </div>
+                            </Popup>
+                        </Polyline>
+
+                        {/* Midpoint Leg Marker Badge */}
+                        <Marker position={leg.midpoint} icon={getLegBadgeIcon(idx + 1)}>
+                            <Popup className="custom-popup">
+                                <div className="p-1 text-xs">
+                                    <p className="font-bold text-slate-900">Trecho #{idx + 1}</p>
+                                    <p className="text-slate-600 text-[11px]">{leg.fromLabel} ➔ {leg.toLabel}</p>
+                                    <p className="text-violet-700 font-semibold text-[11px]">{leg.distanceKm} km ({leg.durationMin} min)</p>
+                                </div>
+                            </Popup>
+                        </Marker>
+                    </React.Fragment>
+                ))}
 
                 {/* Stop Markers */}
                 {mapStops.map((item, idx) => {
