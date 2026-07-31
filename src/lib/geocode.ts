@@ -270,13 +270,40 @@ function normalizeStr(str: string): string {
         .trim();
 }
 
+function getHaversineDistance(c1: [number, number], c2: [number, number]): number {
+    const dLat = (c2[0] - c1[0]) * Math.PI / 180;
+    const dLng = (c2[1] - c1[1]) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(c1[0] * Math.PI / 180) * Math.cos(c2[0] * Math.PI / 180) *
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function isValidCityCoords(coords: [number, number], cityNorm: string, state: string): boolean {
+    if (!isValidStateCoords(coords, state)) return false;
+    if (!cityNorm) return true;
+
+    const knownCityCoords = CITY_FALLBACK_COORDINATES[cityNorm] ||
+      Object.entries(CITY_FALLBACK_COORDINATES).find(([k]) => cityNorm.length >= 4 && (cityNorm.includes(k) || k.includes(cityNorm)))?.[1];
+
+    if (!knownCityCoords) return true;
+
+    const distKm = getHaversineDistance(coords, knownCityCoords);
+    if (distKm > 30) {
+        console.warn(`[City Bounds Guard] Coordinate [${coords[0]}, ${coords[1]}] is ${distKm.toFixed(1)} km away from city '${cityNorm}' center. Rejecting wrong-city coordinate!`);
+        return false;
+    }
+
+    return true;
+}
+
 // Automatically purge legacy invalid geocode cache from browser localStorage on load
 if (typeof window !== 'undefined') {
     try {
         const keysToRemove: string[] = [];
         for (let i = 0; i < localStorage.length; i++) {
             const k = localStorage.key(i);
-            if (k && k.includes('geocode_') && !k.startsWith('v5_geocode_')) {
+            if (k && k.includes('geocode_') && !k.startsWith('v7_geocode_')) {
                 keysToRemove.push(k);
             }
         }
@@ -308,15 +335,15 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
         } catch (e) {}
     }
 
-    const key = `v6_geocode_${usableZip}_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
+    const key = `v7_geocode_${usableZip}_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
     
-    // Check localStorage cache with strict state bounds validation
+    // Check localStorage cache with strict city bounds validation
     if (typeof window !== 'undefined') {
         const cached = localStorage.getItem(key);
         if (cached) {
             try {
                 const parsed = JSON.parse(cached);
-                if (isValidStateCoords(parsed, rawState)) {
+                if (isValidCityCoords(parsed, cityNorm, rawState)) {
                     return parsed;
                 } else {
                     localStorage.removeItem(key);
@@ -345,7 +372,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
                 if (googleData.status === 'OK' && googleData.results && googleData.results.length > 0) {
                     const loc = googleData.results[0].geometry.location;
                     const coords: [number, number] = [loc.lat, loc.lng];
-                    if (isValidStateCoords(coords, rawState)) {
+                    if (isValidCityCoords(coords, cityNorm, rawState)) {
                         saveCache(key, coords, rawState);
                         return coords;
                     }
@@ -365,7 +392,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
                 const awesomeData = await awesomeRes.json();
                 if (awesomeData && awesomeData.lat && awesomeData.lng) {
                     const coords: [number, number] = [parseFloat(awesomeData.lat), parseFloat(awesomeData.lng)];
-                    if (isValidStateCoords(coords, rawState)) {
+                    if (isValidCityCoords(coords, cityNorm, rawState)) {
                         saveCache(key, coords, rawState);
                         return coords;
                     }
@@ -382,7 +409,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
                     const { longitude, latitude } = bData.location.coordinates;
                     if (latitude && longitude) {
                         const coords: [number, number] = [parseFloat(latitude), parseFloat(longitude)];
-                        if (isValidStateCoords(coords, rawState)) {
+                        if (isValidCityCoords(coords, cityNorm, rawState)) {
                             saveCache(key, coords, rawState);
                             return coords;
                         }
@@ -411,7 +438,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
                             const dataViaCep = await resViaCep.json();
                             if (dataViaCep && dataViaCep.length > 0) {
                                 const coords: [number, number] = [parseFloat(dataViaCep[0].lat), parseFloat(dataViaCep[0].lon)];
-                                if (isValidStateCoords(coords, stateFromCep)) {
+                                if (isValidCityCoords(coords, cityNorm, stateFromCep)) {
                                     saveCache(key, coords, rawState);
                                     return coords;
                                 }
@@ -428,7 +455,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
                         if (dataPhoton && dataPhoton.features && dataPhoton.features.length > 0) {
                             const [lng, lat] = dataPhoton.features[0].geometry.coordinates;
                             const coords: [number, number] = [lat, lng];
-                            if (isValidStateCoords(coords, stateFromCep)) {
+                            if (isValidCityCoords(coords, cityNorm, stateFromCep)) {
                                 saveCache(key, coords, rawState);
                                 return coords;
                             }
@@ -449,7 +476,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
             const dataCep = await resCep.json();
             if (dataCep && dataCep.length > 0) {
                 const coords: [number, number] = [parseFloat(dataCep[0].lat), parseFloat(dataCep[0].lon)];
-                if (isValidStateCoords(coords, rawState)) {
+                if (isValidCityCoords(coords, cityNorm, rawState)) {
                     saveCache(key, coords, rawState);
                     return coords;
                 }
@@ -471,7 +498,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
                 const data0 = await res0.json();
                 if (data0 && data0.length > 0) {
                     const coords: [number, number] = [parseFloat(data0[0].lat), parseFloat(data0[0].lon)];
-                    if (isValidStateCoords(coords, rawState)) {
+                    if (isValidCityCoords(coords, cityNorm, rawState)) {
                         saveCache(key, coords, rawState);
                         return coords;
                     }
@@ -489,7 +516,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
                 const data1 = await res1.json();
                 if (data1 && data1.length > 0) {
                     const coords: [number, number] = [parseFloat(data1[0].lat), parseFloat(data1[0].lon)];
-                    if (isValidStateCoords(coords, rawState)) {
+                    if (isValidCityCoords(coords, cityNorm, rawState)) {
                         saveCache(key, coords, rawState);
                         return coords;
                     }
@@ -507,7 +534,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
             const data2 = await res2.json();
             if (data2 && data2.length > 0) {
                 const coords: [number, number] = [parseFloat(data2[0].lat), parseFloat(data2[0].lon)];
-                if (isValidStateCoords(coords, rawState)) {
+                if (isValidCityCoords(coords, cityNorm, rawState)) {
                     saveCache(key, coords, rawState);
                     return coords;
                 }
