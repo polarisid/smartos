@@ -27,6 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useTechnicians, useServiceOrders } from "@/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart, type Driver } from "@/lib/data";
+import { validateCepWithCityState } from "@/lib/geocode";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -325,7 +326,7 @@ function RouteForm({
         }
     }, [initialData, mode, isActive]);
     
-     const handleRouteTextChange = (text: string) => {
+     const handleRouteTextChange = async (text: string) => {
         setRouteText(text);
         const stopsFromText = parseRouteText(text);
         const currentStops = parsedStops;
@@ -339,6 +340,22 @@ function RouteForm({
             };
         });
         setParsedStops(updatedStops);
+
+        const validatedStops = await Promise.all(updatedStops.map(async (stop) => {
+            if (stop.zipCode) {
+                const val = await validateCepWithCityState(stop.zipCode, stop.city, stop.state);
+                if (val.mismatch) {
+                    return {
+                        ...stop,
+                        zipMismatch: true,
+                        zipMismatchDetails: val.details,
+                        suggestedCityState: `${val.suggestedCity}-${val.suggestedState}`
+                    };
+                }
+            }
+            return stop;
+        }));
+        setParsedStops(validatedStops);
     };
 
 
@@ -830,6 +847,11 @@ function RouteForm({
                                                         {stop.isReallocated && (
                                                             <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:text-amber-400 text-[10px] px-1.5 py-0">
                                                                 Realocado para: {stop.reallocatedToRouteName}
+                                                            </Badge>
+                                                        )}
+                                                        {stop.zipMismatch && (
+                                                            <Badge variant="outline" className="text-red-700 border-red-200 bg-red-50 dark:bg-red-950 dark:text-red-300 text-[10px] px-1.5 py-0 flex items-center gap-1" title={stop.zipMismatchDetails}>
+                                                                ⚠️ CEP ({stop.zipCode}) de {stop.suggestedCityState} — Posicionado em {stop.city}
                                                             </Badge>
                                                         )}
                                                     </div>

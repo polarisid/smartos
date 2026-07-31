@@ -314,6 +314,17 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
         }
     }
 
+    let usableZip = safeZip;
+    if (safeZip && safeZip.length === 8 && safeCity) {
+        try {
+            const val = await validateCepWithCityState(safeZip, safeCity, rawState);
+            if (val.mismatch) {
+                console.warn(`[Geocode Strategy] CEP ${safeZip} não pertence a ${safeCity}-${rawState} (pertence a ${val.suggestedCity}-${val.suggestedState}). Ignorando CEP para posicionamento no mapa.`);
+                usableZip = '';
+            }
+        } catch (e) {}
+    }
+
     const knownCoords = CITY_FALLBACK_COORDINATES[cityNorm] ||
       Object.entries(CITY_FALLBACK_COORDINATES).find(([k]) => cityNorm.length >= 4 && (cityNorm.includes(k) || k.includes(cityNorm)))?.[1];
 
@@ -324,7 +335,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
 
     if (googleApiKey) {
         try {
-            const fullAddressQuery = [safeAddress, safeNeighborhood, safeCity, fullState, safeZip ? `CEP ${safeZip}` : '', 'Brasil']
+            const fullAddressQuery = [safeAddress, safeNeighborhood, safeCity, fullState, usableZip ? `CEP ${usableZip}` : '', 'Brasil']
                 .filter(Boolean)
                 .join(', ');
             const googleUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(fullAddressQuery)}&components=country:BR&key=${googleApiKey}`;
@@ -346,10 +357,10 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
     }
 
     // Attempt 0: High-accuracy Brazilian CEP Geocoding API (AwesomeAPI & BrasilAPI)
-    if (safeZip && safeZip.length === 8) {
+    if (usableZip && usableZip.length === 8) {
         try {
             // 0a. Try AwesomeAPI CEP Geolocation (Returns exact lat/lng for Brazilian CEPs)
-            const awesomeRes = await fetch(`https://cep.awesomeapi.com.br/json/${safeZip}`);
+            const awesomeRes = await fetch(`https://cep.awesomeapi.com.br/json/${usableZip}`);
             if (awesomeRes.ok) {
                 const awesomeData = await awesomeRes.json();
                 if (awesomeData && awesomeData.lat && awesomeData.lng) {
@@ -364,7 +375,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
 
         try {
             // 0b. Try BrasilAPI CEP V2 (Returns exact coordinates from IBGE/Correios)
-            const brasilApiRes = await fetch(`https://brasilapi.com.br/api/cep/v2/${safeZip}`);
+            const brasilApiRes = await fetch(`https://brasilapi.com.br/api/cep/v2/${usableZip}`);
             if (brasilApiRes.ok) {
                 const bData = await brasilApiRes.json();
                 if (bData && bData.location && bData.location.coordinates) {
@@ -382,7 +393,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
 
         try {
             // 0c. ViaCEP lookup + Nominatim/Photon exact street search
-            const viaCepRes = await fetch(`https://viacep.com.br/ws/${safeZip}/json/`);
+            const viaCepRes = await fetch(`https://viacep.com.br/ws/${usableZip}/json/`);
             if (viaCepRes.ok) {
                 const viaCepData = await viaCepRes.json();
                 if (viaCepData && !viaCepData.erro) {
@@ -430,7 +441,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
         }
 
         // Direct CEP query in Nominatim
-        const formattedCep = `${safeZip.slice(0, 5)}-${safeZip.slice(5)}`;
+        const formattedCep = `${usableZip.slice(0, 5)}-${usableZip.slice(5)}`;
         const qCep = `${formattedCep}, ${safeCity || 'Brasil'}`;
         const urlCep = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&q=${encodeURIComponent(qCep)}`;
         const resCep = await fetch(urlCep);
