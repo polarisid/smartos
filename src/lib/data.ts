@@ -217,6 +217,7 @@ export type Route = {
     driverId?: string;
     driverName?: string;
     driverPhone?: string;
+    fuelAvgKml?: number;
 }
 
 export type ChecklistField = {

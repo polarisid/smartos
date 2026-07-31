@@ -25,6 +25,7 @@ import { type Route, type RouteStop, type RoutePart } from "@/lib/data";
 import { optimizeRouteStops, optimizeRouteStopsAsync, describeOptimization } from "@/lib/routeOptimizer";
 import { optimizeRouteWithGeminiAI } from "@/services/aiRouteService";
 import { parseFullAddress, validateCepWithCityState, getCoordinates } from "@/lib/geocode";
+import { copyRouteEmailToClipboard } from "@/lib/emailExport";
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Trash2, CheckCircle2,
   Sparkles, Download, MapPin, Calendar, Users, Truck,
@@ -663,7 +664,13 @@ export default function PlanejamentoPage() {
   const [editDriverId, setEditDriverId] = useState("");
   const [editRouteType, setEditRouteType] = useState<"capital" | "interior">("capital");
   const [editPlannedDate, setEditPlannedDate] = useState<Date | undefined>(undefined);
+  const [editDepartureDate, setEditDepartureDate] = useState<Date | undefined>(undefined);
+  const [editArrivalDate, setEditArrivalDate] = useState<Date | undefined>(undefined);
+  const [editLicensePlate, setEditLicensePlate] = useState("");
+  const [editFuelAvgKml, setEditFuelAvgKml] = useState<number>(10);
   const [editCalOpen, setEditCalOpen] = useState(false);
+  const [editDepCalOpen, setEditDepCalOpen] = useState(false);
+  const [editArrCalOpen, setEditArrCalOpen] = useState(false);
   const [editParsedPreview, setEditParsedPreview] = useState<RouteStop[]>([]);
   const [isUpdatingRoute, setIsUpdatingRoute] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState<string | null>(null);
@@ -883,6 +890,10 @@ export default function PlanejamentoPage() {
     setEditRouteType(route.routeType || "capital");
     const d = getRouteDate(route);
     setEditPlannedDate(d);
+    setEditDepartureDate(route.departureDate || d);
+    setEditArrivalDate(route.arrivalDate || route.departureDate || d);
+    setEditLicensePlate(route.licensePlate || "TEM8E13");
+    setEditFuelAvgKml(route.fuelAvgKml || 10);
     const formatted = formatStopsToText(route.stops);
     setEditText(formatted);
     setEditParsedPreview(route.stops);
@@ -927,7 +938,10 @@ export default function PlanejamentoPage() {
         name: editName.trim(),
         stops: editParsedPreview,
         plannedDate: editPlannedDate,
-        departureDate: editPlannedDate,
+        departureDate: editDepartureDate || editPlannedDate,
+        arrivalDate: editArrivalDate || editDepartureDate || editPlannedDate,
+        licensePlate: editLicensePlate.trim(),
+        fuelAvgKml: editFuelAvgKml || 10,
         routeType: editRouteType,
         technicianId: tech?.id || "",
         technicianName: tech?.name || "",
@@ -946,7 +960,10 @@ export default function PlanejamentoPage() {
           name: editName.trim(),
           stops: editParsedPreview,
           plannedDate: editPlannedDate,
-          departureDate: editPlannedDate,
+          departureDate: editDepartureDate || editPlannedDate,
+          arrivalDate: editArrivalDate || editDepartureDate || editPlannedDate,
+          licensePlate: editLicensePlate.trim(),
+          fuelAvgKml: editFuelAvgKml || 10,
           routeType: editRouteType,
           technicianId: tech?.id || "",
           technicianName: tech?.name || "",
@@ -2099,8 +2116,8 @@ export default function PlanejamentoPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5 col-span-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="space-y-1.5 sm:col-span-2">
                 <Label>Nome da Rota *</Label>
                 <Input placeholder="Nome da Rota" value={editName} onChange={e => setEditName(e.target.value)} />
               </div>
@@ -2115,12 +2132,17 @@ export default function PlanejamentoPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Data Planejada</Label>
+                <Label>Placa do Veículo 🚗</Label>
+                <Input placeholder="Ex: TEM8E13" value={editLicensePlate} onChange={e => setEditLicensePlate(e.target.value)} className="uppercase font-mono font-bold" />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Data Planejada 📅</Label>
                 <Popover open={editCalOpen} onOpenChange={setEditCalOpen}>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal">
-                      <Calendar className="mr-2 h-4 w-4" />
-                      {editPlannedDate ? format(editPlannedDate, 'dd/MM/yyyy') : 'Selecionar data...'}
+                    <Button variant="outline" className="w-full justify-start text-left font-normal text-xs">
+                      <Calendar className="mr-2 h-3.5 w-3.5" />
+                      {editPlannedDate ? format(editPlannedDate, 'dd/MM/yyyy') : 'Data...'}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0">
@@ -2133,7 +2155,64 @@ export default function PlanejamentoPage() {
                   </PopoverContent>
                 </Popover>
               </div>
+
               <div className="space-y-1.5">
+                <Label className="text-emerald-700 dark:text-emerald-400 font-bold">Data de Saída 🛫</Label>
+                <Popover open={editDepCalOpen} onOpenChange={setEditDepCalOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-semibold text-xs border-emerald-300 dark:border-emerald-800">
+                      <Calendar className="mr-2 h-3.5 w-3.5 text-emerald-600" />
+                      {editDepartureDate ? format(editDepartureDate, 'dd/MM/yyyy') : 'Data de Saída'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <CalendarComp
+                      mode="single"
+                      selected={editDepartureDate}
+                      onSelect={d => { setEditDepartureDate(d); setEditDepCalOpen(false); }}
+                      locale={ptBR}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-blue-700 dark:text-blue-400 font-bold">Data de Retorno 🛬</Label>
+                <Popover open={editArrCalOpen} onOpenChange={setEditArrCalOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-semibold text-xs border-blue-300 dark:border-blue-800">
+                      <Calendar className="mr-2 h-3.5 w-3.5 text-blue-600" />
+                      {editArrivalDate ? format(editArrivalDate, 'dd/MM/yyyy') : 'Data de Retorno'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <CalendarComp
+                      mode="single"
+                      selected={editArrivalDate}
+                      onSelect={d => { setEditArrivalDate(d); setEditArrCalOpen(false); }}
+                      locale={ptBR}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Consumo Médio ⛽</Label>
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="number"
+                    step="0.5"
+                    min="1"
+                    max="50"
+                    value={editFuelAvgKml}
+                    onChange={e => setEditFuelAvgKml(parseFloat(e.target.value) || 10)}
+                    className="font-mono text-xs"
+                  />
+                  <span className="text-[10px] font-bold text-muted-foreground shrink-0">km/L</span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5 col-span-2 sm:col-span-2">
                 <Label>Técnico</Label>
                 <Select value={editTechnicianId} onValueChange={setEditTechnicianId}>
                   <SelectTrigger><SelectValue placeholder="Selecionar..." /></SelectTrigger>
@@ -2142,7 +2221,7 @@ export default function PlanejamentoPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 col-span-2 sm:col-span-2">
                 <Label>Motorista</Label>
                 <Select value={editDriverId} onValueChange={setEditDriverId}>
                   <SelectTrigger><SelectValue placeholder="Selecionar..." /></SelectTrigger>
@@ -2198,29 +2277,16 @@ export default function PlanejamentoPage() {
                     {editParsedPreview.map((s, i) => (
                       <div key={i} className={cn(
                         "flex items-center flex-wrap gap-1.5 text-xs py-1 px-1 rounded border-b border-border/20 last:border-0 transition-colors",
-                        s.zipMismatch && "bg-red-500/10 border-red-500/30"
+                        s.zipMismatch ? "bg-red-50/60 dark:bg-red-955/20" : "hover:bg-muted/40"
                       )}>
-                        <span className="text-muted-foreground w-5 text-right font-bold">{i+1}.</span>
-                        <span className="font-mono font-bold">{s.serviceOrder}</span>
-                        <span className="text-muted-foreground truncate max-w-[110px]">{s.consumerName}</span>
-                        <span className="text-muted-foreground font-medium">{s.city}{s.state ? `-${s.state}` : ''}</span>
-                        {s.zipCode && (
-                          <span className="font-mono text-[9px] text-muted-foreground bg-muted px-1 rounded">
-                            {s.zipCode}
-                          </span>
-                        )}
-                        {s.zipMismatch && (
-                          <span className="text-[9px] font-bold bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 px-1.5 py-0.2 rounded border border-red-300 flex items-center gap-1" title={s.zipMismatchDetails}>
-                            ⚠️ CEP de {s.suggestedCityState}
-                          </span>
-                        )}
-                        {s.turn && (
-                          <span className="text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 px-1.5 py-0.2 rounded">
-                            {s.turn}
-                          </span>
-                        )}
+                        <span className="font-mono text-muted-foreground w-4 text-right shrink-0">{i + 1}.</span>
+                        <span className="font-mono font-bold text-foreground shrink-0">{s.serviceOrder}</span>
+                        <span className="font-medium text-foreground truncate max-w-[120px]">{s.consumerName}</span>
+                        <span className="text-muted-foreground">{s.city}-{s.state}</span>
+                        {s.zipCode && <span className="font-mono text-[10px] text-muted-foreground bg-muted px-1 rounded">{s.zipCode}</span>}
+                        {s.turn && <span className="font-bold text-violet-700 dark:text-violet-300 bg-violet-100 dark:bg-violet-950 px-1 rounded text-[10px]">{s.turn}</span>}
                         {s.parts && s.parts.length > 0 && (
-                          <span className="text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 px-1.5 py-0.2 rounded">
+                          <span className="text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-955 dark:text-amber-300 px-1.5 py-0.2 rounded">
                             📦 {s.parts.length} peça{s.parts.length > 1 ? 's' : ''}: {s.parts.map(p => `${p.code}${p.quantity > 1 ? ` x${p.quantity}` : ''}`).join(', ')}
                           </span>
                         )}
@@ -2231,12 +2297,58 @@ export default function PlanejamentoPage() {
               )}
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancelar</Button>
-            <Button onClick={handleSaveEdit} disabled={isUpdatingRoute || !editName.trim() || editParsedPreview.length === 0} className="gap-2 bg-blue-600 hover:bg-blue-700">
-              {isUpdatingRoute ? <Loader2 className="h-4 w-4 animate-spin" /> : <Edit className="h-4 w-4" />}
-              Salvar Alterações
+          <DialogFooter className="flex-col sm:flex-row gap-2 sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={async () => {
+                if (!editingRoute) return;
+                const tech = technicians.find(t => t.id === editTechnicianId);
+                const driver = drivers.find(d => d.id === editDriverId);
+                const routeDataToExport: Route = {
+                  ...editingRoute,
+                  name: editName,
+                  stops: editParsedPreview,
+                  plannedDate: editPlannedDate,
+                  departureDate: editDepartureDate || editPlannedDate,
+                  arrivalDate: editArrivalDate || editDepartureDate || editPlannedDate,
+                  licensePlate: editLicensePlate || "TEM8E13",
+                  fuelAvgKml: editFuelAvgKml || 10,
+                  technicianName: tech?.name || editingRoute.technicianName,
+                  driverName: driver?.name || editingRoute.driverName,
+                };
+
+                const legKm = await fetchOsrmRoadDistances(editParsedPreview, defaultBaseAddress || "Aracaju");
+                const totalKm = legKm.reduce((a, b) => a + b, 0);
+
+                const ok = await copyRouteEmailToClipboard({
+                  route: routeDataToExport,
+                  legKm,
+                  totalKm,
+                  fuelAvgKml: editFuelAvgKml || 10,
+                });
+
+                if (ok) {
+                  toast({
+                    title: "📧 Rota Copiada no Formato de E-mail!",
+                    description: "Você já pode colar (Ctrl+V) no seu Outlook, Gmail ou Word. Tabela formatada e resumo anexados!"
+                  });
+                } else {
+                  toast({ variant: "destructive", title: "Erro ao copiar para a área de transferência." });
+                }
+              }}
+              className="gap-1.5 border-emerald-300 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-955 font-bold"
+            >
+              <Copy className="h-4 w-4 text-emerald-600" />
+              Copiar p/ E-mail 📧
             </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancelar</Button>
+              <Button onClick={handleSaveEdit} disabled={isUpdatingRoute || !editName.trim() || editParsedPreview.length === 0} className="gap-2 bg-blue-600 hover:bg-blue-700">
+                {isUpdatingRoute ? <Loader2 className="h-4 w-4 animate-spin" /> : <Edit className="h-4 w-4" />}
+                Salvar Alterações
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
