@@ -485,67 +485,29 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
         await delayQueue();
     }
 
-    // Add API rate limiter
-    await delayQueue();
-
     try {
-        // Attempt 1: Detailed address with countrycodes=br
-        if (safeAddress) {
-            const q0 = `${safeAddress}, ${safeNeighborhood ? safeNeighborhood + ', ' : ''}${safeCity}, ${fullState}, Brasil`;
-            const url0 = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&q=${encodeURIComponent(q0)}`;
-            const res0 = await fetch(url0);
-            if (res0.ok) {
-                const data0 = await res0.json();
-                if (data0 && data0.length > 0) {
-                    const coords: [number, number] = [parseFloat(data0[0].lat), parseFloat(data0[0].lon)];
+        // Attempt 1: Street / Neighborhood search via Photon Komoot (CORS-Friendly, No 429 Rate-Limits)
+        if (safeAddress || safeNeighborhood) {
+            const queryTerms = [safeAddress, safeNeighborhood, safeCity, fullState, 'Brasil'].filter(Boolean).join(', ');
+            const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(queryTerms)}&limit=1&lang=default`;
+            const resPhoton = await fetch(photonUrl);
+            if (resPhoton.ok) {
+                const dataPhoton = await resPhoton.json();
+                if (dataPhoton && dataPhoton.features && dataPhoton.features.length > 0) {
+                    const [lng, lat] = dataPhoton.features[0].geometry.coordinates;
+                    const coords: [number, number] = [lat, lng];
                     if (isValidCityCoords(coords, cityNorm, rawState)) {
                         saveCache(key, coords, rawState);
                         return coords;
                     }
                 }
             }
-            await delayQueue();
         }
-
-        // Attempt 2: Neighborhood + City + Full State + Brazil
-        if (safeNeighborhood) {
-            const q1 = `${safeNeighborhood}, ${safeCity}, ${fullState}, Brasil`;
-            const url1 = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&q=${encodeURIComponent(q1)}`;
-            const res1 = await fetch(url1);
-            if (res1.ok) {
-                const data1 = await res1.json();
-                if (data1 && data1.length > 0) {
-                    const coords: [number, number] = [parseFloat(data1[0].lat), parseFloat(data1[0].lon)];
-                    if (isValidCityCoords(coords, cityNorm, rawState)) {
-                        saveCache(key, coords, rawState);
-                        return coords;
-                    }
-                }
-            }
-            await delayQueue();
-        }
-
-        // Attempt 3: City + Full State + Brazil
-        const q2 = `${safeCity}, ${fullState}, Brasil`;
-        const url2 = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&q=${encodeURIComponent(q2)}`;
-        const res2 = await fetch(url2);
-        
-        if (res2.ok) {
-            const data2 = await res2.json();
-            if (data2 && data2.length > 0) {
-                const coords: [number, number] = [parseFloat(data2[0].lat), parseFloat(data2[0].lon)];
-                if (isValidCityCoords(coords, cityNorm, rawState)) {
-                    saveCache(key, coords, rawState);
-                    return coords;
-                }
-            }
-        }
-
     } catch (err) {
-        console.error("Geocoding failed", err);
+        console.warn("Photon lookup skipped", err);
     }
 
-    // Step 4: Fallback to static city coordinates in Brazil
+    // Step 2: Instant Fallback to verified local city coordinates (0 ms, 0 network, 0 CORS, 0 429 rate limits!)
     if (knownCoords) {
         saveCache(key, knownCoords, rawState);
         return knownCoords;
