@@ -389,7 +389,7 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
   };
 
   const FULL_HEADERS = [
-    'SO Nro.', 'ASC Job No.', 'Nome Consumidor', 'Cidade', 'Bairro', 'UF', 'CEP', 'Modelo', 'TURNO', 'TAT', 
+    'SO Nro.', 'MSG', 'LIG', 'ASC Job No.', 'Nome Consumidor', 'Cidade', 'Bairro', 'UF', 'CEP', 'Modelo', 'TURNO', 'TAT', 
     'Data de Solicitação', '1st Visit Date', 'TS', 'OW/LP', 'SPD', 'Status comment',
     'COD', 'DESCRICAO', 'QTD',
     'COD', 'DESCRICAO', 'QTD',
@@ -425,6 +425,8 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
 
         const rowVals = [
           stop.serviceOrder || '',
+          stop.confirmedByMessage ? 'OK' : '',
+          stop.confirmedByCall ? 'OK' : '',
           stop.ascJobNumber || '',
           stop.consumerName || '',
           stop.city || '',
