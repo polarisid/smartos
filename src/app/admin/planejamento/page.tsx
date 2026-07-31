@@ -36,6 +36,59 @@ import { Calendar as CalendarComp } from "@/components/ui/calendar";
 
 const DynamicalRouteMap = dynamic(() => import('@/components/RouteMap'), { ssr: false });
 
+// ─── Haversine distance between two [lat, lng] coordinate pairs ──
+function haversineKm(a: [number, number], b: [number, number]): number {
+  const R = 6371;
+  const dLat = (b[0] - a[0]) * Math.PI / 180;
+  const dLng = (b[1] - a[1]) * Math.PI / 180;
+  const s = Math.sin(dLat / 2) ** 2 +
+    Math.cos(a[0] * Math.PI / 180) * Math.cos(b[0] * Math.PI / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+}
+
+// ─── Build per-segment km array for a stop list given a base [lat,lng] ──
+// Returns array of length stops.length + 1 (last entry = return-to-base leg)
+function buildSegmentKm(stops: RouteStop[], baseCoord: [number, number]): number[] {
+  const cityCoordMap: Record<string, [number, number]> = {
+    aracaju: [-10.9472, -37.0731], lagarto: [-10.9172, -37.6631], itabaiana: [-10.6853, -37.4269],
+    propria: [-10.2108, -36.8417], estancia: [-11.2683, -37.4383],
+    socorro: [-10.8546, -37.1264], maruim: [-10.7408, -37.0817], laranjeiras: [-10.8039, -37.1714],
+    penedo: [-10.2906, -36.5864], 'tobias barreto': [-11.1839, -37.9986], 'simao dias': [-10.7439, -37.8108],
+    'nossa senhora do socorro': [-10.8546, -37.1264], boquim: [-11.1464, -37.6214],
+    cristinapolis: [-11.4747, -37.7553], indiaroba: [-11.5189, -37.5117], umbauba: [-11.3831, -37.6569],
+    neopolis: [-10.3208, -36.5794], 'nossa senhora da gloria': [-10.2189, -37.4217],
+    'sao cristovao': [-11.0147, -37.2064], riachuelo: [-10.7244, -37.1897],
+    'itabi': [-10.1264, -37.3047], 'nossa senhora de lourdes': [-10.0856, -37.0536],
+    'porto da folha': [-9.9156, -37.2803], 'gararu': [-9.9714, -37.0922],
+    'aquidaba': [-10.2694, -37.0197], 'canhoba': [-10.1525, -37.0169],
+    'amparo de sao francisco': [-10.1325, -36.9222], 'cedro de sao joao': [-10.2514, -36.8908],
+    'sao francisco': [-10.3236, -36.8778], 'santana do sao francisco': [-10.2878, -36.5742],
+    'brejo grande': [-10.4433, -36.4411], 'pacatuba': [-10.4386, -36.6561],
+    'japaratuba': [-10.5953, -36.9436], 'pirambu': [-10.7308, -36.8547],
+    'general maynard': [-10.6739, -37.0528], 'barra dos coqueiros': [-10.9011, -37.0325],
+    'itaporanga': [-11.3089, -37.3233], 'salgado': [-11.0200, -37.4722],
+    'pedrinhas': [-11.1964, -37.6803], 'arauá': [-11.3589, -37.6278],
+    'riachao do dantas': [-11.0717, -37.7328], 'poço verde': [-10.7197, -38.1819],
+    'simao dias': [-10.7439, -37.8108], 'paripiranga': [-10.6906, -37.8594],
+  };
+
+  const getCoord = (stop: RouteStop): [number, number] => {
+    const norm = (stop.city || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    return cityCoordMap[norm] || baseCoord;
+  };
+
+  const segments: number[] = [];
+  let prev = baseCoord;
+  for (const s of stops) {
+    const cur = getCoord(s);
+    segments.push(haversineKm(prev, cur));
+    prev = cur;
+  }
+  segments.push(haversineKm(prev, baseCoord)); // return to base
+  return segments;
+}
+
 // ─── formatStopsToText (converts RouteStops back to TSV text format for editing) ──
 function formatStopsToText(stops: RouteStop[]): string {
   if (!stops || stops.length === 0) return "";
@@ -2244,158 +2297,291 @@ export default function PlanejamentoPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Ordem Atual */}
-                <div className="border rounded-xl p-3 bg-muted/20">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center justify-between">
-                    <span>Ordem Atual</span>
-                    <span className="text-[10px] font-normal">{optimizingRoute?.stops.length} paradas</span>
-                  </h4>
-                  <div className="space-y-2 max-h-[540px] overflow-y-auto pr-1">
-                    {optimizingRoute?.stops.map((stop, i) => {
-                      const newIdx = proposedStops.findIndex(s => s.serviceOrder === stop.serviceOrder);
-                      const oldPos = i + 1;
-                      const newPos = newIdx !== -1 ? newIdx + 1 : oldPos;
-                      const isMoved = oldPos !== newPos;
+                {(() => {
+                  const BASE_COORD_MAP: Record<string, [number, number]> = {
+                    aracaju: [-10.9472, -37.0731], lagarto: [-10.9172, -37.6631],
+                    itabaiana: [-10.6853, -37.4269], propria: [-10.2108, -36.8417],
+                    estancia: [-11.2683, -37.4383], socorro: [-10.8546, -37.1264],
+                    maruim: [-10.7408, -37.0817], laranjeiras: [-10.8039, -37.1714],
+                    penedo: [-10.2906, -36.5864], 'tobias barreto': [-11.1839, -37.9986],
+                    'simao dias': [-10.7439, -37.8108], 'nossa senhora do socorro': [-10.8546, -37.1264],
+                    boquim: [-11.1464, -37.6214], cristinapolis: [-11.4747, -37.7553],
+                    indiaroba: [-11.5189, -37.5117], umbauba: [-11.3831, -37.6569],
+                    neópolis: [-10.3208, -36.5794], neopolis: [-10.3208, -36.5794],
+                    'nossa senhora da gloria': [-10.2189, -37.4217], 'sao cristovao': [-11.0147, -37.2064],
+                  };
+                  const baseCity = (defaultBaseAddress || originCity || 'Aracaju').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().split(/[,\-]/)[0].trim();
+                  const baseCoord: [number, number] = BASE_COORD_MAP[baseCity] || [-10.9472, -37.0731];
 
-                      return (
-                        <div
-                          key={i}
-                          className={cn(
-                            "flex items-center gap-2 p-2.5 rounded-lg border bg-background text-xs transition-colors",
-                            isMoved && "border-slate-300/80 bg-slate-50/50 dark:bg-slate-900/40 dark:border-slate-800"
-                          )}
-                        >
-                          <span className="font-bold text-muted-foreground w-6 text-center text-xs shrink-0">#{oldPos}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-1">
-                              <p className="font-mono font-semibold truncate">{stop.serviceOrder}</p>
-                              {isMoved && (
-                                <span className="text-[9px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
-                                  Vai p/ #{newPos}
+                  const origStops = optimizingRoute?.stops || [];
+                  const origSegs = buildSegmentKm(origStops, baseCoord);
+                  const origTotal = origSegs.reduce((a, b) => a + b, 0);
+
+                  return (
+                    <div className="border rounded-xl p-3 bg-muted/20">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center justify-between">
+                        <span>Ordem Atual</span>
+                        <span className="text-[10px] font-normal">{origStops.length} paradas</span>
+                      </h4>
+
+                      {/* BASE */}
+                      <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold text-primary">
+                        <span className="text-base">🏢</span>
+                        <span>{defaultBaseAddress || originCity || 'Base'}</span>
+                      </div>
+
+                      <div className="space-y-0 max-h-[520px] overflow-y-auto pr-1">
+                        {origStops.map((stop, i) => {
+                          const newIdx = proposedStops.findIndex(s => s.serviceOrder === stop.serviceOrder);
+                          const oldPos = i + 1;
+                          const newPos = newIdx !== -1 ? newIdx + 1 : oldPos;
+                          const isMoved = oldPos !== newPos;
+                          const segKm = origSegs[i];
+
+                          return (
+                            <div key={i}>
+                              {/* Arrow + KM badge for this leg */}
+                              <div className="flex items-center gap-1 pl-2 my-0.5">
+                                <span className="text-[9px] text-muted-foreground/60">↓</span>
+                                <span className="text-[9px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
+                                  {segKm.toFixed(1)} km
                                 </span>
-                              )}
+                              </div>
+                              <div
+                                className={cn(
+                                  "flex items-center gap-2 p-2.5 rounded-lg border bg-background text-xs transition-colors",
+                                  isMoved && "border-slate-300/80 bg-slate-50/50 dark:bg-slate-900/40 dark:border-slate-800"
+                                )}
+                              >
+                                <span className="font-bold text-muted-foreground w-6 text-center text-xs shrink-0">#{oldPos}</span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-1">
+                                    <p className="font-mono font-semibold truncate">{stop.serviceOrder}</p>
+                                    {isMoved && (
+                                      <span className="text-[9px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
+                                        Vai p/ #{newPos}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[10px] text-muted-foreground truncate flex items-center flex-wrap gap-1 mt-0.5">
+                                    <span className="font-medium text-foreground">{stop.city}</span>
+                                    {stop.state && (
+                                      <span className="text-[9px] font-extrabold uppercase text-slate-700 bg-slate-200/80 dark:text-slate-300 dark:bg-slate-800 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-700">
+                                        {stop.state.toUpperCase()}
+                                      </span>
+                                    )}
+                                    <span>— {stop.neighborhood}</span>
+                                    {stop.zipCode && (
+                                      <span className="font-mono text-[9px] bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 px-1 py-0.2 rounded border border-slate-200">
+                                        {stop.zipCode}
+                                      </span>
+                                    )}
+                                  </p>
+                                </div>
+                              </div>
                             </div>
-                            <p className="text-[10px] text-muted-foreground truncate flex items-center flex-wrap gap-1 mt-0.5">
-                              <span className="font-medium text-foreground">{stop.city}</span>
-                              {stop.state && (
-                                <span className="text-[9px] font-extrabold uppercase text-slate-700 bg-slate-200/80 dark:text-slate-300 dark:bg-slate-800 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-700">
-                                  {stop.state.toUpperCase()}
-                                </span>
-                              )}
-                              <span>— {stop.neighborhood}</span>
-                              {stop.zipCode && (
-                                <span className="font-mono text-[9px] bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 px-1 py-0.2 rounded border border-slate-200">
-                                  CEP: {stop.zipCode}
-                                </span>
-                              )}
-                            </p>
-                          </div>
+                          );
+                        })}
+
+                        {/* Return-to-base leg */}
+                        <div className="flex items-center gap-1 pl-2 my-0.5">
+                          <span className="text-[9px] text-muted-foreground/60">↓</span>
+                          <span className="text-[9px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
+                            {origSegs[origSegs.length - 1]?.toFixed(1)} km (retorno)
+                          </span>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                        <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold text-primary pl-2">
+                          <span className="text-base">🏢</span>
+                          <span>{defaultBaseAddress || originCity || 'Base'}</span>
+                        </div>
+                      </div>
+
+                      {/* Total */}
+                      <div className="mt-3 pt-2 border-t border-border/40 flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Total percurso</span>
+                        <span className="text-sm font-black text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-3 py-1 rounded-full border border-red-200 dark:border-red-800">
+                          🔴 {origTotal.toFixed(1)} km
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Ordem Sugerida pela IA */}
-                <div className="border border-violet-200 dark:border-violet-900/50 rounded-xl p-3 bg-violet-50/20 dark:bg-violet-955/10">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300 mb-2 flex items-center justify-between">
-                    <span>Sugerido pela IA</span>
-                    <span className="text-[10px] font-normal text-emerald-600 dark:text-emerald-400 font-bold">✨ Otimizado por CEP</span>
-                  </h4>
-                  <div className="space-y-2 max-h-[540px] overflow-y-auto pr-1">
-                    {proposedStops.map((stop, i) => {
-                      const origIdx = optimizingRoute?.stops.findIndex(s => s.serviceOrder === stop.serviceOrder) ?? -1;
-                      const oldPos = origIdx !== -1 ? origIdx + 1 : i + 1;
-                      const newPos = i + 1;
-                      const isMoved = oldPos !== newPos;
-                      const posDiff = oldPos - newPos;
+                {(() => {
+                  const BASE_COORD_MAP: Record<string, [number, number]> = {
+                    aracaju: [-10.9472, -37.0731], lagarto: [-10.9172, -37.6631],
+                    itabaiana: [-10.6853, -37.4269], propria: [-10.2108, -36.8417],
+                    estancia: [-11.2683, -37.4383], socorro: [-10.8546, -37.1264],
+                    maruim: [-10.7408, -37.0817], laranjeiras: [-10.8039, -37.1714],
+                    penedo: [-10.2906, -36.5864], 'tobias barreto': [-11.1839, -37.9986],
+                    'simao dias': [-10.7439, -37.8108], 'nossa senhora do socorro': [-10.8546, -37.1264],
+                    boquim: [-11.1464, -37.6214], cristinapolis: [-11.4747, -37.7553],
+                    indiaroba: [-11.5189, -37.5117], umbauba: [-11.3831, -37.6569],
+                    neópolis: [-10.3208, -36.5794], neopolis: [-10.3208, -36.5794],
+                    'nossa senhora da gloria': [-10.2189, -37.4217], 'sao cristovao': [-11.0147, -37.2064],
+                  };
 
-                      return (
-                        <div
-                          key={i}
-                          className={cn(
-                            "flex flex-col gap-1.5 p-2.5 rounded-lg border text-xs shadow-xs transition-all duration-200",
-                            isMoved
-                              ? posDiff > 0
-                                ? "border-emerald-400/80 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-955/40"
-                                : "border-amber-400/80 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-955/40"
-                              : "border-violet-200 dark:border-violet-900/60 bg-background"
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className={cn(
-                              "font-black w-6 text-center text-xs shrink-0 py-0.5 rounded",
-                              isMoved
-                                ? posDiff > 0 ? "bg-emerald-600 text-white" : "bg-amber-600 text-white"
-                                : "text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-950"
-                            )}>
-                              #{newPos}
-                            </span>
+                  const baseCity2 = (defaultBaseAddress || originCity || 'Aracaju').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().split(/[,\-]/)[0].trim();
+                  const baseCoord2: [number, number] = BASE_COORD_MAP[baseCity2] || [-10.9472, -37.0731];
 
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-1">
-                                <p className="font-mono font-bold truncate flex items-center gap-1.5">
-                                  {stop.serviceOrder}
-                                  {stop.warrantyType === 'LP' && (
-                                    <span className="bg-amber-100 text-amber-800 text-[9px] px-1 rounded font-bold">LP</span>
-                                  )}
-                                </p>
-                                {isMoved ? (
-                                  posDiff > 0 ? (
-                                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-955 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800 flex items-center gap-0.5 shrink-0">
-                                      ▲ Subiu (#{oldPos} ➔ #{newPos})
-                                    </span>
-                                  ) : (
-                                    <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-955 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800 flex items-center gap-0.5 shrink-0">
-                                      ▼ Desceu (#{oldPos} ➔ #{newPos})
-                                    </span>
-                                  )
-                                ) : (
-                                  <span className="text-[9px] text-muted-foreground font-medium shrink-0">
-                                    Mantida #{newPos}
-                                  </span>
-                                )}
+                  const propSegs = buildSegmentKm(proposedStops, baseCoord2);
+                  const propTotal = propSegs.reduce((a, b) => a + b, 0);
+
+                  const origStops = optimizingRoute?.stops || [];
+                  const origSegs2 = buildSegmentKm(origStops, baseCoord2);
+                  const origTotal2 = origSegs2.reduce((a, b) => a + b, 0);
+                  const savings = origTotal2 - propTotal;
+
+                  return (
+                    <div className="border border-violet-200 dark:border-violet-900/50 rounded-xl p-3 bg-violet-50/20 dark:bg-violet-955/10">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300 mb-2 flex items-center justify-between">
+                        <span>Sugerido pela IA</span>
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">✨ Otimizado</span>
+                      </h4>
+
+                      {/* BASE */}
+                      <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold text-primary">
+                        <span className="text-base">🏢</span>
+                        <span>{defaultBaseAddress || originCity || 'Base'}</span>
+                      </div>
+
+                      <div className="space-y-0 max-h-[520px] overflow-y-auto pr-1">
+                        {proposedStops.map((stop, i) => {
+                          const origIdx = optimizingRoute?.stops.findIndex(s => s.serviceOrder === stop.serviceOrder) ?? -1;
+                          const oldPos = origIdx !== -1 ? origIdx + 1 : i + 1;
+                          const newPos = i + 1;
+                          const isMoved = oldPos !== newPos;
+                          const posDiff = oldPos - newPos;
+                          const segKm = propSegs[i];
+
+                          return (
+                            <div key={i}>
+                              {/* Arrow + KM badge for this leg */}
+                              <div className="flex items-center gap-1 pl-2 my-0.5">
+                                <span className="text-[9px] text-muted-foreground/60">↓</span>
+                                <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                                  {segKm.toFixed(1)} km
+                                </span>
                               </div>
-                              <p className="text-[10px] text-muted-foreground truncate flex items-center flex-wrap gap-1 mt-0.5">
-                                <span className="font-medium text-foreground">{stop.city}</span>
-                                {stop.state && (
-                                  <span className="text-[9px] font-extrabold uppercase text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-955 px-1 py-0.5 rounded border border-violet-300 dark:border-violet-800">
-                                    {stop.state.toUpperCase()}
-                                  </span>
+                              <div
+                                className={cn(
+                                  "flex flex-col gap-1.5 p-2.5 rounded-lg border text-xs shadow-xs transition-all duration-200",
+                                  isMoved
+                                    ? posDiff > 0
+                                      ? "border-emerald-400/80 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-955/40"
+                                      : "border-amber-400/80 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-955/40"
+                                    : "border-violet-200 dark:border-violet-900/60 bg-background"
                                 )}
-                                <span>— {stop.neighborhood}</span>
-                                {stop.zipCode && (
-                                  <span className="font-mono text-[9px] bg-violet-100/80 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 px-1 py-0.2 rounded border border-violet-200 font-semibold">
-                                    CEP: {stop.zipCode}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className={cn(
+                                    "font-black w-6 text-center text-xs shrink-0 py-0.5 rounded",
+                                    isMoved
+                                      ? posDiff > 0 ? "bg-emerald-600 text-white" : "bg-amber-600 text-white"
+                                      : "text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-950"
+                                  )}>
+                                    #{newPos}
                                   </span>
-                                )}
-                              </p>
-                            </div>
-                          </div>
 
-                          {/* Quick Turn Editor in Modal */}
-                          <div className="flex items-center gap-2 pt-1 border-t border-border/40">
-                            <span className="text-[10px] font-bold text-muted-foreground uppercase">Turno:</span>
-                            <input
-                              type="text"
-                              value={stop.turn || ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, turn: val } : st));
-                              }}
-                              placeholder="Ex: Manhã / Tarde"
-                              className="h-6 text-[11px] px-2 rounded border border-input bg-background w-36 font-medium focus:ring-1 focus:ring-primary focus:outline-hidden"
-                            />
-                            {stop.firstVisitDate && (
-                              <span className="text-[10px] text-muted-foreground ml-auto">
-                                Visita: <span className="font-semibold text-foreground">{stop.firstVisitDate}</span>
-                              </span>
-                            )}
-                          </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between gap-1">
+                                      <p className="font-mono font-bold truncate flex items-center gap-1.5">
+                                        {stop.serviceOrder}
+                                        {stop.warrantyType === 'LP' && (
+                                          <span className="bg-amber-100 text-amber-800 text-[9px] px-1 rounded font-bold">LP</span>
+                                        )}
+                                      </p>
+                                      {isMoved ? (
+                                        posDiff > 0 ? (
+                                          <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-955 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800 flex items-center gap-0.5 shrink-0">
+                                            ▲ #{oldPos} ➔ #{newPos}
+                                          </span>
+                                        ) : (
+                                          <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-955 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800 flex items-center gap-0.5 shrink-0">
+                                            ▼ #{oldPos} ➔ #{newPos}
+                                          </span>
+                                        )
+                                      ) : (
+                                        <span className="text-[9px] text-muted-foreground font-medium shrink-0">
+                                          Mantida #{newPos}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground truncate flex items-center flex-wrap gap-1 mt-0.5">
+                                      <span className="font-medium text-foreground">{stop.city}</span>
+                                      {stop.state && (
+                                        <span className="text-[9px] font-extrabold uppercase text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-955 px-1 py-0.5 rounded border border-violet-300 dark:border-violet-800">
+                                          {stop.state.toUpperCase()}
+                                        </span>
+                                      )}
+                                      <span>— {stop.neighborhood}</span>
+                                      {stop.zipCode && (
+                                        <span className="font-mono text-[9px] bg-violet-100/80 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 px-1 py-0.2 rounded border border-violet-200 font-semibold">
+                                          CEP: {stop.zipCode}
+                                        </span>
+                                      )}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Quick Turn Editor in Modal */}
+                                <div className="flex items-center gap-2 pt-1 border-t border-border/40">
+                                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Turno:</span>
+                                  <input
+                                    type="text"
+                                    value={stop.turn || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, turn: val } : st));
+                                    }}
+                                    placeholder="Ex: Manhã / Tarde"
+                                    className="h-6 text-[11px] px-2 rounded border border-input bg-background w-36 font-medium focus:ring-1 focus:ring-primary focus:outline-hidden"
+                                  />
+                                  {stop.firstVisitDate && (
+                                    <span className="text-[10px] text-muted-foreground ml-auto">
+                                      Visita: <span className="font-semibold text-foreground">{stop.firstVisitDate}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* Return-to-base leg */}
+                        <div className="flex items-center gap-1 pl-2 my-0.5">
+                          <span className="text-[9px] text-muted-foreground/60">↓</span>
+                          <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                            {propSegs[propSegs.length - 1]?.toFixed(1)} km (retorno)
+                          </span>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                        <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold text-primary pl-2">
+                          <span className="text-base">🏢</span>
+                          <span>{defaultBaseAddress || originCity || 'Base'}</span>
+                        </div>
+                      </div>
+
+                      {/* Total + Savings */}
+                      <div className="mt-3 pt-2 border-t border-border/40 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Total percurso</span>
+                          <span className="text-sm font-black text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1 rounded-full border border-emerald-300 dark:border-emerald-800">
+                            🟢 {propTotal.toFixed(1)} km
+                          </span>
+                        </div>
+                        {savings > 0.5 && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-violet-600 uppercase tracking-wide">Economia estimada</span>
+                            <span className="text-[11px] font-black text-violet-700 dark:text-violet-300 bg-violet-100 dark:bg-violet-950/60 px-3 py-1 rounded-full border border-violet-300 dark:border-violet-800">
+                              ✂️ −{savings.toFixed(1)} km ({Math.round((savings / origTotal2) * 100)}%)
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
