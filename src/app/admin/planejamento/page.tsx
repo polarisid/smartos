@@ -995,46 +995,70 @@ export default function PlanejamentoPage() {
     }
   };
 
-  // ── Open AI Optimization Preview Modal ──
-  const handleOpenOptimize = async (route: Route) => {
+  // ── Open AI Optimization Preview Modal with Caching & Re-optimization ──
+  const handleOpenOptimize = async (route: Route, forceRefresh = false) => {
     setOptimizingRoute(route);
     const initialOrigin = defaultBaseAddress || "Aracaju";
     setOriginCity(initialOrigin);
     setOrigSegsKm([]);
     setPropSegsKm([]);
-
-    // High precision OSRM highway travel time solver (Held-Karp DP for N <= 12)
-    const osrmResult = await optimizeRouteStopsAsync(route.stops, initialOrigin);
-    setProposedStops(osrmResult.stops);
-    setOptimizationSummary(osrmResult.summary);
     setIsOptimizeOpen(true);
 
-    // Fetch real road distances (ViaCEP + OSRM) for both orderings
+    const stopsHash = route.stops.map(s => `${s.serviceOrder}_${s.turn || ''}`).join('|');
+    const cacheKey = `opt_cache_v2_${route.id}_${initialOrigin}_${stopsHash}`;
+
+    // Check localStorage cache if not forcing refresh
+    if (!forceRefresh && typeof window !== 'undefined') {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed.stops && parsed.origKm && parsed.propKm) {
+            setProposedStops(parsed.stops);
+            setOptimizationSummary(parsed.summary || "Circuito rodoviário otimizado (carregado do cache).");
+            setOrigSegsKm(parsed.origKm);
+            setPropSegsKm(parsed.propKm);
+            return;
+          }
+        } catch (e) {}
+      }
+    }
+
     setSegsLoading(true);
     try {
+      const osrmResult = await optimizeRouteStopsAsync(route.stops, initialOrigin);
+      let finalStops = osrmResult.stops;
+      let finalSummary = osrmResult.summary;
+
       const [origKm, propKm] = await Promise.all([
         fetchOsrmRoadDistances(route.stops, initialOrigin),
         fetchOsrmRoadDistances(osrmResult.stops, initialOrigin),
       ]);
+
+      let finalPropKm = propKm;
+
+      const aiResult = await optimizeRouteWithGeminiAI(route.stops, initialOrigin);
+      if (aiResult) {
+        finalStops = aiResult.stops;
+        finalSummary = aiResult.summary;
+        finalPropKm = await fetchOsrmRoadDistances(aiResult.stops, initialOrigin);
+      }
+
+      setProposedStops(finalStops);
+      setOptimizationSummary(finalSummary);
       setOrigSegsKm(origKm);
-      setPropSegsKm(propKm);
+      setPropSegsKm(finalPropKm);
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(cacheKey, JSON.stringify({
+          stops: finalStops,
+          summary: finalSummary,
+          origKm,
+          propKm: finalPropKm
+        }));
+      }
     } finally {
       setSegsLoading(false);
-    }
-
-    // Try Gemini AI enhancement if configured
-    const aiResult = await optimizeRouteWithGeminiAI(route.stops, initialOrigin);
-    if (aiResult) {
-      setProposedStops(aiResult.stops);
-      setOptimizationSummary(aiResult.summary);
-      // Re-fetch distances for new AI-proposed order
-      setSegsLoading(true);
-      try {
-        const propKm2 = await fetchOsrmRoadDistances(aiResult.stops, initialOrigin);
-        setPropSegsKm(propKm2);
-      } finally {
-        setSegsLoading(false);
-      }
     }
   };
 
@@ -2249,15 +2273,27 @@ export default function PlanejamentoPage() {
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1">
-            {/* Ponto de Saída / Base Display */}
+            {/* Ponto de Saída / Base Display + Reotimizar button */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-muted/40 p-3 rounded-xl border border-border/50">
               <div className="flex items-center gap-2 text-xs">
                 <MapPin className="h-4 w-4 text-primary shrink-0" />
                 <span className="font-bold text-foreground">Ponto de Saída & Retorno (Base):</span>
+                <span className="px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/20 text-xs font-bold text-primary flex items-center gap-1.5 ml-1">
+                  📍 {defaultBaseAddress || originCity || "Aracaju"}
+                </span>
               </div>
-              <div className="px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-xs font-bold text-primary flex items-center gap-1.5 shrink-0">
-                <span>📍</span>
-                <span>{defaultBaseAddress || originCity || "Aracaju"}</span>
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => optimizingRoute && handleOpenOptimize(optimizingRoute, true)}
+                  disabled={segsLoading || isOptimizing}
+                  className="h-8 text-xs gap-1.5 border-violet-300 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-950 font-bold"
+                  title="Forçar recálculo da rota via IA e OSRM"
+                >
+                  <Sparkles className={cn("w-3.5 h-3.5 text-violet-600", segsLoading && "animate-spin")} />
+                  🔄 Reotimizar Rota
+                </Button>
               </div>
             </div>
 
@@ -2600,24 +2636,72 @@ export default function PlanejamentoPage() {
                                   </div>
                                 </div>
 
-                                {/* Quick Turn Editor in Modal */}
-                                <div className="flex items-center gap-2 pt-1 border-t border-border/40">
-                                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Turno:</span>
-                                  <input
-                                    type="text"
-                                    value={stop.turn || ''}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, turn: val } : st));
-                                    }}
-                                    placeholder="Ex: Manhã / Tarde"
-                                    className="h-6 text-[11px] px-2 rounded border border-input bg-background w-36 font-medium focus:ring-1 focus:ring-primary focus:outline-hidden"
-                                  />
-                                  {stop.firstVisitDate && (
-                                    <span className="text-[10px] text-muted-foreground ml-auto">
-                                      Visita: <span className="font-semibold text-foreground">{stop.firstVisitDate}</span>
-                                    </span>
-                                  )}
+                                {/* Quick Turn & Customer Confirmation Editor in Modal */}
+                                <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-border/40 mt-1">
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[10px] font-bold text-muted-foreground uppercase mr-1">Turno:</span>
+                                    {['M', 'T', 'C'].map(turnPill => (
+                                      <button
+                                        key={turnPill}
+                                        type="button"
+                                        onClick={() => {
+                                          setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, turn: turnPill } : st));
+                                        }}
+                                        className={cn(
+                                          "px-2 py-0.5 rounded text-[10px] font-bold transition-all border",
+                                          stop.turn === turnPill
+                                            ? "bg-violet-600 text-white border-violet-600 shadow-xs"
+                                            : "bg-muted/60 hover:bg-muted text-muted-foreground border-border/50"
+                                        )}
+                                      >
+                                        {turnPill}
+                                      </button>
+                                    ))}
+                                    <input
+                                      type="text"
+                                      value={stop.turn || ''}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, turn: val } : st));
+                                      }}
+                                      placeholder="Outro"
+                                      className="h-5 text-[10px] px-1.5 rounded border border-input bg-background w-16 font-medium focus:ring-1 focus:ring-primary focus:outline-hidden ml-1"
+                                    />
+                                  </div>
+
+                                  {/* Customer Confirmation Buttons */}
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, confirmedByCall: !st.confirmedByCall } : st));
+                                      }}
+                                      className={cn(
+                                        "px-2 py-0.5 rounded text-[10px] font-bold transition-all border flex items-center gap-1",
+                                        stop.confirmedByCall
+                                          ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                                          : "bg-muted/40 hover:bg-muted text-slate-600 dark:text-slate-400 border-border/50"
+                                      )}
+                                      title="Confirmação por Ligação Telefônica"
+                                    >
+                                      ☎️ Ligação {stop.confirmedByCall ? "✓" : ""}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, confirmedByMessage: !st.confirmedByMessage } : st));
+                                      }}
+                                      className={cn(
+                                        "px-2 py-0.5 rounded text-[10px] font-bold transition-all border flex items-center gap-1",
+                                        stop.confirmedByMessage
+                                          ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                                          : "bg-muted/40 hover:bg-muted text-slate-600 dark:text-slate-400 border-border/50"
+                                      )}
+                                      title="Confirmação por Mensagem / WhatsApp"
+                                    >
+                                      💬 Mensagem {stop.confirmedByMessage ? "✓" : ""}
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             </div>

@@ -826,6 +826,7 @@ function RouteForm({
                                         <TableHead>Peças</TableHead>
                                         <TableHead>Agendamento</TableHead>
                                         <TableHead>Turno</TableHead>
+                                        <TableHead>Confirmação</TableHead>
                                         <TableHead className="w-[60px] text-center">Local</TableHead>
                                         <TableHead className="w-[150px] text-right">Ações</TableHead>
                                     </TableRow>
@@ -889,13 +890,81 @@ function RouteForm({
                                                 />
                                             </TableCell>
                                             <TableCell>
-                                                <Input 
-                                                    className="h-8 text-xs w-[80px]" 
-                                                    value={stop.turn || ''} 
-                                                    onChange={(e) => handleTurnChange(index, e.target.value)} 
-                                                    placeholder="Turno"
-                                                    disabled={stop.isReallocated}
-                                                />
+                                                <div className="flex items-center gap-1">
+                                                     <div className="flex items-center gap-0.5">
+                                                         {['M', 'T', 'C'].map(turnPill => (
+                                                             <button
+                                                                 key={turnPill}
+                                                                 type="button"
+                                                                 disabled={stop.isReallocated}
+                                                                 onClick={() => handleTurnChange(index, turnPill)}
+                                                                 className={cn(
+                                                                     "px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all",
+                                                                     stop.turn === turnPill
+                                                                         ? "bg-violet-600 text-white border-violet-600 shadow-xs"
+                                                                         : "bg-muted/40 hover:bg-muted text-muted-foreground border-border/40"
+                                                                 )}
+                                                             >
+                                                                 {turnPill}
+                                                             </button>
+                                                         ))}
+                                                     </div>
+                                                     <Input 
+                                                         className="h-8 text-xs w-[75px]" 
+                                                         value={stop.turn || ''} 
+                                                         onChange={(e) => handleTurnChange(index, e.target.value)} 
+                                                         placeholder="Outro"
+                                                         disabled={stop.isReallocated}
+                                                     />
+                                                 </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                 <div className="flex items-center gap-1">
+                                                     <Button
+                                                         type="button"
+                                                         variant="ghost"
+                                                         size="sm"
+                                                         disabled={stop.isReallocated}
+                                                         onClick={() => {
+                                                             setParsedStops(currentStops => {
+                                                                 const newStops = [...currentStops];
+                                                                 newStops[index].confirmedByCall = !newStops[index].confirmedByCall;
+                                                                 return newStops;
+                                                             });
+                                                         }}
+                                                         className={cn(
+                                                             "h-7 px-2 text-[10px] font-bold border transition-all gap-1",
+                                                             stop.confirmedByCall
+                                                                 ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 hover:text-white"
+                                                                 : "bg-muted/30 text-slate-600 dark:text-slate-400 hover:bg-muted border-border/40"
+                                                         )}
+                                                         title="Confirmação por Ligação Telefônica"
+                                                     >
+                                                         ☎️ {stop.confirmedByCall ? "✓" : "Ligação"}
+                                                     </Button>
+                                                     <Button
+                                                         type="button"
+                                                         variant="ghost"
+                                                         size="sm"
+                                                         disabled={stop.isReallocated}
+                                                         onClick={() => {
+                                                             setParsedStops(currentStops => {
+                                                                 const newStops = [...currentStops];
+                                                                 newStops[index].confirmedByMessage = !newStops[index].confirmedByMessage;
+                                                                 return newStops;
+                                                             });
+                                                         }}
+                                                         className={cn(
+                                                             "h-7 px-2 text-[10px] font-bold border transition-all gap-1",
+                                                             stop.confirmedByMessage
+                                                                 ? "bg-blue-600 text-white border-blue-600 hover:bg-blue-700 hover:text-white"
+                                                                 : "bg-muted/30 text-slate-600 dark:text-slate-400 hover:bg-muted border-border/40"
+                                                         )}
+                                                         title="Confirmação por Mensagem / WhatsApp"
+                                                     >
+                                                         💬 {stop.confirmedByMessage ? "✓" : "Mensagem"}
+                                                     </Button>
+                                                 </div>
                                             </TableCell>
                                             <TableCell className="text-center">
                                                 <Popover>

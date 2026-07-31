@@ -195,6 +195,8 @@ export type RouteStop = {
     zipMismatch?: boolean;
     zipMismatchDetails?: string;
     suggestedCityState?: string;
+    confirmedByCall?: boolean;
+    confirmedByMessage?: boolean;
 }
 
 export type Route = {
