@@ -838,23 +838,26 @@ function RouteForm({
                                         return (
                                             <TableRow key={stop.serviceOrder} className={cn(stop.isReallocated && "line-through text-muted-foreground bg-slate-50 dark:bg-slate-900/10 opacity-60")}>
                                                 <TableCell className="font-mono">
-                                                    <div className="flex flex-wrap items-center gap-1.5">
-                                                        <span>{stop.serviceOrder}</span>
-                                                        {isAlreadyVisited && (
-                                                            <Badge variant="secondary" className="bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 hover:bg-violet-100 hover:text-violet-700 text-[10px] px-1.5 py-0 flex items-center gap-0.5">
-                                                                <History className="w-3 h-3" /> Já Visitada
-                                                            </Badge>
-                                                        )}
-                                                        {stop.isReallocated && (
-                                                            <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:text-amber-400 text-[10px] px-1.5 py-0">
-                                                                Realocado para: {stop.reallocatedToRouteName}
-                                                            </Badge>
-                                                        )}
-                                                        {stop.zipMismatch && (
-                                                            <Badge variant="outline" className="text-red-700 border-red-200 bg-red-50 dark:bg-red-950 dark:text-red-300 text-[10px] px-1.5 py-0 flex items-center gap-1" title={stop.zipMismatchDetails}>
-                                                                ⚠️ CEP ({stop.zipCode}) de {stop.suggestedCityState} — Posicionado em {stop.city}
-                                                            </Badge>
-                                                        )}
+                                                    <div className="flex flex-col gap-1.5 items-start">
+                                                        <span className="font-bold text-sm">{stop.serviceOrder}</span>
+                                                        <div className="flex flex-col gap-1">
+                                                            {isAlreadyVisited && (
+                                                                <Badge variant="secondary" className="bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 hover:bg-violet-100 hover:text-violet-700 text-[10px] px-1.5 py-0 flex items-center gap-0.5 w-fit">
+                                                                    <History className="w-3 h-3" /> Já Visitada
+                                                                </Badge>
+                                                            )}
+                                                            {stop.isReallocated && (
+                                                                <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:text-amber-400 text-[10px] px-1.5 py-0 w-fit whitespace-nowrap">
+                                                                    Realocado: {stop.reallocatedToRouteName}
+                                                                </Badge>
+                                                            )}
+                                                            {stop.zipMismatch && (
+                                                                <Badge variant="outline" className="text-red-700 border-red-200 bg-red-50 dark:bg-red-950 dark:text-red-300 text-[10px] px-1.5 py-0.5 flex items-start gap-1 w-fit whitespace-normal text-left max-w-[200px]" title={stop.zipMismatchDetails}>
+                                                                    <span className="mt-0.5">⚠️</span>
+                                                                    <span className="leading-tight">CEP ({stop.zipCode}) de {stop.suggestedCityState} — Em {stop.city}</span>
+                                                                </Badge>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </TableCell>
                                             <TableCell>
@@ -890,7 +893,7 @@ function RouteForm({
                                                 />
                                             </TableCell>
                                             <TableCell>
-                                                <div className="flex items-center gap-1">
+                                                <div className="flex flex-wrap items-center gap-1 max-w-[130px]">
                                                      <div className="flex items-center gap-0.5">
                                                          {['M', 'T', 'C'].map(turnPill => (
                                                              <button
@@ -899,7 +902,7 @@ function RouteForm({
                                                                  disabled={stop.isReallocated}
                                                                  onClick={() => handleTurnChange(index, turnPill)}
                                                                  className={cn(
-                                                                     "px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all",
+                                                                     "px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all h-6",
                                                                      stop.turn === turnPill
                                                                          ? "bg-violet-600 text-white border-violet-600 shadow-xs"
                                                                          : "bg-muted/40 hover:bg-muted text-muted-foreground border-border/40"
@@ -910,7 +913,7 @@ function RouteForm({
                                                          ))}
                                                      </div>
                                                      <Input 
-                                                         className="h-8 text-xs w-[75px]" 
+                                                         className="h-6 text-[10px] w-[50px] px-1.5" 
                                                          value={stop.turn || ''} 
                                                          onChange={(e) => handleTurnChange(index, e.target.value)} 
                                                          placeholder="Outro"
