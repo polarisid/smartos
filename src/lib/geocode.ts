@@ -292,6 +292,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
                         const cityFromCep = viaCepData.localidade || safeCity;
                         const stateFromCep = viaCepData.uf || rawState;
 
+                        // Primary lookup: Nominatim OSM
                         const qViaCep = `${streetFromCep ? streetFromCep + ', ' : ''}${neighborhoodFromCep ? neighborhoodFromCep + ', ' : ''}${cityFromCep}, ${stateFromCep}, Brasil`;
                         const urlViaCep = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&q=${encodeURIComponent(qViaCep)}`;
                         const resViaCep = await fetch(urlViaCep);
@@ -305,10 +306,26 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
                                 }
                             }
                         }
+
+                        // Secondary lookup: Photon Geocoder (Komoot) with Brazilian fuzzy matching
+                        const qPhoton = `${streetFromCep ? streetFromCep + ' ' : ''}${cityFromCep} ${stateFromCep}`;
+                        const urlPhoton = `https://photon.komoot.io/api/?q=${encodeURIComponent(qPhoton)}&limit=1&lang=default`;
+                        const resPhoton = await fetch(urlPhoton);
+                        if (resPhoton.ok) {
+                            const dataPhoton = await resPhoton.json();
+                            if (dataPhoton && dataPhoton.features && dataPhoton.features.length > 0) {
+                                const [lng, lat] = dataPhoton.features[0].geometry.coordinates;
+                                const coords: [number, number] = [lat, lng];
+                                if (isValidStateCoords(coords, stateFromCep)) {
+                                    saveCache(key, coords, rawState);
+                                    return coords;
+                                }
+                            }
+                        }
                     }
                 }
             } catch (e) {
-                console.warn("ViaCEP lookup error, falling back to direct CEP/address search", e);
+                console.warn("ViaCEP/Photon lookup error, falling back to direct CEP/address search", e);
             }
 
             // Direct CEP query in Nominatim (fallback if ViaCEP is unavailable)
