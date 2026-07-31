@@ -1012,37 +1012,38 @@ export default function PlanejamentoPage() {
     }
   };
 
-  // ── Open AI Optimization Preview Modal with Caching & Re-optimization ──
+  // ── Open AI Optimization Preview Modal with Persistent Caching ──
   const handleOpenOptimize = async (route: Route, forceRefresh = false) => {
     setOptimizingRoute(route);
     const initialOrigin = defaultBaseAddress || "Aracaju";
     setOriginCity(initialOrigin);
-    setOrigSegsKm([]);
-    setPropSegsKm([]);
-    setIsOptimizeOpen(true);
 
-    const stopsHash = route.stops.map(s => `${s.serviceOrder}_${s.turn || ''}`).join('|');
-    const cacheKey = `opt_cache_v6_${route.id}_${initialOrigin}_${stopsHash}`;
+    const cacheKey = `opt_saved_${route.id}_${initialOrigin}`;
 
-    // Check localStorage cache if not forcing refresh (only use if cache has real savings or 1 stop)
+    // 1. Check persistent cache unless user explicitly requested forceRefresh
     if (!forceRefresh && typeof window !== 'undefined') {
       const cached = localStorage.getItem(cacheKey);
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          const origTot = (parsed.origKm || []).reduce((a: number, b: number) => a + b, 0);
-          const propTot = (parsed.propKm || []).reduce((a: number, b: number) => a + b, 0);
-
-          if (parsed.stops && parsed.origKm && parsed.propKm && (Math.abs(origTot - propTot) > 0.5 || route.stops.length <= 1)) {
+          if (parsed.stops && parsed.origKm && parsed.propKm && parsed.stops.length === route.stops.length) {
             setProposedStops(parsed.stops);
-            setOptimizationSummary(parsed.summary || "Circuito rodoviário otimizado (carregado do cache).");
+            setOptimizationSummary(parsed.summary || "Circuito rodoviário otimizado (carregado da última salvação).");
             setOrigSegsKm(parsed.origKm);
             setPropSegsKm(parsed.propKm);
+            setIsOptimizeOpen(true);
             return;
           }
         } catch (e) {}
       }
     }
+
+    // 2. Initialize modal with current stops to avoid blank states
+    setProposedStops(route.stops);
+    setOptimizationSummary("Calculando circuito rodoviário ideal via OSRM e IA...");
+    setOrigSegsKm([]);
+    setPropSegsKm([]);
+    setIsOptimizeOpen(true);
 
     setSegsLoading(true);
     try {
@@ -1069,6 +1070,7 @@ export default function PlanejamentoPage() {
       setOrigSegsKm(origKm);
       setPropSegsKm(finalPropKm);
 
+      // Save permanently to localStorage
       if (typeof window !== 'undefined') {
         localStorage.setItem(cacheKey, JSON.stringify({
           stops: finalStops,
