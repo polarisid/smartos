@@ -706,7 +706,7 @@ export default function PlanejamentoPage() {
   const [originCity, setOriginCity] = useState("Aracaju");
   const [proposedStops, setProposedStops] = useState<RouteStop[]>([]);
   const [optimizationSummary, setOptimizationSummary] = useState("");
-  const [optimizeViewTab, setOptimizeViewTab] = useState<'list' | 'map'>('list');
+  const [optimizeViewTab, setOptimizeViewTab] = useState<'list' | 'map' | 'hybrid'>('list');
 
   // Real OSRM road distances state
   const [origSegsKm, setOrigSegsKm] = useState<number[]>([]);
@@ -2695,18 +2695,31 @@ export default function PlanejamentoPage() {
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  <List className="h-3.5 w-3.5" /> 📋 Comparativo em Lista & Editar Turnos
+                  <List className="h-3.5 w-3.5" /> 📋 Comparativo em Lista
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOptimizeViewTab('hybrid')}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all",
+                    optimizeViewTab === 'hybrid'
+                      ? "bg-emerald-600 text-white shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <List className="h-3.5 w-3.5" /> + <MapPin className="h-3.5 w-3.5" /> Mapa & Edição Manual
                 </button>
               </div>
 
               <span className="text-[11px] text-muted-foreground font-medium hidden sm:inline">
-                {optimizeViewTab === 'map' ? 'Vermelho = Ordem Atual · Verde = Otimizado por CEP/Geolocalização' : 'Organize posições e defina os turnos'}
+                {optimizeViewTab === 'map' ? 'Vermelho = Ordem Atual · Verde = Otimizado' : 'Organize posições e defina os turnos'}
               </span>
             </div>
 
-            {optimizeViewTab === 'map' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-[560px]">
-                {/* Mapa Antes (Ordem Atual) */}
+            <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-4", optimizeViewTab !== 'list' ? "h-[560px]" : "")}>
+              {/* Mapa Antes (Ordem Atual) */}
+              {optimizeViewTab === 'map' && (
+
                 <div className="flex flex-col border border-red-200 dark:border-red-900/50 rounded-xl p-3 bg-red-50/20 dark:bg-red-950/10 h-full">
                   <div className="flex items-center justify-between mb-2 shrink-0">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-red-600 dark:text-red-400 flex items-center gap-1.5">
@@ -2734,9 +2747,11 @@ export default function PlanejamentoPage() {
                     )}
                   </div>
                 </div>
+              )}
 
-                {/* Mapa Depois (Sugerido pela IA) */}
-                <div className="flex flex-col border border-emerald-200 dark:border-emerald-900/50 rounded-xl p-3 bg-emerald-50/20 dark:bg-emerald-955/10 h-full">
+              {/* Mapa Depois (Sugerido pela IA) */}
+              {(optimizeViewTab === 'map' || optimizeViewTab === 'hybrid') && (
+                <div className={cn("flex flex-col border border-emerald-200 dark:border-emerald-900/50 rounded-xl p-3 bg-emerald-50/20 dark:bg-emerald-955/10", "h-full")}>
                   <div className="flex items-center justify-between mb-2 shrink-0">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
                       <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -2763,11 +2778,10 @@ export default function PlanejamentoPage() {
                     )}
                   </div>
                 </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Ordem Atual */}
-                {(() => {
+              )}
+
+              {/* Ordem Atual */}
+              {optimizeViewTab === 'list' && (() => {
                   const origStops = optimizingRoute?.stops || [];
                   const origTotal = origSegsKm.reduce((a, b) => a + b, 0);
                   const hasData = origSegsKm.length > 0;
@@ -2877,8 +2891,8 @@ export default function PlanejamentoPage() {
                   );
                 })()}
 
-                {/* Ordem Sugerida pela IA */}
-                {(() => {
+              {/* Ordem Sugerida pela IA */}
+              {(optimizeViewTab === 'list' || optimizeViewTab === 'hybrid') && (() => {
                   const propTotal = propSegsKm.reduce((a, b) => a + b, 0);
                   const origTotal2 = origSegsKm.reduce((a, b) => a + b, 0);
                   const savings = origTotal2 - propTotal;
@@ -3104,8 +3118,7 @@ export default function PlanejamentoPage() {
                     </div>
                   );
                 })()}
-              </div>
-            )}
+            </div>
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0">
