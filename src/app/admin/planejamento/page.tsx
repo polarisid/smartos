@@ -23,6 +23,7 @@ import { routeService } from "@/services/supabase/routeService";
 import { configService } from "@/services/supabase/configService";
 import { type Route, type RouteStop, type RoutePart } from "@/lib/data";
 import { optimizeRouteStops, describeOptimization } from "@/lib/routeOptimizer";
+import { optimizeRouteWithGeminiAI } from "@/services/aiRouteService";
 import { parseFullAddress, validateCepWithCityState } from "@/lib/geocode";
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Trash2, CheckCircle2,
@@ -895,25 +896,41 @@ export default function PlanejamentoPage() {
   };
 
   // ── Open AI Optimization Preview Modal ──
-  const handleOpenOptimize = (route: Route) => {
+  const handleOpenOptimize = async (route: Route) => {
     setOptimizingRoute(route);
     const initialOrigin = defaultBaseAddress || "Aracaju";
     setOriginCity(initialOrigin);
-    const optimized = optimizeRouteStops(route.stops, initialOrigin);
-    const summary = describeOptimization(route.stops, optimized, initialOrigin);
-    setProposedStops(optimized);
-    setOptimizationSummary(summary);
+
+    // Initial fallback using TSP algorithm
+    const initialOptimized = optimizeRouteStops(route.stops, initialOrigin);
+    const initialSummary = describeOptimization(route.stops, initialOptimized, initialOrigin);
+    setProposedStops(initialOptimized);
+    setOptimizationSummary(initialSummary);
     setIsOptimizeOpen(true);
+
+    // Call Gemini AI for true intelligent routing over Brazil road network
+    const aiResult = await optimizeRouteWithGeminiAI(route.stops, initialOrigin);
+    if (aiResult) {
+      setProposedStops(aiResult.stops);
+      setOptimizationSummary(aiResult.summary);
+    }
   };
 
   // ── Handle Origin Base Change ──
-  const handleOriginChange = (newOrigin: string) => {
+  const handleOriginChange = async (newOrigin: string) => {
     setOriginCity(newOrigin);
     if (!optimizingRoute) return;
-    const optimized = optimizeRouteStops(optimizingRoute.stops, newOrigin);
-    const summary = describeOptimization(optimizingRoute.stops, optimized, newOrigin);
-    setProposedStops(optimized);
-    setOptimizationSummary(summary);
+
+    const initialOptimized = optimizeRouteStops(optimizingRoute.stops, newOrigin);
+    const initialSummary = describeOptimization(optimizingRoute.stops, initialOptimized, newOrigin);
+    setProposedStops(initialOptimized);
+    setOptimizationSummary(initialSummary);
+
+    const aiResult = await optimizeRouteWithGeminiAI(optimizingRoute.stops, newOrigin);
+    if (aiResult) {
+      setProposedStops(aiResult.stops);
+      setOptimizationSummary(aiResult.summary);
+    }
   };
 
   // ── Apply AI Optimization ──
