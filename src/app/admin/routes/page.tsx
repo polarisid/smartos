@@ -186,7 +186,7 @@ function parseRouteText(text: string): RouteStop[] {
 function reconstructRouteText(stops: RouteStop[]): string {
     if (!stops || stops.length === 0) return "";
 
-    let maxParts = 5;
+    let maxParts = 8;
     stops.forEach(s => {
         if (s.parts && s.parts.length > maxParts) {
             maxParts = s.parts.length;
@@ -200,8 +200,7 @@ function reconstructRouteText(stops: RouteStop[]): string {
 
     const partHeaders: string[] = [];
     for (let i = 0; i < maxParts; i++) {
-        const num = i === 0 ? "" : String(i + 1);
-        partHeaders.push(`COD${num}`, `DESCRICAO${num}`, `QTD${num}`);
+        partHeaders.push("COD", "DESCRICAO", "QTD");
     }
 
     const header = [...baseHeaders, ...partHeaders].join("\t");
@@ -289,7 +288,7 @@ function RouteForm({
     });
     const [manualPartsText, setManualPartsText] = useState("");
 
-    const routeDataModel = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tCEP\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD";
+    const routeDataModel = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tCEP\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD";
 
     const handleCopyModel = () => {
         navigator.clipboard.writeText(routeDataModel);

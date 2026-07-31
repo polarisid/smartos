@@ -36,7 +36,7 @@ import { Calendar as CalendarComp } from "@/components/ui/calendar";
 
 const DynamicalRouteMap = dynamic(() => import('@/components/RouteMap'), { ssr: false });
 
-// ─── Haversine distance between two [lat, lng] coordinate pairs ──
+// ─── Haversine fallback (used only when OSRM is unavailable) ──
 function haversineKm(a: [number, number], b: [number, number]): number {
   const R = 6371;
   const dLat = (b[0] - a[0]) * Math.PI / 180;
@@ -47,54 +47,143 @@ function haversineKm(a: [number, number], b: [number, number]): number {
   return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
 }
 
-// ─── Build per-segment km array for a stop list given a base [lat,lng] ──
-// Returns array of length stops.length + 1 (last entry = return-to-base leg)
-function buildSegmentKm(stops: RouteStop[], baseCoord: [number, number]): number[] {
-  const cityCoordMap: Record<string, [number, number]> = {
-    aracaju: [-10.9472, -37.0731], lagarto: [-10.9172, -37.6631], itabaiana: [-10.6853, -37.4269],
-    propria: [-10.2108, -36.8417], estancia: [-11.2683, -37.4383],
-    socorro: [-10.8546, -37.1264], maruim: [-10.7408, -37.0817], laranjeiras: [-10.8039, -37.1714],
-    penedo: [-10.2906, -36.5864], 'tobias barreto': [-11.1839, -37.9986], 'simao dias': [-10.7439, -37.8108],
-    'nossa senhora do socorro': [-10.8546, -37.1264], boquim: [-11.1464, -37.6214],
-    cristinapolis: [-11.4747, -37.7553], indiaroba: [-11.5189, -37.5117], umbauba: [-11.3831, -37.6569],
-    neopolis: [-10.3208, -36.5794], 'nossa senhora da gloria': [-10.2189, -37.4217],
-    'sao cristovao': [-11.0147, -37.2064], riachuelo: [-10.7244, -37.1897],
-    'itabi': [-10.1264, -37.3047], 'nossa senhora de lourdes': [-10.0856, -37.0536],
-    'porto da folha': [-9.9156, -37.2803], 'gararu': [-9.9714, -37.0922],
-    'aquidaba': [-10.2694, -37.0197], 'canhoba': [-10.1525, -37.0169],
-    'amparo de sao francisco': [-10.1325, -36.9222], 'cedro de sao joao': [-10.2514, -36.8908],
-    'sao francisco': [-10.3236, -36.8778], 'santana do sao francisco': [-10.2878, -36.5742],
-    'brejo grande': [-10.4433, -36.4411], 'pacatuba': [-10.4386, -36.6561],
-    'japaratuba': [-10.5953, -36.9436], 'pirambu': [-10.7308, -36.8547],
-    'general maynard': [-10.6739, -37.0528], 'barra dos coqueiros': [-10.9011, -37.0325],
-    'itaporanga': [-11.3089, -37.3233], 'salgado': [-11.0200, -37.4722],
-    'pedrinhas': [-11.1964, -37.6803], 'arauá': [-11.3589, -37.6278],
-    'riachao do dantas': [-11.0717, -37.7328], 'poço verde': [-10.7197, -38.1819],
-    'simao dias': [-10.7439, -37.8108], 'paripiranga': [-10.6906, -37.8594],
-  };
+/** Cache simples para evitar chamadas repetidas ao mesmo CEP / endereço */
+const _geocodeCache = new Map<string, [number, number] | null>();
 
-  const getCoord = (stop: RouteStop): [number, number] => {
-    const norm = (stop.city || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-    return cityCoordMap[norm] || baseCoord;
-  };
+/**
+ * Busca endereço completo na API pública ViaCEP e então geocodifica via
+ * Nominatim (OpenStreetMap). Retorna [lat, lng].
+ *
+ * Fluxo: CEP → viacep.com.br → {logradouro, bairro, localidade, uf}
+ *         → Nominatim → {lat, lon}
+ */
+async function geocodeByZip(zip: string): Promise<[number, number] | null> {
+  const clean = zip.replace(/\D/g, '');
+  if (clean.length !== 8) return null;
+  if (_geocodeCache.has(clean)) return _geocodeCache.get(clean)!;
 
-  const segments: number[] = [];
-  let prev = baseCoord;
-  for (const s of stops) {
-    const cur = getCoord(s);
-    segments.push(haversineKm(prev, cur));
-    prev = cur;
-  }
-  segments.push(haversineKm(prev, baseCoord)); // return to base
-  return segments;
+  try {
+    // 1. ViaCEP — endereço completo
+    const cepRes = await fetch(`https://viacep.com.br/ws/${clean}/json/`);
+    const cepData = await cepRes.json();
+    if (cepData.erro) { _geocodeCache.set(clean, null); return null; }
+
+    const { logradouro, bairro, localidade, uf } = cepData;
+    // Monta query rica: "Rua X, Bairro Y, Cidade, UF, Brasil"
+    const query = [logradouro, bairro, localidade, uf, 'Brasil']
+      .filter(Boolean).join(', ');
+
+    // 2. Nominatim — coordenadas
+    const nomRes = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
+      { headers: { 'Accept-Language': 'pt-BR', 'User-Agent': 'SmartOS/1.0' } }
+    );
+    const nomData = await nomRes.json();
+    if (nomData?.[0]) {
+      const coord: [number, number] = [parseFloat(nomData[0].lat), parseFloat(nomData[0].lon)];
+      _geocodeCache.set(clean, coord);
+      return coord;
+    }
+  } catch { /* ignore */ }
+
+  _geocodeCache.set(clean, null);
+  return null;
 }
+
+/**
+ * Geocodifica por cidade/UF via Nominatim (fallback quando não há CEP).
+ */
+async function geocodeByCityState(city: string, state = 'Sergipe'): Promise<[number, number] | null> {
+  const key = `${city}|${state}`;
+  if (_geocodeCache.has(key)) return _geocodeCache.get(key)!;
+
+  try {
+    const query = encodeURIComponent(`${city}, ${state}, Brasil`);
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1`,
+      { headers: { 'Accept-Language': 'pt-BR', 'User-Agent': 'SmartOS/1.0' } }
+    );
+    const data = await res.json();
+    if (data?.[0]) {
+      const coord: [number, number] = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+      _geocodeCache.set(key, coord);
+      return coord;
+    }
+  } catch { /* ignore */ }
+
+  _geocodeCache.set(key, null);
+  return null;
+}
+
+/**
+ * Retorna coordenada da parada: prioriza CEP via ViaCEP, depois cidade+UF.
+ */
+async function geocodeStop(stop: RouteStop): Promise<[number, number] | null> {
+  if (stop.zipCode) {
+    const coord = await geocodeByZip(stop.zipCode);
+    if (coord) return coord;
+  }
+  if (stop.city) {
+    return geocodeByCityState(stop.city, stop.state || 'Sergipe');
+  }
+  return null;
+}
+
+/**
+ * Busca distâncias REAIS de rodovia via OSRM Table API (público, sem chave).
+ * Geocodifica via ViaCEP + Nominatim. Retorna km por trecho:
+ * [base→p1, p1→p2, ..., pN→base]
+ */
+async function fetchOsrmRoadDistances(
+  stops: RouteStop[],
+  baseAddress: string
+): Promise<number[]> {
+  const DEFAULT: [number, number] = [-10.9472, -37.0731]; // Aracaju
+
+  // 1. Geocodificar base e todas as paradas em paralelo
+  const [baseCoord, ...stopCoords] = await Promise.all([
+    geocodeByCityState(baseAddress),
+    ...stops.map(geocodeStop),
+  ]);
+
+  const base = baseCoord ?? DEFAULT;
+  // Monta sequência completa: base → p1 → p2 → ... → pN → base
+  const points: [number, number][] = [
+    base,
+    ...stopCoords.map(c => c ?? base),
+    base,
+  ];
+
+  // 2. OSRM Table API: pede a diagonal da matriz (trecho a trecho)
+  // OSRM usa coordenadas no formato lng,lat
+  const coordStr = points.map(([lat, lng]) => `${lng},${lat}`).join(';');
+  const n = points.length - 1;
+  const sources = Array.from({ length: n }, (_, i) => i).join(';');
+  const dests   = Array.from({ length: n }, (_, i) => i + 1).join(';');
+
+  try {
+    const url = `https://router.project-osrm.org/table/v1/driving/${coordStr}` +
+                `?sources=${sources}&destinations=${dests}&annotations=distance`;
+    const res  = await fetch(url);
+    const json = await res.json();
+
+    if (json.code === 'Ok' && json.distances) {
+      // distances[i][0] = distância do source i ao dest correspondente (metros)
+      return (json.distances as number[][]).map(row => (row[0] ?? 0) / 1000);
+    }
+  } catch { /* fallback */ }
+
+  // Fallback: haversine em linha reta
+  return Array.from({ length: n }, (_, i) => haversineKm(points[i], points[i + 1]));
+}
+
 
 // ─── formatStopsToText (converts RouteStops back to TSV text format for editing) ──
 function formatStopsToText(stops: RouteStop[]): string {
   if (!stops || stops.length === 0) return "";
 
-  // Determine maximum number of parts across all stops (minimum 5 columns)
-  let maxParts = 5;
+  // Determine maximum number of parts across all stops (minimum 8 columns)
+  let maxParts = 8;
   stops.forEach(s => {
     if (s.parts && s.parts.length > maxParts) {
       maxParts = s.parts.length;
@@ -108,8 +197,7 @@ function formatStopsToText(stops: RouteStop[]): string {
   
   const partHeaders: string[] = [];
   for (let i = 0; i < maxParts; i++) {
-    const num = i === 0 ? "" : String(i + 1);
-    partHeaders.push(`COD${num}`, `DESCRICAO${num}`, `QTD${num}`);
+    partHeaders.push("COD", "DESCRICAO", "QTD");
   }
 
   const header = [...baseHeaders, ...partHeaders].join("\t");
@@ -361,6 +449,9 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
     'COD', 'DESCRICAO', 'QTD',
     'COD', 'DESCRICAO', 'QTD',
     'COD', 'DESCRICAO', 'QTD',
+    'COD', 'DESCRICAO', 'QTD',
+    'COD', 'DESCRICAO', 'QTD',
+    'COD', 'DESCRICAO', 'QTD',
     'COD', 'DESCRICAO', 'QTD'
   ];
 
@@ -382,6 +473,9 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
         const p2 = stop.parts?.[2];
         const p3 = stop.parts?.[3];
         const p4 = stop.parts?.[4];
+        const p5 = stop.parts?.[5];
+        const p6 = stop.parts?.[6];
+        const p7 = stop.parts?.[7];
 
         const rowVals = [
           stop.serviceOrder || '',
@@ -405,6 +499,9 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
           p2?.code || '', p2?.description || '', p2?.quantity != null ? p2.quantity : '',
           p3?.code || '', p3?.description || '', p3?.quantity != null ? p3.quantity : '',
           p4?.code || '', p4?.description || '', p4?.quantity != null ? p4.quantity : '',
+          p5?.code || '', p5?.description || '', p5?.quantity != null ? p5.quantity : '',
+          p6?.code || '', p6?.description || '', p6?.quantity != null ? p6.quantity : '',
+          p7?.code || '', p7?.description || '', p7?.quantity != null ? p7.quantity : '',
         ];
 
         rowsXml += `   <Row ss:Height="19">\n`;
@@ -553,7 +650,7 @@ export default function PlanejamentoPage() {
   const [showMap, setShowMap] = useState(false);
 
   // Header template
-  const HEADER_TEMPLATE = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tCEP\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD";
+  const HEADER_TEMPLATE = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tCEP\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD";
   const [headerCopied, setHeaderCopied] = useState(false);
   const handleCopyHeader = () => {
     navigator.clipboard.writeText(HEADER_TEMPLATE).then(() => {
@@ -577,6 +674,11 @@ export default function PlanejamentoPage() {
   const [proposedStops, setProposedStops] = useState<RouteStop[]>([]);
   const [optimizationSummary, setOptimizationSummary] = useState("");
   const [optimizeViewTab, setOptimizeViewTab] = useState<'list' | 'map'>('list');
+
+  // Real OSRM road distances state
+  const [origSegsKm, setOrigSegsKm] = useState<number[]>([]);
+  const [propSegsKm, setPropSegsKm] = useState<number[]>([]);
+  const [segsLoading, setSegsLoading] = useState(false);
 
   const routeCities = useMemo(() => {
     if (!optimizingRoute) return [];
@@ -953,6 +1055,8 @@ export default function PlanejamentoPage() {
     setOptimizingRoute(route);
     const initialOrigin = defaultBaseAddress || "Aracaju";
     setOriginCity(initialOrigin);
+    setOrigSegsKm([]);
+    setPropSegsKm([]);
 
     // High precision OSRM highway travel time solver (Held-Karp DP for N <= 12)
     const osrmResult = await optimizeRouteStopsAsync(route.stops, initialOrigin);
@@ -960,11 +1064,32 @@ export default function PlanejamentoPage() {
     setOptimizationSummary(osrmResult.summary);
     setIsOptimizeOpen(true);
 
+    // Fetch real road distances (ViaCEP + OSRM) for both orderings
+    setSegsLoading(true);
+    try {
+      const [origKm, propKm] = await Promise.all([
+        fetchOsrmRoadDistances(route.stops, initialOrigin),
+        fetchOsrmRoadDistances(osrmResult.stops, initialOrigin),
+      ]);
+      setOrigSegsKm(origKm);
+      setPropSegsKm(propKm);
+    } finally {
+      setSegsLoading(false);
+    }
+
     // Try Gemini AI enhancement if configured
     const aiResult = await optimizeRouteWithGeminiAI(route.stops, initialOrigin);
     if (aiResult) {
       setProposedStops(aiResult.stops);
       setOptimizationSummary(aiResult.summary);
+      // Re-fetch distances for new AI-proposed order
+      setSegsLoading(true);
+      try {
+        const propKm2 = await fetchOsrmRoadDistances(aiResult.stops, initialOrigin);
+        setPropSegsKm(propKm2);
+      } finally {
+        setSegsLoading(false);
+      }
     }
   };
 
@@ -977,10 +1102,30 @@ export default function PlanejamentoPage() {
     setProposedStops(osrmResult.stops);
     setOptimizationSummary(osrmResult.summary);
 
+    // Re-fetch distances with new base
+    setSegsLoading(true);
+    try {
+      const [origKm, propKm] = await Promise.all([
+        fetchOsrmRoadDistances(optimizingRoute.stops, newOrigin),
+        fetchOsrmRoadDistances(osrmResult.stops, newOrigin),
+      ]);
+      setOrigSegsKm(origKm);
+      setPropSegsKm(propKm);
+    } finally {
+      setSegsLoading(false);
+    }
+
     const aiResult = await optimizeRouteWithGeminiAI(optimizingRoute.stops, newOrigin);
     if (aiResult) {
       setProposedStops(aiResult.stops);
       setOptimizationSummary(aiResult.summary);
+      setSegsLoading(true);
+      try {
+        const propKm2 = await fetchOsrmRoadDistances(aiResult.stops, newOrigin);
+        setPropSegsKm(propKm2);
+      } finally {
+        setSegsLoading(false);
+      }
     }
   };
 
@@ -2298,24 +2443,9 @@ export default function PlanejamentoPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Ordem Atual */}
                 {(() => {
-                  const BASE_COORD_MAP: Record<string, [number, number]> = {
-                    aracaju: [-10.9472, -37.0731], lagarto: [-10.9172, -37.6631],
-                    itabaiana: [-10.6853, -37.4269], propria: [-10.2108, -36.8417],
-                    estancia: [-11.2683, -37.4383], socorro: [-10.8546, -37.1264],
-                    maruim: [-10.7408, -37.0817], laranjeiras: [-10.8039, -37.1714],
-                    penedo: [-10.2906, -36.5864], 'tobias barreto': [-11.1839, -37.9986],
-                    'simao dias': [-10.7439, -37.8108], 'nossa senhora do socorro': [-10.8546, -37.1264],
-                    boquim: [-11.1464, -37.6214], cristinapolis: [-11.4747, -37.7553],
-                    indiaroba: [-11.5189, -37.5117], umbauba: [-11.3831, -37.6569],
-                    neópolis: [-10.3208, -36.5794], neopolis: [-10.3208, -36.5794],
-                    'nossa senhora da gloria': [-10.2189, -37.4217], 'sao cristovao': [-11.0147, -37.2064],
-                  };
-                  const baseCity = (defaultBaseAddress || originCity || 'Aracaju').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().split(/[,\-]/)[0].trim();
-                  const baseCoord: [number, number] = BASE_COORD_MAP[baseCity] || [-10.9472, -37.0731];
-
                   const origStops = optimizingRoute?.stops || [];
-                  const origSegs = buildSegmentKm(origStops, baseCoord);
-                  const origTotal = origSegs.reduce((a, b) => a + b, 0);
+                  const origTotal = origSegsKm.reduce((a, b) => a + b, 0);
+                  const hasData = origSegsKm.length > 0;
 
                   return (
                     <div className="border rounded-xl p-3 bg-muted/20">
@@ -2336,16 +2466,20 @@ export default function PlanejamentoPage() {
                           const oldPos = i + 1;
                           const newPos = newIdx !== -1 ? newIdx + 1 : oldPos;
                           const isMoved = oldPos !== newPos;
-                          const segKm = origSegs[i];
+                          const segKm = origSegsKm[i];
 
                           return (
                             <div key={i}>
-                              {/* Arrow + KM badge for this leg */}
+                              {/* Arrow + KM badge */}
                               <div className="flex items-center gap-1 pl-2 my-0.5">
                                 <span className="text-[9px] text-muted-foreground/60">↓</span>
-                                <span className="text-[9px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
-                                  {segKm.toFixed(1)} km
-                                </span>
+                                {segsLoading && !hasData ? (
+                                  <span className="text-[9px] text-muted-foreground animate-pulse px-1.5">calculando…</span>
+                                ) : segKm !== undefined ? (
+                                  <span className="text-[9px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
+                                    {segKm.toFixed(1)} km
+                                  </span>
+                                ) : null}
                               </div>
                               <div
                                 className={cn(
@@ -2386,9 +2520,13 @@ export default function PlanejamentoPage() {
                         {/* Return-to-base leg */}
                         <div className="flex items-center gap-1 pl-2 my-0.5">
                           <span className="text-[9px] text-muted-foreground/60">↓</span>
-                          <span className="text-[9px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
-                            {origSegs[origSegs.length - 1]?.toFixed(1)} km (retorno)
-                          </span>
+                          {segsLoading && !hasData ? (
+                            <span className="text-[9px] text-muted-foreground animate-pulse px-1.5">calculando…</span>
+                          ) : origSegsKm.length > 0 ? (
+                            <span className="text-[9px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
+                              {origSegsKm[origSegsKm.length - 1]?.toFixed(1)} km (retorno)
+                            </span>
+                          ) : null}
                         </div>
                         <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold text-primary pl-2">
                           <span className="text-base">🏢</span>
@@ -2398,10 +2536,17 @@ export default function PlanejamentoPage() {
 
                       {/* Total */}
                       <div className="mt-3 pt-2 border-t border-border/40 flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Total percurso</span>
-                        <span className="text-sm font-black text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-3 py-1 rounded-full border border-red-200 dark:border-red-800">
-                          🔴 {origTotal.toFixed(1)} km
+                        <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                          Total percurso
+                          {hasData && <span className="text-[9px] font-normal text-emerald-600 dark:text-emerald-400">🌐 rodovia real</span>}
                         </span>
+                        {segsLoading && !hasData ? (
+                          <span className="text-xs text-muted-foreground animate-pulse">Calculando via OSRM…</span>
+                        ) : hasData ? (
+                          <span className="text-sm font-black text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-3 py-1 rounded-full border border-red-200 dark:border-red-800">
+                            🔴 {origTotal.toFixed(1)} km
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -2409,29 +2554,10 @@ export default function PlanejamentoPage() {
 
                 {/* Ordem Sugerida pela IA */}
                 {(() => {
-                  const BASE_COORD_MAP: Record<string, [number, number]> = {
-                    aracaju: [-10.9472, -37.0731], lagarto: [-10.9172, -37.6631],
-                    itabaiana: [-10.6853, -37.4269], propria: [-10.2108, -36.8417],
-                    estancia: [-11.2683, -37.4383], socorro: [-10.8546, -37.1264],
-                    maruim: [-10.7408, -37.0817], laranjeiras: [-10.8039, -37.1714],
-                    penedo: [-10.2906, -36.5864], 'tobias barreto': [-11.1839, -37.9986],
-                    'simao dias': [-10.7439, -37.8108], 'nossa senhora do socorro': [-10.8546, -37.1264],
-                    boquim: [-11.1464, -37.6214], cristinapolis: [-11.4747, -37.7553],
-                    indiaroba: [-11.5189, -37.5117], umbauba: [-11.3831, -37.6569],
-                    neópolis: [-10.3208, -36.5794], neopolis: [-10.3208, -36.5794],
-                    'nossa senhora da gloria': [-10.2189, -37.4217], 'sao cristovao': [-11.0147, -37.2064],
-                  };
-
-                  const baseCity2 = (defaultBaseAddress || originCity || 'Aracaju').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().split(/[,\-]/)[0].trim();
-                  const baseCoord2: [number, number] = BASE_COORD_MAP[baseCity2] || [-10.9472, -37.0731];
-
-                  const propSegs = buildSegmentKm(proposedStops, baseCoord2);
-                  const propTotal = propSegs.reduce((a, b) => a + b, 0);
-
-                  const origStops = optimizingRoute?.stops || [];
-                  const origSegs2 = buildSegmentKm(origStops, baseCoord2);
-                  const origTotal2 = origSegs2.reduce((a, b) => a + b, 0);
+                  const propTotal = propSegsKm.reduce((a, b) => a + b, 0);
+                  const origTotal2 = origSegsKm.reduce((a, b) => a + b, 0);
                   const savings = origTotal2 - propTotal;
+                  const hasData = propSegsKm.length > 0;
 
                   return (
                     <div className="border border-violet-200 dark:border-violet-900/50 rounded-xl p-3 bg-violet-50/20 dark:bg-violet-955/10">
@@ -2453,16 +2579,20 @@ export default function PlanejamentoPage() {
                           const newPos = i + 1;
                           const isMoved = oldPos !== newPos;
                           const posDiff = oldPos - newPos;
-                          const segKm = propSegs[i];
+                          const segKm = propSegsKm[i];
 
                           return (
                             <div key={i}>
-                              {/* Arrow + KM badge for this leg */}
+                              {/* Arrow + KM badge */}
                               <div className="flex items-center gap-1 pl-2 my-0.5">
                                 <span className="text-[9px] text-muted-foreground/60">↓</span>
-                                <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-                                  {segKm.toFixed(1)} km
-                                </span>
+                                {segsLoading && !hasData ? (
+                                  <span className="text-[9px] text-muted-foreground animate-pulse px-1.5">calculando…</span>
+                                ) : segKm !== undefined ? (
+                                  <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                                    {segKm.toFixed(1)} km
+                                  </span>
+                                ) : null}
                               </div>
                               <div
                                 className={cn(
@@ -2552,9 +2682,13 @@ export default function PlanejamentoPage() {
                         {/* Return-to-base leg */}
                         <div className="flex items-center gap-1 pl-2 my-0.5">
                           <span className="text-[9px] text-muted-foreground/60">↓</span>
-                          <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-                            {propSegs[propSegs.length - 1]?.toFixed(1)} km (retorno)
-                          </span>
+                          {segsLoading && !hasData ? (
+                            <span className="text-[9px] text-muted-foreground animate-pulse px-1.5">calculando…</span>
+                          ) : propSegsKm.length > 0 ? (
+                            <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                              {propSegsKm[propSegsKm.length - 1]?.toFixed(1)} km (retorno)
+                            </span>
+                          ) : null}
                         </div>
                         <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold text-primary pl-2">
                           <span className="text-base">🏢</span>
@@ -2565,12 +2699,19 @@ export default function PlanejamentoPage() {
                       {/* Total + Savings */}
                       <div className="mt-3 pt-2 border-t border-border/40 space-y-1.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Total percurso</span>
-                          <span className="text-sm font-black text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1 rounded-full border border-emerald-300 dark:border-emerald-800">
-                            🟢 {propTotal.toFixed(1)} km
+                          <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                            Total percurso
+                            {hasData && <span className="text-[9px] font-normal text-emerald-600 dark:text-emerald-400">🌐 rodovia real</span>}
                           </span>
+                          {segsLoading && !hasData ? (
+                            <span className="text-xs text-muted-foreground animate-pulse">Calculando via OSRM…</span>
+                          ) : hasData ? (
+                            <span className="text-sm font-black text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1 rounded-full border border-emerald-300 dark:border-emerald-800">
+                              🟢 {propTotal.toFixed(1)} km
+                            </span>
+                          ) : null}
                         </div>
-                        {savings > 0.5 && (
+                        {hasData && savings > 0.5 && origTotal2 > 0 && (
                           <div className="flex items-center justify-between">
                             <span className="text-[11px] font-bold text-violet-600 uppercase tracking-wide">Economia estimada</span>
                             <span className="text-[11px] font-black text-violet-700 dark:text-violet-300 bg-violet-100 dark:bg-violet-950/60 px-3 py-1 rounded-full border border-violet-300 dark:border-violet-800">
