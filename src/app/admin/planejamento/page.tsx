@@ -22,7 +22,7 @@ import { useAllRoutes, useTechnicians, useDrivers } from "@/hooks/queries";
 import { routeService } from "@/services/supabase/routeService";
 import { configService } from "@/services/supabase/configService";
 import { type Route, type RouteStop, type RoutePart } from "@/lib/data";
-import { optimizeRouteStops, describeOptimization } from "@/lib/routeOptimizer";
+import { optimizeRouteStops, optimizeRouteStopsAsync, describeOptimization } from "@/lib/routeOptimizer";
 import { optimizeRouteWithGeminiAI } from "@/services/aiRouteService";
 import { parseFullAddress, validateCepWithCityState } from "@/lib/geocode";
 import {
@@ -901,14 +901,13 @@ export default function PlanejamentoPage() {
     const initialOrigin = defaultBaseAddress || "Aracaju";
     setOriginCity(initialOrigin);
 
-    // Initial fallback using TSP algorithm
-    const initialOptimized = optimizeRouteStops(route.stops, initialOrigin);
-    const initialSummary = describeOptimization(route.stops, initialOptimized, initialOrigin);
-    setProposedStops(initialOptimized);
-    setOptimizationSummary(initialSummary);
+    // High precision OSRM highway travel time solver (Held-Karp DP for N <= 12)
+    const osrmResult = await optimizeRouteStopsAsync(route.stops, initialOrigin);
+    setProposedStops(osrmResult.stops);
+    setOptimizationSummary(osrmResult.summary);
     setIsOptimizeOpen(true);
 
-    // Call Gemini AI for true intelligent routing over Brazil road network
+    // Try Gemini AI enhancement if configured
     const aiResult = await optimizeRouteWithGeminiAI(route.stops, initialOrigin);
     if (aiResult) {
       setProposedStops(aiResult.stops);
@@ -921,10 +920,9 @@ export default function PlanejamentoPage() {
     setOriginCity(newOrigin);
     if (!optimizingRoute) return;
 
-    const initialOptimized = optimizeRouteStops(optimizingRoute.stops, newOrigin);
-    const initialSummary = describeOptimization(optimizingRoute.stops, initialOptimized, newOrigin);
-    setProposedStops(initialOptimized);
-    setOptimizationSummary(initialSummary);
+    const osrmResult = await optimizeRouteStopsAsync(optimizingRoute.stops, newOrigin);
+    setProposedStops(osrmResult.stops);
+    setOptimizationSummary(osrmResult.summary);
 
     const aiResult = await optimizeRouteWithGeminiAI(optimizingRoute.stops, newOrigin);
     if (aiResult) {
