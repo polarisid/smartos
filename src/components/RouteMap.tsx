@@ -180,32 +180,53 @@ export default function RouteMap({
 
         if (waypoints.length < 2) return;
 
-        // Construct OSRM driving route API request (max ~15 waypoints per request for public OSRM server)
-        const sampleWaypoints = waypoints.length > 12
-            ? [waypoints[0], ...waypoints.filter((_, i) => i % Math.ceil(waypoints.length / 10) === 0), waypoints[waypoints.length - 1]]
-            : waypoints;
-
-        const coordsString = sampleWaypoints.map(c => `${c[1]},${c[0]}`).join(';');
-        const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
-
         let isMounted = true;
-        fetch(osrmUrl)
-            .then(res => res.json())
-            .then(data => {
-                if (!isMounted) return;
-                if (data.routes && data.routes[0] && data.routes[0].geometry) {
-                    const geoCoords: [number, number][] = data.routes[0].geometry.coordinates.map(
-                        (c: [number, number]) => [c[1], c[0]]
-                    );
-                    setRoadPolyline(geoCoords);
-                } else {
-                    setRoadPolyline(waypoints); // Fallback
+
+        // Helper to fetch driving polyline segment for up to 10 waypoints
+        const fetchSegment = async (points: [number, number][]): Promise<[number, number][]> => {
+            if (points.length < 2) return points;
+            const coordsStr = points.map(c => `${c[1]},${c[0]}`).join(';');
+            const url = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`;
+            try {
+                const res = await fetch(url);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.routes && data.routes[0] && data.routes[0].geometry) {
+                        return data.routes[0].geometry.coordinates.map(
+                            (c: [number, number]) => [c[1], c[0]]
+                        );
+                    }
                 }
-            })
-            .catch(err => {
-                console.error("OSRM routing fallback:", err);
+            } catch (e) {}
+            return points;
+        };
+
+        const loadFullPolyline = async () => {
+            try {
+                // Chunk waypoints into overlapping blocks of max 8 points to prevent OSRM URL limits and sampling loss
+                const fullPath: [number, number][] = [];
+                const chunkSize = 8;
+
+                for (let i = 0; i < waypoints.length - 1; i += chunkSize - 1) {
+                    const chunk = waypoints.slice(i, i + chunkSize);
+                    const segmentPath = await fetchSegment(chunk);
+                    if (fullPath.length > 0 && segmentPath.length > 0) {
+                        fullPath.push(...segmentPath.slice(1));
+                    } else {
+                        fullPath.push(...segmentPath);
+                    }
+                }
+
+                if (isMounted) {
+                    setRoadPolyline(fullPath.length > 0 ? fullPath : waypoints);
+                }
+            } catch (err) {
+                console.error("OSRM full routing fallback:", err);
                 if (isMounted) setRoadPolyline(waypoints);
-            });
+            }
+        };
+
+        loadFullPolyline();
 
         return () => { isMounted = false; };
     }, [mapStops, baseCoords, showPolyline]);
