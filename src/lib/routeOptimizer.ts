@@ -405,56 +405,54 @@ export function optimizeRouteStops(stops: RouteStop[], originCity: string = "Ara
     const clusterData = locationClusterMap.get(clusterKey);
     if (!clusterData) continue;
 
-    // Group stops by neighborhood (Bairro)
-    const neighborhoodMap = new Map<string, RouteStop[]>();
-    for (const stop of clusterData.stops) {
-      const nKey = normalize(stop.neighborhood) || "sem_bairro";
-      if (!neighborhoodMap.has(nKey)) neighborhoodMap.set(nKey, []);
-      neighborhoodMap.get(nKey)!.push(stop);
+    // Check if stops in this city cluster have CEPs available
+    const stopsWithCep = clusterData.stops.filter(s => s.zipCode && s.zipCode.replace(/\D/g, '').length >= 5);
+    const stopsWithoutCep = clusterData.stops.filter(s => !s.zipCode || s.zipCode.replace(/\D/g, '').length < 5);
+
+    if (stopsWithCep.length > 0) {
+      // Group CEP stops by 5-digit CEP sector (e.g., 49030 for Aruana/Atalaia, 49040 for Jabotiana, etc.)
+      const cepSectorMap = new Map<string, RouteStop[]>();
+      for (const stop of stopsWithCep) {
+        const digits = stop.zipCode.replace(/\D/g, '');
+        const sectorKey = digits.slice(0, 5); // First 5 digits = Street/Sector cluster
+        if (!cepSectorMap.has(sectorKey)) cepSectorMap.set(sectorKey, []);
+        cepSectorMap.get(sectorKey)!.push(stop);
+      }
+
+      // Sort CEP sectors numerically (so geographically adjacent CEP blocks run smoothly in order)
+      const sortedSectors = [...cepSectorMap.entries()].sort(([secA], [secB]) => secA.localeCompare(secB));
+
+      for (const [, sectorStops] of sortedSectors) {
+        // Sort within the same 5-digit CEP sector by exact 8-digit CEP, then by TAT urgency
+        const sortedSectorStops = [...sectorStops].sort((a, b) => {
+          const cepA = a.zipCode.replace(/\D/g, '');
+          const cepB = b.zipCode.replace(/\D/g, '');
+          if (cepA !== cepB) return cepA.localeCompare(cepB);
+          return parseTatDays(a.tat) - parseTatDays(b.tat);
+        });
+        result.push(...sortedSectorStops);
+      }
     }
 
-    // Sort neighborhoods by zone score or stop count
-    const sortedNeighborhoods = [...neighborhoodMap.entries()].sort(
-      ([keyA, listA], [keyB, listB]) => {
-        const scoreA = getNeighborhoodZoneScore(clusterData.rawCity, keyA);
-        const scoreB = getNeighborhoodZoneScore(clusterData.rawCity, keyB);
-        if (scoreA !== scoreB) return scoreA - scoreB;
-        return listB.length - listA.length;
+    // Process any remaining stops without CEP using traditional neighborhood zone grouping
+    if (stopsWithoutCep.length > 0) {
+      const neighborhoodMap = new Map<string, RouteStop[]>();
+      for (const stop of stopsWithoutCep) {
+        const nKey = normalize(stop.neighborhood) || "sem_bairro";
+        if (!neighborhoodMap.has(nKey)) neighborhoodMap.set(nKey, []);
+        neighborhoodMap.get(nKey)!.push(stop);
       }
-    );
 
-    for (const [, neighborhoodStops] of sortedNeighborhoods) {
-      // Check if any stop in this neighborhood has a CEP
-      const hasCep = neighborhoodStops.some(s => s.zipCode);
-
-      if (hasCep) {
-        // Sub-group by CEP prefix (3 digits = postal sub-region) for finer proximity
-        const cepGroupMap = new Map<string, RouteStop[]>();
-        for (const stop of neighborhoodStops) {
-          const cepKey = getCepSubRegion(stop.zipCode) || 'sem_cep';
-          if (!cepGroupMap.has(cepKey)) cepGroupMap.set(cepKey, []);
-          cepGroupMap.get(cepKey)!.push(stop);
+      const sortedNeighborhoods = [...neighborhoodMap.entries()].sort(
+        ([keyA, listA], [keyB, listB]) => {
+          const scoreA = getNeighborhoodZoneScore(clusterData.rawCity, keyA);
+          const scoreB = getNeighborhoodZoneScore(clusterData.rawCity, keyB);
+          if (scoreA !== scoreB) return scoreA - scoreB;
+          return listB.length - listA.length;
         }
+      );
 
-        // Sort CEP groups: numbered groups (real CEP) first, then unnamed
-        const sortedCepGroups = [...cepGroupMap.entries()].sort(([a], [b]) => {
-          if (a === 'sem_cep') return 1;
-          if (b === 'sem_cep') return -1;
-          return a.localeCompare(b);
-        });
-
-        for (const [, cepStops] of sortedCepGroups) {
-          // Sort within each CEP sub-group by full CEP (most precise) then TAT urgency
-          const sortedByCep = [...cepStops].sort((a, b) => {
-            const cepA = (a.zipCode || '').replace(/\D/g, '');
-            const cepB = (b.zipCode || '').replace(/\D/g, '');
-            if (cepA && cepB && cepA !== cepB) return cepA.localeCompare(cepB);
-            return parseTatDays(a.tat) - parseTatDays(b.tat);
-          });
-          result.push(...sortedByCep);
-        }
-      } else {
-        // No CEP available: fall back to TAT urgency ordering
+      for (const [, neighborhoodStops] of sortedNeighborhoods) {
         const sortedByTat = [...neighborhoodStops].sort(
           (a, b) => parseTatDays(a.tat) - parseTatDays(b.tat)
         );
