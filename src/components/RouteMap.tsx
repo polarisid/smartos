@@ -94,6 +94,7 @@ export default function RouteMap({
     const [baseCoords, setBaseCoords] = useState<[number, number] | null>([-10.9142, -37.0545]);
     const [roadPolyline, setRoadPolyline] = useState<[number, number][]>([]);
     const [loading, setLoading] = useState(true);
+    const [mapStyle, setMapStyle] = useState<'google' | 'google_satellite' | 'carto'>('google');
 
     // 1. Fetch Base coordinates dynamically from baseAddress or configService
     useEffect(() => {
@@ -241,6 +242,31 @@ export default function RouteMap({
 
     return (
         <div style={{ height }} className="w-full min-h-[300px] bg-slate-900 rounded-xl overflow-hidden border border-slate-800 relative z-0">
+            {/* Map Style Selector Overlay */}
+            <div className="absolute top-3 right-3 z-[400] bg-white/95 backdrop-blur-md p-1 rounded-xl shadow-lg border border-slate-200 flex items-center gap-1 text-xs">
+                <button
+                    type="button"
+                    onClick={() => setMapStyle('google')}
+                    className={`px-2.5 py-1 rounded-lg transition-all font-semibold text-[11px] ${mapStyle === 'google' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}
+                >
+                    🗺️ Google Maps
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setMapStyle('google_satellite')}
+                    className={`px-2.5 py-1 rounded-lg transition-all font-semibold text-[11px] ${mapStyle === 'google_satellite' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}
+                >
+                    🛰️ Satélite
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setMapStyle('carto')}
+                    className={`px-2.5 py-1 rounded-lg transition-all font-semibold text-[11px] ${mapStyle === 'carto' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}
+                >
+                    📍 CartoDB
+                </button>
+            </div>
+
             {mapStops.length === 0 && loading && (
                 <div className="absolute inset-0 z-10 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-slate-300 p-4 text-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-500 mb-2"></div>
@@ -254,10 +280,28 @@ export default function RouteMap({
                 style={{ height: '100%', width: '100%', zIndex: 0 }}
                 className="z-0"
             >
-                <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" 
-                />
+                {mapStyle === 'google' && (
+                    <TileLayer
+                        attribution='&copy; <a href="https://maps.google.com">Google Maps</a>'
+                        url="https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+                        subdomains={['mt0', 'mt1', 'mt2', 'mt3']}
+                        maxZoom={20}
+                    />
+                )}
+                {mapStyle === 'google_satellite' && (
+                    <TileLayer
+                        attribution='&copy; <a href="https://maps.google.com">Google Maps</a>'
+                        url="https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
+                        subdomains={['mt0', 'mt1', 'mt2', 'mt3']}
+                        maxZoom={20}
+                    />
+                )}
+                {mapStyle === 'carto' && (
+                    <TileLayer
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                        url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" 
+                    />
+                )}
                 
                 <MapBounds stops={mapStops} baseCoords={baseCoords} />
 
