@@ -276,7 +276,7 @@ if (typeof window !== 'undefined') {
         const keysToRemove: string[] = [];
         for (let i = 0; i < localStorage.length; i++) {
             const k = localStorage.key(i);
-            if (k && k.includes('geocode_') && !k.startsWith('v3_geocode_')) {
+            if (k && k.includes('geocode_') && !k.startsWith('v5_geocode_')) {
                 keysToRemove.push(k);
             }
         }
@@ -297,7 +297,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
     const fullState = STATE_NAMES[rawState] || state || 'Sergipe';
     const safeAddress = addressDetails ? addressDetails.replace(/[^\w\s\u00C0-\u00FF,]/gi, '').trim() : '';
 
-    const key = `v4_geocode_${safeZip}_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
+    const key = `v5_geocode_${safeZip}_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
     
     // Check localStorage cache with strict state bounds validation
     if (typeof window !== 'undefined') {
@@ -308,7 +308,6 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
                 if (isValidStateCoords(parsed, rawState)) {
                     return parsed;
                 } else {
-                    // Purge bad cached location (e.g. Paraguay or Paraná)
                     localStorage.removeItem(key);
                 }
             } catch(e) {}
