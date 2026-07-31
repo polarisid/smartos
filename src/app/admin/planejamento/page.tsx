@@ -1022,15 +1022,18 @@ export default function PlanejamentoPage() {
     setIsOptimizeOpen(true);
 
     const stopsHash = route.stops.map(s => `${s.serviceOrder}_${s.turn || ''}`).join('|');
-    const cacheKey = `opt_cache_v2_${route.id}_${initialOrigin}_${stopsHash}`;
+    const cacheKey = `opt_cache_v6_${route.id}_${initialOrigin}_${stopsHash}`;
 
-    // Check localStorage cache if not forcing refresh
+    // Check localStorage cache if not forcing refresh (only use if cache has real savings or 1 stop)
     if (!forceRefresh && typeof window !== 'undefined') {
       const cached = localStorage.getItem(cacheKey);
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          if (parsed.stops && parsed.origKm && parsed.propKm) {
+          const origTot = (parsed.origKm || []).reduce((a: number, b: number) => a + b, 0);
+          const propTot = (parsed.propKm || []).reduce((a: number, b: number) => a + b, 0);
+
+          if (parsed.stops && parsed.origKm && parsed.propKm && (Math.abs(origTot - propTot) > 0.5 || route.stops.length <= 1)) {
             setProposedStops(parsed.stops);
             setOptimizationSummary(parsed.summary || "Circuito rodoviário otimizado (carregado do cache).");
             setOrigSegsKm(parsed.origKm);

@@ -443,19 +443,21 @@ export async function optimizeRouteStopsAsync(
   const allPoints: PointCoord[] = [baseCoord, ...resolvedStopCoords];
   const N = allPoints.length;
 
-  // Try fetching exact OSRM Driving Matrix (by highway travel times)
+  // Try fetching exact OSRM Driving Matrix (by highway distances and travel times)
   const osrmData = await fetchOsrmDrivingMatrix(allPoints);
   let matrix: number[][];
 
-  if (osrmData && osrmData.durationMatrix) {
-    matrix = osrmData.durationMatrix;
+  if (osrmData && osrmData.distanceMatrix && osrmData.distanceMatrix.some(row => row.some(d => d > 0))) {
+    matrix = osrmData.distanceMatrix; // meters
+  } else if (osrmData && osrmData.durationMatrix) {
+    matrix = osrmData.durationMatrix; // seconds
   } else {
-    // Fallback: Haversine distance * 60s per km
+    // Fallback: Haversine distance in meters
     matrix = Array.from({ length: N }, () => Array(N).fill(0));
     for (let i = 0; i < N; i++) {
       for (let j = 0; j < N; j++) {
         if (i !== j) {
-          matrix[i][j] = haversineDistanceKm(allPoints[i], allPoints[j]) * 60;
+          matrix[i][j] = haversineDistanceKm(allPoints[i], allPoints[j]) * 1000;
         }
       }
     }
@@ -467,7 +469,8 @@ export async function optimizeRouteStopsAsync(
   if (N <= 13) {
     // Exact Solver Held-Karp DP (Guaranteed 100% optimal for N <= 12 stops)
     tourIndices = solveExactHeldKarp(N, matrix);
-    algorithmUsed = "Held-Karp DP Exato (Matriz de Tempo de Rodovia OSRM)";
+    tourIndices = applyOrOpt(tourIndices, matrix);
+    algorithmUsed = "Held-Karp DP Exato (Matriz de Distância de Rodovia OSRM)";
   } else {
     // Heuristic solver: Nearest Neighbor + Or-Opt + 2-Opt
     const unvisited = new Set(Array.from({ length: N - 1 }, (_, i) => i + 1));
@@ -491,7 +494,7 @@ export async function optimizeRouteStopsAsync(
     }
 
     tourIndices = applyOrOpt(tour, matrix);
-    algorithmUsed = "Or-Opt / 2-Opt Heurístico (Tempo de Rodovia OSRM)";
+    algorithmUsed = "Or-Opt / 2-Opt Heurístico (Distância de Rodovia OSRM)";
   }
 
   const totalSeconds = calculateClosedLoopDuration(tourIndices, matrix);
