@@ -6,7 +6,11 @@ import { format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay, parseISO }
 import { ptBR } from "date-fns/locale";
 import * as XLSX from "xlsx";
 import dynamic from "next/dynamic";
-
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { optimizeWithGoogle, buildGoogleSummary } from "@/services/googleRouteOptimizer";
+import {   ArrowUp,   } from "lucide-react";
+import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { SortableStopCard } from "./SortableStopCard"; // ou cole o componente no próprio arquivo
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -593,6 +597,38 @@ export default function PlanejamentoPage() {
   const { data: technicians = [] } = useTechnicians();
   const { data: drivers = [] } = useDrivers();
 
+  const [defaultBaseAddress, setDefaultBaseAddress] = useState("Aracaju");
+  const [originCity, setOriginCity] = useState("Aracaju");
+  const [hoveredStopId, setHoveredStopId] = useState<string | null>(null);
+  const recalcTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  
+  const schedulePropRecalc = useCallback((stops: RouteStop[]) => {
+    if (recalcTimer.current) clearTimeout(recalcTimer.current);
+    recalcTimer.current = setTimeout(async () => {
+      setSegsLoading(true);
+      try {
+        const propKm = await fetchOsrmRoadDistances(stops, defaultBaseAddress || originCity || "Aracaju");
+        setPropSegsKm(propKm);
+      } catch (e) { console.error(e); }
+      finally { setSegsLoading(false); }
+    }, 500);
+  }, [defaultBaseAddress, originCity]);
+  
+  const handleProposedDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setProposedStops(prev => {
+      const oldIndex = prev.findIndex(s => s.serviceOrder === active.id);
+      const newIndex = prev.findIndex(s => s.serviceOrder === over.id);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      const next = arrayMove(prev, oldIndex, newIndex);
+      setPropSegsKm([]);
+      schedulePropRecalc(next);
+      return next;
+    });
+  };
+
   // Week navigation
   const [weekOffset, setWeekOffset] = useState(0);
   const weekStart = useMemo(() => {
@@ -601,7 +637,7 @@ export default function PlanejamentoPage() {
   }, [weekOffset]);
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   const weekEnd = weekDays[6];
-
+  
   // Selected day
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   // Expanded day OS panel (index of weekDay)
@@ -669,6 +705,7 @@ export default function PlanejamentoPage() {
     }
   };
 
+
   // ── Drag and Drop state (Main Table) ──
   const tableDragItemIndex = useRef<number | null>(null);
   const tableDragOverItemIndex = useRef<number | null>(null);
@@ -703,7 +740,7 @@ export default function PlanejamentoPage() {
   // AI Optimization preview state
   const [isOptimizeOpen, setIsOptimizeOpen] = useState(false);
   const [optimizingRoute, setOptimizingRoute] = useState<Route | null>(null);
-  const [originCity, setOriginCity] = useState("Aracaju");
+
   const [proposedStops, setProposedStops] = useState<RouteStop[]>([]);
   const [optimizationSummary, setOptimizationSummary] = useState("");
   const [optimizeViewTab, setOptimizeViewTab] = useState<'list' | 'map' | 'hybrid'>('list');
@@ -720,7 +757,7 @@ export default function PlanejamentoPage() {
   }, [optimizingRoute]);
 
   // Configured default base address
-  const [defaultBaseAddress, setDefaultBaseAddress] = useState("Aracaju");
+
 
   useEffect(() => {
     configService.getBaseAddress().then(base => {
@@ -761,6 +798,8 @@ export default function PlanejamentoPage() {
   const [editParsedPreview, setEditParsedPreview] = useState<RouteStop[]>([]);
   const [isUpdatingRoute, setIsUpdatingRoute] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState<string | null>(null);
+
+  
 
   // Helper: Get true operational date of route (plannedDate → departureDate → firstVisitDate → createdAt)
   const getRouteDate = useCallback((r: Route): Date => {
@@ -890,6 +929,11 @@ export default function PlanejamentoPage() {
     const maxTime = Math.max(...timestamps);
     const minDate = new Date(minTime);
     const maxDate = new Date(maxTime);
+
+
+
+
+    
 
     const isSameDayStartEnd = isSameDay(minDate, maxDate);
 
@@ -1183,36 +1227,35 @@ export default function PlanejamentoPage() {
 
     setSegsLoading(true);
     try {
+      // ORDEM: OSRM 2-opt — global, determinístico, sem IA
       const osrmResult = await optimizeRouteStopsAsync(route.stops, initialOrigin);
-      let finalStops = osrmResult.stops;
-      let finalSummary = osrmResult.summary;
-
+      const finalStops = osrmResult.stops;
+    
+      // DISTÂNCIAS: OSRM (antes e depois)
       const [origKm, propKm] = await Promise.all([
         fetchOsrmRoadDistances(route.stops, initialOrigin),
-        fetchOsrmRoadDistances(osrmResult.stops, initialOrigin),
+        fetchOsrmRoadDistances(finalStops, initialOrigin),
       ]);
-
-      let finalPropKm = propKm;
-
-      const aiResult = await optimizeRouteWithGeminiAI(route.stops, initialOrigin);
-      if (aiResult) {
-        finalStops = aiResult.stops;
-        finalSummary = aiResult.summary;
-        finalPropKm = await fetchOsrmRoadDistances(aiResult.stops, initialOrigin);
-      }
-
+    
+      // RESUMO: honesto a partir dos km reais (a IA entra aqui depois, só no texto)
+      const movedCount = finalStops.filter((s, i) =>
+        route.stops.findIndex(o => o.serviceOrder === s.serviceOrder) !== i
+      ).length;
+      const origTotal = origKm.reduce((a, b) => a + b, 0);
+      const propTotal = propKm.reduce((a, b) => a + b, 0);
+      const finalSummary = buildGoogleSummary(origTotal, propTotal, movedCount, finalStops.length);
+    
       setProposedStops(finalStops);
       setOptimizationSummary(finalSummary);
       setOrigSegsKm(origKm);
-      setPropSegsKm(finalPropKm);
-
-      // Save permanently to localStorage
+      setPropSegsKm(propKm);
+    
       if (typeof window !== 'undefined') {
         localStorage.setItem(cacheKey, JSON.stringify({
           stops: finalStops,
           summary: finalSummary,
           origKm,
-          propKm: finalPropKm
+          propKm,
         }));
       }
     } finally {
@@ -1235,6 +1278,7 @@ export default function PlanejamentoPage() {
       const [origKm, propKm] = await Promise.all([
         fetchOsrmRoadDistances(optimizingRoute.stops, newOrigin),
         fetchOsrmRoadDistances(osrmResult.stops, newOrigin),
+        
       ]);
       setOrigSegsKm(origKm);
       setPropSegsKm(propKm);
@@ -2892,232 +2936,109 @@ export default function PlanejamentoPage() {
                 })()}
 
               {/* Ordem Sugerida pela IA */}
-              {(optimizeViewTab === 'list' || optimizeViewTab === 'hybrid') && (() => {
-                  const propTotal = propSegsKm.reduce((a, b) => a + b, 0);
-                  const origTotal2 = origSegsKm.reduce((a, b) => a + b, 0);
-                  const savings = origTotal2 - propTotal;
-                  const hasData = propSegsKm.length > 0;
+{/*
+  Substitui TODO o bloco:
+    {(optimizeViewTab === 'list' || optimizeViewTab === 'hybrid') && (() => { ... })()}
+  que renderiza a "Ordem Sugerida pela IA" (a lista arrastável da direita).
+  A lista "Ordem Atual" (esquerda) fica como está.
+*/}
 
-                  return (
-                    <div className="border border-violet-200 dark:border-violet-900/50 rounded-xl p-3 bg-violet-50/20 dark:bg-violet-955/10">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300 mb-2 flex items-center justify-between">
-                        <span>Sugerido pela IA</span>
-                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">✨ Otimizado</span>
-                      </h4>
+{(optimizeViewTab === 'list' || optimizeViewTab === 'hybrid') && (() => {
+    const propTotal = propSegsKm.reduce((a, b) => a + b, 0);
+    const origTotal2 = origSegsKm.reduce((a, b) => a + b, 0);
+    const savings = origTotal2 - propTotal;
+    const hasData = propSegsKm.length > 0;
 
-                      {/* BASE */}
-                      <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold text-primary">
-                        <span className="text-base">🏢</span>
-                        <span>{defaultBaseAddress || originCity || 'Base'}</span>
-                      </div>
+    return (
+        <div className="border border-violet-200 dark:border-violet-900/50 rounded-xl p-3 bg-violet-50/20 dark:bg-violet-950/10">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300 mb-2 flex items-center justify-between">
+                <span>Sugerido pela IA</span>
+                <span className="text-[10px] font-normal text-muted-foreground normal-case flex items-center gap-1">
+                    <ArrowUp className="h-3 w-3 rotate-90" /> arraste pela alça
+                </span>
+            </h4>
 
-                      <div className="space-y-0 max-h-[520px] overflow-y-auto pr-1">
+            {/* BASE */}
+            <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold text-primary">
+                <span className="text-base">🏢</span>
+                <span>{defaultBaseAddress || originCity || 'Base'}</span>
+            </div>
+
+            <div className="max-h-[520px] overflow-y-auto pr-1">
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleProposedDragEnd}>
+                    <SortableContext items={proposedStops.map(s => s.serviceOrder)} strategy={verticalListSortingStrategy}>
                         {proposedStops.map((stop, i) => {
-                          const origIdx = optimizingRoute?.stops.findIndex(s => s.serviceOrder === stop.serviceOrder) ?? -1;
-                          const oldPos = origIdx !== -1 ? origIdx + 1 : i + 1;
-                          const newPos = i + 1;
-                          const isMoved = oldPos !== newPos;
-                          const posDiff = oldPos - newPos;
-                          const segKm = propSegsKm[i];
+                            const origIdx = optimizingRoute?.stops.findIndex(s => s.serviceOrder === stop.serviceOrder) ?? -1;
+                            const oldPos = origIdx !== -1 ? origIdx + 1 : i + 1;
+                            const newPos = i + 1;
+                            const isMoved = oldPos !== newPos;
+                            const posDiff = oldPos - newPos;
 
-                          return (
-                            <div key={i}>
-                              {/* Arrow + KM badge */}
-                              <div className="flex items-center gap-1 pl-2 my-0.5">
-                                <span className="text-[9px] text-muted-foreground/60">↓</span>
-                                {segsLoading && !hasData ? (
-                                  <span className="text-[9px] text-muted-foreground animate-pulse px-1.5">calculando…</span>
-                                ) : segKm !== undefined ? (
-                                  <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-                                    {segKm.toFixed(1)} km
-                                  </span>
-                                ) : null}
-                              </div>
-                              <div
-                                draggable
-                                onDragStart={(e) => {
-                                  e.dataTransfer.effectAllowed = "move";
-                                  handleDragStart(i);
-                                }}
-                                onDragEnter={() => handleDragEnter(i)}
-                                onDragEnd={handleDragEnd}
-                                onDragOver={(e) => e.preventDefault()}
-                                className={cn(
-                                  "flex flex-col gap-1.5 p-2.5 rounded-lg border text-xs shadow-xs transition-all duration-200 cursor-move active:cursor-grabbing",
-                                  isMoved
-                                    ? posDiff > 0
-                                      ? "border-emerald-400/80 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-955/40"
-                                      : "border-amber-400/80 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-955/40"
-                                    : "border-violet-200 dark:border-violet-900/60 bg-background"
-                                )}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <span className={cn(
-                                    "font-black w-6 text-center text-xs shrink-0 py-0.5 rounded",
-                                    isMoved
-                                      ? posDiff > 0 ? "bg-emerald-600 text-white" : "bg-amber-600 text-white"
-                                      : "text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-950"
-                                  )}>
-                                    #{newPos}
-                                  </span>
-
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center justify-between gap-1">
-                                      <p className="font-mono font-bold truncate flex items-center gap-1.5">
-                                        {stop.serviceOrder}
-                                        {stop.warrantyType === 'LP' && (
-                                          <span className="bg-amber-100 text-amber-800 text-[9px] px-1 rounded font-bold">LP</span>
-                                        )}
-                                      </p>
-                                      {isMoved ? (
-                                        posDiff > 0 ? (
-                                          <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-955 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800 flex items-center gap-0.5 shrink-0">
-                                            ▲ #{oldPos} ➔ #{newPos}
-                                          </span>
-                                        ) : (
-                                          <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-955 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800 flex items-center gap-0.5 shrink-0">
-                                            ▼ #{oldPos} ➔ #{newPos}
-                                          </span>
-                                        )
-                                      ) : (
-                                        <span className="text-[9px] text-muted-foreground font-medium shrink-0">
-                                          Mantida #{newPos}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <p className="text-[10px] text-muted-foreground truncate flex items-center flex-wrap gap-1 mt-0.5">
-                                      <span className="font-medium text-foreground">{stop.city}</span>
-                                      {stop.state && (
-                                        <span className="text-[9px] font-extrabold uppercase text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-955 px-1 py-0.5 rounded border border-violet-300 dark:border-violet-800">
-                                          {stop.state.toUpperCase()}
-                                        </span>
-                                      )}
-                                      <span>— {stop.neighborhood}</span>
-                                      {stop.zipCode && (
-                                        <span className="font-mono text-[9px] bg-violet-100/80 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 px-1 py-0.2 rounded border border-violet-200 font-semibold">
-                                          CEP: {stop.zipCode}
-                                        </span>
-                                      )}
-                                    </p>
-                                  </div>
-                                </div>
-
-                                {/* Quick Turn & Customer Confirmation Editor in Modal */}
-                                <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-border/40 mt-1">
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-[10px] font-bold text-muted-foreground uppercase mr-1">Turno:</span>
-                                    {['M', 'T', 'C'].map(turnPill => (
-                                      <button
-                                        key={turnPill}
-                                        type="button"
-                                        onClick={() => {
-                                          setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, turn: turnPill } : st));
-                                        }}
-                                        className={cn(
-                                          "px-2 py-0.5 rounded text-[10px] font-bold transition-all border",
-                                          stop.turn === turnPill
-                                            ? "bg-violet-600 text-white border-violet-600 shadow-xs"
-                                            : "bg-muted/60 hover:bg-muted text-muted-foreground border-border/50"
-                                        )}
-                                      >
-                                        {turnPill}
-                                      </button>
-                                    ))}
-                                    <input
-                                      type="text"
-                                      value={stop.turn || ''}
-                                      onChange={(e) => {
-                                        const val = e.target.value;
-                                        setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, turn: val } : st));
-                                      }}
-                                      placeholder="Outro"
-                                      className="h-5 text-[10px] px-1.5 rounded border border-input bg-background w-16 font-medium focus:ring-1 focus:ring-primary focus:outline-hidden ml-1"
-                                    />
-                                  </div>
-
-                                  {/* Customer Confirmation Buttons */}
-                                  <div className="flex items-center gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, confirmedByCall: !st.confirmedByCall } : st));
-                                      }}
-                                      className={cn(
-                                        "px-2 py-0.5 rounded text-[10px] font-bold transition-all border flex items-center gap-1",
-                                        stop.confirmedByCall
-                                          ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
-                                          : "bg-muted/40 hover:bg-muted text-slate-600 dark:text-slate-400 border-border/50"
-                                      )}
-                                      title="Confirmação por Ligação Telefônica"
-                                    >
-                                      ☎️ Ligação {stop.confirmedByCall ? "✓" : ""}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, confirmedByMessage: !st.confirmedByMessage } : st));
-                                      }}
-                                      className={cn(
-                                        "px-2 py-0.5 rounded text-[10px] font-bold transition-all border flex items-center gap-1",
-                                        stop.confirmedByMessage
-                                          ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                                          : "bg-muted/40 hover:bg-muted text-slate-600 dark:text-slate-400 border-border/50"
-                                      )}
-                                      title="Confirmação por Mensagem / WhatsApp"
-                                    >
-                                      💬 Mensagem {stop.confirmedByMessage ? "✓" : ""}
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          );
+                            return (
+                                <SortableStopCard
+                                    key={stop.serviceOrder}
+                                    stop={stop}
+                                    newPos={newPos}
+                                    oldPos={oldPos}
+                                    isMoved={isMoved}
+                                    posDiff={posDiff}
+                                    segKm={propSegsKm[i]}
+                                    segsLoading={segsLoading}
+                                    isHovered={hoveredStopId === stop.serviceOrder}
+                                    onHover={setHoveredStopId}
+                                    onSetTurn={(turn) => setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, turn } : st))}
+                                    onToggleCall={() => setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, confirmedByCall: !st.confirmedByCall } : st))}
+                                    onToggleMessage={() => setProposedStops(prev => prev.map((st, idx) => idx === i ? { ...st, confirmedByMessage: !st.confirmedByMessage } : st))}
+                                />
+                            );
                         })}
+                    </SortableContext>
+                </DndContext>
 
-                        {/* Return-to-base leg */}
-                        <div className="flex items-center gap-1 pl-2 my-0.5">
-                          <span className="text-[9px] text-muted-foreground/60">↓</span>
-                          {segsLoading && !hasData ? (
-                            <span className="text-[9px] text-muted-foreground animate-pulse px-1.5">calculando…</span>
-                          ) : propSegsKm.length > 0 ? (
-                            <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-                              {propSegsKm[propSegsKm.length - 1]?.toFixed(1)} km (retorno)
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold text-primary pl-2">
-                          <span className="text-base">🏢</span>
-                          <span>{defaultBaseAddress || originCity || 'Base'}</span>
-                        </div>
-                      </div>
+                {/* Trecho de retorno à base */}
+                <div className="flex items-center gap-1 pl-2 my-0.5">
+                    <span className="text-[9px] text-muted-foreground/60">↓</span>
+                    {segsLoading ? (
+                        <span className="text-[9px] text-muted-foreground animate-pulse px-1.5">atualizando…</span>
+                    ) : propSegsKm.length > 0 ? (
+                        <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                            {propSegsKm[propSegsKm.length - 1]?.toFixed(1)} km (retorno)
+                        </span>
+                    ) : null}
+                </div>
+                <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold text-primary pl-2">
+                    <span className="text-base">🏢</span>
+                    <span>{defaultBaseAddress || originCity || 'Base'}</span>
+                </div>
+            </div>
 
-                      {/* Total + Savings */}
-                      <div className="mt-3 pt-2 border-t border-border/40 space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                            Total percurso
-                            {hasData && <span className="text-[9px] font-normal text-emerald-600 dark:text-emerald-400">🌐 rodovia real</span>}
-                          </span>
-                          {segsLoading && !hasData ? (
-                            <span className="text-xs text-muted-foreground animate-pulse">Calculando via OSRM…</span>
-                          ) : hasData ? (
-                            <span className="text-sm font-black text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1 rounded-full border border-emerald-300 dark:border-emerald-800">
-                              🟢 {propTotal.toFixed(1)} km
-                            </span>
-                          ) : null}
-                        </div>
-                        {hasData && savings > 0.5 && origTotal2 > 0 && (
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-violet-600 uppercase tracking-wide">Economia estimada</span>
-                            <span className="text-[11px] font-black text-violet-700 dark:text-violet-300 bg-violet-100 dark:bg-violet-950/60 px-3 py-1 rounded-full border border-violet-300 dark:border-violet-800">
-                              ✂️ −{savings.toFixed(1)} km ({Math.round((savings / origTotal2) * 100)}%)
-                            </span>
-                          </div>
-                        )}
-                      </div>
+            {/* Total + economia */}
+            <div className="mt-3 pt-2 border-t border-border/40 space-y-1.5">
+                <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                        Total percurso
+                        {hasData && <span className="text-[9px] font-normal text-emerald-600 dark:text-emerald-400">🌐 rodovia real</span>}
+                    </span>
+                    {segsLoading && !hasData ? (
+                        <span className="text-xs text-muted-foreground animate-pulse">Calculando via OSRM…</span>
+                    ) : hasData ? (
+                        <span className="text-sm font-black text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1 rounded-full border border-emerald-300 dark:border-emerald-800">
+                            🟢 {propTotal.toFixed(1)} km
+                        </span>
+                    ) : null}
+                </div>
+                {hasData && savings > 0.5 && origTotal2 > 0 && (
+                    <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-violet-600 uppercase tracking-wide">Economia estimada</span>
+                        <span className="text-[11px] font-black text-violet-700 dark:text-violet-300 bg-violet-100 dark:bg-violet-950/60 px-3 py-1 rounded-full border border-violet-300 dark:border-violet-800">
+                            ✂️ −{savings.toFixed(1)} km ({Math.round((savings / origTotal2) * 100)}%)
+                        </span>
                     </div>
-                  );
-                })()}
+                )}
+            </div>
+        </div>
+    );
+})()}
             </div>
           </div>
 

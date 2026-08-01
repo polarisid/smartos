@@ -1,6 +1,10 @@
 import { type RouteStop } from "@/lib/data";
 import { getCoordinates, parseFullAddress } from "@/lib/geocode";
+import {
 
+  apply2OptMatrix,
+
+} from './routingEngine';
 /**
  * Normalizes a string for comparison: lowercase, no accents, trimmed.
  */
@@ -421,7 +425,13 @@ async function resolveBaseCoordAsync(baseAddress: string): Promise<PointCoord> {
     street || baseAddress
   );
   if (coords) return { lat: coords[0], lng: coords[1] };
-  return getCityCoordinates(baseAddress) || { lat: -10.9142, lng: -37.0545 };
+
+  const fb = getCityCoordinates(baseAddress);
+  if (fb) return fb;
+  console.warn(`[Base] Geocode da base "${baseAddress}" falhou — usando fallback Aracaju. Verifique o endereço na Settings.`);
+  return { lat: -10.9142, lng: -37.0545 };
+
+  //return getCityCoordinates(baseAddress) || { lat: -10.9142, lng: -37.0545 };
 }
 
 /**
@@ -493,8 +503,12 @@ export async function optimizeRouteStopsAsync(
       curr = nearest;
     }
 
-    tourIndices = applyOrOpt(tour, matrix);
-    algorithmUsed = "Or-Opt / 2-Opt Heurístico (Distância de Rodovia OSRM)";
+    let refined = applyOrOpt(tour, matrix);
+    refined = apply2OptMatrix(refined, matrix);   // remove cruzamentos
+    refined = applyOrOpt(refined, matrix);        // reencaixa blocos
+    refined = apply2OptMatrix(refined, matrix);   // passada final
+    tourIndices = refined;
+    algorithmUsed = "Nearest-Neighbor + 2-Opt + Or-Opt (Matriz OSRM real)";
   }
 
   const totalSeconds = calculateClosedLoopDuration(tourIndices, matrix);

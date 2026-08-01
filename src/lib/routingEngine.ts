@@ -198,3 +198,32 @@ export function applyOrOpt(
 
   return bestTour;
 }
+/**
+ * 2-Opt (reversão de trecho) sobre a matriz real. Remove cruzamentos que o
+ * Or-Opt não alcança. tour[0] é a base; o circuito fecha de volta nela.
+ */
+export function apply2OptMatrix(tour: number[], matrix: number[][]): number[] {
+  let best = [...tour];
+  let bestCost = calculateClosedLoopDuration(best, matrix);
+  let improved = true;
+
+  while (improved) {
+    improved = false;
+    for (let i = 1; i < best.length - 1; i++) {
+      for (let k = i + 1; k < best.length; k++) {
+        const candidate = [
+          ...best.slice(0, i),
+          ...best.slice(i, k + 1).reverse(),
+          ...best.slice(k + 1),
+        ];
+        const cost = calculateClosedLoopDuration(candidate, matrix);
+        if (cost < bestCost - 1) {
+          best = candidate;
+          bestCost = cost;
+          improved = true;
+        }
+      }
+    }
+  }
+  return best;
+}
