@@ -6,7 +6,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import {
+import { Phone, MessageSquare, ChevronRight } from "lucide-react";import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -45,6 +45,7 @@ import { triggerWebhook } from "@/lib/webhook";
 import * as XLSX from 'xlsx';
 import dynamic from "next/dynamic";
 import { Clock, Map as MapIcon, List, History } from "lucide-react";
+import { GripVertical } from "lucide-react";
 
 const DynamicalRouteMap = dynamic(() => import('@/components/RouteMap'), { ssr: false });
 
@@ -243,16 +244,18 @@ function reconstructRouteText(stops: RouteStop[]): string {
 }
 
 
-function RouteForm({ 
-    mode, 
-    isActive, 
-    onCancel, 
-    onRouteSaved, 
+
+
+function RouteForm({
+    mode,
+    isActive,
+    onCancel,
+    onRouteSaved,
     initialData,
     technicians,
     drivers,
     serviceOrders = []
-}: { 
+}: {
     mode: 'add' | 'edit',
     isActive: boolean,
     onCancel: () => void,
@@ -273,7 +276,30 @@ function RouteForm({
     const [technicianId, setTechnicianId] = useState<string | undefined>();
     const [driverId, setDriverId] = useState<string | undefined>("none");
     const [parsedStops, setParsedStops] = useState<RouteStop[]>([]);
-    
+
+    const [expandedStops, setExpandedStops] = useState<Set<string>>(new Set());
+    const toggleExpand = (so: string) => {
+        setExpandedStops(prev => {
+            const next = new Set(prev);
+            next.has(so) ? next.delete(so) : next.add(so);
+            return next;
+        });
+    };
+
+    const [dragIndex, setDragIndex] = useState<number | null>(null);
+    const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+    const handleReorder = (to: number) => {
+        setParsedStops(cs => {
+            if (dragIndex === null || dragIndex === to) return cs;
+            const n = [...cs];
+            const [moved] = n.splice(dragIndex, 1);
+            n.splice(to, 0, moved);
+            return n;
+        });
+        setDragIndex(null);
+        setDragOverIndex(null);
+    };
+
     const [manualStopData, setManualStopData] = useState({
         serviceOrder: '',
         ascJobNumber: '',
@@ -323,10 +349,11 @@ function RouteForm({
                 setDriverId("none");
                 setParsedStops([]);
             }
+            setExpandedStops(new Set());
         }
     }, [initialData, mode, isActive]);
-    
-     const handleRouteTextChange = async (text: string) => {
+
+    const handleRouteTextChange = async (text: string) => {
         setRouteText(text);
         const stopsFromText = parseRouteText(text);
         const currentStops = parsedStops;
@@ -357,7 +384,6 @@ function RouteForm({
         }));
         setParsedStops(validatedStops);
     };
-
 
     const handleStopTypeChange = (index: number, type: 'padrao' | 'coleta' | 'entrega') => {
         setParsedStops(currentStops => {
@@ -391,7 +417,7 @@ function RouteForm({
     const handleManualStopSelectChange = (value: 'padrao' | 'coleta' | 'entrega') => {
         setManualStopData(prev => ({ ...prev, stopType: value, collectionType: value === 'coleta' ? prev.collectionType : '' }));
     };
-    
+
     const handleAddManualStop = () => {
         const { serviceOrder, consumerName, city, model, stopType, collectionType } = manualStopData;
 
@@ -489,7 +515,6 @@ function RouteForm({
         setParsedStops(currentStops => currentStops.filter((_, i) => i !== index));
     };
 
-    // --- Reallocate stop ---
     const [isReallocateOpen, setIsReallocateOpen] = useState(false);
     const [stopToReallocate, setStopToReallocate] = useState<{ stop: RouteStop; index: number } | null>(null);
     const [availableRoutes, setAvailableRoutes] = useState<Route[]>([]);
@@ -503,7 +528,6 @@ function RouteForm({
         setIsReallocateOpen(true);
         setIsLoadingRoutes(true);
         try {
-            // Load active routes excluding current one
             const routes = await routeService.getActiveRoutes();
             setAvailableRoutes(routes.filter(r => r.id !== initialData?.id));
         } catch (e) {
@@ -520,16 +544,13 @@ function RouteForm({
             const targetRoute = availableRoutes.find(r => r.id === targetRouteId);
             if (!targetRoute) throw new Error("Rota destino não encontrada.");
 
-            // The stop carries ALL its data: parts, tracking codes, etc.
             const stopToMove = stopToReallocate.stop;
 
-            // Check for duplicate in target route
             if ((targetRoute.stops || []).some(s => s.serviceOrder === stopToMove.serviceOrder)) {
                 toast({ variant: "destructive", title: "OS Duplicada", description: `A OS ${stopToMove.serviceOrder} já existe na rota destino.` });
                 return;
             }
 
-            // Mark as reallocated on original route
             const newCurrentStops = parsedStops.map((stop, i) => {
                 if (i === stopToReallocate.index) {
                     return {
@@ -541,21 +562,19 @@ function RouteForm({
                 return stop;
             });
 
-            // Prepare a clean copy of the stop for the new route
             const stopToMoveClean = {
                 ...stopToMove,
                 isReallocated: false,
                 reallocatedToRouteName: undefined
             };
             const newTargetStops = [...(targetRoute.stops || []), stopToMoveClean];
-            
+
             const updates = [
                 { id: initialData.id, data: { stops: newCurrentStops } },
                 { id: targetRouteId, data: { stops: newTargetStops } }
             ];
             await routeService.updateBatch(updates);
 
-            // Update local state
             setParsedStops(newCurrentStops);
             setIsReallocateOpen(false);
             setStopToReallocate(null);
@@ -584,14 +603,12 @@ function RouteForm({
         try {
             const technician = technicians.find(t => t.id === technicianId);
             const driver = drivers.find(d => d.id === driverId);
-            
-            // Helper to remove any undefined fields (Firestore rejects them)
+
             const sanitizeStop = (stop: RouteStop): Record<string, unknown> => {
                 const s: Record<string, unknown> = {};
                 Object.entries(stop).forEach(([k, v]) => {
                     if (v !== undefined) s[k] = v;
                 });
-                // Ensure nested parts array is also clean
                 if (Array.isArray(stop.parts)) {
                     s['parts'] = stop.parts.map(p => {
                         const clean: Record<string, unknown> = {};
@@ -605,34 +622,31 @@ function RouteForm({
             let stopsToSave: RouteStop[] = parsedStops;
 
             if (mode === 'edit' && initialData) {
-                  stopsToSave = parsedStops.map(newStop => {
-                     const existingStop = initialData.stops.find(s => s.serviceOrder === newStop.serviceOrder);
-                     if (existingStop) {
-                         const newParts = (newStop.parts || []).map(newPart => {
-                              const existingPart = (existingStop.parts || []).find(p => p.code === newPart.code);
-                              if (existingPart) {
-                                  // Mantenha todas as propriedades da peça (status de uso, tracking, etc)
-                                  return { 
-                                      ...existingPart, 
-                                      ...newPart, 
-                                      trackingCode: newPart.trackingCode ? newPart.trackingCode : (existingPart.trackingCode || ''),
-                                      description: newPart.description ? newPart.description : (existingPart.description || '')
-                                  };
-                              }
-                              return newPart;
-                         });
-                         return { 
-                             ...existingStop, 
-                             ...newStop, 
-                             // Restaurar statusComment se a planilha vier em branco e apagar o comentário do técnico
-                             statusComment: newStop.statusComment ? newStop.statusComment : (existingStop.statusComment || ''),
-                             parts: newParts 
-                         };
-                     }
-                     return newStop;
-                  });
-             }
-
+                stopsToSave = parsedStops.map(newStop => {
+                    const existingStop = initialData.stops.find(s => s.serviceOrder === newStop.serviceOrder);
+                    if (existingStop) {
+                        const newParts = (newStop.parts || []).map(newPart => {
+                            const existingPart = (existingStop.parts || []).find(p => p.code === newPart.code);
+                            if (existingPart) {
+                                return {
+                                    ...existingPart,
+                                    ...newPart,
+                                    trackingCode: newPart.trackingCode ? newPart.trackingCode : (existingPart.trackingCode || ''),
+                                    description: newPart.description ? newPart.description : (existingPart.description || '')
+                                };
+                            }
+                            return newPart;
+                        });
+                        return {
+                            ...existingStop,
+                            ...newStop,
+                            statusComment: newStop.statusComment ? newStop.statusComment : (existingStop.statusComment || ''),
+                            parts: newParts
+                        };
+                    }
+                    return newStop;
+                });
+            }
 
             const dataToSave = {
                 name: routeName,
@@ -678,7 +692,7 @@ function RouteForm({
                 await routeService.update(initialData.id, dataToSave as unknown as Partial<Route>);
                 toast({ title: "Rota atualizada com sucesso!" });
             }
-            
+
             onCancel();
             onRouteSaved();
         } catch (error) {
@@ -688,7 +702,7 @@ function RouteForm({
             setIsSubmitting(false);
         }
     };
-    
+
     return (
         <>
         <Card>
@@ -698,10 +712,12 @@ function RouteForm({
                     Preencha o nome da rota, atribua a um técnico e cole os dados da sua planilha.
                 </CardDescription>
             </CardHeader>
-            <CardContent>
-                <div className="grid xl:grid-cols-2 gap-6 py-4">
+
+            <CardContent className="space-y-6 py-4">
+
+                <div className="grid lg:grid-cols-2 gap-6">
                     <div className="space-y-4">
-                         <div className="space-y-2">
+                        <div className="space-y-2">
                             <Label htmlFor="route-name">Nome da Rota</Label>
                             <Input
                                 id="route-name"
@@ -732,7 +748,7 @@ function RouteForm({
                                     <SelectValue placeholder="Selecione um motorista" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                     <SelectItem value="none">Nenhum</SelectItem>
+                                    <SelectItem value="none">Nenhum</SelectItem>
                                     {drivers.map(driver => (
                                         <SelectItem key={driver.id} value={driver.id}>{driver.name}</SelectItem>
                                     ))}
@@ -741,17 +757,17 @@ function RouteForm({
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
-                             <div className="space-y-2">
+                            <div className="space-y-2">
                                 <Label>Data de Saída</Label>
                                 <Popover>
                                     <PopoverTrigger asChild>
-                                    <Button
-                                        variant={"outline"}
-                                        className={cn("w-full justify-start text-left font-normal", !departureDate && "text-muted-foreground")}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {departureDate ? format(departureDate, "PPP", { locale: ptBR }) : <span>Selecione a data</span>}
-                                    </Button>
+                                        <Button
+                                            variant={"outline"}
+                                            className={cn("w-full justify-start text-left font-normal", !departureDate && "text-muted-foreground")}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {departureDate ? format(departureDate, "PPP", { locale: ptBR }) : <span>Selecione a data</span>}
+                                        </Button>
                                     </PopoverTrigger>
                                     <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={departureDate} onSelect={setDepartureDate} initialFocus /></PopoverContent>
                                 </Popover>
@@ -760,18 +776,19 @@ function RouteForm({
                                 <Label>Previsão de Chegada</Label>
                                 <Popover>
                                     <PopoverTrigger asChild>
-                                    <Button
-                                        variant={"outline"}
-                                        className={cn("w-full justify-start text-left font-normal", !arrivalDate && "text-muted-foreground")}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {arrivalDate ? format(arrivalDate, "PPP", { locale: ptBR }) : <span>Selecione a data</span>}
-                                    </Button>
+                                        <Button
+                                            variant={"outline"}
+                                            className={cn("w-full justify-start text-left font-normal", !arrivalDate && "text-muted-foreground")}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {arrivalDate ? format(arrivalDate, "PPP", { locale: ptBR }) : <span>Selecione a data</span>}
+                                        </Button>
                                     </PopoverTrigger>
                                     <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={arrivalDate} onSelect={setArrivalDate} initialFocus /></PopoverContent>
                                 </Popover>
                             </div>
                         </div>
+
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label>Tipo de Rota</Label>
@@ -795,312 +812,379 @@ function RouteForm({
                                 />
                             </div>
                         </div>
-                        <div className="space-y-2">
-                            <div className="flex justify-between items-center">
-                                <Label htmlFor="route-text">Colar Dados da Rota</Label>
-                                <Button type="button" variant="link" className="p-0 h-auto" onClick={handleCopyModel}>
-                                    <Copy className="mr-2 h-4 w-4" />
-                                    Copiar Modelo
-                                </Button>
-                            </div>
-                             <Textarea 
-                                id="route-text"
-                                placeholder="Cole aqui os dados da sua planilha..."
-                                value={routeText}
-                                onChange={(e) => handleRouteTextChange(e.target.value)}
-                                rows={10}
-                             />
-                             <p className="text-xs text-muted-foreground">
-                                O cabeçalho da planilha deve ser incluído no texto.
-                            </p>
-                        </div>
                     </div>
-                     <div className="space-y-4">
-                        <Label>Pré-visualização da Rota</Label>
-                        <div className="border rounded-lg overflow-x-auto w-full">
-                            <Table className="min-w-[850px]">
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>OS</TableHead>
-                                        <TableHead>Tipo</TableHead>
-                                        <TableHead>Peças</TableHead>
-                                        <TableHead>Agendamento</TableHead>
-                                        <TableHead>Turno</TableHead>
-                                        <TableHead>Confirmação</TableHead>
-                                        <TableHead className="w-[60px] text-center">Local</TableHead>
-                                        <TableHead className="w-[150px] text-right">Ações</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {parsedStops.length > 0 ? parsedStops.map((stop, index) => {
-                                        const isAlreadyVisited = serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder);
 
-                                        return (
-                                            <TableRow key={stop.serviceOrder} className={cn(stop.isReallocated && "line-through text-muted-foreground bg-slate-50 dark:bg-slate-900/10 opacity-60")}>
-                                                <TableCell className="font-mono">
-                                                    <div className="flex flex-col gap-1.5 items-start">
-                                                        <span className="font-bold text-sm">{stop.serviceOrder}</span>
-                                                        <div className="flex flex-col gap-1">
-                                                            {isAlreadyVisited && (
-                                                                <Badge variant="secondary" className="bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 hover:bg-violet-100 hover:text-violet-700 text-[10px] px-1.5 py-0 flex items-center gap-0.5 w-fit">
-                                                                    <History className="w-3 h-3" /> Já Visitada
-                                                                </Badge>
-                                                            )}
-                                                            {stop.isReallocated && (
-                                                                <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:text-amber-400 text-[10px] px-1.5 py-0 w-fit whitespace-nowrap">
-                                                                    Realocado: {stop.reallocatedToRouteName}
-                                                                </Badge>
-                                                            )}
-                                                            {stop.zipMismatch && (
-                                                                <Badge variant="outline" className="text-red-700 border-red-200 bg-red-50 dark:bg-red-950 dark:text-red-300 text-[10px] px-1.5 py-0.5 flex items-start gap-1 w-fit whitespace-normal text-left max-w-[200px]" title={stop.zipMismatchDetails}>
-                                                                    <span className="mt-0.5">⚠️</span>
-                                                                    <span className="leading-tight">CEP ({stop.zipCode}) de {stop.suggestedCityState} — Em {stop.city}</span>
-                                                                </Badge>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </TableCell>
-                                            <TableCell>
-                                                <Select value={stop.stopType || 'padrao'} onValueChange={(v) => handleStopTypeChange(index, v as any)} disabled={stop.isReallocated}>
-                                                    <SelectTrigger className="text-xs h-8">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="padrao">Padrão</SelectItem>
-                                                        <SelectItem value="coleta">Coleta</SelectItem>
-                                                        <SelectItem value="entrega">Entrega</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </TableCell>
-                                            <TableCell>
-                                                {stop.parts && stop.parts.length > 0 ? (
-                                                    <ul className="list-disc pl-4 text-xs font-mono">
-                                                        {stop.parts.map((part, pIndex) => (
-                                                            <li key={`${part.code}-${pIndex}`}>{part.code} (x{part.quantity})</li>
-                                                        ))}
-                                                    </ul>
-                                                ) : (
-                                                    <span className="text-xs text-muted-foreground">Nenhuma</span>
-                                                )}
-                                            </TableCell>
-                                            <TableCell>
-                                                <Input 
-                                                    className="h-8 text-xs w-[110px]" 
-                                                    value={stop.firstVisitDate || stop.requestDate || ''} 
-                                                    onChange={(e) => handleDateChange(index, e.target.value)} 
-                                                    placeholder="dd/mm/aaaa"
-                                                    disabled={stop.isReallocated}
-                                                />
-                                            </TableCell>
-                                            <TableCell>
-                                                <div className="flex flex-wrap items-center gap-1 max-w-[130px]">
-                                                     <div className="flex items-center gap-0.5">
-                                                         {['M', 'T', 'C'].map(turnPill => (
-                                                             <button
-                                                                 key={turnPill}
-                                                                 type="button"
-                                                                 disabled={stop.isReallocated}
-                                                                 onClick={() => handleTurnChange(index, turnPill)}
-                                                                 className={cn(
-                                                                     "px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all h-6",
-                                                                     stop.turn === turnPill
-                                                                         ? "bg-violet-600 text-white border-violet-600 shadow-xs"
-                                                                         : "bg-muted/40 hover:bg-muted text-muted-foreground border-border/40"
-                                                                 )}
-                                                             >
-                                                                 {turnPill}
-                                                             </button>
-                                                         ))}
-                                                     </div>
-                                                     <Input 
-                                                         className="h-6 text-[10px] w-[50px] px-1.5" 
-                                                         value={stop.turn || ''} 
-                                                         onChange={(e) => handleTurnChange(index, e.target.value)} 
-                                                         placeholder="Outro"
-                                                         disabled={stop.isReallocated}
-                                                     />
-                                                 </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                 <div className="flex items-center gap-1">
-                                                     <Button
-                                                         type="button"
-                                                         variant="ghost"
-                                                         size="sm"
-                                                         disabled={stop.isReallocated}
-                                                         onClick={() => {
-                                                             setParsedStops(currentStops => {
-                                                                 const newStops = [...currentStops];
-                                                                 newStops[index].confirmedByCall = !newStops[index].confirmedByCall;
-                                                                 return newStops;
-                                                             });
-                                                         }}
-                                                         className={cn(
-                                                             "h-7 px-2 text-[10px] font-bold border transition-all gap-1",
-                                                             stop.confirmedByCall
-                                                                 ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 hover:text-white"
-                                                                 : "bg-muted/30 text-slate-600 dark:text-slate-400 hover:bg-muted border-border/40"
-                                                         )}
-                                                         title="Confirmação por Ligação Telefônica"
-                                                     >
-                                                         ☎️ {stop.confirmedByCall ? "✓" : "Ligação"}
-                                                     </Button>
-                                                     <Button
-                                                         type="button"
-                                                         variant="ghost"
-                                                         size="sm"
-                                                         disabled={stop.isReallocated}
-                                                         onClick={() => {
-                                                             setParsedStops(currentStops => {
-                                                                 const newStops = [...currentStops];
-                                                                 newStops[index].confirmedByMessage = !newStops[index].confirmedByMessage;
-                                                                 return newStops;
-                                                             });
-                                                         }}
-                                                         className={cn(
-                                                             "h-7 px-2 text-[10px] font-bold border transition-all gap-1",
-                                                             stop.confirmedByMessage
-                                                                 ? "bg-blue-600 text-white border-blue-600 hover:bg-blue-700 hover:text-white"
-                                                                 : "bg-muted/30 text-slate-600 dark:text-slate-400 hover:bg-muted border-border/40"
-                                                         )}
-                                                         title="Confirmação por Mensagem / WhatsApp"
-                                                     >
-                                                         💬 {stop.confirmedByMessage ? "✓" : "Mensagem"}
-                                                     </Button>
-                                                 </div>
-                                            </TableCell>
-                                            <TableCell className="text-center">
-                                                <Popover>
-                                                    <PopoverTrigger asChild>
-                                                        <Button variant="ghost" size="icon" className={cn("h-8 w-8", stop.addressDetails ? "text-emerald-500 bg-emerald-50 dark:bg-emerald-950" : "text-muted-foreground")} title="Editar Detalhes do Endereço" disabled={stop.isReallocated}>
-                                                            <MapPin className="h-4 w-4" />
-                                                        </Button>
-                                                    </PopoverTrigger>
-                                                    <PopoverContent className="w-80">
-                                                        <div className="space-y-2">
-                                                            <h4 className="font-medium leading-none">Endereço Detalhado</h4>
-                                                            <p className="text-xs text-muted-foreground">
-                                                                Preencha para ter mais exatidão no Mapa.
-                                                            </p>
-                                                            <Textarea 
-                                                                placeholder="Rua Exata, Nº, Bloco, Apto, Condomínio, Referência..."
-                                                                value={stop.addressDetails || ''}
-                                                                onChange={(e) => {
-                                                                    setParsedStops(currentStops => {
-                                                                        const newStops = [...currentStops];
-                                                                        newStops[index].addressDetails = e.target.value;
-                                                                        return newStops;
-                                                                    });
-                                                                }}
-                                                                className="h-24 text-sm"
-                                                            />
-                                                        </div>
-                                                    </PopoverContent>
-                                                </Popover>
-                                            </TableCell>
-                                             <TableCell className="text-right">
-                                                <div className="flex items-center justify-end gap-1">
-                                                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleMoveStop(index, 'up')} disabled={index === 0 || stop.isReallocated}>
-                                                        <ArrowUp className="h-4 w-4" />
-                                                    </Button>
-                                                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleMoveStop(index, 'down')} disabled={index === parsedStops.length - 1 || stop.isReallocated}>
-                                                        <ArrowDown className="h-4 w-4" />
-                                                    </Button>
-                                                    {mode === 'edit' && (
-                                                        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Realocar para outra rota" onClick={() => handleOpenReallocate(stop, index)} disabled={stop.isReallocated}>
-                                                            <ArrowRightLeft className="h-4 w-4 text-blue-500" />
-                                                        </Button>
-                                                    )}
-                                                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleRemoveStop(index)} disabled={stop.isReallocated}>
-                                                        <Trash2 className="h-4 w-4 text-destructive" />
-                                                    </Button>
-                                                </div>
-                                            </TableCell>
-                                        </TableRow>
-                                        );
-                                    }) : (
-                                        <TableRow>
-                                            <TableCell colSpan={4} className="h-24 text-center">
-                                                A pré-visualização aparecerá aqui.
-                                            </TableCell>
-                                        </TableRow>
-                                    )}
-                                </TableBody>
-                            </Table>
+                    <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                            <Label htmlFor="route-text">Colar Dados da Rota</Label>
+                            <Button type="button" variant="link" className="p-0 h-auto" onClick={handleCopyModel}>
+                                <Copy className="mr-2 h-4 w-4" />
+                                Copiar Modelo
+                            </Button>
                         </div>
-                        <div className="space-y-4 border-t pt-4 mt-4 bg-muted/50 p-4 rounded-lg">
-                            <Label className="font-semibold">Adicionar Parada Manualmente</Label>
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                                <div className="space-y-1 col-span-2 sm:col-span-1">
-                                    <Label htmlFor="manual-serviceOrder" className="text-xs">Nº da OS *</Label>
-                                    <Input id="manual-serviceOrder" name="serviceOrder" value={manualStopData.serviceOrder} onChange={handleManualStopInputChange} placeholder="Obrigatório"/>
-                                </div>
-                                <div className="space-y-1 col-span-2 sm:col-span-1">
-                                    <Label htmlFor="manual-ascJobNumber" className="text-xs">ASC Job No.</Label>
-                                    <Input id="manual-ascJobNumber" name="ascJobNumber" value={manualStopData.ascJobNumber} onChange={handleManualStopInputChange} />
-                                </div>
-                                <div className="space-y-1 col-span-2">
-                                    <Label htmlFor="manual-consumerName" className="text-xs">Nome Cliente *</Label>
-                                    <Input id="manual-consumerName" name="consumerName" value={manualStopData.consumerName} onChange={handleManualStopInputChange} placeholder="Obrigatório" />
-                                </div>
-                                <div className="space-y-1 col-span-2 sm:col-span-1">
-                                    <Label htmlFor="manual-city" className="text-xs">Cidade *</Label>
-                                    <Input id="manual-city" name="city" value={manualStopData.city} onChange={handleManualStopInputChange} placeholder="Obrigatório"/>
-                                </div>
-                                <div className="space-y-1 col-span-2 sm:col-span-1">
-                                    <Label htmlFor="manual-neighborhood" className="text-xs">Bairro</Label>
-                                    <Input id="manual-neighborhood" name="neighborhood" value={manualStopData.neighborhood} onChange={handleManualStopInputChange} />
-                                </div>
-                                <div className="space-y-1 col-span-2 sm:col-span-1">
-                                    <Label htmlFor="manual-model" className="text-xs">Modelo *</Label>
-                                    <Input id="manual-model" name="model" value={manualStopData.model} onChange={handleManualStopInputChange} placeholder="Obrigatório"/>
-                                </div>
-                                <div className="space-y-1 col-span-2 sm:col-span-1">
-                                    <Label htmlFor="manual-ts" className="text-xs">TS</Label>
-                                    <Input id="manual-ts" name="ts" value={manualStopData.ts} onChange={handleManualStopInputChange} />
-                                </div>
-                                <div className="space-y-1 col-span-2 sm:col-span-1">
-                                    <Label htmlFor="manual-warrantyType" className="text-xs">OW/LP</Label>
-                                    <Input id="manual-warrantyType" name="warrantyType" value={manualStopData.warrantyType} onChange={handleManualStopInputChange} />
-                                </div>
-                                <div className="space-y-1 col-span-2 sm:col-span-1">
-                                    <Label htmlFor="manual-stopType" className="text-xs">Tipo *</Label>
-                                    <Select value={manualStopData.stopType} onValueChange={handleManualStopSelectChange}>
-                                        <SelectTrigger><SelectValue /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="padrao">Padrão</SelectItem>
-                                            <SelectItem value="coleta">Coleta</SelectItem>
-                                            <SelectItem value="entrega">Entrega</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                {manualStopData.stopType === 'coleta' && (
-                                    <div className="space-y-1 col-span-2 sm:col-span-1">
-                                        <Label htmlFor="manual-collectionType" className="text-xs">Tipo de Coleta *</Label>
-                                        <Select 
-                                            value={manualStopData.collectionType} 
-                                            onValueChange={(v) => setManualStopData(prev => ({ ...prev, collectionType: v as any}))}
-                                        >
-                                            <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="reparo">Reparo</SelectItem>
-                                                <SelectItem value="rma">RMA</SelectItem>
-                                                <SelectItem value="eco">Eco</SelectItem>
-                                                <SelectItem value="descarte">Descarte</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                )}
-                                <div className="space-y-1 col-span-2">
-                                    <Label htmlFor="manual-addressDetails" className="text-xs">Endereço Detalhado (Opcional)</Label>
-                                    <Input id="manual-addressDetails" name="addressDetails" value={manualStopData.addressDetails} onChange={handleManualStopInputChange} placeholder="Rua, Nº, Apto, Condomínio, Referência..." />
-                                </div>
-                            </div>
-                            <Button type="button" onClick={handleAddManualStop} className="w-full">Adicionar Parada à Rota</Button>
-                        </div>
+                        <Textarea
+                            id="route-text"
+                            placeholder="Cole aqui os dados da sua planilha..."
+                            value={routeText}
+                            onChange={(e) => handleRouteTextChange(e.target.value)}
+                            rows={16}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            O cabeçalho da planilha deve ser incluído no texto.
+                        </p>
                     </div>
                 </div>
+
+                <div className="space-y-2 pt-6 border-t">
+                    <div className="flex items-center justify-between">
+                        <Label className="text-base">Pré-visualização da Rota</Label>
+                        <span className="text-xs text-muted-foreground">{parsedStops.length} parada(s)</span>
+                    </div>
+
+                    <div className="border rounded-lg p-1.5 space-y-1.5">
+                        {parsedStops.length > 0 ? parsedStops.map((stop, index) => {
+                            const isAlreadyVisited = serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder);
+                            const isExpanded = expandedStops.has(stop.serviceOrder);
+                            const partsCount = stop.parts?.length || 0;
+                            const location = [stop.city, stop.neighborhood].filter(Boolean).join(' · ');
+
+                            if (stop.isReallocated) {
+                                return (
+                                    <div
+                                        key={stop.serviceOrder}
+                                        className="bg-muted/30 border border-l-[3px] border-l-slate-300 dark:border-l-slate-700 rounded-r-lg rounded-l-none px-2.5 py-2 flex items-center gap-2.5 opacity-60"
+                                    >
+                                        <GripVertical className="h-4 w-4 text-transparent shrink-0" />
+                                        <div className="flex flex-col min-w-[150px]">
+                                            <span className="font-mono text-[13px] font-medium text-muted-foreground line-through">{stop.serviceOrder}</span>
+                                            <span className="text-[11px] text-muted-foreground truncate max-w-[160px]">{location}</span>
+                                        </div>
+                                        <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:text-amber-400 text-[10px] px-1.5 py-0 whitespace-nowrap">
+                                            Realocado
+                                        </Badge>
+                                        <div className="flex-1" />
+                                        <span className="text-[11px] text-muted-foreground italic whitespace-nowrap">
+                                            movida p/ {stop.reallocatedToRouteName}
+                                        </span>
+                                    </div>
+                                );
+                            }
+
+                            const borderClass = stop.stopType === 'coleta'
+                                ? "border-l-amber-500"
+                                : stop.stopType === 'entrega'
+                                    ? "border-l-emerald-500"
+                                    : "border-l-blue-500";
+
+                            return (
+                                <div
+                                    key={stop.serviceOrder}
+                                    onDragOver={(e) => { e.preventDefault(); if (dragOverIndex !== index) setDragOverIndex(index); }}
+                                    onDrop={(e) => { e.preventDefault(); handleReorder(index); }}
+                                    className={cn(
+                                        "bg-card border border-l-[3px] rounded-r-lg rounded-l-none transition-shadow",
+                                        borderClass,
+                                        dragIndex === index && "opacity-40",
+                                        dragOverIndex === index && dragIndex !== index && "ring-2 ring-blue-400 ring-offset-1"
+                                    )}
+                                >
+                                    <div className="px-2 py-2 flex items-center gap-2.5 flex-wrap lg:flex-nowrap">
+                                        <div
+                                            draggable
+                                            onDragStart={() => setDragIndex(index)}
+                                            onDragEnd={() => { setDragIndex(null); setDragOverIndex(null); }}
+                                            className="shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+                                            title="Arraste para reordenar"
+                                        >
+                                            <GripVertical className="h-4 w-4" />
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleExpand(stop.serviceOrder)}
+                                            className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                                            aria-label={isExpanded ? "Recolher" : "Expandir"}
+                                        >
+                                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                        </button>
+
+                                        <div className="flex flex-col min-w-[140px]">
+                                            <span className="font-mono text-[13px] font-medium">{stop.serviceOrder}</span>
+                                            <span className="text-[11px] text-muted-foreground truncate max-w-[180px]" title={location}>
+                                                {location || 'Sem localização'}
+                                            </span>
+                                        </div>
+
+                                        {isAlreadyVisited && (
+                                            <Badge variant="secondary" className="bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 hover:bg-violet-100 text-[10px] px-1.5 py-0 flex items-center gap-0.5 shrink-0 whitespace-nowrap">
+                                                <History className="w-3 h-3" /> Visitada
+                                            </Badge>
+                                        )}
+                                        {stop.zipMismatch && (
+                                            <span className="text-red-500 shrink-0" title={`CEP (${stop.zipCode}) de ${stop.suggestedCityState} — Em ${stop.city}`}>⚠️</span>
+                                        )}
+                                        {stop.addressDetails && (
+                                            <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0" aria-label="Endereço detalhado preenchido" />
+                                        )}
+
+                                        {partsCount > 0 ? (
+                                            <div className="flex-1 min-w-0 flex items-center gap-1.5 text-muted-foreground overflow-hidden">
+                                                <Package className="w-3.5 h-3.5 shrink-0" />
+                                                <span
+                                                    className="text-[11px] font-mono truncate"
+                                                    title={stop.parts!.map(p => `${p.code} (x${p.quantity})`).join(', ')}
+                                                >
+                                                    {stop.parts!.map(p => p.quantity > 1 ? `${p.code} (x${p.quantity})` : p.code).join(', ')}
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <div className="flex-1" />
+                                        )}
+
+                                        <Select value={stop.stopType || 'padrao'} onValueChange={(v) => handleStopTypeChange(index, v as any)}>
+                                            <SelectTrigger className="text-xs h-[30px] w-[92px] shrink-0 px-2">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="padrao">Padrão</SelectItem>
+                                                <SelectItem value="coleta">Coleta</SelectItem>
+                                                <SelectItem value="entrega">Entrega</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+
+                                        <Input
+                                            className="h-[30px] text-xs w-[104px] text-center px-2 shrink-0"
+                                            value={stop.firstVisitDate || stop.requestDate || ''}
+                                            onChange={(e) => handleDateChange(index, e.target.value)}
+                                            placeholder="dd/mm/aaaa"
+                                            title="Agendamento"
+                                        />
+
+                                        <div className="flex gap-0.5 shrink-0">
+                                            {['M', 'T', 'C'].map(turnPill => (
+                                                <button
+                                                    key={turnPill}
+                                                    type="button"
+                                                    onClick={() => handleTurnChange(index, turnPill)}
+                                                    className={cn(
+                                                        "w-[22px] h-6 rounded text-[10px] font-bold border transition-all",
+                                                        stop.turn === turnPill
+                                                            ? "bg-violet-600 text-white border-violet-600"
+                                                            : "bg-muted/40 hover:bg-muted text-muted-foreground border-border/40"
+                                                    )}
+                                                    title={`Turno ${turnPill}`}
+                                                >
+                                                    {turnPill}
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => setParsedStops(cs => cs.map((s, i) => i === index ? { ...s, confirmedByCall: !s.confirmedByCall } : s))}                                            className={cn(
+                                                "h-7 w-7 shrink-0 border transition-all",
+                                                stop.confirmedByCall
+                                                    ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 hover:text-white"
+                                                    : "text-muted-foreground border-border/40 hover:bg-muted"
+                                            )}
+                                            title="Confirmação por Ligação"
+                                        >
+                                            <Phone className="h-3.5 w-3.5" />
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => setParsedStops(cs => cs.map((s, i) => i === index ? { ...s, confirmedByMessage: !s.confirmedByMessage } : s))}
+                                            className={cn(
+                                                "h-7 w-7 shrink-0 border transition-all",
+                                                stop.confirmedByMessage
+                                                    ? "bg-blue-600 text-white border-blue-600 hover:bg-blue-700 hover:text-white"
+                                                    : "text-muted-foreground border-border/40 hover:bg-muted"
+                                            )}
+                                            title="Confirmação por Mensagem / WhatsApp"
+                                        >
+                                            <MessageSquare className="h-3.5 w-3.5" />
+                                        </Button>
+
+                                        <span className="w-px h-5 bg-border shrink-0 hidden lg:block" />
+
+                                        <div className="flex gap-0.5 shrink-0">
+                                            <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleMoveStop(index, 'up')} disabled={index === 0} title="Subir">
+                                                <ArrowUp className="h-4 w-4" />
+                                            </Button>
+                                            <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleMoveStop(index, 'down')} disabled={index === parsedStops.length - 1} title="Descer">
+                                                <ArrowDown className="h-4 w-4" />
+                                            </Button>
+                                            {mode === 'edit' && (
+                                                <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Realocar para outra rota" onClick={() => handleOpenReallocate(stop, index)}>
+                                                    <ArrowRightLeft className="h-4 w-4 text-blue-500" />
+                                                </Button>
+                                            )}
+                                            <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleRemoveStop(index)} title="Remover">
+                                                <Trash2 className="h-4 w-4 text-destructive" />
+                                            </Button>
+                                        </div>
+                                    </div>
+
+                                    {isExpanded && (
+                                        <div className="px-3 pb-3 pl-11 pt-2.5 border-t space-y-3">
+                                            {stop.zipMismatch && (
+                                                <div className="text-[11px] text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded px-2 py-1.5">
+                                                    ⚠️ CEP ({stop.zipCode}) pertence a {stop.suggestedCityState}, mas a parada está em {stop.city}.
+                                                </div>
+                                            )}
+
+                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-2 text-xs">
+                                                <div className="col-span-2 md:col-span-1">
+                                                    <span className="text-[10px] text-muted-foreground block">Cliente</span>
+                                                    <span className="font-medium">{stop.consumerName || '—'}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[10px] text-muted-foreground block">Cidade</span>
+                                                    <span>{stop.city || '—'}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[10px] text-muted-foreground block">Bairro</span>
+                                                    <span>{stop.neighborhood || '—'}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[10px] text-muted-foreground block">CEP</span>
+                                                    <span className="font-mono">{stop.zipCode || '—'}</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="h-px bg-border" />
+
+                                            <div className="flex flex-wrap gap-x-6 gap-y-3">
+                                                <div className="min-w-0">
+                                                    <span className="text-[10px] text-muted-foreground block mb-1">Peças</span>
+                                                    {partsCount > 0 ? (
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {stop.parts!.map((part, pIndex) => (
+                                                                <span
+                                                                    key={`${part.code}-${pIndex}`}
+                                                                    className="font-mono text-[11px] bg-muted border rounded px-1.5 py-0.5"
+                                                                    title={part.description || undefined}
+                                                                >
+                                                                    {part.code}{part.quantity > 1 ? ` ×${part.quantity}` : ''}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-[11px] text-muted-foreground">Nenhuma</span>
+                                                    )}
+                                                </div>
+
+                                                <div>
+                                                    <span className="text-[10px] text-muted-foreground block mb-1">Turno personalizado</span>
+                                                    <Input
+                                                        className="h-7 text-xs w-[90px]"
+                                                        value={stop.turn && !['M', 'T', 'C'].includes(stop.turn) ? stop.turn : ''}
+                                                        onChange={(e) => handleTurnChange(index, e.target.value)}
+                                                        placeholder="Outro"
+                                                    />
+                                                </div>
+
+                                                <div className="flex-1 min-w-[220px]">
+                                                    <span className="text-[10px] text-muted-foreground block mb-1">Endereço detalhado</span>
+                                                    <Input
+                                                        placeholder="Rua, Nº, Bloco, Apto, referência..."
+                                                        value={stop.addressDetails || ''}
+                                                        onChange={(e) => {
+                                                            setParsedStops(cs => { const n = [...cs]; n[index].addressDetails = e.target.value; return n; });
+                                                        }}
+                                                        className="h-8 text-xs"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        }) : (
+                            <div className="h-24 flex items-center justify-center text-center text-sm text-muted-foreground">
+                                A pré-visualização aparecerá aqui.
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="space-y-4 border-t pt-6">
+                    <Label className="font-semibold text-base">Adicionar Parada Manualmente</Label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                        <div className="space-y-1">
+                            <Label htmlFor="manual-serviceOrder" className="text-xs">Nº da OS *</Label>
+                            <Input id="manual-serviceOrder" name="serviceOrder" value={manualStopData.serviceOrder} onChange={handleManualStopInputChange} placeholder="Obrigatório" />
+                        </div>
+                        <div className="space-y-1">
+                            <Label htmlFor="manual-ascJobNumber" className="text-xs">ASC Job No.</Label>
+                            <Input id="manual-ascJobNumber" name="ascJobNumber" value={manualStopData.ascJobNumber} onChange={handleManualStopInputChange} />
+                        </div>
+                        <div className="space-y-1 col-span-2">
+                            <Label htmlFor="manual-consumerName" className="text-xs">Nome Cliente *</Label>
+                            <Input id="manual-consumerName" name="consumerName" value={manualStopData.consumerName} onChange={handleManualStopInputChange} placeholder="Obrigatório" />
+                        </div>
+                        <div className="space-y-1">
+                            <Label htmlFor="manual-city" className="text-xs">Cidade *</Label>
+                            <Input id="manual-city" name="city" value={manualStopData.city} onChange={handleManualStopInputChange} placeholder="Obrigatório" />
+                        </div>
+                        <div className="space-y-1">
+                            <Label htmlFor="manual-neighborhood" className="text-xs">Bairro</Label>
+                            <Input id="manual-neighborhood" name="neighborhood" value={manualStopData.neighborhood} onChange={handleManualStopInputChange} />
+                        </div>
+                        <div className="space-y-1">
+                            <Label htmlFor="manual-model" className="text-xs">Modelo *</Label>
+                            <Input id="manual-model" name="model" value={manualStopData.model} onChange={handleManualStopInputChange} placeholder="Obrigatório" />
+                        </div>
+                        <div className="space-y-1">
+                            <Label htmlFor="manual-ts" className="text-xs">TS</Label>
+                            <Input id="manual-ts" name="ts" value={manualStopData.ts} onChange={handleManualStopInputChange} />
+                        </div>
+                        <div className="space-y-1">
+                            <Label htmlFor="manual-warrantyType" className="text-xs">OW/LP</Label>
+                            <Input id="manual-warrantyType" name="warrantyType" value={manualStopData.warrantyType} onChange={handleManualStopInputChange} />
+                        </div>
+                        <div className="space-y-1">
+                            <Label htmlFor="manual-stopType" className="text-xs">Tipo *</Label>
+                            <Select value={manualStopData.stopType} onValueChange={handleManualStopSelectChange}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="padrao">Padrão</SelectItem>
+                                    <SelectItem value="coleta">Coleta</SelectItem>
+                                    <SelectItem value="entrega">Entrega</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        {manualStopData.stopType === 'coleta' && (
+                            <div className="space-y-1">
+                                <Label htmlFor="manual-collectionType" className="text-xs">Tipo de Coleta *</Label>
+                                <Select
+                                    value={manualStopData.collectionType}
+                                    onValueChange={(v) => setManualStopData(prev => ({ ...prev, collectionType: v as any }))}
+                                >
+                                    <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="reparo">Reparo</SelectItem>
+                                        <SelectItem value="rma">RMA</SelectItem>
+                                        <SelectItem value="eco">Eco</SelectItem>
+                                        <SelectItem value="descarte">Descarte</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
+                        <div className="space-y-1 col-span-2 md:col-span-3 xl:col-span-4">
+                            <Label htmlFor="manual-addressDetails" className="text-xs">Endereço Detalhado (Opcional)</Label>
+                            <Input id="manual-addressDetails" name="addressDetails" value={manualStopData.addressDetails} onChange={handleManualStopInputChange} placeholder="Rua, Nº, Apto, Condomínio, Referência..." />
+                        </div>
+                    </div>
+                    <Button type="button" onClick={handleAddManualStop} className="w-full sm:w-auto">Adicionar Parada à Rota</Button>
+                </div>
+
             </CardContent>
+
             <CardFooter className="flex justify-end gap-2">
                 <Button variant="outline" onClick={onCancel}>Cancelar</Button>
                 <Button onClick={handleSave} disabled={isSubmitting}>
@@ -1109,7 +1193,6 @@ function RouteForm({
             </CardFooter>
         </Card>
 
-        {/* Reallocate Stop Dialog */}
         <Dialog open={isReallocateOpen} onOpenChange={(open) => { if (!isReallocating) setIsReallocateOpen(open); }}>
             <DialogContent className="max-w-md">
                 <DialogHeader>
