@@ -868,9 +868,9 @@ export default function PlanejamentoPage() {
     });
   }, [allRoutes, weekStart, weekOffset, getRouteDate]);
 
-  // ── Routes visible in UI cards (Drafts + Active only, hiding inactive) ──
+  // ── Routes visible in UI cards (Drafts + Active + Finalized, hiding canceled) ──
   const activeAndDraftRoutesForWeek = useMemo(() => {
-    return routesForWeek.filter(r => r.isDraft || r.isActive);
+    return routesForWeek.filter(r => !r.isCanceled);
   }, [routesForWeek]);
 
   // ── Routes filtered by selected day for UI cards ──
@@ -1739,6 +1739,7 @@ export default function PlanejamentoPage() {
                         const isSelected = selectedRoute?.id === route.id;
                         const publishing = isPublishing === route.id;
                         const lpCount = route.stops.filter(s => s.warrantyType === 'LP').length;
+                        const isFinalized = !route.isDraft && !route.isActive;
 
                         {/* ── Minimal Continuation Chip for multi-day route ── */}
                         if (dayInfo.isMultiDay && !dayInfo.isStartDay) {
@@ -1751,6 +1752,7 @@ export default function PlanejamentoPage() {
                                 dayInfo.isEndDay
                                   ? "border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40"
                                   : "border-l-blue-500 bg-blue-50/40 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900/40",
+                                isFinalized && "grayscale opacity-80",
                                 isSelected
                                   ? "ring-2 ring-violet-500 border-violet-500 shadow-md bg-violet-500/15"
                                   : "hover:border-primary/40 hover:shadow-xs"
@@ -1803,6 +1805,7 @@ export default function PlanejamentoPage() {
                             className={cn(
                               "rounded-lg border border-l-4 cursor-pointer transition-all duration-150 overflow-hidden",
                               borderColor,
+                              isFinalized && "grayscale opacity-80",
                               isSelected
                                 ? "bg-violet-500/15 border-violet-500 shadow-md ring-2 ring-violet-500/50"
                                 : "bg-card hover:shadow-sm hover:border-primary/20 border-border/40"
@@ -1874,7 +1877,8 @@ export default function PlanejamentoPage() {
                               </div>
 
                               {/* Action buttons */}
-                              <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                              {!isFinalized && (
+                                <div className="flex gap-1" onClick={e => e.stopPropagation()}>
                                 <button
                                   className="flex-1 h-6 text-[9px] font-semibold rounded border border-violet-200 text-violet-700 hover:bg-violet-50 dark:border-violet-800 dark:text-violet-400 flex items-center justify-center gap-0.5 transition-colors"
                                   title="IA Otimizar"
@@ -1916,9 +1920,15 @@ export default function PlanejamentoPage() {
                                   </button>
                                 )}
                               </div>
-                            </div>
+                            )}
+                            {isFinalized && (
+                              <div className="mt-1.5 py-1 text-center bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[9px] font-bold rounded uppercase tracking-widest border border-slate-200 dark:border-slate-700/50">
+                                Finalizada
+                              </div>
+                            )}
                           </div>
-                        );
+                        </div>
+                      );
                       })
                     )}
                   </div>
