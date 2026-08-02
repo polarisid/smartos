@@ -84,7 +84,7 @@ export function RouteDetailsRow({
                             {hasPreviousVisits && !isCompleted && !isPending && !stop.isReallocated && (
                                 <History className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
                             )}
-                            {stop.warrantyType === 'LP' && (
+                            {stop.warrantyType === 'LP' && stop.ts?.toUpperCase() === 'IH' && (
                                 <button
                                     type="button"
                                     onClick={async (e) => {
