@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay, parseISO } from "date-fns";
+import { format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay, parseISO, differenceInCalendarWeeks } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import * as XLSX from "xlsx";
 import dynamic from "next/dynamic";
@@ -1419,7 +1419,19 @@ export default function PlanejamentoPage() {
                         {results.map((res, i) => {
                           const routeDate = res.route.plannedDate || res.route.departureDate;
                           return (
-                            <div key={i} className="flex flex-col border-b last:border-0 border-border/50 pb-2 last:pb-0 p-1">
+                            <div 
+                              key={i} 
+                              className="flex flex-col border-b last:border-0 border-border/50 pb-2 last:pb-0 p-1 cursor-pointer hover:bg-muted/50 rounded transition-colors"
+                              onClick={() => {
+                                const rd = routeDate ? new Date(routeDate) : null;
+                                if (rd) {
+                                  const diff = differenceInCalendarWeeks(rd, new Date(), { weekStartsOn: 1 });
+                                  setWeekOffset(diff);
+                                  setSelectedDay(rd);
+                                  setSearchOS("");
+                                }
+                              }}
+                            >
                               <div className="flex items-center justify-between">
                                 <span className="font-bold text-sm text-primary">{res.stop.serviceOrder}</span>
                                 <Badge variant="outline" className={cn("text-[9px] px-1 py-0", res.route.isActive ? "border-emerald-500 text-emerald-600" : res.route.isDraft ? "border-amber-500 text-amber-600" : "border-slate-500 text-slate-600")}>
