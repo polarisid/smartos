@@ -71,7 +71,7 @@ const serviceTypeLabels: Record<string, string> = {
 
 export default function ServiceOrdersPage() {
   const { toast } = useToast();
-  const { data: technicians = [] } = useTechnicians();
+  const { data: technicians } = useTechnicians();
 
   // Data state
   const [serviceOrders, setServiceOrders] = useState<(ServiceOrder & { technicianName?: string })[]>([]);
@@ -80,7 +80,6 @@ export default function ServiceOrdersPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [lastDoc, setLastDoc] = useState<any>(null);
-  const [techMap, setTechMap] = useState<Record<string, string>>({});
   const [surveyFilter, setSurveyFilter] = useState<'all' | 'completed' | 'pending'>('all');
 
   const filteredServiceOrders = useMemo(() => {
@@ -108,11 +107,13 @@ export default function ServiceOrdersPage() {
   const form = useForm<FormValues>({ resolver: zodResolver(formSchema) });
   const watchedServiceType = form.watch("serviceType");
 
-  // Build techMap from AppDataContext (no extra Firestore read)
-  useEffect(() => {
+  // Build techMap safely without causing infinite loops
+  const techMap = useMemo(() => {
     const map: Record<string, string> = {};
-    technicians.forEach(t => { map[t.id] = t.name; });
-    setTechMap(map);
+    if (technicians) {
+      technicians.forEach(t => { map[t.id] = t.name; });
+    }
+    return map;
   }, [technicians]);
 
   const loadInitialOrders = useCallback(async (map: Record<string, string>) => {
