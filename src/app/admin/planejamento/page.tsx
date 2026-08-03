@@ -33,7 +33,7 @@ import { copyRouteEmailToClipboard } from "@/lib/emailExport";
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Trash2, CheckCircle2,
   Sparkles, Download, MapPin, Calendar, Users, Truck,
-  Eye, Loader2, List, Edit, Copy
+  Eye, Loader2, List, Edit, Copy, Search
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -770,6 +770,7 @@ export default function PlanejamentoPage() {
   }, []);
 
   // Form state (Create)
+  const [searchOS, setSearchOS] = useState("");
   const [formName, setFormName] = useState("");
   const [formText, setFormText] = useState("");
   const [formTechnicianId, setFormTechnicianId] = useState("");
@@ -1383,15 +1384,78 @@ export default function PlanejamentoPage() {
               Crie rascunhos e publique quando estiver pronto. As rotas ficam invisíveis aos técnicos até a publicação.
             </p>
           </div>
-          <div className="flex gap-2 shrink-0">
-            <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
-              <Download className="h-4 w-4" />
-              Baixar Semana (Excel)
-            </Button>
-            <Button size="sm" onClick={() => setIsCreateOpen(true)} className="gap-2">
-              <Plus className="h-4 w-4" />
-              Nova Rota
-            </Button>
+          
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center shrink-0 w-full sm:w-auto">
+            {/* Global OS Search */}
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input 
+                placeholder="Buscar OS (Ex: 41...)"
+                value={searchOS}
+                onChange={e => setSearchOS(e.target.value)}
+                className="pl-9 h-9 w-full bg-card"
+              />
+              {searchOS.trim().length >= 4 && (
+                <div className="absolute top-10 left-0 w-full sm:w-96 bg-popover border shadow-xl rounded-md p-2 z-50 max-h-[300px] overflow-y-auto">
+                  {(() => {
+                    const term = searchOS.trim().toLowerCase();
+                    const results: { route: Route; stop: RouteStop }[] = [];
+                    allRoutes.forEach(r => {
+                      r.stops.forEach(s => {
+                        if (s.serviceOrder.toLowerCase().includes(term) || (s.ascJobNumber && s.ascJobNumber.toLowerCase().includes(term))) {
+                          results.push({ route: r, stop: s });
+                        }
+                      });
+                    });
+                    
+                    if (results.length === 0) {
+                      return <p className="text-sm text-muted-foreground p-2 text-center">Nenhuma OS encontrada.</p>;
+                    }
+
+                    results.sort((a, b) => new Date(b.route.createdAt).getTime() - new Date(a.route.createdAt).getTime());
+
+                    return (
+                      <div className="flex flex-col gap-2">
+                        {results.map((res, i) => {
+                          const routeDate = res.route.plannedDate || res.route.departureDate;
+                          return (
+                            <div key={i} className="flex flex-col border-b last:border-0 border-border/50 pb-2 last:pb-0 p-1">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-sm text-primary">{res.stop.serviceOrder}</span>
+                                <Badge variant="outline" className={cn("text-[9px] px-1 py-0", res.route.isActive ? "border-emerald-500 text-emerald-600" : res.route.isDraft ? "border-amber-500 text-amber-600" : "border-slate-500 text-slate-600")}>
+                                  {res.route.isActive ? 'Publicada' : res.route.isDraft ? 'Rascunho' : 'Finalizada'}
+                                </Badge>
+                              </div>
+                              <span className="text-xs text-muted-foreground font-medium mt-0.5">{res.route.name}</span>
+                              <span className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
+                                <Calendar className="h-3 w-3" />
+                                {routeDate ? format(new Date(routeDate), 'dd/MM/yyyy') : 'Sem data definida'}
+                                {res.stop.firstVisitDate && (
+                                  <span className="ml-2 text-blue-600 dark:text-blue-400">
+                                    (1st Visit: {res.stop.firstVisitDate})
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 shrink-0">
+              <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
+                <Download className="h-4 w-4" />
+                Baixar Semana (Excel)
+              </Button>
+              <Button size="sm" onClick={() => setIsCreateOpen(true)} className="gap-2">
+                <Plus className="h-4 w-4" />
+                Nova Rota
+              </Button>
+            </div>
           </div>
         </div>
 
