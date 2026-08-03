@@ -181,7 +181,7 @@ function parseRouteText(text: string): RouteStop[] {
             parts: parts,
             stopType: 'padrao' as const,
         } as RouteStop;
-    }).filter((stop): stop is RouteStop => stop !== null && stop.ts.trim().toUpperCase() === 'IH');
+    }).filter((stop): stop is RouteStop => stop !== null);
 }
 
 

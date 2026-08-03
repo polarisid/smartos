@@ -366,7 +366,7 @@ function parseRouteText(text: string): RouteStop[] {
       parts,
       stopType: 'padrao' as const,
     } as RouteStop;
-  }).filter((s): s is RouteStop => s !== null && s.ts.trim().toUpperCase() === 'IH');
+  }).filter((s): s is RouteStop => s !== null);
 }
 
 // ─── Excel Export ────────────────────────────────────────────────────────────
