@@ -2075,11 +2075,11 @@ export function optimizeRouteStopsSync(stops: RouteStop[], originCity: string = 
   return tourIndices.slice(1).map(idx => stops[idx - 1]);
 }
 
-async function resolveStopCoordAsync(stop: RouteStop): Promise<PointCoord> {
+async function resolveStopCoordAsync(stop: RouteStop, defaultState: string = 'Sergipe'): Promise<PointCoord> {
   const coords = await getCoordinates(
     stop.city,
     stop.neighborhood,
-    stop.state || 'Sergipe',
+    stop.state || defaultState,
     stop.addressDetails,
     stop.zipCode
   );
@@ -2116,9 +2116,10 @@ export async function optimizeRouteStopsAsync(
     return { stops, summary: "Poucas paradas para otimização.", totalDrivingMinutes: 0 };
   }
 
+  const { state: baseState } = parseFullAddress(originCity);
   const [baseCoord, ...resolvedStopCoords] = await Promise.all([
     resolveBaseCoordAsync(originCity),
-    ...stops.map(resolveStopCoordAsync)
+    ...stops.map(stop => resolveStopCoordAsync(stop, baseState || 'Sergipe'))
   ]);
 
   const allPoints: PointCoord[] = [baseCoord, ...resolvedStopCoords];

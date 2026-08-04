@@ -4,11 +4,11 @@ import type { RouteStop } from "@/lib/data";
 const CHUNK_SIZE = 25;
 const DEFAULT_BASE: [number, number] = [-10.9142, -37.0545]; // Aracaju
 
-async function coordOf(stop: RouteStop): Promise<[number, number] | null> {
+async function coordOf(stop: RouteStop, defaultState: string = "Sergipe"): Promise<[number, number] | null> {
   return getCoordinates(
     stop.city,
     stop.neighborhood,
-    stop.state || "Sergipe",
+    stop.state || defaultState,
     stop.addressDetails,
     stop.zipCode
   );
@@ -28,11 +28,12 @@ async function optimizeChunk(
   originCoord: [number, number],
   chunk: RouteStop[],
   destCoord: [number, number],
-  apiKey: string
+  apiKey: string,
+  defaultState: string
 ): Promise<RouteStop[]> {
   if (chunk.length <= 1) return chunk;
 
-  const coords = await Promise.all(chunk.map(coordOf));
+  const coords = await Promise.all(chunk.map(stop => coordOf(stop, defaultState)));
   const intermediates = coords.map((c) => waypoint(c ?? originCoord));
 
   const body = {
@@ -81,6 +82,8 @@ export async function optimizeWithGoogle(
   if (stops.length < 2) return { stops };
 
   try {
+    const { state: baseState } = parseFullAddress(baseAddress);
+    const defaultState = baseState || "Sergipe";
     const base = await baseCoord(baseAddress);
 
     const chunks: RouteStop[][] = [];
@@ -92,10 +95,10 @@ export async function optimizeWithGoogle(
     let originCoord = base;
 
     for (const chunk of chunks) {
-      const optimized = await optimizeChunk(originCoord, chunk, base, apiKey);
+      const optimized = await optimizeChunk(originCoord, chunk, base, apiKey, defaultState);
       result.push(...optimized);
 
-      const lastCoord = await coordOf(optimized[optimized.length - 1]);
+      const lastCoord = await coordOf(optimized[optimized.length - 1], defaultState);
       originCoord = lastCoord ?? base;
     }
 
