@@ -297,9 +297,19 @@ export function getKnownCityCoords(cityNorm: string, state: string): [number, nu
         if (stCode === 'se' || stCode === 'sergipe') return [-10.9961, -37.3056];
     }
 
-    // 3. Fallback to general city key
-    return CITY_FALLBACK_COORDINATES[cityNorm] ||
-      Object.entries(CITY_FALLBACK_COORDINATES).find(([k]) => cityNorm.length >= 4 && (cityNorm.includes(k) || k.includes(cityNorm)))?.[1];
+    // 3. Exact general city key match
+    if (CITY_FALLBACK_COORDINATES[cityNorm]) {
+        return CITY_FALLBACK_COORDINATES[cityNorm];
+    }
+
+    // 4. Fuzzy substring fallback — restricted to candidates that actually fall
+    // inside the requested state's bounding box, so a city name that collides
+    // with a same-named city in another state (e.g. "Santa Luzia" in MA vs.
+    // "Santa Luzia do Itanhy" in SE) can never resolve to the wrong state.
+    const fuzzyMatch = Object.entries(CITY_FALLBACK_COORDINATES).find(
+        ([k, coords]) => cityNorm.length >= 4 && (cityNorm.includes(k) || k.includes(cityNorm)) && isValidStateCoords(coords, state)
+    );
+    return fuzzyMatch?.[1];
 }
 
 function isValidCityCoords(coords: [number, number], cityNorm: string, state: string): boolean {
