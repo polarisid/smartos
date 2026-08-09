@@ -240,7 +240,7 @@ export default function ReportsPage() {
     <div className="max-w-3xl mx-auto p-4 md:p-8 space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Camera className="h-5 w-5" /> Relatório Fotográfico</CardTitle>
+          <CardTitle className="flex items-center gap-2"><Camera className="h-5 w-5" /> Relatório</CardTitle>
           <CardDescription>Preencha ao final do reparo: fotos do produto, do defeito apresentado e do pós-reparo.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
