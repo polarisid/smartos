@@ -290,7 +290,6 @@ export default function ReportsPage() {
                       <input
                         type="file"
                         accept="image/*"
-                        capture="environment"
                         className="hidden"
                         onChange={e => handleSlotFile(slot.category, e.target.files)}
                       />
@@ -389,7 +388,6 @@ function PhotoCategorySection({
           <input
             type="file"
             accept="image/*"
-            capture="environment"
             multiple
             className="hidden"
             onChange={e => { onAdd(category, e.target.files); e.target.value = ""; }}
