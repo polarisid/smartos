@@ -30,7 +30,8 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Edit, Trash2, Calendar as CalendarIcon, FilterX, Sparkles, Search, ChevronDown, Loader2 } from "lucide-react";
+import { Edit, Trash2, Calendar as CalendarIcon, FilterX, Sparkles, Search, ChevronDown, Loader2, Camera } from "lucide-react";
+import Link from "next/link";
 import { type ServiceOrder, type Technician } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
 
@@ -407,7 +408,12 @@ export default function ServiceOrdersPage() {
                           {order.cleaningPerformed && <Sparkles className="h-5 w-5 text-yellow-500 mx-auto" />}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button variant="outline" size="sm" onClick={() => handleOpenEditDialog(order)}>
+                          <Button variant="outline" size="sm" asChild>
+                            <Link href={`/report-view/${encodeURIComponent(order.serviceOrderNumber)}`} target="_blank">
+                              <Camera className="mr-2 h-4 w-4" /> Ver Relatório
+                            </Link>
+                          </Button>
+                          <Button variant="outline" size="sm" className="ml-2" onClick={() => handleOpenEditDialog(order)}>
                             <Edit className="mr-2 h-4 w-4" /> Editar
                           </Button>
                           <Button variant="destructive" size="sm" className="ml-2" onClick={() => handleOpenDeleteDialog(order)}>

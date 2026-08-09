@@ -240,6 +240,33 @@ export type ChecklistTemplate = {
   type?: 'counter' | 'field';
 }
 
+export type TechnicalReportPhotoCategory = 'produto_frontal' | 'produto_traseira' | 'produto_serial' | 'defeito' | 'pos_reparo';
+
+export type TechnicalReportPhoto = {
+  category: TechnicalReportPhotoCategory;
+  url: string;
+  path: string;
+  order: number;
+};
+
+export type TechnicalReport = {
+  id: string;
+  serviceOrderNumber: string;
+  technicianId?: string;
+  technicianName?: string;
+  consumerName?: string;
+  productModel?: string;
+  serialNumber?: string;
+  photos: TechnicalReportPhoto[];
+  observations?: string;
+  responsibleName?: string;
+  responsibleSignature?: string;
+  aiScore?: number;
+  aiScoreFeedback?: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 
 const today = new Date();
 export const serviceOrders: ServiceOrder[] = [
