@@ -30,30 +30,64 @@ export default function ReportViewPage() {
         import("jspdf"),
       ]);
 
-      const canvas = await html2canvas(contentRef.current, {
-        scale: 2,
+      const content = contentRef.current;
+      const scale = 2;
+      const canvas = await html2canvas(content, {
+        scale,
         useCORS: true,
         backgroundColor: "#ffffff",
       });
+
+      // Blocos que não podem ser cortados ao meio entre páginas (fotos, cabeçalho, textos).
+      // Convertidos para o espaço de pixels do canvas (que usa `scale`) para casar com os cortes de página.
+      const contentTop = content.getBoundingClientRect().top;
+      const atomicBlocks = Array.from(content.querySelectorAll<HTMLElement>(".photo-item, .pdf-atomic"))
+        .map(el => {
+          const rect = el.getBoundingClientRect();
+          return { top: (rect.top - contentTop) * scale, bottom: (rect.bottom - contentTop) * scale };
+        })
+        .sort((a, b) => a.top - b.top);
 
       const pdf = new jsPDF("p", "mm", "a4");
       const margin = 10;
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
       const imgWidth = pdfWidth - margin * 2;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      const pageContentHeight = pdfHeight - margin * 2;
-      const imgData = canvas.toDataURL("image/jpeg", 0.95);
+      const pageContentHeightMm = pdfHeight - margin * 2;
+      const pxPerMm = canvas.width / imgWidth;
+      const maxPageHeightPx = pageContentHeightMm * pxPerMm;
 
-      let heightLeft = imgHeight;
-      let position = margin;
-      pdf.addImage(imgData, "JPEG", margin, position, imgWidth, imgHeight);
-      heightLeft -= pageContentHeight;
-      while (heightLeft > 0) {
-        position -= pageContentHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, "JPEG", margin, position, imgWidth, imgHeight);
-        heightLeft -= pageContentHeight;
+      let cursor = 0;
+      let firstPage = true;
+
+      while (cursor < canvas.height) {
+        let sliceEnd = Math.min(cursor + maxPageHeightPx, canvas.height);
+
+        if (sliceEnd < canvas.height) {
+          // Se o corte cai dentro de um bloco atômico, recua o corte para o início desse bloco
+          // (preferindo o bloco mais específico/aninhado que ainda contém o corte).
+          const straddling = atomicBlocks
+            .filter(b => b.top < sliceEnd && b.bottom > sliceEnd && b.top > cursor)
+            .sort((a, b) => b.top - a.top)[0];
+          if (straddling) sliceEnd = straddling.top;
+        }
+
+        const sliceHeightPx = sliceEnd - cursor;
+        if (sliceHeightPx <= 0) break;
+
+        const sliceCanvas = document.createElement("canvas");
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = sliceHeightPx;
+        sliceCanvas.getContext("2d")!.drawImage(canvas, 0, cursor, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
+
+        const sliceImgData = sliceCanvas.toDataURL("image/jpeg", 0.95);
+        const sliceHeightMm = sliceHeightPx / pxPerMm;
+
+        if (!firstPage) pdf.addPage();
+        pdf.addImage(sliceImgData, "JPEG", margin, margin, imgWidth, sliceHeightMm);
+        firstPage = false;
+
+        cursor = sliceEnd;
       }
 
       pdf.save(`${report.serviceOrderNumber}-relatorio.pdf`);
@@ -105,7 +139,7 @@ export default function ReportViewPage() {
       </div>
 
       <div ref={contentRef} className="bg-white">
-        <div className="flex items-center gap-3 pb-4 mb-6 border-b-2 border-primary/20">
+        <div className="pdf-atomic flex items-center gap-3 pb-4 mb-6 border-b-2 border-primary/20">
           <img src="/icon.svg" alt="SmartOS" className="h-11 w-11 rounded-lg shrink-0" />
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">SmartOS</p>
@@ -113,7 +147,7 @@ export default function ReportViewPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm mb-8">
+        <div className="pdf-atomic flex flex-wrap gap-x-6 gap-y-3 text-sm mb-8">
           <InfoField label="OS" value={report.serviceOrderNumber} mono />
           <InfoField label="Data" value={format(report.createdAt, "dd/MM/yyyy")} />
           <InfoField label="Técnico" value={report.technicianName} />

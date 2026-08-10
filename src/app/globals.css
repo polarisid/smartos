@@ -114,7 +114,8 @@
   body {
     background: white !important;
   }
-  .photo-item {
+  .photo-item,
+  .pdf-atomic {
     break-inside: avoid;
     page-break-inside: avoid;
   }
