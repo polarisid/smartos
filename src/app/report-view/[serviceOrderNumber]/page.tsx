@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
 import { type TechnicalReport, type TechnicalReportPhoto, type TechnicalReportPhotoCategory } from "@/lib/data";
 import { Button } from "@/components/ui/button";
-import { Loader2, Download, ScanLine, AlertTriangle, Wrench, MessageSquare } from "lucide-react";
+import { Loader2, Download, ScanLine, AlertTriangle, Wrench, MessageSquare, ClipboardList } from "lucide-react";
 import { format } from "date-fns";
 
 const PRODUCT_LABELS: Record<string, string> = {
@@ -106,10 +106,10 @@ export default function ReportViewPage() {
 
       <div ref={contentRef} className="bg-white">
         <div className="flex items-center gap-3 pb-4 mb-6 border-b-2 border-primary/20">
-          <img src="/icon.svg" alt="SmartOS" className="h-10 w-10 rounded-lg shrink-0" />
+          <img src="/icon.svg" alt="SmartOS" className="h-11 w-11 rounded-lg shrink-0" />
           <div>
-            <h1 className="text-lg font-bold leading-tight">Relatório Técnico Fotográfico</h1>
-            <p className="text-xs text-muted-foreground">SmartOS</p>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">SmartOS</p>
+            <h1 className="text-2xl font-bold leading-tight tracking-tight">Relatório Técnico</h1>
           </div>
         </div>
 
@@ -150,6 +150,12 @@ export default function ReportViewPage() {
                 <PhotoCard key={photo.path} photo={photo} className="w-64" />
               ))}
             </div>
+          </ReportSection>
+        )}
+
+        {report.repairDescription && (
+          <ReportSection title="Descrição do Reparo" icon={ClipboardList}>
+            <p className="text-sm whitespace-pre-wrap">{report.repairDescription}</p>
           </ReportSection>
         )}
 
@@ -195,8 +201,8 @@ function ReportSection({
 }) {
   return (
     <section className={`photo-item ${last ? "" : "mb-8"}`}>
-      <h2 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-primary mb-3">
-        {Icon && <Icon className="h-3.5 w-3.5" />}
+      <h2 className="flex items-center gap-1.5 text-sm font-bold uppercase tracking-wide text-primary mb-3">
+        {Icon && <Icon className="h-4 w-4" />}
         {title}
       </h2>
       {children}

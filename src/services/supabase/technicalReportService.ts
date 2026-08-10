@@ -99,6 +99,7 @@ export const technicalReportService = {
       productModel: row.product_model,
       serialNumber: row.serial_number,
       photos: row.photos || [],
+      repairDescription: row.repair_description,
       observations: row.observations,
       responsibleName: row.responsible_name,
       responsibleSignature: row.responsible_signature,
@@ -118,6 +119,7 @@ export const technicalReportService = {
     if (obj.productModel !== undefined) row.product_model = obj.productModel;
     if (obj.serialNumber !== undefined) row.serial_number = obj.serialNumber;
     if (obj.photos !== undefined) row.photos = obj.photos;
+    if (obj.repairDescription !== undefined) row.repair_description = obj.repairDescription;
     if (obj.observations !== undefined) row.observations = obj.observations;
     if (obj.responsibleName !== undefined) row.responsible_name = obj.responsibleName;
     if (obj.responsibleSignature !== undefined) row.responsible_signature = obj.responsibleSignature;

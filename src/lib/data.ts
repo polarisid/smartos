@@ -258,6 +258,7 @@ export type TechnicalReport = {
   productModel?: string;
   serialNumber?: string;
   photos: TechnicalReportPhoto[];
+  repairDescription?: string;
   observations?: string;
   responsibleName?: string;
   responsibleSignature?: string;

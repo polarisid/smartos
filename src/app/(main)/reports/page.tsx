@@ -46,6 +46,7 @@ export default function ReportsPage() {
   const [technicianId, setTechnicianId] = useState("");
   const [productModel, setProductModel] = useState("");
   const [serialNumber, setSerialNumber] = useState("");
+  const [repairDescription, setRepairDescription] = useState("");
   const [observations, setObservations] = useState("");
   const [photos, setPhotos] = useState<LocalPhoto[]>([]);
   const [savedReportId, setSavedReportId] = useState<string | null>(null);
@@ -59,6 +60,7 @@ export default function ReportsPage() {
     setTechnicianId("");
     setProductModel("");
     setSerialNumber("");
+    setRepairDescription("");
     setObservations("");
     setPhotos([]);
     setSavedReportId(null);
@@ -155,6 +157,7 @@ export default function ReportsPage() {
       setTechnicianId(report.technicianId || "");
       setProductModel(report.productModel || "");
       setSerialNumber(report.serialNumber || "");
+      setRepairDescription(report.repairDescription || "");
       setObservations(report.observations || "");
       setPhotos(
         (report.photos || []).map(p => ({
@@ -198,6 +201,10 @@ export default function ReportsPage() {
       toast({ variant: "destructive", title: "Informe o número da OS." });
       return;
     }
+    if (!repairDescription.trim()) {
+      toast({ variant: "destructive", title: "Descreva o que foi feito no reparo ou o que foi observado." });
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -219,6 +226,7 @@ export default function ReportsPage() {
         productModel: productModel || undefined,
         serialNumber: serialNumber || undefined,
         photos: uploaded.map(p => ({ category: p.category, url: p.url!, path: p.path!, order: p.order })),
+        repairDescription: repairDescription.trim(),
         observations: observations || undefined,
       };
 
@@ -247,7 +255,7 @@ export default function ReportsPage() {
   const completedCount = REQUIRED_CATEGORIES.filter(cat => photos.some(p => p.category === cat)).length;
 
   return (
-    <div className="max-w-3xl mx-auto p-4 md:p-8 pb-24 sm:pb-8 space-y-4">
+    <div className="max-w-3xl mx-auto p-4 md:p-8 space-y-4">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Camera className="h-5 w-5" /> Relatório</CardTitle>
@@ -351,10 +359,28 @@ export default function ReportsPage() {
           />
 
           <div className="space-y-1.5">
+            <Label>Descrição do Reparo *</Label>
+            <Textarea
+              value={repairDescription}
+              onChange={e => setRepairDescription(e.target.value)}
+              rows={4}
+              placeholder="Descreva o que foi feito no reparo (diagnóstico, peças trocadas, procedimento) ou o que foi observado no atendimento."
+            />
+          </div>
+
+          <div className="space-y-1.5">
             <Label>Observações</Label>
-            <Textarea value={observations} onChange={e => setObservations(e.target.value)} rows={4} placeholder="Detalhes do atendimento, recomendações, etc." />
+            <Textarea value={observations} onChange={e => setObservations(e.target.value)} rows={4} placeholder="Recomendações, orientações ao cliente, etc." />
           </div>
         </CardContent>
+
+        {/* Reserva no fluxo normal a mesma altura do footer fixo abaixo, para o conteúdo não ficar coberto por ele no mobile. */}
+        <div aria-hidden="true" className="invisible sm:hidden flex flex-col gap-2 p-4">
+          <div className="h-10 w-full" />
+          {savedReportId && <div className="h-10 w-full" />}
+          <div className="h-10 w-full" />
+        </div>
+
         <CardFooter className="flex flex-col sm:flex-row gap-2 justify-between fixed sm:static bottom-0 left-0 right-0 z-20 bg-card border-t sm:border-t-0 p-4 sm:p-6 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
           <Button type="button" variant="outline" onClick={resetForm} disabled={isSaving}>Novo Relatório</Button>
           <div className="flex gap-2">
