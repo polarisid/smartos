@@ -32,16 +32,16 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ClipboardList, PlusCircle, Edit, Trash2, TestTube2, FileDown, Copy, Store, HardHat } from "lucide-react";
+import { ClipboardList, PlusCircle, Edit, Trash2, TestTube2, FileDown, Copy, Store, HardHat, Tag } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type ChecklistTemplate, type ChecklistField } from "@/lib/data";
 
 import { checklistService } from "@/services/supabase/checklistService";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { useRouter } from "next/navigation";
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { pdfjs } from 'react-pdf';
-import { Switch } from "@/components/ui/switch";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -191,11 +191,11 @@ export default function ChecklistsPage() {
     
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-    const [isGrouped, setIsGrouped] = useState(false);
-    
+    const [groupBy, setGroupBy] = useState<'none' | 'type' | 'category'>('none');
+
     const [selectedTemplate, setSelectedTemplate] = useState<ChecklistTemplate | null>(null);
     const [formMode, setFormMode] = useState<'add' | 'edit'>('add');
-    const [formData, setFormData] = useState<{ name: string; pdfUrl: string; type: 'counter' | 'field' }>({ name: '', pdfUrl: '', type: 'field' });
+    const [formData, setFormData] = useState<{ name: string; pdfUrl: string; type: 'counter' | 'field'; category: string }>({ name: '', pdfUrl: '', type: 'field', category: '' });
     
     const availablePdfs = [
         { name: "Carta Troca", path: "/checklists/carta_troca.pdf" },
@@ -259,14 +259,14 @@ export default function ChecklistsPage() {
     const handleOpenAddDialog = () => {
         setFormMode('add');
         setSelectedTemplate(null);
-        setFormData({ name: '', pdfUrl: '', type: 'field' });
+        setFormData({ name: '', pdfUrl: '', type: 'field', category: '' });
         setIsFormOpen(true);
     };
 
     const handleOpenEditDialog = (template: ChecklistTemplate) => {
         setFormMode('edit');
         setSelectedTemplate(template);
-        setFormData({ name: template.name, pdfUrl: template.pdfUrl, type: template.type || 'field' });
+        setFormData({ name: template.name, pdfUrl: template.pdfUrl, type: template.type || 'field', category: template.category || '' });
         setIsFormOpen(true);
     };
 
@@ -287,12 +287,15 @@ export default function ChecklistsPage() {
 
         setIsSubmitting(true);
         try {
+            const category = formData.category.trim() || undefined;
+
             if (formMode === 'add') {
-                const docData = { 
-                    name: formData.name, 
+                const docData = {
+                    name: formData.name,
                     pdfUrl: formData.pdfUrl,
                     type: formData.type,
-                    fields: [] 
+                    category,
+                    fields: []
                 };
                 const newDocId = await checklistService.create(docData as Omit<ChecklistTemplate, 'id'>);
 
@@ -300,8 +303,8 @@ export default function ChecklistsPage() {
                 toast({ title: "Modelo salvo com sucesso!", description: "O novo modelo de checklist foi adicionado."});
 
             } else if (selectedTemplate) {
-                 const updatedData = { ...selectedTemplate, name: formData.name, pdfUrl: formData.pdfUrl, type: formData.type };
-                 await checklistService.update(selectedTemplate.id, { name: formData.name, pdfUrl: formData.pdfUrl, type: formData.type });
+                 const updatedData = { ...selectedTemplate, name: formData.name, pdfUrl: formData.pdfUrl, type: formData.type, category };
+                 await checklistService.update(selectedTemplate.id, { name: formData.name, pdfUrl: formData.pdfUrl, type: formData.type, category: category ?? null });
                  setTemplates(prev => prev.map(t => t.id === selectedTemplate.id ? updatedData : t));
                  toast({ title: "Modelo atualizado!", description: "Os dados do modelo foram alterados." });
             }
@@ -340,6 +343,7 @@ export default function ChecklistsPage() {
                 pdfUrl: template.pdfUrl,
                 fields: template.fields || [],
                 type: template.type || 'field',
+                category: template.category,
             };
             const newDocId = await checklistService.create(docData as Omit<ChecklistTemplate, 'id'>);
             setTemplates(prev => [...prev, { id: newDocId, ...docData }]);
@@ -358,6 +362,7 @@ export default function ChecklistsPage() {
                 <TableRow>
                     <TableHead>Nome do Modelo</TableHead>
                     <TableHead>Tipo</TableHead>
+                    <TableHead>Categoria</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
             </TableHeader>
@@ -370,6 +375,13 @@ export default function ChecklistsPage() {
                                 {template.type === 'counter' ? <Store className="h-4 w-4" /> : <HardHat className="h-4 w-4" />}
                                 <span>{template.type === 'counter' ? 'Balcão' : 'Campo'}</span>
                             </div>
+                        </TableCell>
+                        <TableCell>
+                            {template.category ? (
+                                <Badge variant="secondary" className="font-normal">{template.category}</Badge>
+                            ) : (
+                                <span className="text-muted-foreground">—</span>
+                            )}
                         </TableCell>
                         <TableCell className="text-right">
                             <Button variant="outline" size="sm" onClick={() => handleOpenFieldsDialog(template)}>
@@ -413,9 +425,18 @@ export default function ChecklistsPage() {
                             Crie e gerencie os modelos de checklist que serão preenchidos pelos técnicos.
                         </CardDescription>
                     </div>
-                    <div className="flex items-center space-x-2 mt-0">
-                        <Switch id="group-checklists" checked={isGrouped} onCheckedChange={setIsGrouped} />
-                        <Label htmlFor="group-checklists">Agrupar por Tipo</Label>
+                    <div className="flex items-center gap-2 mt-0">
+                        <Label htmlFor="group-checklists" className="text-muted-foreground shrink-0">Agrupar por</Label>
+                        <Select value={groupBy} onValueChange={(v) => setGroupBy(v as typeof groupBy)}>
+                            <SelectTrigger id="group-checklists" className="w-[160px]">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">Nenhum</SelectItem>
+                                <SelectItem value="type">Tipo</SelectItem>
+                                <SelectItem value="category">Categoria</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
                 </CardHeader>
                 <CardContent>
@@ -426,7 +447,7 @@ export default function ChecklistsPage() {
                             <p>Nenhum modelo de checklist encontrado.</p>
                             <p className="text-sm">Clique em "Criar Modelo de Checklist" para adicionar o primeiro.</p>
                         </div>
-                    ) : isGrouped ? (
+                    ) : groupBy === 'type' ? (
                         <div className="space-y-8">
                             {templates.filter(t => t.type !== 'counter').length > 0 && (
                                 <div>
@@ -444,6 +465,25 @@ export default function ChecklistsPage() {
                                     {renderTable(templates.filter(t => t.type === 'counter'))}
                                 </div>
                             )}
+                        </div>
+                    ) : groupBy === 'category' ? (
+                        <div className="space-y-8">
+                            {Object.entries(
+                                templates.reduce<Record<string, ChecklistTemplate[]>>((acc, t) => {
+                                    const key = t.category?.trim() || 'Sem categoria';
+                                    (acc[key] ||= []).push(t);
+                                    return acc;
+                                }, {})
+                            )
+                                .sort(([a], [b]) => (a === 'Sem categoria' ? 1 : b === 'Sem categoria' ? -1 : a.localeCompare(b)))
+                                .map(([category, group]) => (
+                                    <div key={category}>
+                                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-muted-foreground">
+                                            <Tag className="h-5 w-5" /> {category}
+                                        </h3>
+                                        {renderTable(group)}
+                                    </div>
+                                ))}
                         </div>
                     ) : (
                         renderTable(templates)
@@ -504,6 +544,22 @@ export default function ChecklistsPage() {
                                 <SelectItem value="counter">Balcão (Técnico Interno)</SelectItem>
                             </SelectContent>
                         </Select>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="category">Categoria (Opcional)</Label>
+                        <Input
+                            id="category"
+                            list="checklist-categories"
+                            placeholder="Ex: NDF, VOID, Reparo..."
+                            value={formData.category}
+                            onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+                        />
+                        <datalist id="checklist-categories">
+                            {Array.from(new Set(templates.map(t => t.category).filter((c): c is string => !!c))).sort().map(c => (
+                                <option key={c} value={c} />
+                            ))}
+                        </datalist>
+                        <p className="text-xs text-muted-foreground">Agrupa este modelo no seletor do técnico e na listagem acima.</p>
                     </div>
                 </div>
                 <DialogFooter>

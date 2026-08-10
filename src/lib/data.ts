@@ -238,6 +238,7 @@ export type ChecklistTemplate = {
   pdfUrl: string;
   fields: ChecklistField[];
   type?: 'counter' | 'field';
+  category?: string;
 }
 
 export type TechnicalReportPhotoCategory = 'produto_frontal' | 'produto_traseira' | 'produto_serial' | 'defeito' | 'pos_reparo';

@@ -30,7 +30,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -462,9 +464,22 @@ function ChecklistSection({
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="none">Nenhum</SelectItem>
-                                {checklistTemplates.map(t => (
-                                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                                ))}
+                                {Object.entries(
+                                    checklistTemplates.reduce<Record<string, ChecklistTemplate[]>>((acc, t) => {
+                                        const key = t.category?.trim() || 'Outros';
+                                        (acc[key] ||= []).push(t);
+                                        return acc;
+                                    }, {})
+                                )
+                                    .sort(([a], [b]) => (a === 'Outros' ? 1 : b === 'Outros' ? -1 : a.localeCompare(b)))
+                                    .map(([category, group]) => (
+                                        <SelectGroup key={category}>
+                                            <SelectLabel>{category}</SelectLabel>
+                                            {group.map(t => (
+                                                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                                            ))}
+                                        </SelectGroup>
+                                    ))}
                             </SelectContent>
                         </Select>
                     </div>
