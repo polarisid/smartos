@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import type jsPDF from "jspdf";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
 import { type TechnicalReport, type TechnicalReportPhoto, type TechnicalReportPhotoCategory } from "@/lib/data";
 import { Button } from "@/components/ui/button";
@@ -19,78 +20,14 @@ export default function ReportViewPage() {
   const [report, setReport] = useState<TechnicalReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
 
   const handleDownloadPdf = async () => {
-    if (!contentRef.current || !report) return;
+    if (!report) return;
     setIsDownloading(true);
     try {
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf"),
-      ]);
-
-      const content = contentRef.current;
-      const scale = 2;
-      const canvas = await html2canvas(content, {
-        scale,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-      });
-
-      // Blocos que não podem ser cortados ao meio entre páginas (fotos, cabeçalho, textos).
-      // Convertidos para o espaço de pixels do canvas (que usa `scale`) para casar com os cortes de página.
-      const contentTop = content.getBoundingClientRect().top;
-      const atomicBlocks = Array.from(content.querySelectorAll<HTMLElement>(".photo-item, .pdf-atomic"))
-        .map(el => {
-          const rect = el.getBoundingClientRect();
-          return { top: (rect.top - contentTop) * scale, bottom: (rect.bottom - contentTop) * scale };
-        })
-        .sort((a, b) => a.top - b.top);
-
-      const pdf = new jsPDF("p", "mm", "a4");
-      const margin = 10;
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pdfWidth - margin * 2;
-      const pageContentHeightMm = pdfHeight - margin * 2;
-      const pxPerMm = canvas.width / imgWidth;
-      const maxPageHeightPx = pageContentHeightMm * pxPerMm;
-
-      let cursor = 0;
-      let firstPage = true;
-
-      while (cursor < canvas.height) {
-        let sliceEnd = Math.min(cursor + maxPageHeightPx, canvas.height);
-
-        if (sliceEnd < canvas.height) {
-          // Se o corte cai dentro de um bloco atômico, recua o corte para o início desse bloco
-          // (preferindo o bloco mais específico/aninhado que ainda contém o corte).
-          const straddling = atomicBlocks
-            .filter(b => b.top < sliceEnd && b.bottom > sliceEnd && b.top > cursor)
-            .sort((a, b) => b.top - a.top)[0];
-          if (straddling) sliceEnd = straddling.top;
-        }
-
-        const sliceHeightPx = sliceEnd - cursor;
-        if (sliceHeightPx <= 0) break;
-
-        const sliceCanvas = document.createElement("canvas");
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = sliceHeightPx;
-        sliceCanvas.getContext("2d")!.drawImage(canvas, 0, cursor, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
-
-        const sliceImgData = sliceCanvas.toDataURL("image/jpeg", 0.95);
-        const sliceHeightMm = sliceHeightPx / pxPerMm;
-
-        if (!firstPage) pdf.addPage();
-        pdf.addImage(sliceImgData, "JPEG", margin, margin, imgWidth, sliceHeightMm);
-        firstPage = false;
-
-        cursor = sliceEnd;
-      }
-
-      pdf.save(`${report.serviceOrderNumber}-relatorio.pdf`);
+      await buildAndDownloadPdf(report);
+    } catch (e) {
+      console.error("Falha ao gerar PDF", e);
     } finally {
       setIsDownloading(false);
     }
@@ -138,7 +75,7 @@ export default function ReportViewPage() {
         </Button>
       </div>
 
-      <div ref={contentRef} className="bg-white">
+      <div className="bg-white">
         <div className="pdf-atomic flex items-center gap-3 pb-4 mb-6 border-b-2 border-primary/20">
           <img src="/icon.svg" alt="SmartOS" className="h-11 w-11 rounded-lg shrink-0" />
           <div>
@@ -263,6 +200,12 @@ function scoreColor(score: number): string {
   return "#dc2626";
 }
 
+function scoreColorRgb(score: number): [number, number, number] {
+  if (score >= 8) return [22, 163, 74];
+  if (score >= 5) return [217, 119, 6];
+  return [220, 38, 38];
+}
+
 function ScoreGauge({ score }: { score: number }) {
   const radius = 42;
   const circumference = 2 * Math.PI * radius;
@@ -293,4 +236,300 @@ function ScoreGauge({ score }: { score: number }) {
       </text>
     </svg>
   );
+}
+
+// ── Geração nativa do PDF ──────────────────────────────────────────────────
+// Monta o documento inteiro com o próprio jsPDF (texto vetorial + fotos na
+// resolução original) em vez de tirar um "print" da tela — assim as fotos
+// nunca perdem qualidade em relação ao arquivo enviado pelo técnico.
+
+type LoadedImage = { dataUrl: string; format: "JPEG" | "PNG" | "WEBP"; width: number; height: number };
+
+async function loadImageForPdf(url: string): Promise<LoadedImage> {
+  const res = await fetch(url);
+  const blob = await res.blob();
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+  const { width, height } = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+  const mime = blob.type || "image/jpeg";
+  const imgFormat: LoadedImage["format"] = mime.includes("png") ? "PNG" : mime.includes("webp") ? "WEBP" : "JPEG";
+  return { dataUrl, format: imgFormat, width, height };
+}
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+function fitContain(naturalW: number, naturalH: number, boxW: number, boxH: number) {
+  const scale = Math.min(boxW / naturalW, boxH / naturalH);
+  const drawW = naturalW * scale;
+  const drawH = naturalH * scale;
+  return { drawW, drawH, offX: (boxW - drawW) / 2, offY: (boxH - drawH) / 2 };
+}
+
+function ensureSpace(pdf: jsPDF, y: number, needed: number, margin: number, pageHeight: number): number {
+  if (y + needed > pageHeight - margin) {
+    pdf.addPage();
+    return margin;
+  }
+  return y;
+}
+
+function drawHeader(pdf: jsPDF, x: number, y: number, contentWidth: number): number {
+  const boxSize = 12;
+  pdf.setFillColor(26, 115, 232);
+  pdf.roundedRect(x, y, boxSize, boxSize, 2.5, 2.5, "F");
+  pdf.setTextColor(255, 255, 255);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(14);
+  pdf.text("S", x + boxSize / 2, y + boxSize / 2 + 3.4, { align: "center" });
+
+  pdf.setTextColor(100, 116, 139);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(7.5);
+  pdf.text("SMARTOS", x + boxSize + 5, y + 4.5);
+
+  pdf.setTextColor(15, 23, 42);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(15);
+  pdf.text("Relatório Técnico", x + boxSize + 5, y + 10.5);
+
+  const bottom = y + boxSize + 4;
+  pdf.setDrawColor(26, 115, 232);
+  pdf.setLineWidth(0.6);
+  pdf.line(x, bottom, x + contentWidth, bottom);
+  return bottom + 7;
+}
+
+function drawInfoFields(pdf: jsPDF, x: number, y: number, fields: { label: string; value?: string; mono?: boolean }[], contentWidth: number): number {
+  const visible = fields.filter(f => f.value);
+  const cols = 3;
+  const colWidth = contentWidth / cols;
+  const rowHeight = 11;
+
+  visible.forEach((f, i) => {
+    const cx = x + (i % cols) * colWidth;
+    const cy = y + Math.floor(i / cols) * rowHeight;
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(6.5);
+    pdf.setTextColor(148, 163, 184);
+    pdf.text(f.label.toUpperCase(), cx, cy);
+    pdf.setFont(f.mono ? "courier" : "helvetica", "bold");
+    pdf.setFontSize(10);
+    pdf.setTextColor(15, 23, 42);
+    pdf.text(f.value!, cx, cy + 5);
+  });
+
+  const rows = Math.ceil(visible.length / cols) || 1;
+  return y + rows * rowHeight + 3;
+}
+
+function drawSectionTitle(pdf: jsPDF, x: number, y: number, title: string): number {
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(10);
+  pdf.setTextColor(26, 115, 232);
+  pdf.text(title.toUpperCase(), x, y);
+  return y + 5;
+}
+
+function drawPhotoRow(
+  pdf: jsPDF,
+  x: number,
+  y: number,
+  contentWidth: number,
+  photos: { loaded: LoadedImage; label?: string }[],
+  perRow: number,
+  margin: number,
+  pageHeight: number
+): number {
+  const gap = 4;
+  const cardWidth = (contentWidth - gap * (perRow - 1)) / perRow;
+  const cardHeight = cardWidth * (9 / 16);
+  const rows = chunk(photos, perRow);
+
+  rows.forEach(row => {
+    const hasLabel = row.some(p => p.label);
+    const rowHeight = cardHeight + (hasLabel ? 5 : 0) + 2;
+    y = ensureSpace(pdf, y, rowHeight, margin, pageHeight);
+
+    row.forEach((p, i) => {
+      const cx = x + i * (cardWidth + gap);
+      pdf.setFillColor(249, 250, 251);
+      pdf.setDrawColor(229, 231, 235);
+      pdf.roundedRect(cx, y, cardWidth, cardHeight, 1.5, 1.5, "FD");
+
+      const { drawW, drawH, offX, offY } = fitContain(p.loaded.width, p.loaded.height, cardWidth - 2, cardHeight - 2);
+      pdf.addImage(p.loaded.dataUrl, p.loaded.format, cx + 1 + offX, y + 1 + offY, drawW, drawH);
+
+      if (p.label) {
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(100, 116, 139);
+        pdf.text(p.label, cx + cardWidth / 2, y + cardHeight + 4, { align: "center" });
+      }
+    });
+
+    y += rowHeight;
+  });
+
+  return y + 3;
+}
+
+function drawTextSection(pdf: jsPDF, x: number, y: number, contentWidth: number, title: string, text: string, margin: number, pageHeight: number): number {
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(9.5);
+  const lines = pdf.splitTextToSize(text, contentWidth) as string[];
+  const neededHeight = 5 + lines.length * 4.6 + 6;
+  y = ensureSpace(pdf, y, neededHeight, margin, pageHeight);
+  y = drawSectionTitle(pdf, x, y, title);
+  pdf.setTextColor(30, 41, 59);
+  pdf.text(lines, x, y);
+  return y + lines.length * 4.6 + 6;
+}
+
+function drawArc(pdf: jsPDF, cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
+  const steps = 48;
+  let prev: [number, number] | null = null;
+  for (let i = 0; i <= steps; i++) {
+    const t = startDeg + (endDeg - startDeg) * (i / steps);
+    const rad = (t * Math.PI) / 180;
+    const pt: [number, number] = [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
+    if (prev) pdf.line(prev[0], prev[1], pt[0], pt[1]);
+    prev = pt;
+  }
+}
+
+function drawScoreSection(pdf: jsPDF, x: number, y: number, contentWidth: number, score: number, feedback: string | undefined, margin: number, pageHeight: number): number {
+  const boxHeight = 34;
+  y = ensureSpace(pdf, y, boxHeight + 8, margin, pageHeight);
+  y = drawSectionTitle(pdf, x, y, "Nota do Relatório (IA)");
+
+  pdf.setDrawColor(229, 231, 235);
+  pdf.roundedRect(x, y, contentWidth, boxHeight, 2, 2, "S");
+
+  const cx = x + 20;
+  const cy = y + boxHeight / 2;
+  const r = 12;
+  const color = scoreColorRgb(score);
+  const pct = Math.max(0, Math.min(1, score / 10));
+
+  pdf.setLineWidth(2.2);
+  pdf.setDrawColor(229, 231, 235);
+  drawArc(pdf, cx, cy, r, 0, 360);
+  pdf.setDrawColor(color[0], color[1], color[2]);
+  drawArc(pdf, cx, cy, r, -90, -90 + pct * 360);
+
+  pdf.setFont("courier", "bold");
+  pdf.setFontSize(12);
+  pdf.setTextColor(color[0], color[1], color[2]);
+  pdf.text(score.toFixed(1), cx, cy + 1.5, { align: "center" });
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(6);
+  pdf.setTextColor(148, 163, 184);
+  pdf.text("/ 10", cx, cy + 5.5, { align: "center" });
+
+  if (feedback) {
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(9);
+    pdf.setTextColor(55, 65, 81);
+    const lines = pdf.splitTextToSize(feedback, contentWidth - 50) as string[];
+    pdf.text(lines, x + 45, cy - ((lines.length - 1) * 4.6) / 2 + 1.5);
+  }
+
+  return y + boxHeight + 6;
+}
+
+async function buildAndDownloadPdf(report: TechnicalReport): Promise<void> {
+  const { default: JsPdfCtor } = await import("jspdf");
+
+  const results = await Promise.allSettled(report.photos.map(p => loadImageForPdf(p.url)));
+  const loadedByPath = new Map<string, LoadedImage>();
+  report.photos.forEach((p, i) => {
+    const r = results[i];
+    if (r.status === "fulfilled") loadedByPath.set(p.path, r.value);
+  });
+
+  const pdf = new JsPdfCtor("p", "mm", "a4");
+  const margin = 15;
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const contentWidth = pageWidth - margin * 2;
+  let y = margin;
+
+  y = drawHeader(pdf, margin, y, contentWidth);
+  y = drawInfoFields(
+    pdf,
+    margin,
+    y,
+    [
+      { label: "OS", value: report.serviceOrderNumber, mono: true },
+      { label: "Data", value: format(report.createdAt, "dd/MM/yyyy") },
+      { label: "Técnico", value: report.technicianName },
+      { label: "Produto", value: report.productModel, mono: true },
+      { label: "Série", value: report.serialNumber, mono: true },
+    ],
+    contentWidth
+  );
+  y += 4;
+
+  const productCats = ["produto_frontal", "produto_traseira", "produto_serial"] as TechnicalReportPhotoCategory[];
+  const productPhotosList = productCats
+    .map(cat => report.photos.find(p => p.category === cat))
+    .filter((p): p is TechnicalReportPhoto => !!p && loadedByPath.has(p.path));
+
+  if (productPhotosList.length > 0) {
+    y = ensureSpace(pdf, y, 6, margin, pageHeight);
+    y = drawSectionTitle(pdf, margin, y, "Fotos do Produto");
+    y = drawPhotoRow(
+      pdf,
+      margin,
+      y,
+      contentWidth,
+      productPhotosList.map(p => ({ loaded: loadedByPath.get(p.path)!, label: PRODUCT_LABELS[p.category] })),
+      3,
+      margin,
+      pageHeight
+    );
+  }
+
+  const defectPhotos = report.photos
+    .filter(p => p.category === "defeito" && loadedByPath.has(p.path))
+    .sort((a, b) => a.order - b.order);
+  if (defectPhotos.length > 0) {
+    y = ensureSpace(pdf, y, 6, margin, pageHeight);
+    y = drawSectionTitle(pdf, margin, y, "Defeito Apresentado");
+    y = drawPhotoRow(pdf, margin, y, contentWidth, defectPhotos.map(p => ({ loaded: loadedByPath.get(p.path)! })), 2, margin, pageHeight);
+  }
+
+  const repairPhotos = report.photos
+    .filter(p => p.category === "pos_reparo" && loadedByPath.has(p.path))
+    .sort((a, b) => a.order - b.order);
+  if (repairPhotos.length > 0) {
+    y = ensureSpace(pdf, y, 6, margin, pageHeight);
+    y = drawSectionTitle(pdf, margin, y, "Pós-Reparo");
+    y = drawPhotoRow(pdf, margin, y, contentWidth, repairPhotos.map(p => ({ loaded: loadedByPath.get(p.path)! })), 2, margin, pageHeight);
+  }
+
+  if (report.repairDescription) {
+    y = drawTextSection(pdf, margin, y, contentWidth, "Descrição do Reparo", report.repairDescription, margin, pageHeight);
+  }
+  if (report.observations) {
+    y = drawTextSection(pdf, margin, y, contentWidth, "Observações", report.observations, margin, pageHeight);
+  }
+  if (report.aiScore != null) {
+    y = drawScoreSection(pdf, margin, y, contentWidth, report.aiScore, report.aiScoreFeedback, margin, pageHeight);
+  }
+
+  pdf.save(`${report.serviceOrderNumber}-relatorio.pdf`);
 }
