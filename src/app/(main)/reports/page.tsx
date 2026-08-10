@@ -30,6 +30,14 @@ const PRODUCT_SLOTS: { category: TechnicalReportPhotoCategory; label: string }[]
   { category: "produto_serial", label: "Serial" },
 ];
 
+const REQUIRED_CATEGORIES: TechnicalReportPhotoCategory[] = [
+  "produto_frontal",
+  "produto_traseira",
+  "produto_serial",
+  "defeito",
+  "pos_reparo",
+];
+
 export default function ReportsPage() {
   const { toast } = useToast();
   const { data: technicians = [] } = useTechnicians();
@@ -236,12 +244,25 @@ export default function ReportsPage() {
   const multiPhotos = (category: TechnicalReportPhotoCategory) =>
     photos.filter(p => p.category === category);
 
+  const completedCount = REQUIRED_CATEGORIES.filter(cat => photos.some(p => p.category === cat)).length;
+
   return (
-    <div className="max-w-3xl mx-auto p-4 md:p-8 space-y-4">
+    <div className="max-w-3xl mx-auto p-4 md:p-8 pb-24 sm:pb-8 space-y-4">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Camera className="h-5 w-5" /> Relatório Fotográfico</CardTitle>
           <CardDescription>Preencha ao final do reparo: fotos do produto, do defeito apresentado e do pós-reparo.</CardDescription>
+          <div className="flex items-center gap-2 pt-1">
+            <div className="flex-1 flex gap-1">
+              {REQUIRED_CATEGORIES.map(cat => (
+                <div
+                  key={cat}
+                  className={`h-1.5 flex-1 rounded-full transition-colors ${photos.some(p => p.category === cat) ? "bg-primary" : "bg-muted"}`}
+                />
+              ))}
+            </div>
+            <span className="text-xs font-medium text-muted-foreground shrink-0">{completedCount}/5 fotos</span>
+          </div>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -334,7 +355,7 @@ export default function ReportsPage() {
             <Textarea value={observations} onChange={e => setObservations(e.target.value)} rows={4} placeholder="Detalhes do atendimento, recomendações, etc." />
           </div>
         </CardContent>
-        <CardFooter className="flex flex-col sm:flex-row gap-2 justify-between">
+        <CardFooter className="flex flex-col sm:flex-row gap-2 justify-between fixed sm:static bottom-0 left-0 right-0 z-20 bg-card border-t sm:border-t-0 p-4 sm:p-6 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
           <Button type="button" variant="outline" onClick={resetForm} disabled={isSaving}>Novo Relatório</Button>
           <div className="flex gap-2">
             {savedReportId && (

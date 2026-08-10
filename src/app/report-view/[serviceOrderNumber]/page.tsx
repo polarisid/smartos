@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
 import { type TechnicalReport, type TechnicalReportPhoto, type TechnicalReportPhotoCategory } from "@/lib/data";
 import { Button } from "@/components/ui/button";
-import { Loader2, Download } from "lucide-react";
+import { Loader2, Download, ScanLine, AlertTriangle, Wrench, MessageSquare } from "lucide-react";
 import { format } from "date-fns";
 
 const PRODUCT_LABELS: Record<string, string> = {
@@ -113,16 +113,16 @@ export default function ReportViewPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm mb-8">
-          <InfoField label="OS" value={report.serviceOrderNumber} />
+        <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm mb-8">
+          <InfoField label="OS" value={report.serviceOrderNumber} mono />
           <InfoField label="Data" value={format(report.createdAt, "dd/MM/yyyy")} />
           <InfoField label="Técnico" value={report.technicianName} />
-          <InfoField label="Produto" value={report.productModel} />
-          <InfoField label="Série" value={report.serialNumber} />
+          <InfoField label="Produto" value={report.productModel} mono />
+          <InfoField label="Série" value={report.serialNumber} mono />
         </div>
 
         {productPhotos.some(cat => report.photos.some(p => p.category === cat)) && (
-          <ReportSection title="Fotos do Produto">
+          <ReportSection title="Fotos do Produto" icon={ScanLine}>
             <div className="flex gap-4">
               {productPhotos.map(cat => {
                 const photo = report.photos.find(p => p.category === cat);
@@ -134,7 +134,7 @@ export default function ReportViewPage() {
         )}
 
         {defectPhotos.length > 0 && (
-          <ReportSection title="Defeito Apresentado">
+          <ReportSection title="Defeito Apresentado" icon={AlertTriangle}>
             <div className="flex flex-wrap gap-4">
               {defectPhotos.map(photo => (
                 <PhotoCard key={photo.path} photo={photo} className="w-64" />
@@ -144,7 +144,7 @@ export default function ReportViewPage() {
         )}
 
         {repairPhotos.length > 0 && (
-          <ReportSection title="Pós-Reparo">
+          <ReportSection title="Pós-Reparo" icon={Wrench}>
             <div className="flex flex-wrap gap-4">
               {repairPhotos.map(photo => (
                 <PhotoCard key={photo.path} photo={photo} className="w-64" />
@@ -154,16 +154,16 @@ export default function ReportViewPage() {
         )}
 
         {report.observations && (
-          <ReportSection title="Observações">
+          <ReportSection title="Observações" icon={MessageSquare}>
             <p className="text-sm whitespace-pre-wrap">{report.observations}</p>
           </ReportSection>
         )}
 
         {report.aiScore != null && (
           <ReportSection title="Nota do Relatório (IA)" last>
-            <div className={`flex items-center gap-4 rounded-lg border p-4 ${scoreColorClasses(report.aiScore)}`}>
-              <span className="text-3xl font-bold shrink-0">{report.aiScore.toFixed(1)}<span className="text-base font-normal">/10</span></span>
-              {report.aiScoreFeedback && <p className="text-sm">{report.aiScoreFeedback}</p>}
+            <div className="flex items-center gap-5 rounded-lg border border-gray-200 p-4">
+              <ScoreGauge score={report.aiScore} />
+              {report.aiScoreFeedback && <p className="text-sm text-gray-700">{report.aiScoreFeedback}</p>}
             </div>
           </ReportSection>
         )}
@@ -172,20 +172,33 @@ export default function ReportViewPage() {
   );
 }
 
-function InfoField({ label, value }: { label: string; value?: string }) {
+function InfoField({ label, value, mono }: { label: string; value?: string; mono?: boolean }) {
   if (!value) return null;
   return (
     <div>
       <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="font-medium">{value}</p>
+      <p className={`font-medium ${mono ? "font-mono tracking-tight" : ""}`}>{value}</p>
     </div>
   );
 }
 
-function ReportSection({ title, children, last }: { title: string; children: React.ReactNode; last?: boolean }) {
+function ReportSection({
+  title,
+  icon: Icon,
+  children,
+  last,
+}: {
+  title: string;
+  icon?: React.ComponentType<{ className?: string }>;
+  children: React.ReactNode;
+  last?: boolean;
+}) {
   return (
     <section className={`photo-item ${last ? "" : "mb-8"}`}>
-      <h2 className="text-xs font-bold uppercase tracking-wide text-primary mb-3">{title}</h2>
+      <h2 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-primary mb-3">
+        {Icon && <Icon className="h-3.5 w-3.5" />}
+        {title}
+      </h2>
       {children}
     </section>
   );
@@ -204,8 +217,40 @@ function PhotoCard({ photo, label, className = "" }: { photo: TechnicalReportPho
   );
 }
 
-function scoreColorClasses(score: number): string {
-  if (score >= 8) return "bg-green-50 border-green-200 text-green-800";
-  if (score >= 5) return "bg-amber-50 border-amber-200 text-amber-800";
-  return "bg-red-50 border-red-200 text-red-800";
+function scoreColor(score: number): string {
+  if (score >= 8) return "#16a34a";
+  if (score >= 5) return "#d97706";
+  return "#dc2626";
+}
+
+function ScoreGauge({ score }: { score: number }) {
+  const radius = 42;
+  const circumference = 2 * Math.PI * radius;
+  const pct = Math.max(0, Math.min(1, score / 10));
+  const offset = circumference * (1 - pct);
+  const color = scoreColor(score);
+
+  return (
+    <svg width="96" height="96" viewBox="0 0 96 96" className="shrink-0">
+      <circle cx="48" cy="48" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="9" />
+      <circle
+        cx="48"
+        cy="48"
+        r={radius}
+        fill="none"
+        stroke={color}
+        strokeWidth="9"
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={offset}
+        transform="rotate(-90 48 48)"
+      />
+      <text x="48" y="46" textAnchor="middle" fontSize="22" fontWeight="700" fontFamily="ui-monospace, monospace" fill={color}>
+        {score.toFixed(1)}
+      </text>
+      <text x="48" y="61" textAnchor="middle" fontSize="9" fill="#94a3b8">
+        / 10
+      </text>
+    </svg>
+  );
 }
