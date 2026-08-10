@@ -18,7 +18,7 @@ import { Phone, MessageSquare, ChevronRight } from "lucide-react";import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen, Copy, ArrowUp, ArrowDown, FileDown, Loader2, ArrowRightLeft, MapPin } from "lucide-react";
+import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen, Copy, ArrowUp, ArrowDown, FileDown, Loader2, ArrowRightLeft, MapPin, Zap } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { routeService } from "@/services/supabase/routeService";
@@ -42,6 +42,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import React from "react";
 import { Progress } from "@/components/ui/progress";
 import { triggerWebhook } from "@/lib/webhook";
+import { RouteCreationWizard } from "@/components/routes/RouteCreationWizard";
 import * as XLSX from 'xlsx';
 import dynamic from "next/dynamic";
 import { Clock, Map as MapIcon, List, History } from "lucide-react";
@@ -1447,6 +1448,7 @@ export default function RoutesPage() {
     const [activeTab, setActiveTab] = useState('list');
     const [formMode, setFormMode] = useState<'add' | 'edit'>('add');
     const [selectedRouteForEdit, setSelectedRouteForEdit] = useState<Route | null>(null);
+    const [isWizardOpen, setIsWizardOpen] = useState(false);
 
     const activeStopsForMap = useMemo(() => {
         if (!selectedRoute) return [];
@@ -1696,9 +1698,14 @@ export default function RoutesPage() {
                             <FileDown className="mr-2 h-4 w-4" /> Exportar Relatório (Ativas)
                         </Button>
                         {activeTab === 'list' && (
-                            <Button onClick={() => handleOpenForm('add')}>
-                                <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Rota
-                            </Button>
+                            <>
+                                <Button variant="outline" onClick={() => handleOpenForm('add')} title="Cria a rota já ativa direto, sem passar pelo assistente de rascunho/otimização/e-mail">
+                                    <Zap className="mr-2 h-4 w-4" /> Postagem Rápida
+                                </Button>
+                                <Button onClick={() => setIsWizardOpen(true)}>
+                                    <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Rota
+                                </Button>
+                            </>
                         )}
                         {activeTab === 'form' && (
                             <Button variant="outline" onClick={() => setActiveTab('list')}>
@@ -1989,6 +1996,12 @@ export default function RoutesPage() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            <RouteCreationWizard
+                open={isWizardOpen}
+                onOpenChange={setIsWizardOpen}
+                onCompleted={() => { fetchRoutes(); refreshDynamicData(); }}
+            />
         </>
     );
 }

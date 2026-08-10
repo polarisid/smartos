@@ -10,7 +10,7 @@ import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type D
 import { optimizeWithGoogle, buildGoogleSummary } from "@/services/googleRouteOptimizer";
 import {   ArrowUp,   } from "lucide-react";
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
-import { SortableStopCard } from "./SortableStopCard"; // ou cole o componente no próprio arquivo
+import { SortableStopCard } from "@/components/routes/SortableStopCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,16 +25,18 @@ import { useToast } from "@/hooks/use-toast";
 import { useAllRoutes, useTechnicians, useDrivers } from "@/hooks/queries";
 import { routeService } from "@/services/supabase/routeService";
 import { configService } from "@/services/supabase/configService";
-import { type Route, type RouteStop, type RoutePart } from "@/lib/data";
+import { type Route, type RouteStop } from "@/lib/data";
+import { parseRouteText } from "@/lib/parseRouteText";
 import { optimizeRouteStops, optimizeRouteStopsAsync, describeOptimization } from "@/lib/routeOptimizer";
 import { optimizeRouteWithGeminiAI } from "@/services/aiRouteService";
 import { parseFullAddress, validateCepWithCityState, getCoordinates } from "@/lib/geocode";
 import { copyRouteEmailToClipboard } from "@/lib/emailExport";
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Trash2, CheckCircle2,
-  Sparkles, Download, MapPin, Calendar, Users, Truck,
+  Sparkles, Download, MapPin, Calendar, Users, Truck, Rocket,
   Eye, Loader2, List, Edit, Copy, Search
 } from "lucide-react";
+import { RouteCreationWizard } from "@/components/routes/RouteCreationWizard";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComp } from "@/components/ui/calendar";
@@ -244,129 +246,6 @@ function getRouteDayInfo(route: Route, day: Date) {
     minDate,
     maxDate
   };
-}
-
-// ─── parseRouteText (supports multiple parts COD/COD2/COD3... and flexible turn headers) ──
-function parseRouteText(text: string): RouteStop[] {
-  if (!text.trim()) return [];
-  const lines = text.trim().replace(/\r\n/g, '\n').split('\n');
-  const headerLine = lines.shift()?.trim();
-  if (!headerLine) return [];
-  const hasTabs = headerLine.includes('\t');
-  const getColumns = (line: string) =>
-    hasTabs ? line.split('\t').map(c => c.trim().replace(/ {2,}/g, ' '))
-            : line.replace(/[\s\t]{2,}/g, '\t').split('\t').map(c => c.trim());
-  const headers = getColumns(headerLine).map(h => h.toLowerCase());
-
-  const getIndex = (names: string | string[]) => {
-    const nameList = Array.isArray(names) ? names : [names];
-    for (const n of nameList) {
-      const i = headers.indexOf(n.toLowerCase());
-      if (i !== -1) return i;
-    }
-    for (const n of nameList) {
-      const i = headers.findIndex(h => h.includes(n.toLowerCase()));
-      if (i !== -1) return i;
-    }
-    return -1;
-  };
-
-  const hi = {
-    soNro: getIndex(['so nro.', 'so nro', 'ordem de servico', 'os', 'nro os', 'so']),
-    ascJobNo: getIndex(['asc job no.', 'asc job no', 'asc job']),
-    consumerName: getIndex(['nome consumidor', 'consumidor', 'cliente', 'nome cliente']),
-    city: getIndex(['cidade', 'city']),
-    neighborhood: getIndex(['bairro', 'bairro/distrito']),
-    state: getIndex(['uf', 'estado', 'st']),
-    zipCode: getIndex(['cep', 'codigo postal', 'zip', 'zip code', 'zipcode']),
-    model: getIndex(['modelo', 'model']),
-    turn: getIndex(['turno', 'turno atendimento', 'turno atend.', 'periodo', 'período', 'horario', 'horário']),
-    tat: getIndex(['tat']),
-    requestDate: getIndex(['data de solicitação', 'data solicitacao', 'data sol']),
-    firstVisitDate: getIndex(['1st visit date', 'primeira visita', 'data visita', 'agendamento']),
-    ts: getIndex(['ts']),
-    warrantyType: getIndex(['ow/lp', 'garantia', 'tipo garantia']),
-    productType: getIndex(['spd', 'produto', 'tipo produto']),
-    statusComment: getIndex(['status comment', 'status', 'comentario']),
-  };
-
-  const partColumns: { codeIndex: number; qtyIndex?: number; descIndex?: number }[] = [];
-
-  headers.forEach((header, index) => {
-    const cleanHeader = header.replace(/[^a-z0-9]/g, '');
-    const isCodHeader = cleanHeader.startsWith('cod') || cleanHeader.startsWith('codigo');
-
-    if (isCodHeader) {
-      const codeIndex = index;
-      let qtyIndex: number | undefined = undefined;
-      let descIndex: number | undefined = undefined;
-
-      for (let offset = 1; offset <= 3; offset++) {
-        const nextHeader = (headers[index + offset] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (!nextHeader) break;
-
-        if (nextHeader.startsWith('desc')) {
-          descIndex = index + offset;
-        } else if (nextHeader.startsWith('qtd') || nextHeader.startsWith('quant')) {
-          qtyIndex = index + offset;
-        }
-      }
-
-      partColumns.push({ codeIndex, qtyIndex, descIndex });
-    }
-  });
-
-  return lines.map(line => {
-    const cols = getColumns(line);
-    const so = hi.soNro !== -1 ? cols[hi.soNro]?.trim() : cols[0]?.trim();
-    if (!so || so.toLowerCase().includes('so nro')) return null;
-
-    const parts: RoutePart[] = [];
-    partColumns.forEach(pc => {
-      const code = cols[pc.codeIndex]?.trim();
-      if (!code) return;
-
-      let quantity = 1;
-      if (pc.qtyIndex !== undefined) {
-        const rawQty = parseInt(cols[pc.qtyIndex]?.trim() || '', 10);
-        if (!isNaN(rawQty) && rawQty > 0) {
-          quantity = rawQty;
-        }
-      }
-
-      const description = pc.descIndex !== undefined ? (cols[pc.descIndex]?.trim() || '') : '';
-
-      if (!parts.some(p => p.code === code)) {
-        parts.push({
-          code,
-          description,
-          quantity,
-          trackingCode: ''
-        });
-      }
-    });
-
-    return {
-      serviceOrder: so,
-      ascJobNumber: hi.ascJobNo !== -1 ? (cols[hi.ascJobNo]?.trim() || '') : '',
-      consumerName: hi.consumerName !== -1 ? (cols[hi.consumerName]?.trim() || '') : '',
-      city: hi.city !== -1 ? (cols[hi.city]?.trim() || '') : '',
-      neighborhood: hi.neighborhood !== -1 ? (cols[hi.neighborhood]?.trim() || '') : '',
-      state: hi.state !== -1 ? (cols[hi.state]?.trim() || '') : '',
-      zipCode: hi.zipCode !== -1 ? (cols[hi.zipCode]?.trim() || '') : '',
-      model: hi.model !== -1 ? (cols[hi.model]?.trim() || '') : '',
-      turn: hi.turn !== -1 ? (cols[hi.turn]?.trim() || '') : '',
-      tat: hi.tat !== -1 ? (cols[hi.tat]?.trim() || '') : '',
-      requestDate: hi.requestDate !== -1 ? (cols[hi.requestDate]?.trim() || '') : '',
-      firstVisitDate: hi.firstVisitDate !== -1 ? (cols[hi.firstVisitDate]?.trim() || '') : '',
-      ts: hi.ts !== -1 ? (cols[hi.ts]?.trim() || '') : '',
-      warrantyType: hi.warrantyType !== -1 ? (cols[hi.warrantyType]?.trim() || '') : '',
-      productType: hi.productType !== -1 ? (cols[hi.productType]?.trim() || '') : '',
-      statusComment: hi.statusComment !== -1 ? (cols[hi.statusComment]?.trim() || '') : '',
-      parts,
-      stopType: 'padrao' as const,
-    } as RouteStop;
-  }).filter((s): s is RouteStop => s !== null);
 }
 
 // ─── Excel Export ────────────────────────────────────────────────────────────
@@ -660,11 +539,8 @@ export default function PlanejamentoPage() {
   };
 
   // Dialog states
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [routeToDelete, setRouteToDelete] = useState<Route | null>(null);
-  const [isPublishing, setIsPublishing] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
 
   // ── Drag and Drop state ──
@@ -769,16 +645,11 @@ export default function PlanejamentoPage() {
     }).catch(console.error);
   }, []);
 
-  // Form state (Create)
   const [searchOS, setSearchOS] = useState("");
-  const [formName, setFormName] = useState("");
-  const [formText, setFormText] = useState("");
-  const [formTechnicianId, setFormTechnicianId] = useState("");
-  const [formDriverId, setFormDriverId] = useState("");
-  const [formRouteType, setFormRouteType] = useState<"capital" | "interior">("capital");
-  const [formPlannedDate, setFormPlannedDate] = useState<Date | undefined>(undefined);
-  const [formCalOpen, setFormCalOpen] = useState(false);
-  const [parsedPreview, setParsedPreview] = useState<RouteStop[]>([]);
+
+  // Wizard de criação de rota (rascunho → otimização → turnos/datas → email → publicar)
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [wizardInitialRoute, setWizardInitialRoute] = useState<Route | null>(null);
 
   // Edit Dialog state
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -995,72 +866,6 @@ export default function PlanejamentoPage() {
       .filter(r => getRouteDayInfo(r, weekDays[0]).isMultiDay)
       .sort((a, b) => b.stops.length - a.stops.length);
   }, [activeAndDraftRoutesForWeek, weekDays]);
-
-  // ── Parse text preview & validate CEP vs City/UF ──
-  const handleTextChange = useCallback(async (v: string) => {
-    setFormText(v);
-    const stops = parseRouteText(v);
-    setParsedPreview(stops);
-
-    // Asynchronously validate CEP mismatch for each stop
-    const validatedStops = await Promise.all(stops.map(async (stop) => {
-      if (stop.zipCode) {
-        const val = await validateCepWithCityState(stop.zipCode, stop.city, stop.state);
-        if (val.mismatch) {
-          return {
-            ...stop,
-            zipMismatch: true,
-            zipMismatchDetails: val.details,
-            suggestedCityState: `${val.suggestedCity}-${val.suggestedState}`
-          };
-        }
-      }
-      return stop;
-    }));
-
-    setParsedPreview(validatedStops);
-  }, []);
-
-  // ── Create draft ──
-  const handleCreate = async () => {
-    if (!formName.trim() || parsedPreview.length === 0) {
-      toast({ variant: "destructive", title: "Preencha o nome e cole as OSs antes de salvar." });
-      return;
-    }
-    setIsSaving(true);
-    try {
-      const tech = technicians.find(t => t.id === formTechnicianId);
-      const driver = drivers.find(d => d.id === formDriverId);
-      await routeService.create({
-        name: formName.trim(),
-        stops: parsedPreview,
-        isActive: false,
-        isDraft: true,
-        plannedDate: formPlannedDate,
-        departureDate: formPlannedDate,
-        routeType: formRouteType,
-        technicianId: tech?.id,
-        technicianName: tech?.name,
-        driverId: driver?.id,
-        driverName: driver?.name,
-        driverPhone: (driver as any)?.phone,
-        createdAt: new Date(),
-      });
-      await queryClient.invalidateQueries({ queryKey: ['routes', 'draft'] });
-      toast({ title: "Rascunho criado!", description: `${parsedPreview.length} paradas adicionadas.` });
-      setIsCreateOpen(false);
-      resetForm();
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Erro ao criar rascunho", description: e.message });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const resetForm = () => {
-    setFormName(""); setFormText(""); setFormTechnicianId(""); setFormDriverId("");
-    setFormRouteType("capital"); setFormPlannedDate(undefined); setParsedPreview([]);
-  };
 
   // ── Open Edit Route Modal ──
   const handleOpenEdit = async (route: Route) => {
@@ -1322,22 +1127,6 @@ export default function PlanejamentoPage() {
     }
   };
 
-  // ── Publish ──
-  const handlePublish = async (route: Route) => {
-    setIsPublishing(route.id);
-    try {
-      await routeService.publishRoute(route.id, route.plannedDate);
-      await queryClient.invalidateQueries({ queryKey: ['routes', 'draft'] });
-      await queryClient.invalidateQueries({ queryKey: ['routes', 'active'] });
-      if (selectedRoute?.id === route.id) setSelectedRoute(null);
-      toast({ title: "✅ Rota Publicada!", description: `"${route.name}" está agora ativa para os técnicos.` });
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Erro ao publicar", description: e.message });
-    } finally {
-      setIsPublishing(null);
-    }
-  };
-
   // ── Delete ──
   const handleDelete = async () => {
     if (!routeToDelete) return;
@@ -1463,7 +1252,7 @@ export default function PlanejamentoPage() {
                 <Download className="h-4 w-4" />
                 Baixar Semana (Excel)
               </Button>
-              <Button size="sm" onClick={() => setIsCreateOpen(true)} className="gap-2">
+              <Button size="sm" onClick={() => { setWizardInitialRoute(null); setIsWizardOpen(true); }} className="gap-2">
                 <Plus className="h-4 w-4" />
                 Nova Rota
               </Button>
@@ -1804,7 +1593,7 @@ export default function PlanejamentoPage() {
                   <div className="flex flex-col gap-2">
                     {dayRoutes.length === 0 ? (
                       <button
-                        onClick={() => setIsCreateOpen(true)}
+                        onClick={() => { setWizardInitialRoute(null); setIsWizardOpen(true); }}
                         className="rounded-lg border-2 border-dashed border-border/30 py-5 text-center hover:border-primary/30 hover:bg-muted/20 transition-colors group"
                       >
                         <Plus className="h-4 w-4 mx-auto text-muted-foreground/40 group-hover:text-primary/50 transition-colors" />
@@ -1813,7 +1602,6 @@ export default function PlanejamentoPage() {
                       dayRoutes.map(route => {
                         const dayInfo = getRouteDayInfo(route, day);
                         const isSelected = selectedRoute?.id === route.id;
-                        const publishing = isPublishing === route.id;
                         const lpCount = route.stops.filter(s => s.warrantyType === 'LP').length;
                         const isFinalized = !route.isDraft && !route.isActive;
 
@@ -1955,14 +1743,24 @@ export default function PlanejamentoPage() {
                               {/* Action buttons */}
                               {!isFinalized && (
                                 <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                                <button
-                                  className="flex-1 h-6 text-[9px] font-semibold rounded border border-violet-200 text-violet-700 hover:bg-violet-50 dark:border-violet-800 dark:text-violet-400 flex items-center justify-center gap-0.5 transition-colors"
-                                  title="IA Otimizar"
-                                  disabled={isOptimizing}
-                                  onClick={() => handleOpenOptimize(route)}
-                                >
-                                  <Sparkles className="h-2.5 w-2.5" /> IA
-                                </button>
+                                {route.isDraft ? (
+                                  <button
+                                    className="flex-1 h-6 text-[9px] font-semibold rounded bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center gap-0.5 transition-colors"
+                                    title="Continuar o assistente de criação (otimizar, confirmar turnos/datas, e-mail, publicar)"
+                                    onClick={() => { setWizardInitialRoute(route); setIsWizardOpen(true); }}
+                                  >
+                                    <Rocket className="h-2.5 w-2.5" /> Continuar
+                                  </button>
+                                ) : (
+                                  <button
+                                    className="flex-1 h-6 text-[9px] font-semibold rounded border border-violet-200 text-violet-700 hover:bg-violet-50 dark:border-violet-800 dark:text-violet-400 flex items-center justify-center gap-0.5 transition-colors"
+                                    title="IA Otimizar"
+                                    disabled={isOptimizing}
+                                    onClick={() => handleOpenOptimize(route)}
+                                  >
+                                    <Sparkles className="h-2.5 w-2.5" /> IA
+                                  </button>
+                                )}
                                 <button
                                   className="flex-1 h-6 text-[9px] font-semibold rounded border border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 flex items-center justify-center gap-0.5 transition-colors"
                                   onClick={() => handleOpenEdit(route)}
@@ -1983,16 +1781,6 @@ export default function PlanejamentoPage() {
                                     onClick={() => { setRouteToDelete(route); setIsDeleteOpen(true); }}
                                   >
                                     <Trash2 className="h-2.5 w-2.5" />
-                                  </button>
-                                )}
-                                {route.isDraft && (
-                                  <button
-                                    className="flex-1 h-6 text-[9px] font-semibold rounded bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-0.5 transition-colors"
-                                    disabled={publishing}
-                                    onClick={() => handlePublish(route)}
-                                  >
-                                    {publishing ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle2 className="h-2.5 w-2.5" />}
-                                    Pub.
                                   </button>
                                 )}
                               </div>
@@ -2312,158 +2100,6 @@ export default function PlanejamentoPage() {
           </div>
         )}
       </div>
-
-      {/* ── Create Dialog ── */}
-      <Dialog open={isCreateOpen} onOpenChange={open => { setIsCreateOpen(open); if (!open) resetForm(); }}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Nova Rota Planejada</DialogTitle>
-            <DialogDescription>
-              Cole os dados das OSs da planilha Samsung para criar um rascunho.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-2">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5 col-span-2">
-                <Label>Nome da Rota *</Label>
-                <Input placeholder="Ex: W31 - ROTA CAPITAL - PEDRO" value={formName} onChange={e => setFormName(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Tipo de Rota</Label>
-                <Select value={formRouteType} onValueChange={(v: any) => setFormRouteType(v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="capital">🏙️ Capital</SelectItem>
-                    <SelectItem value="interior">🌿 Interior</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Data Planejada</Label>
-                <Popover open={formCalOpen} onOpenChange={setFormCalOpen}>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal">
-                      <Calendar className="mr-2 h-4 w-4" />
-                      {formPlannedDate ? format(formPlannedDate, 'dd/MM/yyyy') : 'Selecionar data...'}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <CalendarComp
-                      mode="single"
-                      selected={formPlannedDate}
-                      onSelect={d => { setFormPlannedDate(d); setFormCalOpen(false); }}
-                      locale={ptBR}
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Técnico</Label>
-                <Select value={formTechnicianId} onValueChange={setFormTechnicianId}>
-                  <SelectTrigger><SelectValue placeholder="Selecionar..." /></SelectTrigger>
-                  <SelectContent>
-                    {technicians.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Motorista</Label>
-                <Select value={formDriverId} onValueChange={setFormDriverId}>
-                  <SelectTrigger><SelectValue placeholder="Selecionar..." /></SelectTrigger>
-                  <SelectContent>
-                    {drivers.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label>
-                  OSs da Planilha Samsung *
-                  {parsedPreview.length > 0 && (
-                    <span className="ml-2 text-xs font-normal text-emerald-600">✓ {parsedPreview.length} OSs detectadas</span>
-                  )}
-                </Label>
-                <button
-                  type="button"
-                  onClick={handleCopyHeader}
-                  className={cn(
-                    "flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md border transition-all duration-150",
-                    headerCopied
-                      ? "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-400"
-                      : "bg-muted/50 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  {headerCopied ? (
-                    <><CheckCircle2 className="h-3 w-3" /> Copiado!</>
-                  ) : (
-                    <><Copy className="h-3 w-3" /> Copiar cabeçalho padrão</>
-                  )}
-                </button>
-              </div>
-              <Textarea
-                placeholder="Cole aqui o conteúdo da planilha Excel (Ctrl+A → Ctrl+C na planilha e cole aqui)..."
-                className="min-h-[180px] font-mono text-xs"
-                value={formText}
-                onChange={e => handleTextChange(e.target.value)}
-              />
-              {parsedPreview.length > 0 && (
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20 p-2">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Pré-visualização das paradas ({parsedPreview.length}):</p>
-                    {parsedPreview.some(s => s.zipMismatch) && (
-                      <span className="text-[10px] font-bold text-red-600 bg-red-100 dark:bg-red-950 dark:text-red-300 px-1.5 py-0.5 rounded border border-red-300">
-                        ⚠️ Inconsistência de CEP detectada
-                      </span>
-                    )}
-                  </div>
-                  <div className="max-h-40 overflow-y-auto space-y-0.5">
-                    {parsedPreview.map((s, i) => (
-                      <div key={i} className={cn(
-                        "flex items-center flex-wrap gap-1.5 text-xs py-1 px-1 rounded border-b border-border/20 last:border-0 transition-colors",
-                        s.zipMismatch && "bg-red-500/10 border-red-500/30"
-                      )}>
-                        <span className="text-muted-foreground w-5 text-right font-bold">{i+1}.</span>
-                        <span className="font-mono font-bold">{s.serviceOrder}</span>
-                        <span className="text-muted-foreground truncate max-w-[110px]">{s.consumerName}</span>
-                        <span className="text-muted-foreground font-medium">{s.city}{s.state ? `-${s.state}` : ''}</span>
-                        {s.zipCode && (
-                          <span className="font-mono text-[9px] text-muted-foreground bg-muted px-1 rounded">
-                            {s.zipCode}
-                          </span>
-                        )}
-                        {s.zipMismatch && (
-                          <span className="text-[9px] font-bold bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 px-1.5 py-0.2 rounded border border-red-300 flex items-center gap-1" title={s.zipMismatchDetails}>
-                            ⚠️ CEP de {s.suggestedCityState}
-                          </span>
-                        )}
-                        {s.turn && (
-                          <span className="text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 px-1.5 py-0.2 rounded">
-                            {s.turn}
-                          </span>
-                        )}
-                        {s.parts && s.parts.length > 0 && (
-                          <span className="text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 px-1.5 py-0.2 rounded">
-                            📦 {s.parts.length} peça{s.parts.length > 1 ? 's' : ''}: {s.parts.map(p => `${p.code}${p.quantity > 1 ? ` x${p.quantity}` : ''}`).join(', ')}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancelar</Button>
-            <Button onClick={handleCreate} disabled={isSaving || !formName.trim() || parsedPreview.length === 0} className="gap-2">
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              Salvar Rascunho
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* ── Edit Dialog ── */}
       <Dialog open={isEditOpen} onOpenChange={open => { setIsEditOpen(open); if (!open) setEditingRoute(null); }}>
@@ -3143,6 +2779,13 @@ export default function PlanejamentoPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RouteCreationWizard
+        open={isWizardOpen}
+        onOpenChange={(o) => { setIsWizardOpen(o); if (!o) setWizardInitialRoute(null); }}
+        initialRoute={wizardInitialRoute}
+        onCompleted={() => setWizardInitialRoute(null)}
+      />
     </>
   );
 }

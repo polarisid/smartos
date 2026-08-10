@@ -32,7 +32,7 @@ function formatDateBr(d?: Date | string | null): string {
 /**
  * Formats per-leg duration and km string, e.g. "1h 14 min (63,5 km)"
  */
-function formatLegTempo(km?: number, durMin?: number): string {
+export function formatLegTempo(km?: number, durMin?: number): string {
   if (km === undefined || km === null || isNaN(km) || km === 0) return "";
   const minutes = durMin !== undefined && durMin > 0 ? Math.round(durMin) : Math.round(km);
   const h = Math.floor(minutes / 60);
@@ -55,8 +55,11 @@ export function buildRouteEmailPayload({
   const roundedTotalKm = Math.round(totalKm);
   const liters = Math.round((roundedTotalKm / (fuelAvgKml || 10)) * 10) / 10;
 
-  // Estimated driving time (assuming 60 km/h average)
-  const totalMinutes = Math.round((roundedTotalKm / 60) * 60);
+  // Tempo total: soma das durações reais (OSRM) quando disponíveis; senão, chute de 60 km/h.
+  const hasRealDurations = legDurationsMin !== undefined && legDurationsMin.length > 0;
+  const totalMinutes = hasRealDurations
+    ? Math.round(legDurationsMin!.reduce((sum, m) => sum + (m || 0), 0))
+    : Math.round((roundedTotalKm / 60) * 60);
   const hours = Math.floor(totalMinutes / 60);
   const mins = totalMinutes % 60;
   const estimatedTimeStr = hours > 0 ? `${hours}h ${mins}min` : `${mins}min`;
