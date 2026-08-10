@@ -9,6 +9,7 @@ import { format, isAfter, startOfMonth, startOfYear, subDays, differenceInDays }
 import { type Technician, type ServiceOrder, type Preset, type Return, type Indicator, type Route, type RouteStop, type Chargeback, type RoutePart, type ChecklistTemplate, type ChecklistField } from "@/lib/data";
 import { copyToClipboard } from "@/lib/clipboard";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -38,7 +39,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { AlertTriangle, Check, CheckCircle, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, User, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine, QrCode, XCircle, AlertCircle, Tv } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle, ChevronsUpDown, Copy, Wrench, LogIn, ListTree, ClipboardCheck, ShieldCheck, Bookmark, Package, PackageOpen, History, Trophy, Sparkles, Target, ChevronDown, Route as RouteIcon, Eye, Calendar, MapPin, Sun, Car, MessageSquare, Download, Users, User, Percent, Link as LinkIcon, Trash2, TrendingUp, ScanLine, QrCode, XCircle, AlertCircle, Tv, Camera } from "lucide-react";
 import Link from 'next/link';
 
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
@@ -1093,8 +1094,8 @@ const { toast } = useToast();
                                                 <div key={s.step} className="flex items-center flex-1 last:flex-initial">
                                                     <div className="flex items-center">
                                                         <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 transition-all shrink-0 ${
-                                                            isActive ? 'border-[#1a85ff] bg-[#1a85ff] text-white shadow-sm scale-105' : 
-                                                            isCompleted ? 'border-[#1a85ff] bg-transparent text-[#1a85ff]' : 
+                                                            isActive ? 'border-primary bg-primary text-primary-foreground shadow-sm scale-105' :
+                                                            isCompleted ? 'border-primary bg-transparent text-primary' :
                                                             'border-muted bg-transparent text-muted-foreground'
                                                         }`}>
                                                             <Icon className="h-4 w-4" />
@@ -1109,7 +1110,7 @@ const { toast } = useToast();
                                                     {index < 3 && (
                                                         <div className={cn(
                                                             "flex-1 h-[2px] mx-2 min-w-[0.75rem] transition-colors duration-300",
-                                                            isCompleted ? 'bg-[#1a85ff]' : 'bg-muted'
+                                                            isCompleted ? 'bg-primary' : 'bg-muted'
                                                         )} />
                                                     )}
                                                 </div>
@@ -1638,17 +1639,17 @@ const { toast } = useToast();
 
                                             <div className="flex gap-3 pt-4 border-t mt-4">
                                                 {currentStep > 1 && (
-                                                    <Button type="button" onClick={handlePrevStep} className="flex-1 h-12 bg-[#9900ff] hover:bg-[#8000d6] text-white font-medium text-base shadow-none">
+                                                    <Button type="button" variant="outline" onClick={handlePrevStep} className="flex-1 h-12 font-medium text-base shadow-none">
                                                         Voltar
                                                     </Button>
                                                 )}
-                                                
+
                                                 {currentStep < totalSteps ? (
-                                                    <Button type="button" onClick={handleNextStep} className="flex-1 h-12 bg-[#1a85ff] hover:bg-[#156fc2] text-white font-medium text-base shadow-none">
+                                                    <Button type="button" onClick={handleNextStep} className="flex-1 h-12 font-medium text-base shadow-none">
                                                         Próximo
                                                     </Button>
                                                 ) : (
-                                                    <Button type="button" onClick={form.handleSubmit(onSubmit)} disabled={form.formState.isSubmitting || osIsSaved} className="flex-1 h-12 bg-[#1a85ff] hover:bg-[#156fc2] text-white text-base md:text-sm font-medium shadow-none transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                                    <Button type="button" onClick={form.handleSubmit(onSubmit)} disabled={form.formState.isSubmitting || osIsSaved} className="flex-1 h-12 text-base md:text-sm font-medium shadow-none transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                                         {form.watch('isFinalized') ? (
                                                             <div className="flex items-center justify-center gap-2">
                                                                 <CheckCircle className="h-4 w-4" /> {form.formState.isSubmitting ? 'Salvando...' : osIsSaved ? 'Salva!' : 'Salvar OS'}
@@ -1725,7 +1726,7 @@ const { toast } = useToast();
                     </div>
                     <DialogFooter className="flex flex-col sm:flex-row gap-2">
                         <Button
-                            className="w-full sm:flex-1 bg-[#1a85ff] hover:bg-[#156fc2]"
+                            className="w-full sm:flex-1"
                             onClick={handleCopy}
                         >
                             <Copy className="mr-2 h-4 w-4" /> Copiar Texto
@@ -1741,6 +1742,17 @@ const { toast } = useToast();
                             Nova OS
                         </Button>
                     </DialogFooter>
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-border p-3 mt-1">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Camera className="h-4 w-4 shrink-0" />
+                            <span>Quer registrar fotos e a descrição do reparo desta OS?</span>
+                        </div>
+                        <Button asChild variant="ghost" size="sm" className="shrink-0">
+                            <Link href={`/reports?os=${encodeURIComponent(allFormValues.serviceOrderNumber || "")}`} target="_blank">
+                                Preencher Relatório <Badge variant="secondary" className="ml-2 font-normal">opcional</Badge>
+                            </Link>
+                        </Button>
+                    </div>
                 </DialogContent>
             </Dialog>
         </div>

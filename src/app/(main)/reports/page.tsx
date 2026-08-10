@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -39,10 +40,19 @@ const REQUIRED_CATEGORIES: TechnicalReportPhotoCategory[] = [
 ];
 
 export default function ReportsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ReportsPageInner />
+    </Suspense>
+  );
+}
+
+function ReportsPageInner() {
   const { toast } = useToast();
   const { data: technicians = [] } = useTechnicians();
+  const searchParams = useSearchParams();
 
-  const [serviceOrderNumber, setServiceOrderNumber] = useState("");
+  const [serviceOrderNumber, setServiceOrderNumber] = useState(() => searchParams.get("os") || "");
   const [technicianId, setTechnicianId] = useState("");
   const [productModel, setProductModel] = useState("");
   const [serialNumber, setSerialNumber] = useState("");

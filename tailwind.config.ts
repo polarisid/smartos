@@ -12,10 +12,11 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        body: ['Inter', ...fontFamily.sans],
-        headline: ['Inter', ...fontFamily.sans],
+        body: ["var(--font-inter)", ...fontFamily.sans],
+        headline: ["var(--font-space-grotesk)", ...fontFamily.sans],
         sans: ["var(--font-inter)", ...fontFamily.sans],
-        code: ['monospace'],
+        mono: ["var(--font-jetbrains-mono)", ...fontFamily.mono],
+        code: ["var(--font-jetbrains-mono)", ...fontFamily.mono],
       },
       colors: {
         background: 'hsl(var(--background))',
@@ -47,6 +48,10 @@ export default {
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',
+        },
+        success: {
+          DEFAULT: 'hsl(var(--success))',
+          foreground: 'hsl(var(--success-foreground))',
         },
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',

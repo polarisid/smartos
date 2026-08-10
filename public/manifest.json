@@ -4,8 +4,8 @@
   "description": "Plataforma inteligente de gestão de ordens de serviço para assistências técnicas autorizadas Samsung. Controle de rotas, técnicos, peças e desempenho.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#1a73e8",
+  "background_color": "#0B1420",
+  "theme_color": "#0B1420",
   "orientation": "portrait-primary",
   "categories": ["business", "productivity"],
   "icons": [

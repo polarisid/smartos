@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Wrench } from "lucide-react";
+import { Logo } from "@/components/Logo";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useAuth } from "@/context/AuthContext";
@@ -52,12 +52,14 @@ export default function AdminLoginPage() {
   };
 
   return (
-    <Card className="mx-auto max-w-sm">
+    <Card className="mx-auto max-w-sm bg-card border-sidebar-border/60 shadow-2xl shadow-black/30 backdrop-blur-none">
       <CardHeader className="text-center">
-        <Wrench className="mx-auto h-12 w-12 text-primary mb-4" />
-        <CardTitle className="text-2xl">Admin Login</CardTitle>
+        <div className="mx-auto mb-4 flex justify-center">
+          <Logo size={44} />
+        </div>
+        <CardTitle className="text-2xl">Painel Admin</CardTitle>
         <CardDescription>
-          Acesse o painel de administração
+          Acesse com sua conta de administrador
         </CardDescription>
       </CardHeader>
       <CardContent>

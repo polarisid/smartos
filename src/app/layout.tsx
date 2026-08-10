@@ -1,16 +1,18 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider } from "@/context/AuthContext";
 import { QueryProvider } from "@/providers/QueryProvider";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-space-grotesk" });
+const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-jetbrains-mono" });
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://smartos.vercel.app";
 
 export const viewport: Viewport = {
-  themeColor: "#1a73e8",
+  themeColor: "#0B1420",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -84,7 +86,7 @@ export default function RootLayout({
     <html lang="pt-BR" suppressHydrationWarning>
       <head />
 
-      <body className={`${inter.variable} font-body antialiased`}>
+      <body className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} font-body antialiased`}>
         <QueryProvider>
           <AuthProvider>
             {children}

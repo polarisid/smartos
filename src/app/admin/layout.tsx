@@ -18,7 +18,8 @@ import {
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Wrench, LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera } from "lucide-react"
+import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera } from "lucide-react"
+import { Logo } from "@/components/Logo"
 
 // Static nav items defined outside component to prevent re-allocation on re-render
 const NAV_ITEMS = [
@@ -57,20 +58,21 @@ const AdminSidebar = memo(function AdminSidebar({children}: {children: React.Rea
 
     return (
         <SidebarProvider>
-            <Sidebar className="border-r border-border/40 bg-sidebar/80 backdrop-blur-xl overflow-x-hidden">
+            <Sidebar className="border-r border-sidebar-border bg-sidebar overflow-x-hidden">
                 <SidebarHeader>
                     <div className="flex items-center gap-3 p-2">
-                        <div className="p-2 bg-gradient-to-br from-primary to-primary/70 rounded-xl shadow-lg shadow-primary/20">
-                            <Wrench className="w-5 h-5 text-primary-foreground" />
+                        <Logo size={30} />
+                        <div className="leading-tight">
+                            <p className="font-headline font-semibold text-sidebar-foreground">smart<span className="text-[#17E9B0]">OS</span></p>
+                            <p className="text-[10px] font-mono uppercase tracking-widest text-sidebar-foreground/50">Painel Admin</p>
                         </div>
-                        <h2 className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-foreground to-foreground/70">Admin Panel</h2>
                     </div>
                 </SidebarHeader>
                 <SidebarContent className="px-2">
                     <SidebarMenu>
                         {NAV_ITEMS.map(({ href, label, Icon, tooltip }) => (
                             <SidebarMenuItem key={href}>
-                                <SidebarMenuButton asChild isActive={isActive(href)} tooltip={tooltip} className="transition-all duration-200 hover:translate-x-1 data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:font-medium rounded-lg">
+                                <SidebarMenuButton asChild isActive={isActive(href)} tooltip={tooltip} className="text-sidebar-foreground/60 transition-colors duration-200 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-foreground data-[active=true]:font-semibold rounded-lg [&[data-active=true]_svg]:text-sidebar-primary">
                                     <Link href={href}><Icon className="w-4 h-4" /> <span>{label}</span></Link>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
@@ -78,15 +80,15 @@ const AdminSidebar = memo(function AdminSidebar({children}: {children: React.Rea
                     </SidebarMenu>
                 </SidebarContent>
                 <SidebarFooter>
-                    <div className="flex items-center justify-between p-3 m-2 rounded-xl bg-background/40 backdrop-blur-md border border-border/50 hover:bg-background/60 transition-colors">
+                    <div className="flex items-center justify-between p-3 m-2 rounded-xl bg-sidebar-accent/50 border border-sidebar-border hover:bg-sidebar-accent transition-colors">
                         <div className="flex items-center gap-3 overflow-hidden">
-                            <Avatar className="h-9 w-9 border-2 border-primary/20">
+                            <Avatar className="h-9 w-9 border-2 border-sidebar-primary/30">
                                 <AvatarImage src="https://placehold.co/40x40.png" alt="Admin" data-ai-hint="user avatar" />
-                                <AvatarFallback className="bg-primary/10 text-primary font-bold">{appUser?.name?.charAt(0).toUpperCase()}</AvatarFallback>
+                                <AvatarFallback className="bg-sidebar-primary/15 text-sidebar-primary font-bold">{appUser?.name?.charAt(0).toUpperCase()}</AvatarFallback>
                             </Avatar>
-                            <span className="font-medium text-sm truncate">{appUser?.name || user?.email}</span>
+                            <span className="font-medium text-sm truncate text-sidebar-foreground">{appUser?.name || user?.email}</span>
                         </div>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" onClick={handleLogout}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors" onClick={handleLogout}>
                            <LogOut className="w-4 h-4" />
                         </Button>
                     </div>
@@ -94,9 +96,9 @@ const AdminSidebar = memo(function AdminSidebar({children}: {children: React.Rea
             </Sidebar>
 
             <div className="flex-1 flex flex-col min-h-screen">
-                <header className="p-4 border-b border-border/40 flex items-center gap-4 bg-card/80 backdrop-blur-xl md:hidden sticky top-0 z-50 shadow-sm">
-                    <SidebarTrigger />
-                    <h2 className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-foreground to-foreground/70">Admin Panel</h2>
+                <header className="p-4 border-b border-sidebar-border flex items-center gap-4 bg-sidebar md:hidden sticky top-0 z-50 shadow-sm">
+                    <SidebarTrigger className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground" />
+                    <Logo size={26} withWordmark wordmarkClassName="text-lg text-sidebar-foreground" />
                 </header>
                 <SidebarInset className="bg-transparent">{children}</SidebarInset>
             </div>
@@ -135,7 +137,18 @@ export default function AdminLayout({
   }
 
   if (pathname === '/admin/login') {
-    return <main className="min-h-screen flex items-center justify-center p-4">{children}</main>
+    return (
+      <main className="relative min-h-screen flex items-center justify-center p-4 bg-sidebar overflow-hidden">
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(circle at 15% 20%, rgba(23,233,176,0.10), transparent 40%), radial-gradient(circle at 85% 80%, rgba(76,111,255,0.14), transparent 40%)",
+          }}
+        />
+        <div className="relative z-10 w-full">{children}</div>
+      </main>
+    )
   }
   
   // If the user is an admin, show the content.
