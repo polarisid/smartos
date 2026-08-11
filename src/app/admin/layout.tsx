@@ -39,7 +39,6 @@ const NAV_ITEMS = [
   { href: '/admin/part-separation', label: 'Conferência de Peças', Icon: PackageSearch, tooltip: 'Conferência de Peças' },
   { href: '/admin/checklists', label: 'Checklists', Icon: ClipboardList, tooltip: 'Checklists' },
   { href: '/admin/reports', label: 'Relatórios Fotográficos', Icon: Camera, tooltip: 'Relatórios Fotográficos' },
-  { href: '/admin/triage', label: 'Triagem IA', Icon: Target, tooltip: 'Triagem Assistida por IA' },
   { href: '/admin/settings', label: 'Configurações', Icon: Settings, tooltip: 'Configurações do Sistema' },
 ] as const;
 
