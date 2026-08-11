@@ -458,52 +458,143 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
     const handleGenerateSummaryPdf = (route: Route) => {
         try {
             const doc = new jsPDF();
-            doc.setFontSize(16);
-            doc.text(`Resumo de Utilização de Peças - Rota: ${route.name}`, 14, 20);
-            
-            const createdAtDate = new Date(route.createdAt);
-            if (createdAtDate) {
-                doc.setFontSize(10);
-                doc.text(`Data da Rota: ${createdAtDate.toLocaleDateString('pt-BR')}`, 14, 26);
-            }
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
+            const marginX = 14;
 
-            type Row = (string | number)[];
+            // Paleta SmartOS
+            const ink = { r: 11, g: 20, b: 32 };
+            const teal = { r: 23, g: 233, b: 176 };
+            const muted = { r: 120, g: 128, b: 140 };
+
+            // ── Faixa de cabeçalho (clara, economiza tinta na impressão) ──
+            doc.setFillColor(244, 246, 249);
+            doc.rect(0, 0, pageWidth, 24, 'F');
+            doc.setFillColor(teal.r, teal.g, teal.b);
+            doc.rect(0, 24, pageWidth, 0.8, 'F');
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(8);
+            doc.setTextColor(muted.r, muted.g, muted.b);
+            doc.text('SMARTOS', marginX, 10);
+            doc.setFontSize(15);
+            doc.setTextColor(ink.r, ink.g, ink.b);
+            doc.text('Resumo de Utilização de Peças', marginX, 18);
+
+            // ── Nome da rota (com quebra) ──
+            doc.setTextColor(ink.r, ink.g, ink.b);
+            doc.setFontSize(11);
+            doc.setFont('helvetica', 'bold');
+            const nameLines = doc.splitTextToSize(route.name, pageWidth - marginX * 2) as string[];
+            doc.text(nameLines, marginX, 34);
+            let cursorY = 34 + nameLines.length * 5.5 + 2;
+
+            const createdAtDate = new Date(route.createdAt);
+            const departureDate = route.departureDate ? new Date(route.departureDate) : null;
+
+            type Row = any[];
             const tableBody: Row[] = [];
-            
+
             const routeStopsWithParts = route.stops.filter(s => s.parts && s.parts.length > 0);
-            
+            let usedCount = 0;
+            let totalItems = 0;
+
             routeStopsWithParts.forEach(stop => {
                 stop.parts.forEach(part => {
-                    const osRecord = serviceOrders.find(os => 
-                        os.serviceOrderNumber === stop.serviceOrder && 
-                        os.serviceOrderNumber === stop.serviceOrder && 
-                        createdAtDate && 
+                    const osRecord = serviceOrders.find(os =>
+                        os.serviceOrderNumber === stop.serviceOrder &&
+                        createdAtDate &&
                         isAfter(os.date, createdAtDate)
                     );
 
-                    let status = "Nova"; // Default status
-                    if (osRecord && osRecord.replacedPart?.includes(part.code)) {
-                        status = "Usada";
-                    }
+                    const isUsed = !!(osRecord && osRecord.replacedPart?.includes(part.code));
+                    const status = isUsed ? "Usada" : "Nova";
+                    if (isUsed) usedCount++;
+                    totalItems += part.quantity || 0;
 
                     tableBody.push([
                         stop.serviceOrder,
                         part.code,
                         part.description,
-                        part.quantity.toString(),
-                        part.trackingCode || 'N/A',
-                        status
+                        { content: String(part.quantity), styles: { halign: 'center' } },
+                        part.trackingCode || '—',
+                        status,
                     ]);
                 });
             });
 
-
-            (doc as any).autoTable({
-                startY: 35,
-                head: [['OS', 'Peça', 'Descrição', 'Qtd', 'Cód. Rastreio', 'Status']],
-                body: tableBody,
-                theme: 'grid',
+            // ── Linha de metadados ──
+            const metaItems: [string, string][] = [
+                ['Técnico', route.technicianName || '—'],
+                ['Motorista', route.driverName || '—'],
+                ['Saída', departureDate ? departureDate.toLocaleDateString('pt-BR') : createdAtDate.toLocaleDateString('pt-BR')],
+                ['Total de itens', String(totalItems)],
+                ['Usadas', String(usedCount)],
+            ];
+            const colWidth = (pageWidth - marginX * 2) / metaItems.length;
+            metaItems.forEach(([label, value], i) => {
+                const mx = marginX + i * colWidth;
+                doc.setFontSize(7.5);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(muted.r, muted.g, muted.b);
+                doc.text(label.toUpperCase(), mx, cursorY);
+                doc.setFontSize(9.5);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(ink.r, ink.g, ink.b);
+                const valLines = doc.splitTextToSize(value, colWidth - 4) as string[];
+                doc.text(valLines[0], mx, cursorY + 5);
             });
+            cursorY += 11;
+
+            if (tableBody.length > 0) {
+                (doc as any).autoTable({
+                    startY: cursorY,
+                    head: [['OS', 'Peça', 'Descrição', 'Qtd', 'Cód. Rastreio', 'Status']],
+                    body: tableBody,
+                    theme: 'grid',
+                    styles: { fontSize: 8.5, cellPadding: 2.5, textColor: [ink.r, ink.g, ink.b], lineColor: [0, 0, 0], lineWidth: 0.2 },
+                    headStyles: { fillColor: [teal.r, teal.g, teal.b], textColor: [ink.r, ink.g, ink.b], fontStyle: 'bold', fontSize: 8.5, lineColor: [0, 0, 0], lineWidth: 0.2 },
+                    alternateRowStyles: { fillColor: [246, 248, 250] },
+                    columnStyles: {
+                        0: { cellWidth: 26 },
+                        1: { cellWidth: 30 },
+                        3: { cellWidth: 12, halign: 'center' },
+                        4: { cellWidth: 28 },
+                        5: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
+                    },
+                    // Realça as peças usadas (âmbar) pra facilitar a conferência de retorno
+                    didParseCell: (data: any) => {
+                        if (data.section === 'body' && data.column.index === 5) {
+                            if (data.cell.raw === 'Usada') {
+                                data.cell.styles.textColor = [180, 83, 9];
+                                data.cell.styles.fillColor = [254, 243, 199];
+                            } else {
+                                data.cell.styles.textColor = [0, 0, 0];
+                            }
+                        }
+                    },
+                    margin: { left: marginX, right: marginX, bottom: 18 },
+                });
+            } else {
+                doc.setFontSize(11);
+                doc.setTextColor(muted.r, muted.g, muted.b);
+                doc.text("Nenhuma peça encontrada para esta rota.", marginX, cursorY + 6);
+            }
+
+            // ── Rodapé em todas as páginas ──
+            const totalPages = doc.getNumberOfPages();
+            const now = new Date();
+            const genStr = `Gerado em ${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+            for (let p = 1; p <= totalPages; p++) {
+                doc.setPage(p);
+                doc.setDrawColor(230, 232, 236);
+                doc.setLineWidth(0.2);
+                doc.line(marginX, pageHeight - 12, pageWidth - marginX, pageHeight - 12);
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(7.5);
+                doc.setTextColor(muted.r, muted.g, muted.b);
+                doc.text(genStr, marginX, pageHeight - 7);
+                doc.text(`Página ${p} de ${totalPages}`, pageWidth - marginX, pageHeight - 7, { align: 'right' });
+            }
 
             doc.save(`resumo-detalhado-pecas-${route.name.replace(/\s+/g, '-')}.pdf`);
 
@@ -1063,30 +1154,83 @@ export default function PartSeparationPage() {
 
     const handleGeneratePdf = (route: Route) => {
         const doc = new jsPDF();
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const marginX = 14;
 
-        doc.setFontSize(16);
-        doc.text(`Extrato de Peças - Rota: ${route.name}`, 14, 20);
-        doc.setFontSize(10);
+        // Paleta SmartOS
+        const ink = { r: 11, g: 20, b: 32 };
+        const teal = { r: 23, g: 233, b: 176 };
+        const muted = { r: 120, g: 128, b: 140 };
+
+        // ── Faixa de cabeçalho (clara, economiza tinta na impressão) ──
+        doc.setFillColor(244, 246, 249); // cinza claro (paper)
+        doc.rect(0, 0, pageWidth, 24, 'F');
+        // Linha de destaque teal no rodapé da faixa (mantém a marca sem fundo escuro)
+        doc.setFillColor(teal.r, teal.g, teal.b);
+        doc.rect(0, 24, pageWidth, 0.8, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(muted.r, muted.g, muted.b);
+        doc.text('SMARTOS', marginX, 10);
+        doc.setFontSize(15);
+        doc.setTextColor(ink.r, ink.g, ink.b);
+        doc.text('Extrato de Peças', marginX, 18);
+
+        // ── Nome da rota (com quebra, evita cortar no fim da página) ──
+        doc.setTextColor(ink.r, ink.g, ink.b);
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        const nameLines = doc.splitTextToSize(route.name, pageWidth - marginX * 2) as string[];
+        doc.text(nameLines, marginX, 34);
+        let cursorY = 34 + nameLines.length * 5.5 + 2;
+
+        // ── Linha de metadados ──
         const createdAtDate = new Date(route.createdAt);
-        doc.text(`Data de Criação: ${createdAtDate.toLocaleDateString('pt-BR')}`, 14, 26);
+        const departureDate = route.departureDate ? new Date(route.departureDate) : null;
+        const totalParts = route.stops.reduce(
+            (sum, s) => sum + (s.parts?.reduce((a, p) => a + (p.quantity || 0), 0) || 0),
+            0
+        );
+        const metaItems: [string, string][] = [
+            ['Técnico', route.technicianName || '—'],
+            ['Motorista', route.driverName || '—'],
+            ['Criada em', createdAtDate.toLocaleDateString('pt-BR')],
+            ['Saída', departureDate ? departureDate.toLocaleDateString('pt-BR') : '—'],
+            ['Total de itens', String(totalParts)],
+        ];
+        const colWidth = (pageWidth - marginX * 2) / metaItems.length;
+        metaItems.forEach(([label, value], i) => {
+            const mx = marginX + i * colWidth;
+            doc.setFontSize(7.5);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(muted.r, muted.g, muted.b);
+            doc.text(label.toUpperCase(), mx, cursorY);
+            doc.setFontSize(9.5);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(ink.r, ink.g, ink.b);
+            const valLines = doc.splitTextToSize(value, colWidth - 4) as string[];
+            doc.text(valLines[0], mx, cursorY + 5);
+        });
+        cursorY += 11;
 
         type Row = any[];
         const tableBody: Row[] = [];
-        
+
         route.stops.forEach(stop => {
             if (stop.parts && stop.parts.length > 0) {
-                 stop.parts.forEach((part, partIndex) => {
+                stop.parts.forEach((part, partIndex) => {
                     const trackingCode = trackingCodes[route.id]?.[stop.serviceOrder]?.[part.code] || part.trackingCode || "";
                     if (partIndex === 0) {
                         tableBody.push([
-                            { content: stop.serviceOrder, rowSpan: stop.parts.length, styles: { valign: 'middle' } },
-                            { content: stop.model, rowSpan: stop.parts.length, styles: { valign: 'middle' } },
-                            part.code, 
-                            part.quantity, 
-                            trackingCode
+                            { content: stop.serviceOrder, rowSpan: stop.parts.length, styles: { valign: 'middle', fontStyle: 'bold' } },
+                            { content: stop.model || '—', rowSpan: stop.parts.length, styles: { valign: 'middle' } },
+                            part.code,
+                            { content: String(part.quantity), styles: { halign: 'center' } },
+                            trackingCode || '—',
                         ]);
                     } else {
-                        tableBody.push([part.code, part.quantity, trackingCode]);
+                        tableBody.push([part.code, { content: String(part.quantity), styles: { halign: 'center' } }, trackingCode || '—']);
                     }
                 });
             }
@@ -1094,13 +1238,41 @@ export default function PartSeparationPage() {
 
         if (tableBody.length > 0) {
             (doc as any).autoTable({
-                startY: 35,
+                startY: cursorY,
                 head: [['OS', 'Modelo', 'Peça', 'Qtd', 'Código de Rastreio']],
                 body: tableBody,
                 theme: 'grid',
+                styles: { fontSize: 9, cellPadding: 2.5, textColor: [ink.r, ink.g, ink.b], lineColor: [0, 0, 0], lineWidth: 0.2 },
+                headStyles: { fillColor: [teal.r, teal.g, teal.b], textColor: [ink.r, ink.g, ink.b], fontStyle: 'bold', fontSize: 9, lineColor: [0, 0, 0], lineWidth: 0.2 },
+                alternateRowStyles: { fillColor: [246, 248, 250] },
+                columnStyles: {
+                    0: { cellWidth: 28 },
+                    1: { cellWidth: 38 },
+                    3: { cellWidth: 14, halign: 'center' },
+                    4: { cellWidth: 44 },
+                },
+                margin: { left: marginX, right: marginX, bottom: 18 },
             });
         } else {
-            doc.text("Nenhuma peça encontrada para esta rota.", 14, 35);
+            doc.setFontSize(11);
+            doc.setTextColor(muted.r, muted.g, muted.b);
+            doc.text("Nenhuma peça encontrada para esta rota.", marginX, cursorY + 6);
+        }
+
+        // ── Rodapé em todas as páginas ──
+        const totalPages = doc.getNumberOfPages();
+        const now = new Date();
+        const genStr = `Gerado em ${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+        for (let p = 1; p <= totalPages; p++) {
+            doc.setPage(p);
+            doc.setDrawColor(230, 232, 236);
+            doc.setLineWidth(0.2);
+            doc.line(marginX, pageHeight - 12, pageWidth - marginX, pageHeight - 12);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7.5);
+            doc.setTextColor(muted.r, muted.g, muted.b);
+            doc.text(genStr, marginX, pageHeight - 7);
+            doc.text(`Página ${p} de ${totalPages}`, pageWidth - marginX, pageHeight - 7, { align: 'right' });
         }
 
         doc.save(`extrato-${route.name.replace(/\s+/g, '-')}.pdf`);

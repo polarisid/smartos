@@ -20,6 +20,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Loader2, Calendar as CalendarIcon, CheckCircle2, Copy, Mail, Sparkles,
   Rocket, ArrowLeft, ArrowRight, ExternalLink, RefreshCw, Save, List, Map as MapIcon,
+  X, Route as RouteIcon, ArrowLeftRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -33,7 +34,7 @@ import { validateCepWithCityState } from "@/lib/geocode";
 import { optimizeRouteStopsAsync } from "@/lib/routeOptimizer";
 import { buildGoogleSummary } from "@/services/googleRouteOptimizer";
 import { fetchLegDistancesAndDurations } from "@/lib/routeLegs";
-import { buildRouteEmailPayload, copyRouteEmailToClipboard } from "@/lib/emailExport";
+import { buildRouteEmailPayload, copyRouteEmailToClipboard, formatLegTempo } from "@/lib/emailExport";
 import { SortableStopCard } from "./SortableStopCard";
 import { StopSummaryCard } from "./StopSummaryCard";
 
@@ -88,6 +89,9 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
   const [step2View, setStep2View] = useState<"list" | "map">("list");
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const optimizedForRouteId = useRef<string | null>(null);
+  // Ordem "antes" (como veio da colagem/planilha) — fixa por rascunho, usada só pra
+  // comparação visual no Passo 2 (quem moveu, quanto), independe de otimizar/arrastar de novo.
+  const rawOrderRef = useRef<string[]>([]);
 
   // ── Passo 3: turnos e datas ──
   const [legKm, setLegKm] = useState<number[]>([]);
@@ -133,6 +137,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
       setLicensePlate(initialRoute.licensePlate || "TEM8E13");
       setFuelAvgKml(initialRoute.fuelAvgKml || 10);
       setStops(initialRoute.stops || []);
+      rawOrderRef.current = (initialRoute.stops || []).map(s => s.serviceOrder);
       const dep = initialRoute.departureDate ? new Date(initialRoute.departureDate) : (initialRoute.plannedDate ? new Date(initialRoute.plannedDate) : undefined);
       setDepartureDate(dep);
       setArrivalDate(initialRoute.arrivalDate ? new Date(initialRoute.arrivalDate) : undefined);
@@ -278,6 +283,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
       // Força recálculo da otimização ao entrar no Passo 2 — relevante quando o
       // admin volta ao Passo 1, edita as paradas e avança de novo.
       optimizedForRouteId.current = null;
+      rawOrderRef.current = stops.map(s => s.serviceOrder);
       setStep(2);
     } catch (e: any) {
       toast({ variant: "destructive", title: "Erro ao salvar rascunho", description: e.message });
@@ -315,7 +321,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
       setIsOptimizing(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseAddress]);
+  }, [stops, baseAddress]);
 
   useEffect(() => {
     if (step === 2 && routeId && optimizedForRouteId.current !== routeId) {
@@ -343,8 +349,24 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     });
   };
 
+  // ── Inverter o sentido da rota (1 clique) ──
+  const handleReverseOrder = () => {
+    setStops(prev => {
+      const next = [...prev].reverse();
+      setPropKm([]);
+      fetchLegDistancesAndDurations(next, baseAddress).then(r => {
+        setPropKm(r.km);
+        setLegKm(r.km);
+        setLegDurationMin(r.durationMin);
+      });
+      return next;
+    });
+  };
+
   const totalOrigKm = origKm.reduce((a, b) => a + b, 0);
   const totalPropKm = propKm.reduce((a, b) => a + b, 0);
+  const kmSaved = totalOrigKm - totalPropKm;
+  const kmSavedPct = totalOrigKm > 0 ? Math.round((kmSaved / totalOrigKm) * 100) : 0;
 
   const handleAdvanceStep2 = async () => {
     if (!routeId) return;
@@ -453,310 +475,493 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     return prev > 1 ? ((prev - 1) as typeof prev) : prev;
   });
 
+  const summaryKm = totalKm || totalPropKm;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl max-h-[92vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Nova Rota — {STEPS[step - 1].label}</DialogTitle>
-          <DialogDescription>
-            Passo {currentStepPosition} de {visibleSteps.length}: {visibleSteps.map(s => s.label.toLowerCase()).join(" → ")}.
-            {!requiresEmailStep && " Rotas de capital pulam a etapa de e-mail."}
-          </DialogDescription>
-        </DialogHeader>
-
-        {/* Stepper */}
-        <div className="flex items-center justify-between w-full py-1">
-          {visibleSteps.map((s, i) => (
-            <div key={s.n} className="flex items-center flex-1 last:flex-initial">
-              <div className="flex flex-col items-center gap-1 shrink-0">
-                <div
-                  className={cn(
-                    "flex items-center justify-center w-7 h-7 rounded-full border-2 text-xs font-bold transition-all",
-                    step === s.n ? "border-primary bg-primary text-primary-foreground" :
-                    step > s.n ? "border-primary bg-transparent text-primary" :
-                    "border-muted bg-transparent text-muted-foreground"
-                  )}
-                >
-                  {step > s.n ? <CheckCircle2 className="h-4 w-4" /> : s.n}
-                </div>
-                <span className={cn("text-[10px] font-medium whitespace-nowrap hidden sm:block", step === s.n ? "text-foreground" : "text-muted-foreground")}>
-                  {s.label}
-                </span>
-              </div>
-              {i < visibleSteps.length - 1 && (
-                <div className={cn("flex-1 h-[2px] mx-1.5 transition-colors", step > s.n ? "bg-primary" : "bg-muted")} />
-              )}
-            </div>
-          ))}
+      <DialogContent
+        className={cn(
+          "left-0 top-0 w-screen max-w-none h-[100dvh] max-h-[100dvh] translate-x-0 translate-y-0",
+          "rounded-none border-0 p-0 gap-0 flex flex-col overflow-hidden",
+          "data-[state=open]:slide-in-from-left-0 data-[state=open]:slide-in-from-top-0",
+          "data-[state=closed]:slide-out-to-left-0 data-[state=closed]:slide-out-to-top-0",
+          // O botão de fechar padrão do Dialog (canto superior direito) some aqui — usamos
+          // um botão próprio no cabeçalho, estilizado pra combinar com o fundo escuro.
+          "[&>button]:hidden"
+        )}
+      >
+        {/* ── Cabeçalho ── */}
+        <div className="shrink-0 flex items-center gap-3 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-6 py-4">
+          <div className="h-9 w-9 rounded-lg bg-sidebar-accent flex items-center justify-center shrink-0">
+            <RouteIcon className="h-4.5 w-4.5 text-sidebar-primary" />
+          </div>
+          <div className="min-w-0">
+            <DialogTitle className="font-headline text-lg leading-tight text-sidebar-foreground truncate">
+              {name || "Nova Rota"}
+              <span className="text-sidebar-foreground/40 font-normal"> — {STEPS[step - 1].label}</span>
+            </DialogTitle>
+            <DialogDescription className="text-[11px] text-sidebar-foreground/50 mt-0.5">
+              Passo {currentStepPosition} de {visibleSteps.length}
+              {!requiresEmailStep && " · rota de capital, sem etapa de e-mail"}
+            </DialogDescription>
+          </div>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            aria-label="Fechar"
+            className="ml-auto shrink-0 rounded-md p-2 text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
-        {/* ── Passo 1 ── */}
-        {step === 1 && (
-          <div className="grid gap-4 py-2">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5 col-span-2">
-                <Label>Nome da Rota *</Label>
-                <Input placeholder="Ex: W31 - ROTA CAPITAL - PEDRO" value={name} onChange={e => setName(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Tipo de Rota</Label>
-                <Select value={routeType} onValueChange={(v: any) => setRouteType(v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="capital">🏙️ Capital</SelectItem>
-                    <SelectItem value="interior">🌿 Interior</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Data Planejada</Label>
-                <Popover open={plannedDateOpen} onOpenChange={setPlannedDateOpen}>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {plannedDate ? format(plannedDate, "dd/MM/yyyy") : "Selecionar data..."}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <CalendarComp mode="single" selected={plannedDate} onSelect={d => { setPlannedDate(d); setPlannedDateOpen(false); }} locale={ptBR} />
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Técnico</Label>
-                <Select value={technicianId} onValueChange={setTechnicianId}>
-                  <SelectTrigger><SelectValue placeholder="Selecionar..." /></SelectTrigger>
-                  <SelectContent>
-                    {technicians.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Motorista</Label>
-                <Select value={driverId} onValueChange={setDriverId}>
-                  <SelectTrigger><SelectValue placeholder="Selecionar..." /></SelectTrigger>
-                  <SelectContent>
-                    {drivers.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Placa do Veículo 🚗</Label>
-                <Input placeholder="Ex: TEM8E13" value={licensePlate} onChange={e => setLicensePlate(e.target.value)} className="uppercase font-mono font-bold" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Consumo Médio ⛽</Label>
-                <div className="flex items-center gap-1">
-                  <Input type="number" step="0.5" min="1" max="50" value={fuelAvgKml} onChange={e => setFuelAvgKml(parseFloat(e.target.value) || 10)} className="font-mono text-xs" />
-                  <span className="text-[10px] font-bold text-muted-foreground shrink-0">km/L</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>
-                OSs da Planilha Samsung *
-                {stops.length > 0 && <span className="ml-2 text-xs font-normal text-emerald-600">✓ {stops.length} OSs detectadas</span>}
-              </Label>
-              <Textarea
-                placeholder="Cole aqui o conteúdo da planilha Excel (Ctrl+A → Ctrl+C na planilha e cole aqui)..."
-                className="min-h-[160px] font-mono text-xs"
-                value={pasteText}
-                onChange={e => handlePasteChange(e.target.value)}
-              />
-              {stops.length > 0 && (
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20 p-2 max-h-40 overflow-y-auto space-y-0.5">
-                  {stops.map((s, i) => (
-                    <div key={i} className={cn("flex items-center flex-wrap gap-1.5 text-xs py-1 px-1 rounded border-b border-border/20 last:border-0", s.zipMismatch && "bg-red-500/10 border-red-500/30")}>
-                      <span className="text-muted-foreground w-5 text-right font-bold">{i + 1}.</span>
-                      <span className="font-mono font-bold">{s.serviceOrder}</span>
-                      <span className="text-muted-foreground truncate max-w-[110px]">{s.consumerName}</span>
-                      <span className="text-muted-foreground font-medium">{s.city}{s.state ? `-${s.state}` : ""}</span>
-                      {s.zipMismatch && (
-                        <span className="text-[9px] font-bold bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 px-1.5 py-0.2 rounded border border-red-300" title={s.zipMismatchDetails}>
-                          ⚠️ CEP de {s.suggestedCityState}
-                        </span>
+        {/* ── Corpo: trilha de passos + conteúdo ── */}
+        <div className="flex-1 min-h-0 flex overflow-hidden">
+          {/* Trilha lateral (desktop) — os passos ligados por uma linha, como o percurso da própria rota */}
+          <aside className="hidden lg:flex w-[272px] shrink-0 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border overflow-y-auto">
+            <nav className="p-6">
+              {visibleSteps.map((s, i) => {
+                const isDone = step > s.n;
+                const isCurrent = step === s.n;
+                return (
+                  <div key={s.n} className="flex gap-3">
+                    <div className="flex flex-col items-center">
+                      <div
+                        className={cn(
+                          "relative flex items-center justify-center h-8 w-8 rounded-full text-xs font-bold shrink-0 transition-colors",
+                          isDone ? "bg-primary text-primary-foreground" :
+                          isCurrent ? "bg-sidebar-accent border-2 border-primary text-primary" :
+                          "bg-transparent border-2 border-sidebar-border text-sidebar-foreground/40"
+                        )}
+                      >
+                        {isDone ? <CheckCircle2 className="h-4 w-4" /> : s.n}
+                        {isCurrent && <span className="absolute inset-0 rounded-full border-2 border-primary animate-ping opacity-30" />}
+                      </div>
+                      {i < visibleSteps.length - 1 && (
+                        <div className={cn("w-0.5 flex-1 my-1", isDone ? "bg-primary" : "bg-sidebar-border")} style={{ minHeight: 28 }} />
                       )}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+                    <div className={cn("pt-1", i === visibleSteps.length - 1 ? "pb-0" : "pb-7")}>
+                      <p className={cn("text-sm font-semibold", isCurrent ? "text-sidebar-foreground" : isDone ? "text-sidebar-foreground/80" : "text-sidebar-foreground/40")}>
+                        {s.label}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </nav>
 
-        {/* ── Passo 2 ── */}
-        {step === 2 && (
-          <div className="space-y-3 py-2">
-            <div className="rounded-lg border bg-muted/30 p-3 flex items-start gap-2 text-sm">
-              <Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p>{optimizationSummary}</p>
-                {!isOptimizing && totalOrigKm > 0 && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {totalOrigKm.toFixed(1)} km → <span className="font-semibold text-foreground">{totalPropKm.toFixed(1)} km</span>
-                  </p>
+            {(name || stops.length > 0) && (
+              <div className="mt-auto p-6 border-t border-sidebar-border space-y-2.5">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-sidebar-foreground/40">Resumo</p>
+                {name && (
+                  <div className="flex justify-between gap-2 text-xs">
+                    <span className="text-sidebar-foreground/50 shrink-0">Rota</span>
+                    <span className="font-medium text-right truncate">{name}</span>
+                  </div>
+                )}
+                {selectedTechnician && (
+                  <div className="flex justify-between gap-2 text-xs">
+                    <span className="text-sidebar-foreground/50 shrink-0">Técnico</span>
+                    <span className="font-medium text-right truncate">{selectedTechnician.name}</span>
+                  </div>
+                )}
+                {selectedDriver && (
+                  <div className="flex justify-between gap-2 text-xs">
+                    <span className="text-sidebar-foreground/50 shrink-0">Motorista</span>
+                    <span className="font-medium text-right truncate">{selectedDriver.name}</span>
+                  </div>
+                )}
+                {stops.length > 0 && (
+                  <div className="flex justify-between gap-2 text-xs">
+                    <span className="text-sidebar-foreground/50">Paradas</span>
+                    <span className="font-mono font-medium">{stops.length}</span>
+                  </div>
+                )}
+                {summaryKm > 0 && (
+                  <div className="flex justify-between gap-2 text-xs">
+                    <span className="text-sidebar-foreground/50">Km total</span>
+                    <span className="font-mono font-medium">{summaryKm.toFixed(1)} km</span>
+                  </div>
                 )}
               </div>
-              <Button type="button" variant="outline" size="sm" onClick={runOptimization} disabled={isOptimizing} className="gap-1.5 shrink-0">
-                {isOptimizing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                Recalcular
-              </Button>
-            </div>
-
-            <div className="flex items-center gap-1.5 rounded-lg border p-1 w-fit">
-              <button
-                type="button"
-                onClick={() => setStep2View("list")}
-                className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors", step2View === "list" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
-              >
-                <List className="h-3.5 w-3.5" /> Lista
-              </button>
-              <button
-                type="button"
-                onClick={() => setStep2View("map")}
-                className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors", step2View === "map" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
-              >
-                <MapIcon className="h-3.5 w-3.5" /> Mapa
-              </button>
-            </div>
-
-            {step2View === "list" ? (
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleStep2DragEnd}>
-                <SortableContext items={stops.map(s => s.serviceOrder)} strategy={verticalListSortingStrategy}>
-                  <div className="space-y-1 max-h-[420px] overflow-y-auto pr-1">
-                    {stops.map((stop, i) => (
-                      <SortableStopCard
-                        key={stop.serviceOrder}
-                        stop={stop}
-                        newPos={i + 1}
-                        oldPos={i + 1}
-                        isMoved={false}
-                        posDiff={0}
-                        segKm={propKm[i]}
-                        segsLoading={isOptimizing}
-                        isHovered={hoveredStopId === stop.serviceOrder}
-                        onHover={setHoveredStopId}
-                        onSetTurn={() => {}}
-                        onToggleCall={() => {}}
-                        onToggleMessage={() => {}}
-                        showTurnControls={false}
-                      />
-                    ))}
-                  </div>
-                </SortableContext>
-              </DndContext>
-            ) : (
-              <div className="rounded-lg overflow-hidden border h-[420px]">
-                <DynamicalRouteMap
-                  routes={[currentRoute]}
-                  activeStops={stops.map(s => ({ stop: s, route: currentRoute, status: "todo" as const }))}
-                  showPolyline
-                  polylineColor="#10b981"
-                  baseAddress={baseAddress}
-                  height="100%"
-                />
-              </div>
             )}
-          </div>
-        )}
+          </aside>
 
-        {/* ── Passo 3 ── */}
-        {step === 3 && (
-          <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-emerald-700 dark:text-emerald-400 font-bold">Data de Saída 🛫</Label>
-                <Popover open={departureDateOpen} onOpenChange={setDepartureDateOpen}>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-semibold text-xs border-emerald-300 dark:border-emerald-800">
-                      <CalendarIcon className="mr-2 h-3.5 w-3.5 text-emerald-600" />
-                      {departureDate ? format(departureDate, "dd/MM/yyyy") : "Data de Saída"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <CalendarComp mode="single" selected={departureDate} onSelect={d => { setDepartureDate(d); setDepartureDateOpen(false); }} locale={ptBR} />
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-blue-700 dark:text-blue-400 font-bold">Data de Retorno 🛬</Label>
-                <Popover open={arrivalDateOpen} onOpenChange={setArrivalDateOpen}>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-semibold text-xs border-blue-300 dark:border-blue-800">
-                      <CalendarIcon className="mr-2 h-3.5 w-3.5 text-blue-600" />
-                      {arrivalDate ? format(arrivalDate, "dd/MM/yyyy") : "Data de Retorno"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <CalendarComp mode="single" selected={arrivalDate} onSelect={d => { setArrivalDate(d); setArrivalDateOpen(false); }} locale={ptBR} />
-                  </PopoverContent>
-                </Popover>
+          <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+            {/* Trilha compacta (mobile/tablet) */}
+            <div className="lg:hidden shrink-0 border-b bg-muted/30 px-4 py-2.5 overflow-x-auto">
+              <div className="flex items-center gap-1 w-max">
+                {visibleSteps.map((s, i) => (
+                  <div key={s.n} className="flex items-center">
+                    <div
+                      className={cn(
+                        "flex items-center justify-center h-6 w-6 rounded-full text-[10px] font-bold shrink-0",
+                        step > s.n ? "bg-primary text-primary-foreground" :
+                        step === s.n ? "border-2 border-primary text-primary" :
+                        "border border-muted-foreground/30 text-muted-foreground"
+                      )}
+                    >
+                      {step > s.n ? <CheckCircle2 className="h-3 w-3" /> : s.n}
+                    </div>
+                    <span className={cn("mx-1.5 text-[10px] font-semibold whitespace-nowrap", step === s.n ? "text-foreground" : "text-muted-foreground")}>{s.label}</span>
+                    {i < visibleSteps.length - 1 && <div className={cn("w-4 h-[2px] mr-1.5", step > s.n ? "bg-primary" : "bg-muted")} />}
+                  </div>
+                ))}
               </div>
             </div>
 
-            <div className="space-y-1 max-h-[380px] overflow-y-auto pr-1">
-              {stops.map((stop, i) => (
-                <StopSummaryCard
-                  key={stop.serviceOrder}
-                  stop={stop}
-                  position={i + 1}
-                  legKm={legKm[i]}
-                  legDurationMin={legDurationMin[i]}
-                  legsLoading={legsLoading}
-                  onSetTurn={(turn) => handleSetTurn(i, turn)}
-                  onToggleCall={() => handleToggleCall(i)}
-                  onToggleMessage={() => handleToggleMessage(i)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
+            <main className="flex-1 overflow-y-auto">
+              <div className="max-w-5xl mx-auto p-6 md:p-10">
 
-        {/* ── Passo 4 ── */}
-        {step === 4 && (
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              Revise o e-mail da rota abaixo, copie e cole no seu cliente de e-mail (Gmail/Outlook), ou abra um rascunho já preenchido. Confirme que enviou antes de publicar.
-            </p>
-            <pre className="rounded-lg border max-h-[360px] overflow-y-auto p-3 bg-white text-black text-xs whitespace-pre-wrap font-mono">{emailPayload.plain}</pre>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={handleCopyEmail} className="gap-2">
-                <Copy className="h-4 w-4" /> Copiar e-mail
-              </Button>
-              <Button type="button" variant="outline" asChild className="gap-2">
-                <a href={mailtoHref}>
-                  <Mail className="h-4 w-4" /> Abrir rascunho <ExternalLink className="h-3 w-3" />
-                </a>
-              </Button>
-            </div>
-            <div className="flex items-center gap-2 rounded-lg border p-3 bg-muted/30">
-              <Checkbox id="email-confirmed" checked={emailConfirmed} onCheckedChange={(c) => setEmailConfirmed(c === true)} />
-              <Label htmlFor="email-confirmed" className="cursor-pointer">Confirmo que enviei o e-mail da rota</Label>
-            </div>
-          </div>
-        )}
+                {/* ── Passo 1 ── */}
+                {step === 1 && (
+                  <div className="grid lg:grid-cols-[1fr_1.1fr] gap-8">
+                    <div className="space-y-4">
+                      <div className="space-y-1.5">
+                        <Label>Nome da Rota *</Label>
+                        <Input placeholder="Ex: W31 - ROTA CAPITAL - PEDRO" value={name} onChange={e => setName(e.target.value)} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label>Tipo de Rota</Label>
+                          <Select value={routeType} onValueChange={(v: any) => setRouteType(v)}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="capital">🏙️ Capital</SelectItem>
+                              <SelectItem value="interior">🌿 Interior</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Data Planejada</Label>
+                          <Popover open={plannedDateOpen} onOpenChange={setPlannedDateOpen}>
+                            <PopoverTrigger asChild>
+                              <Button variant="outline" className="w-full justify-start text-left font-normal">
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {plannedDate ? format(plannedDate, "dd/MM/yyyy") : "Selecionar..."}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                              <CalendarComp mode="single" selected={plannedDate} onSelect={d => { setPlannedDate(d); setPlannedDateOpen(false); }} locale={ptBR} />
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label>Técnico</Label>
+                          <Select value={technicianId} onValueChange={setTechnicianId}>
+                            <SelectTrigger><SelectValue placeholder="Selecionar..." /></SelectTrigger>
+                            <SelectContent>
+                              {technicians.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Motorista</Label>
+                          <Select value={driverId} onValueChange={setDriverId}>
+                            <SelectTrigger><SelectValue placeholder="Selecionar..." /></SelectTrigger>
+                            <SelectContent>
+                              {drivers.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label>Placa do Veículo 🚗</Label>
+                          <Input placeholder="Ex: TEM8E13" value={licensePlate} onChange={e => setLicensePlate(e.target.value)} className="uppercase font-mono font-bold" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Consumo Médio ⛽</Label>
+                          <div className="flex items-center gap-1">
+                            <Input type="number" step="0.5" min="1" max="50" value={fuelAvgKml} onChange={e => setFuelAvgKml(parseFloat(e.target.value) || 10)} className="font-mono text-xs" />
+                            <span className="text-[10px] font-bold text-muted-foreground shrink-0">km/L</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
 
-        {/* ── Passo 5 ── */}
-        {step === 5 && (
-          <div className="space-y-4 py-2">
-            <div className="rounded-lg border p-4 space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Rota</span><span className="font-semibold">{name}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Técnico</span><span>{selectedTechnician?.name || "—"}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Motorista</span><span>{selectedDriver?.name || "—"}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Placa</span><span className="font-mono">{licensePlate}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Saída</span><span>{departureDate ? format(departureDate, "dd/MM/yyyy") : "—"}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Retorno</span><span>{arrivalDate ? format(arrivalDate, "dd/MM/yyyy") : "—"}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Paradas</span><span>{stops.length}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">KM total</span><span>{totalKm.toFixed(1)} km</span></div>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Ao publicar, a rota fica visível para o técnico e um aviso automático é disparado (se configurado em Configurações).
-            </p>
-          </div>
-        )}
+                    <div className="space-y-1.5 flex flex-col">
+                      <Label>
+                        OSs da Planilha Samsung *
+                        {stops.length > 0 && <span className="ml-2 text-xs font-normal text-emerald-600">✓ {stops.length} OSs detectadas</span>}
+                      </Label>
+                      <Textarea
+                        placeholder="Cole aqui o conteúdo da planilha Excel (Ctrl+A → Ctrl+C na planilha e cole aqui)..."
+                        className="min-h-[180px] font-mono text-xs"
+                        value={pasteText}
+                        onChange={e => handlePasteChange(e.target.value)}
+                      />
+                      {stops.length > 0 && (
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20 p-2 max-h-[45vh] overflow-y-auto space-y-0.5">
+                          {stops.map((s, i) => (
+                            <div key={i} className={cn("flex items-center flex-wrap gap-1.5 text-xs py-1 px-1 rounded border-b border-border/20 last:border-0", s.zipMismatch && "bg-red-500/10 border-red-500/30")}>
+                              <span className="text-muted-foreground w-5 text-right font-bold">{i + 1}.</span>
+                              <span className="font-mono font-bold">{s.serviceOrder}</span>
+                              <span className="text-muted-foreground truncate max-w-[110px]">{s.consumerName}</span>
+                              <span className="text-muted-foreground font-medium">{s.city}{s.state ? `-${s.state}` : ""}</span>
+                              {s.zipMismatch && (
+                                <span className="text-[9px] font-bold bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 px-1.5 py-0.2 rounded border border-red-300" title={s.zipMismatchDetails}>
+                                  ⚠️ CEP de {s.suggestedCityState}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
-        <DialogFooter className="flex-row justify-between gap-2 sm:justify-between">
+                {/* ── Passo 2 ── */}
+                {step === 2 && (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border p-4 space-y-3">
+                      <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                        <p>{optimizationSummary}</p>
+                      </div>
+
+                      {!isOptimizing && totalOrigKm > 0 && (
+                        <div className="flex items-center gap-4 sm:gap-8 pt-1">
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Antes</p>
+                            <p className="font-mono text-xl font-bold text-muted-foreground">
+                              {totalOrigKm.toFixed(1)} <span className="text-xs font-sans font-normal">km</span>
+                            </p>
+                          </div>
+                          <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Depois</p>
+                            <p className="font-mono text-xl font-bold text-foreground">
+                              {totalPropKm.toFixed(1)} <span className="text-xs font-sans font-normal">km</span>
+                            </p>
+                          </div>
+                          <div className="ml-auto">
+                            {kmSaved > 0.05 ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
+                                ↓ {kmSaved.toFixed(1)} km economizados{kmSavedPct > 0 ? ` (${kmSavedPct}%)` : ""}
+                              </span>
+                            ) : kmSaved < -0.05 ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400">
+                                ↑ {Math.abs(kmSaved).toFixed(1)} km a mais
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-muted text-muted-foreground">
+                                Sem alteração
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 rounded-lg border p-1 w-fit">
+                        <button
+                          type="button"
+                          onClick={() => setStep2View("list")}
+                          className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors", step2View === "list" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
+                        >
+                          <List className="h-3.5 w-3.5" /> Lista
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setStep2View("map")}
+                          className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors", step2View === "map" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
+                        >
+                          <MapIcon className="h-3.5 w-3.5" /> Mapa
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={handleReverseOrder} disabled={isOptimizing || stops.length < 2} title="Inverte a ordem das paradas em um clique" className="gap-1.5">
+                          <ArrowLeftRight className="h-3.5 w-3.5" /> Inverter Ordem
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={runOptimization} disabled={isOptimizing} className="gap-1.5">
+                          {isOptimizing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                          Recalcular
+                        </Button>
+                      </div>
+                    </div>
+
+                    {step2View === "list" ? (
+                      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleStep2DragEnd}>
+                        <SortableContext items={stops.map(s => s.serviceOrder)} strategy={verticalListSortingStrategy}>
+                          <div className="space-y-1 min-h-[50vh] pr-1">
+                            {stops.map((stop, i) => {
+                              const origIdx = rawOrderRef.current.indexOf(stop.serviceOrder);
+                              const oldPos = origIdx !== -1 ? origIdx + 1 : i + 1;
+                              const newPos = i + 1;
+                              const isMoved = oldPos !== newPos;
+                              const posDiff = oldPos - newPos;
+                              return (
+                                <SortableStopCard
+                                  key={stop.serviceOrder}
+                                  stop={stop}
+                                  newPos={newPos}
+                                  oldPos={oldPos}
+                                  isMoved={isMoved}
+                                  posDiff={posDiff}
+                                  segKm={propKm[i]}
+                                  segsLoading={isOptimizing}
+                                  isHovered={hoveredStopId === stop.serviceOrder}
+                                  onHover={setHoveredStopId}
+                                  onSetTurn={() => {}}
+                                  onToggleCall={() => {}}
+                                  onToggleMessage={() => {}}
+                                  showTurnControls={false}
+                                />
+                              );
+                            })}
+                          </div>
+                        </SortableContext>
+                      </DndContext>
+                    ) : (
+                      <div className="rounded-lg overflow-hidden border h-[65vh] min-h-[420px]">
+                        <DynamicalRouteMap
+                          routes={[currentRoute]}
+                          activeStops={stops.map(s => ({ stop: s, route: currentRoute, status: "todo" as const }))}
+                          showPolyline
+                          polylineColor="#10b981"
+                          baseAddress={baseAddress}
+                          height="100%"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Passo 3 ── */}
+                {step === 3 && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4 max-w-xl">
+                      <div className="space-y-1.5">
+                        <Label className="text-emerald-700 dark:text-emerald-400 font-bold">Data de Saída 🛫</Label>
+                        <Popover open={departureDateOpen} onOpenChange={setDepartureDateOpen}>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" className="w-full justify-start text-left font-semibold text-xs border-emerald-300 dark:border-emerald-800">
+                              <CalendarIcon className="mr-2 h-3.5 w-3.5 text-emerald-600" />
+                              {departureDate ? format(departureDate, "dd/MM/yyyy") : "Data de Saída"}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0">
+                            <CalendarComp mode="single" selected={departureDate} onSelect={d => { setDepartureDate(d); setDepartureDateOpen(false); }} locale={ptBR} />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-blue-700 dark:text-blue-400 font-bold">Data de Retorno 🛬</Label>
+                        <Popover open={arrivalDateOpen} onOpenChange={setArrivalDateOpen}>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" className="w-full justify-start text-left font-semibold text-xs border-blue-300 dark:border-blue-800">
+                              <CalendarIcon className="mr-2 h-3.5 w-3.5 text-blue-600" />
+                              {arrivalDate ? format(arrivalDate, "dd/MM/yyyy") : "Data de Retorno"}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0">
+                            <CalendarComp mode="single" selected={arrivalDate} onSelect={d => { setArrivalDate(d); setArrivalDateOpen(false); }} locale={ptBR} />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                    </div>
+
+                    <div className="max-w-3xl space-y-1">
+                      {stops.map((stop, i) => (
+                        <StopSummaryCard
+                          key={stop.serviceOrder}
+                          stop={stop}
+                          position={i + 1}
+                          legKm={legKm[i]}
+                          legDurationMin={legDurationMin[i]}
+                          legsLoading={legsLoading}
+                          onSetTurn={(turn) => handleSetTurn(i, turn)}
+                          onToggleCall={() => handleToggleCall(i)}
+                          onToggleMessage={() => handleToggleMessage(i)}
+                        />
+                      ))}
+
+                      {/* Trecho final: retorno à base, fecha o circuito da rota */}
+                      {stops.length > 0 && (
+                        <div>
+                          <div className="flex items-center gap-1 pl-2 my-0.5">
+                            <span className="text-[9px] text-muted-foreground/60">↓</span>
+                            {legsLoading ? (
+                              <span className="text-[9px] text-muted-foreground animate-pulse px-1.5">calculando…</span>
+                            ) : legKm[stops.length] !== undefined ? (
+                              <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                                {formatLegTempo(legKm[stops.length], legDurationMin[stops.length]) || `${legKm[stops.length].toFixed(1)} km`}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 flex items-center gap-2.5 p-2.5 text-xs">
+                            <span className="h-6 w-6 rounded-full bg-sidebar text-sidebar-foreground text-xs flex items-center justify-center shrink-0">🏢</span>
+                            <div className="min-w-0">
+                              <p className="font-semibold">Retorno à base</p>
+                              <p className="text-[10px] text-muted-foreground truncate">{baseAddress}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Passo 4 ── */}
+                {step === 4 && (
+                  <div className="space-y-4 max-w-3xl">
+                    <p className="text-sm text-muted-foreground">
+                      Revise o e-mail da rota abaixo, copie e cole no seu cliente de e-mail (Gmail/Outlook), ou abra um rascunho já preenchido. Confirme que enviou antes de publicar.
+                    </p>
+                    <pre className="rounded-lg border max-h-[50vh] overflow-y-auto p-3 bg-white text-black text-xs whitespace-pre-wrap font-mono">{emailPayload.plain}</pre>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" onClick={handleCopyEmail} className="gap-2">
+                        <Copy className="h-4 w-4" /> Copiar e-mail
+                      </Button>
+                      <Button type="button" variant="outline" asChild className="gap-2">
+                        <a href={mailtoHref}>
+                          <Mail className="h-4 w-4" /> Abrir rascunho <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-lg border p-3 bg-muted/30">
+                      <Checkbox id="email-confirmed" checked={emailConfirmed} onCheckedChange={(c) => setEmailConfirmed(c === true)} />
+                      <Label htmlFor="email-confirmed" className="cursor-pointer">Confirmo que enviei o e-mail da rota</Label>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Passo 5 ── */}
+                {step === 5 && (
+                  <div className="max-w-xl space-y-6">
+                    <div>
+                      <h3 className="font-headline text-2xl font-semibold tracking-tight">Tudo pronto pra publicar</h3>
+                      <p className="text-sm text-muted-foreground mt-1">Confira os dados abaixo antes de tornar a rota visível para o técnico.</p>
+                    </div>
+                    <div className="rounded-lg border p-4 space-y-2 text-sm">
+                      <div className="flex justify-between"><span className="text-muted-foreground">Rota</span><span className="font-semibold">{name}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Técnico</span><span>{selectedTechnician?.name || "—"}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Motorista</span><span>{selectedDriver?.name || "—"}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Placa</span><span className="font-mono">{licensePlate}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Saída</span><span>{departureDate ? format(departureDate, "dd/MM/yyyy") : "—"}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Retorno</span><span>{arrivalDate ? format(arrivalDate, "dd/MM/yyyy") : "—"}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Paradas</span><span className="font-mono">{stops.length}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">KM total</span><span className="font-mono">{totalKm.toFixed(1)} km</span></div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Ao publicar, a rota fica visível para o técnico e um aviso automático é disparado (se configurado em Configurações).
+                    </p>
+                  </div>
+                )}
+
+              </div>
+            </main>
+          </div>
+        </div>
+
+        {/* ── Rodapé fixo ── */}
+        <DialogFooter className="shrink-0 flex-row items-center justify-between gap-2 border-t bg-background px-6 py-4 sm:justify-between">
           <div className="flex items-center gap-2">
             <Button type="button" variant="outline" onClick={goBack} disabled={!canGoBack} className="gap-1.5">
               <ArrowLeft className="h-4 w-4" /> Voltar

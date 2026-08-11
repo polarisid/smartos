@@ -18,7 +18,7 @@ import { Phone, MessageSquare, ChevronRight } from "lucide-react";import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen, Copy, ArrowUp, ArrowDown, FileDown, Loader2, ArrowRightLeft, MapPin, Zap } from "lucide-react";
+import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen, Copy, ArrowUp, ArrowDown, FileDown, Loader2, ArrowRightLeft, MapPin, Zap, Rocket } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { routeService } from "@/services/supabase/routeService";
@@ -844,7 +844,11 @@ function RouteForm({
 
                     <div className="border rounded-lg p-1.5 space-y-1.5">
                         {parsedStops.length > 0 ? parsedStops.map((stop, index) => {
-                            const isAlreadyVisited = serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder);
+                            const matchingOs = serviceOrders
+                                .filter(os => os.serviceOrderNumber === stop.serviceOrder)
+                                .sort((a, b) => a.date.getTime() - b.date.getTime());
+                            const lastVisitOs = matchingOs.length > 0 ? matchingOs[matchingOs.length - 1] : null;
+                            const isAlreadyVisited = lastVisitOs != null;
                             const isExpanded = expandedStops.has(stop.serviceOrder);
                             const partsCount = stop.parts?.length || 0;
                             const location = [stop.city, stop.neighborhood].filter(Boolean).join(' · ');
@@ -916,10 +920,65 @@ function RouteForm({
                                             </span>
                                         </div>
 
-                                        {isAlreadyVisited && (
-                                            <Badge variant="secondary" className="bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 hover:bg-violet-100 text-[10px] px-1.5 py-0 flex items-center gap-0.5 shrink-0 whitespace-nowrap">
-                                                <History className="w-3 h-3" /> Visitada
-                                            </Badge>
+                                        {isAlreadyVisited && lastVisitOs && (
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                    <button
+                                                        type="button"
+                                                        title="Ver observações da última visita"
+                                                        className="shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+                                                    >
+                                                        <Badge variant="secondary" className="cursor-pointer bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 hover:bg-violet-200 dark:hover:bg-violet-900/50 text-[10px] px-1.5 py-0 flex items-center gap-0.5 whitespace-nowrap transition-colors">
+                                                            <History className="w-3 h-3" /> Visitada
+                                                        </Badge>
+                                                    </button>
+                                                </PopoverTrigger>
+                                                <PopoverContent align="start" className="w-80 p-0 overflow-hidden">
+                                                    <div className="bg-violet-50 dark:bg-violet-950/40 px-4 py-2.5 border-b flex items-center justify-between gap-2">
+                                                        <div className="flex items-center gap-1.5 text-violet-700 dark:text-violet-300 font-semibold text-sm">
+                                                            <History className="w-4 h-4" /> Última visita
+                                                        </div>
+                                                        <span className="text-[11px] font-medium text-muted-foreground">{format(lastVisitOs.date, "dd/MM/yyyy")}</span>
+                                                    </div>
+                                                    <div className="p-4 space-y-2.5 text-sm">
+                                                        <div className="flex justify-between gap-2">
+                                                            <span className="text-muted-foreground">Técnico</span>
+                                                            <span className="font-medium text-right">{technicians.find(t => t.id === lastVisitOs.technicianId)?.name || "—"}</span>
+                                                        </div>
+                                                        {!lastVisitOs.isFinalized && lastVisitOs.pendingReason && (
+                                                            <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-2.5 py-1.5">
+                                                                <p className="text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-400">⚠️ Atendimento não finalizado</p>
+                                                                <p className="text-xs text-amber-800 dark:text-amber-300 mt-0.5">{lastVisitOs.pendingReason}</p>
+                                                            </div>
+                                                        )}
+                                                        {lastVisitOs.defectFound && (
+                                                            <div>
+                                                                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Defeito constatado</p>
+                                                                <p className="text-xs whitespace-pre-wrap">{lastVisitOs.defectFound}</p>
+                                                            </div>
+                                                        )}
+                                                        {lastVisitOs.replacedPart && (
+                                                            <div>
+                                                                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Peça trocada</p>
+                                                                <p className="text-xs font-mono whitespace-pre-wrap">{lastVisitOs.replacedPart}</p>
+                                                            </div>
+                                                        )}
+                                                        {lastVisitOs.observations ? (
+                                                            <div>
+                                                                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Observações</p>
+                                                                <p className="text-xs whitespace-pre-wrap">{lastVisitOs.observations}</p>
+                                                            </div>
+                                                        ) : (
+                                                            (!lastVisitOs.defectFound && !lastVisitOs.replacedPart && !(lastVisitOs.pendingReason && !lastVisitOs.isFinalized)) && (
+                                                                <p className="text-xs text-muted-foreground italic">Sem observações registradas nesta visita.</p>
+                                                            )
+                                                        )}
+                                                        {matchingOs.length > 1 && (
+                                                            <p className="text-[10px] text-muted-foreground pt-1 border-t">{matchingOs.length} atendimentos nesta OS — exibindo o mais recente.</p>
+                                                        )}
+                                                    </div>
+                                                </PopoverContent>
+                                            </Popover>
                                         )}
                                         {stop.zipMismatch && (
                                             <span className="text-red-500 shrink-0" title={`CEP (${stop.zipCode}) de ${stop.suggestedCityState} — Em ${stop.city}`}>⚠️</span>
@@ -1430,6 +1489,8 @@ export default function RoutesPage() {
     const contextLoading = loadingTech || loadingSo;
     const refreshDynamicData = () => queryClient.invalidateQueries();
 
+    // --- Draft routes (always fully loaded, should be small) ---
+    const [draftRoutes, setDraftRoutes] = useState<Route[]>([]);
     // --- Active routes (always fully loaded) ---
     const [activeRoutes, setActiveRoutes] = useState<Route[]>([]);
     // --- Inactive routes (paginated) ---
@@ -1443,12 +1504,15 @@ export default function RoutesPage() {
     const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
     const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
     const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
+    const [isDeleteDraftDialogOpen, setIsDeleteDraftDialogOpen] = useState(false);
+    const [routeToDelete, setRouteToDelete] = useState<Route | null>(null);
     const [showOnlyActive, setShowOnlyActive] = useState(true);
 
     const [activeTab, setActiveTab] = useState('list');
     const [formMode, setFormMode] = useState<'add' | 'edit'>('add');
     const [selectedRouteForEdit, setSelectedRouteForEdit] = useState<Route | null>(null);
     const [isWizardOpen, setIsWizardOpen] = useState(false);
+    const [wizardInitialRoute, setWizardInitialRoute] = useState<Route | null>(null);
 
     const activeStopsForMap = useMemo(() => {
         if (!selectedRoute) return [];
@@ -1511,7 +1575,9 @@ export default function RoutesPage() {
         try {
             const cutoff15Days = subDays(new Date(), 15);
 
-            const [activeRoutesList, inactiveData, driversSnap] = await Promise.all([
+            const [draftRoutesList, activeRoutesList, inactiveData, driversSnap] = await Promise.all([
+                // Draft routes (should be small)
+                routeService.getDraftRoutes(),
                 // All active routes (no limit – should be small)
                 routeService.getActiveRoutes(),
                 // Inactive: only last 15 days
@@ -1519,6 +1585,7 @@ export default function RoutesPage() {
                 driverService.getAll()
             ]);
 
+            setDraftRoutes(draftRoutesList);
             setActiveRoutes(activeRoutesList);
 
             setInactiveRoutes(inactiveData.routes);
@@ -1554,9 +1621,30 @@ export default function RoutesPage() {
         fetchRoutes();
     }, [toast]);
 
-    // Derived display list
-    const filteredRoutes = showOnlyActive ? activeRoutes : [...activeRoutes, ...inactiveRoutes];
+    // Derived display list — rascunhos sempre aparecem primeiro, independente do filtro
+    // de ativas/inativas (não são "inativas", são um estado à parte, ainda não postado).
+    const filteredRoutes = showOnlyActive
+        ? [...draftRoutes, ...activeRoutes]
+        : [...draftRoutes, ...activeRoutes, ...inactiveRoutes];
 
+    const handleOpenDeleteDraftDialog = (route: Route) => {
+        setRouteToDelete(route);
+        setIsDeleteDraftDialogOpen(true);
+    };
+
+    const handleDeleteDraft = async () => {
+        if (!routeToDelete) return;
+        try {
+            await routeService.remove(routeToDelete.id);
+            toast({ title: "Rascunho excluído permanentemente." });
+            setIsDeleteDraftDialogOpen(false);
+            setRouteToDelete(null);
+            fetchRoutes();
+        } catch (error: any) {
+            console.error("Error deleting draft: ", error);
+            toast({ variant: "destructive", title: "Erro ao excluir", description: error?.message || "Não foi possível excluir o rascunho." });
+        }
+    };
 
     const handleCancelRoute = async () => {
         if (!selectedRoute) return;
@@ -1669,24 +1757,50 @@ export default function RoutesPage() {
         setActiveTab('form');
     };
 
-    const renderRouteActions = (route: Route) => (
-        <div className="flex flex-wrap gap-2 justify-end">
-            <Button variant="outline" size="sm" onClick={() => handleOpenViewDialog(route)}>
-                <Eye className="mr-2 h-4 w-4" /> Visualizar
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => handleOpenForm('edit', route)}>
-                <Edit className="mr-2 h-4 w-4" /> Editar
-            </Button>
-            {route.isActive && (
-                <Button size="sm" onClick={() => handleFinalizeRoute(route.id)}>
-                    <CheckCircle className="mr-2 h-4 w-4" /> Finalizar
+    const renderRouteActions = (route: Route) => {
+        if (route.isDraft) {
+            return (
+                <div className="flex items-center gap-1.5 justify-end">
+                    <Button size="sm" className="gap-1.5" onClick={() => { setWizardInitialRoute(route); setIsWizardOpen(true); }}>
+                        <Rocket className="h-3.5 w-3.5" /> Continuar Rascunho
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => handleOpenDeleteDraftDialog(route)}
+                        title="Excluir permanentemente — só rascunhos podem, rotas já postadas só podem ser canceladas"
+                    >
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
+                </div>
+            );
+        }
+        return (
+            <div className="flex items-center gap-1 justify-end">
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => handleOpenViewDialog(route)} title="Visualizar">
+                    <Eye className="h-4 w-4" />
                 </Button>
-            )}
-            <Button variant="destructive" size="sm" onClick={() => handleOpenCancelDialog(route)}>
-                <Trash2 className="mr-2 h-4 w-4" /> Cancelar Rota
-            </Button>
-        </div>
-    );
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => handleOpenForm('edit', route)} title="Editar">
+                    <Edit className="h-4 w-4" />
+                </Button>
+                {route.isActive && (
+                    <Button size="sm" className="gap-1.5" onClick={() => handleFinalizeRoute(route.id)}>
+                        <CheckCircle className="h-3.5 w-3.5" /> Finalizar
+                    </Button>
+                )}
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => handleOpenCancelDialog(route)}
+                    title="Cancelar Rota"
+                >
+                    <Trash2 className="h-4 w-4" />
+                </Button>
+            </div>
+        );
+    };
 
     return (
         <>
@@ -1702,7 +1816,7 @@ export default function RoutesPage() {
                                 <Button variant="outline" onClick={() => handleOpenForm('add')} title="Cria a rota já ativa direto, sem passar pelo assistente de rascunho/otimização/e-mail">
                                     <Zap className="mr-2 h-4 w-4" /> Postagem Rápida
                                 </Button>
-                                <Button onClick={() => setIsWizardOpen(true)}>
+                                <Button onClick={() => { setWizardInitialRoute(null); setIsWizardOpen(true); }}>
                                     <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Rota
                                 </Button>
                             </>
@@ -1792,8 +1906,11 @@ export default function RoutesPage() {
                                                     </div>
                                             </TableCell>
                                             <TableCell>
-                                                    <Badge variant={route.isActive ? "default" : route.isCanceled ? "destructive" : "secondary"}>
-                                                        {route.isActive ? "Ativa" : route.isCanceled ? "Cancelada" : "Finalizada"}
+                                                    <Badge
+                                                        variant={route.isDraft ? "outline" : route.isActive ? "default" : route.isCanceled ? "destructive" : "secondary"}
+                                                        className={route.isDraft ? "border-amber-300 text-amber-700 bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:bg-amber-950" : undefined}
+                                                    >
+                                                        {route.isDraft ? "Rascunho" : route.isActive ? "Ativa" : route.isCanceled ? "Cancelada" : "Finalizada"}
                                                     </Badge>
                                             </TableCell>
                                             <TableCell className="text-right space-x-2">
@@ -1839,8 +1956,11 @@ export default function RoutesPage() {
                                             <CardHeader>
                                                 <div className="flex justify-between items-start">
                                                     <CardTitle>{route.name}</CardTitle>
-                                                    <Badge variant={route.isActive ? "default" : route.isCanceled ? "destructive" : "secondary"}>
-                                                        {route.isActive ? "Ativa" : route.isCanceled ? "Cancelada" : "Finalizada"}
+                                                    <Badge
+                                                        variant={route.isDraft ? "outline" : route.isActive ? "default" : route.isCanceled ? "destructive" : "secondary"}
+                                                        className={route.isDraft ? "border-amber-300 text-amber-700 bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:bg-amber-950" : undefined}
+                                                    >
+                                                        {route.isDraft ? "Rascunho" : route.isActive ? "Ativa" : route.isCanceled ? "Cancelada" : "Finalizada"}
                                                     </Badge>
                                                 </div>
                                             </CardHeader>
@@ -1997,10 +2117,30 @@ export default function RoutesPage() {
                 </AlertDialogContent>
             </AlertDialog>
 
+            <AlertDialog open={isDeleteDraftDialogOpen} onOpenChange={setIsDeleteDraftDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir rascunho permanentemente?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Esta ação não pode ser desfeita. O rascunho
+                            <span className="font-bold mx-1">{routeToDelete?.name}</span>
+                            será apagado por completo — diferente de uma rota já postada, que só pode ser cancelada.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setRouteToDelete(null)}>Voltar</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteDraft} className="bg-destructive hover:bg-destructive/90">
+                           Sim, excluir permanentemente
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
             <RouteCreationWizard
                 open={isWizardOpen}
-                onOpenChange={setIsWizardOpen}
-                onCompleted={() => { fetchRoutes(); refreshDynamicData(); }}
+                onOpenChange={(o) => { setIsWizardOpen(o); if (!o) setWizardInitialRoute(null); }}
+                initialRoute={wizardInitialRoute}
+                onCompleted={() => { fetchRoutes(); refreshDynamicData(); setWizardInitialRoute(null); }}
             />
         </>
     );

@@ -87,8 +87,48 @@ function ReportsPageInner() {
     });
 
     if (category === "produto_serial") {
-      readLabelFromPhoto(file);
+      processSerialPhoto(file);
     }
+  };
+
+  // Tenta decodificar um código de barras da própria foto da etiqueta (serial exato,
+  // sem erro de OCR). Se não achar barcode, retorna null e o fluxo cai no OCR por IA.
+  const scanBarcodeFromFile = async (file: File): Promise<string | null> => {
+    try {
+      const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
+      // Formatos comuns em etiquetas de serial (Samsung usa 1D — Code128/Code39) + QR.
+      const formatsToSupport = [
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.CODE_93,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.ITF,
+        Html5QrcodeSupportedFormats.DATA_MATRIX,
+        Html5QrcodeSupportedFormats.QR_CODE,
+      ];
+      const reader = new Html5Qrcode("serial-barcode-reader", { formatsToSupport, verbose: false });
+      const decoded = await reader.scanFile(file, false);
+      try { await reader.clear(); } catch { /* ignore */ }
+      return decoded?.trim() || null;
+    } catch {
+      // Nenhum código legível na imagem — segue para o OCR.
+      return null;
+    }
+  };
+
+  const processSerialPhoto = async (file: File) => {
+    setIsReadingLabel(true);
+    const barcode = await scanBarcodeFromFile(file);
+    if (barcode) {
+      setSerialNumber(barcode);
+      setIsReadingLabel(false);
+      toast({ title: "Serial lido do código de barras!", description: barcode });
+      return;
+    }
+    setIsReadingLabel(false);
+    // Sem barcode legível → cai no OCR por IA (preenche modelo e série).
+    await readLabelFromPhoto(file);
   };
 
   const readLabelFromPhoto = async (file: File) => {
@@ -266,6 +306,8 @@ function ReportsPageInner() {
 
   return (
     <div className="max-w-3xl mx-auto p-4 md:p-8 space-y-4">
+      {/* Container oculto usado pela html5-qrcode para decodificar o barcode da foto do serial */}
+      <div id="serial-barcode-reader" className="hidden" aria-hidden="true" />
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Camera className="h-5 w-5" /> Relatório</CardTitle>
@@ -310,7 +352,7 @@ function ReportsPageInner() {
             </div>
             <div className="space-y-1.5">
               <Label>Número de Série</Label>
-              <Input value={serialNumber} onChange={e => setSerialNumber(e.target.value)} placeholder="Detectado automaticamente pela foto" />
+              <Input value={serialNumber} onChange={e => setSerialNumber(e.target.value)} placeholder="Lido do código de barras ou detectado pela foto" />
             </div>
           </div>
 
