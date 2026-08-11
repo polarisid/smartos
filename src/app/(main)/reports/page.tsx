@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import SignatureCanvas from "react-signature-canvas";
 import { Button } from "@/components/ui/button";
@@ -13,8 +12,9 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { useToast } from "@/hooks/use-toast";
 import { useTechnicians, useActiveRoutes, useChecklists } from "@/hooks/queries";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
-import type { ChecklistTemplate, TechnicalReportPhotoCategory } from "@/lib/data";
-import { Camera, Loader2, Plus, Trash2, ExternalLink, Search, ScanLine, ClipboardList } from "lucide-react";
+import type { ChecklistTemplate, TechnicalReport, TechnicalReportPhotoCategory } from "@/lib/data";
+import { buildAndDownloadPdf } from "@/lib/technicalReportPdf";
+import { Camera, Loader2, Plus, Trash2, Download, Search, ScanLine, ClipboardList } from "lucide-react";
 
 type LocalPhoto = {
   id: string;
@@ -65,10 +65,12 @@ function ReportsPageInner() {
   const [checklistTemplateId, setChecklistTemplateId] = useState("");
   const [photos, setPhotos] = useState<LocalPhoto[]>([]);
   const [savedReportId, setSavedReportId] = useState<string | null>(null);
+  const [savedReportCreatedAt, setSavedReportCreatedAt] = useState<Date | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isReadingLabel, setIsReadingLabel] = useState(false);
   const [isLoadingExisting, setIsLoadingExisting] = useState(false);
-  const [hasStoredClientSignature, setHasStoredClientSignature] = useState(false);
+  const [storedClientSignature, setStoredClientSignature] = useState<string | null>(null);
   const clientSignatureRef = useRef<InstanceType<typeof SignatureCanvas> | null>(null);
 
   // Ao digitar/colar a OS, puxa o modelo do produto e o nome do cliente da rota
@@ -100,7 +102,8 @@ function ReportsPageInner() {
     setChecklistTemplateId("");
     setPhotos([]);
     setSavedReportId(null);
-    setHasStoredClientSignature(false);
+    setSavedReportCreatedAt(null);
+    setStoredClientSignature(null);
     clientSignatureRef.current?.clear();
   };
 
@@ -232,6 +235,7 @@ function ReportsPageInner() {
       }
       const report = reports[0];
       setSavedReportId(report.id);
+      setSavedReportCreatedAt(report.createdAt);
       setTechnicianId(report.technicianId || "");
       setConsumerName(report.consumerName || "");
       setProductModel(report.productModel || "");
@@ -239,7 +243,7 @@ function ReportsPageInner() {
       setRepairDescription(report.repairDescription || "");
       setObservations(report.observations || "");
       setChecklistTemplateId(report.checklistTemplateId || "");
-      setHasStoredClientSignature(!!report.clientSignature);
+      setStoredClientSignature(report.clientSignature || null);
       setPhotos(
         (report.photos || []).map(p => ({
           id: crypto.randomUUID(),
@@ -300,7 +304,8 @@ function ReportsPageInner() {
 
       const technician = technicians.find(t => t.id === technicianId);
       const signatureEmpty = clientSignatureRef.current?.isEmpty() ?? true;
-      const clientSignature = signatureEmpty ? undefined : clientSignatureRef.current!.toDataURL("image/png");
+      const drawnSignature = signatureEmpty ? undefined : clientSignatureRef.current!.toDataURL("image/png");
+      const clientSignature = drawnSignature || storedClientSignature || undefined;
 
       const payload = {
         serviceOrderNumber: serviceOrderNumber.trim(),
@@ -313,26 +318,78 @@ function ReportsPageInner() {
         repairDescription: repairDescription.trim(),
         observations: observations || undefined,
         checklistTemplateId: checklistTemplateId || undefined,
-        ...(clientSignature ? { clientSignature } : {}),
+        ...(drawnSignature ? { clientSignature: drawnSignature } : {}),
       };
 
       let id = savedReportId;
+      let createdAt = savedReportCreatedAt;
       if (id) {
         await technicalReportService.update(id, payload);
       } else {
         id = await technicalReportService.create(payload as any);
         setSavedReportId(id);
+        createdAt = new Date();
+        setSavedReportCreatedAt(createdAt);
       }
-      if (clientSignature) setHasStoredClientSignature(true);
+      if (drawnSignature) setStoredClientSignature(drawnSignature);
       toast({ title: "Relatório salvo com sucesso!" });
 
       if (uploaded.length > 0) {
         scoreReportInBackground(id, uploaded);
       }
+
+      // Baixa direto aqui, com os dados que acabaram de ser salvos — sem re-buscar
+      // do banco e sem precisar abrir a página de visualização em outra aba.
+      const savedReport: TechnicalReport = {
+        id,
+        createdAt: createdAt || new Date(),
+        updatedAt: new Date(),
+        ...payload,
+        clientSignature,
+      };
+      setIsDownloadingPdf(true);
+      try {
+        await buildAndDownloadPdf(savedReport);
+      } catch (pdfError) {
+        console.error("Falha ao gerar PDF", pdfError);
+        toast({ variant: "destructive", title: "Relatório salvo, mas houve um erro ao gerar o PDF.", description: "Tente baixar novamente." });
+      } finally {
+        setIsDownloadingPdf(false);
+      }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Erro ao salvar relatório", description: e?.message });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!savedReportId) return;
+    setIsDownloadingPdf(true);
+    try {
+      const technician = technicians.find(t => t.id === technicianId);
+      const report: TechnicalReport = {
+        id: savedReportId,
+        createdAt: savedReportCreatedAt || new Date(),
+        updatedAt: new Date(),
+        serviceOrderNumber: serviceOrderNumber.trim(),
+        technicianId: technicianId || undefined,
+        technicianName: technician?.name,
+        consumerName: consumerName || undefined,
+        productModel: productModel || undefined,
+        serialNumber: serialNumber || undefined,
+        photos: photos.filter(p => p.url && p.path).map(p => ({ category: p.category, url: p.url!, path: p.path!, order: p.order })),
+        repairDescription: repairDescription.trim(),
+        observations: observations || undefined,
+        checklistTemplateId: checklistTemplateId || undefined,
+        clientSignature: storedClientSignature || undefined,
+      };
+      await buildAndDownloadPdf(report);
+    } catch (e) {
+      console.error("Falha ao gerar PDF", e);
+      toast({ variant: "destructive", title: "Erro ao gerar PDF" });
+    } finally {
+      setIsDownloadingPdf(false);
     }
   };
 
@@ -507,16 +564,16 @@ function ReportsPageInner() {
                 ref={clientSignatureRef}
                 penColor="black"
                 canvasProps={{ className: "signature-canvas w-full h-40" }}
-                onEnd={() => setHasStoredClientSignature(false)}
+                onEnd={() => setStoredClientSignature(null)}
               />
               <div className="bg-muted p-1 flex justify-between items-center border-t">
-                {hasStoredClientSignature && <span className="text-xs text-muted-foreground pl-2">Assinatura já salva anteriormente</span>}
+                {storedClientSignature && <span className="text-xs text-muted-foreground pl-2">Assinatura já salva anteriormente</span>}
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   className="ml-auto"
-                  onClick={() => { clientSignatureRef.current?.clear(); setHasStoredClientSignature(false); }}
+                  onClick={() => { clientSignatureRef.current?.clear(); setStoredClientSignature(null); }}
                 >
                   Limpar Assinatura
                 </Button>
@@ -536,15 +593,14 @@ function ReportsPageInner() {
           <Button type="button" variant="outline" onClick={resetForm} disabled={isSaving}>Novo Relatório</Button>
           <div className="flex gap-2">
             {savedReportId && (
-              <Button type="button" variant="secondary" asChild>
-                <Link href={`/report-view/${encodeURIComponent(serviceOrderNumber.trim())}`} target="_blank">
-                  <ExternalLink className="mr-2 h-4 w-4" /> Ver/Exportar Relatório
-                </Link>
+              <Button type="button" variant="secondary" onClick={handleDownloadPdf} disabled={isSaving || isDownloadingPdf}>
+                {isDownloadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                Baixar PDF
               </Button>
             )}
             <Button type="button" onClick={handleSave} disabled={isSaving}>
               {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {isSaving ? "Salvando..." : "Salvar Relatório"}
+              {isSaving ? (isDownloadingPdf ? "Gerando PDF..." : "Salvando...") : "Salvar Relatório"}
             </Button>
           </div>
         </CardFooter>

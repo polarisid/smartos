@@ -39,6 +39,58 @@ export const technicalReportService = {
     return (data || []).map(this.mapFromDb);
   },
 
+  // Listagem paginada/filtrada para o admin (não traz `photos`, que só é
+  // necessário ao abrir o diálogo de um relatório específico — economiza
+  // banda conforme o volume de relatórios cresce).
+  async getPaginated(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    dateFrom?: Date;
+  }): Promise<{ reports: TechnicalReport[]; total: number }> {
+    const { page, pageSize, search, dateFrom } = params;
+    let query = supabase
+      .from('technical_reports')
+      .select('id, service_order_number, technician_name, product_model, ai_score, created_at, updated_at', { count: 'exact' })
+      .order('created_at', { ascending: false });
+
+    if (dateFrom) {
+      query = query.gte('created_at', dateFrom.toISOString());
+    }
+    if (search && search.trim()) {
+      const q = search.trim().replace(/[%,]/g, '');
+      query = query.or(`service_order_number.ilike.%${q}%,technician_name.ilike.%${q}%,product_model.ilike.%${q}%`);
+    }
+
+    const from = page * pageSize;
+    const { data, error, count } = await query.range(from, from + pageSize - 1);
+
+    if (error) throw error;
+    return {
+      reports: (data || []).map((row: any) => this.mapFromDb({ ...row, photos: [] })),
+      total: count || 0,
+    };
+  },
+
+  // Só os scores do recorte filtrado (sem paginação) — usado pra calcular a
+  // média geral sem precisar carregar todas as linhas/fotos na tela.
+  async getScoresInRange(params: { search?: string; dateFrom?: Date }): Promise<number[]> {
+    let query = supabase.from('technical_reports').select('ai_score');
+    if (params.dateFrom) {
+      query = query.gte('created_at', params.dateFrom.toISOString());
+    }
+    if (params.search && params.search.trim()) {
+      const q = params.search.trim().replace(/[%,]/g, '');
+      query = query.or(`service_order_number.ilike.%${q}%,technician_name.ilike.%${q}%,product_model.ilike.%${q}%`);
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data || [])
+      .map((r: any) => r.ai_score)
+      .filter((v: any) => v != null)
+      .map(Number);
+  },
+
   async create(data: Omit<TechnicalReport, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
     const dbData = this.mapToDb(data);
     const { data: newDoc, error } = await supabase
