@@ -263,8 +263,10 @@ export type TechnicalReport = {
   observations?: string;
   responsibleName?: string;
   responsibleSignature?: string;
+  clientSignature?: string;
   aiScore?: number;
   aiScoreFeedback?: string;
+  checklistTemplateId?: string;
   createdAt: Date;
   updatedAt: Date;
 };

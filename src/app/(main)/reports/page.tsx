@@ -1,19 +1,20 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import SignatureCanvas from "react-signature-canvas";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useTechnicians } from "@/hooks/queries";
+import { useTechnicians, useActiveRoutes, useChecklists } from "@/hooks/queries";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
-import type { TechnicalReportPhotoCategory } from "@/lib/data";
-import { Camera, Loader2, Plus, Trash2, ExternalLink, Search, ScanLine } from "lucide-react";
+import type { ChecklistTemplate, TechnicalReportPhotoCategory } from "@/lib/data";
+import { Camera, Loader2, Plus, Trash2, ExternalLink, Search, ScanLine, ClipboardList } from "lucide-react";
 
 type LocalPhoto = {
   id: string;
@@ -50,30 +51,57 @@ export default function ReportsPage() {
 function ReportsPageInner() {
   const { toast } = useToast();
   const { data: technicians = [] } = useTechnicians();
+  const { data: activeRoutes = [] } = useActiveRoutes();
+  const { data: checklistTemplates = [] } = useChecklists();
   const searchParams = useSearchParams();
 
   const [serviceOrderNumber, setServiceOrderNumber] = useState(() => searchParams.get("os") || "");
   const [technicianId, setTechnicianId] = useState("");
+  const [consumerName, setConsumerName] = useState("");
   const [productModel, setProductModel] = useState("");
   const [serialNumber, setSerialNumber] = useState("");
   const [repairDescription, setRepairDescription] = useState("");
   const [observations, setObservations] = useState("");
+  const [checklistTemplateId, setChecklistTemplateId] = useState("");
   const [photos, setPhotos] = useState<LocalPhoto[]>([]);
   const [savedReportId, setSavedReportId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isReadingLabel, setIsReadingLabel] = useState(false);
   const [isLoadingExisting, setIsLoadingExisting] = useState(false);
+  const [hasStoredClientSignature, setHasStoredClientSignature] = useState(false);
+  const clientSignatureRef = useRef<InstanceType<typeof SignatureCanvas> | null>(null);
+
+  // Ao digitar/colar a OS, puxa o modelo do produto e o nome do cliente da rota
+  // ativa correspondente (mesma convenção usada no autofill do checklist em
+  // "Lançar OS"). Só preenche se o campo ainda estiver vazio, para não
+  // sobrescrever algo já digitado/carregado.
+  useEffect(() => {
+    const os = serviceOrderNumber.trim();
+    if (!os || (productModel && consumerName)) return;
+    for (const route of activeRoutes) {
+      const stop = route.stops.find(s => s.serviceOrder === os);
+      if (stop) {
+        if (stop.model && !productModel) setProductModel(stop.model);
+        if (stop.consumerName && !consumerName) setConsumerName(stop.consumerName);
+        break;
+      }
+    }
+  }, [serviceOrderNumber, activeRoutes]);
 
   const resetForm = () => {
     photos.forEach(p => { if (!p.url) URL.revokeObjectURL(p.previewUrl); });
     setServiceOrderNumber("");
     setTechnicianId("");
+    setConsumerName("");
     setProductModel("");
     setSerialNumber("");
     setRepairDescription("");
     setObservations("");
+    setChecklistTemplateId("");
     setPhotos([]);
     setSavedReportId(null);
+    setHasStoredClientSignature(false);
+    clientSignatureRef.current?.clear();
   };
 
   const handleSlotFile = (category: TechnicalReportPhotoCategory, fileList: FileList | null) => {
@@ -205,10 +233,13 @@ function ReportsPageInner() {
       const report = reports[0];
       setSavedReportId(report.id);
       setTechnicianId(report.technicianId || "");
+      setConsumerName(report.consumerName || "");
       setProductModel(report.productModel || "");
       setSerialNumber(report.serialNumber || "");
       setRepairDescription(report.repairDescription || "");
       setObservations(report.observations || "");
+      setChecklistTemplateId(report.checklistTemplateId || "");
+      setHasStoredClientSignature(!!report.clientSignature);
       setPhotos(
         (report.photos || []).map(p => ({
           id: crypto.randomUUID(),
@@ -268,16 +299,21 @@ function ReportsPageInner() {
       setPhotos(uploaded);
 
       const technician = technicians.find(t => t.id === technicianId);
+      const signatureEmpty = clientSignatureRef.current?.isEmpty() ?? true;
+      const clientSignature = signatureEmpty ? undefined : clientSignatureRef.current!.toDataURL("image/png");
 
       const payload = {
         serviceOrderNumber: serviceOrderNumber.trim(),
         technicianId: technicianId || undefined,
         technicianName: technician?.name,
+        consumerName: consumerName || undefined,
         productModel: productModel || undefined,
         serialNumber: serialNumber || undefined,
         photos: uploaded.map(p => ({ category: p.category, url: p.url!, path: p.path!, order: p.order })),
         repairDescription: repairDescription.trim(),
         observations: observations || undefined,
+        checklistTemplateId: checklistTemplateId || undefined,
+        ...(clientSignature ? { clientSignature } : {}),
       };
 
       let id = savedReportId;
@@ -287,7 +323,8 @@ function ReportsPageInner() {
         id = await technicalReportService.create(payload as any);
         setSavedReportId(id);
       }
-      toast({ title: "Relatório salvo com sucesso!", description: "A nota de qualidade da IA fica disponível em instantes." });
+      if (clientSignature) setHasStoredClientSignature(true);
+      toast({ title: "Relatório salvo com sucesso!" });
 
       if (uploaded.length > 0) {
         scoreReportInBackground(id, uploaded);
@@ -345,6 +382,10 @@ function ReportsPageInner() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Nome do Cliente</Label>
+              <Input value={consumerName} onChange={e => setConsumerName(e.target.value)} placeholder="Ex: João Silva" />
             </div>
             <div className="space-y-1.5">
               <Label>Modelo do Produto</Label>
@@ -423,6 +464,64 @@ function ReportsPageInner() {
           <div className="space-y-1.5">
             <Label>Observações</Label>
             <Textarea value={observations} onChange={e => setObservations(e.target.value)} rows={4} placeholder="Recomendações, orientações ao cliente, etc." />
+          </div>
+
+          <div className="space-y-1.5 pt-2 border-t">
+            <Label className="text-sm font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5 pt-2">
+              <ClipboardList className="h-3.5 w-3.5" /> Checklist (Opcional)
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Selecione um modelo para anexar preenchido ao final do PDF do relatório (Serial, Modelo, Cliente e Observações já vêm prontos).
+            </p>
+            <Select value={checklistTemplateId} onValueChange={v => setChecklistTemplateId(v === "none" ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Nenhum</SelectItem>
+                {Object.entries(
+                  checklistTemplates.reduce<Record<string, ChecklistTemplate[]>>((acc, t) => {
+                    const key = t.category?.trim() || "Outros";
+                    (acc[key] ||= []).push(t);
+                    return acc;
+                  }, {})
+                )
+                  .sort(([a], [b]) => (a === "Outros" ? 1 : b === "Outros" ? -1 : a.localeCompare(b)))
+                  .map(([category, group]) => (
+                    <SelectGroup key={category}>
+                      <SelectLabel>{category}</SelectLabel>
+                      {group.map(t => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Assinatura do Cliente (Opcional)</Label>
+            <p className="text-xs text-muted-foreground">
+              Se um checklist foi selecionado acima, essa assinatura preenche o campo de assinatura dele no PDF.
+            </p>
+            <div className="border rounded-md overflow-hidden bg-white shadow-sm border-gray-300">
+              <SignatureCanvas
+                ref={clientSignatureRef}
+                penColor="black"
+                canvasProps={{ className: "signature-canvas w-full h-40" }}
+                onEnd={() => setHasStoredClientSignature(false)}
+              />
+              <div className="bg-muted p-1 flex justify-between items-center border-t">
+                {hasStoredClientSignature && <span className="text-xs text-muted-foreground pl-2">Assinatura já salva anteriormente</span>}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto"
+                  onClick={() => { clientSignatureRef.current?.clear(); setHasStoredClientSignature(false); }}
+                >
+                  Limpar Assinatura
+                </Button>
+              </div>
+            </div>
           </div>
         </CardContent>
 

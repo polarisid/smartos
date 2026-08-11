@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import type jsPDF from "jspdf";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
-import { type TechnicalReport, type TechnicalReportPhoto, type TechnicalReportPhotoCategory } from "@/lib/data";
+import { checklistService } from "@/services/supabase/checklistService";
+import { type TechnicalReport, type TechnicalReportPhoto, type TechnicalReportPhotoCategory, type ChecklistTemplate } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Loader2, Download, ScanLine, AlertTriangle, Wrench, MessageSquare, ClipboardList } from "lucide-react";
 import { format } from "date-fns";
@@ -131,17 +132,8 @@ export default function ReportViewPage() {
         )}
 
         {report.observations && (
-          <ReportSection title="Observações" icon={MessageSquare}>
+          <ReportSection title="Observações" icon={MessageSquare} last>
             <p className="text-sm whitespace-pre-wrap">{report.observations}</p>
-          </ReportSection>
-        )}
-
-        {report.aiScore != null && (
-          <ReportSection title="Nota do Relatório (IA)" last>
-            <div className="flex items-center gap-5 rounded-lg border border-gray-200 p-4">
-              <ScoreGauge score={report.aiScore} />
-              {report.aiScoreFeedback && <p className="text-sm text-gray-700">{report.aiScoreFeedback}</p>}
-            </div>
           </ReportSection>
         )}
       </div>
@@ -181,60 +173,52 @@ function ReportSection({
   );
 }
 
+// Fotos verticais ficam minúsculas dentro dos cards 16:9 do relatório — gira 90°
+// para exibir na horizontal, igual às demais. Se a imagem já é paisagem/quadrada,
+// usa a original sem reprocessar (evita perda de qualidade desnecessária).
+function rotateToLandscapeCanvas(img: HTMLImageElement): string | null {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalHeight;
+    canvas.height = img.naturalWidth;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    return canvas.toDataURL("image/jpeg", 0.96);
+  } catch {
+    // Ex: falha de CORS ao ler pixels da imagem — mantém a foto original.
+    return null;
+  }
+}
+
 function PhotoCard({ photo, label, className = "" }: { photo: TechnicalReportPhoto; label?: string; className?: string }) {
+  const [src, setSrc] = useState(photo.url);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSrc(photo.url);
+    const img = new window.Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (cancelled || img.naturalHeight <= img.naturalWidth) return;
+      const rotated = rotateToLandscapeCanvas(img);
+      if (rotated && !cancelled) setSrc(rotated);
+    };
+    img.src = photo.url;
+    return () => { cancelled = true; };
+  }, [photo.url]);
+
   return (
     <div className={`photo-item ${className}`}>
       <img
-        src={photo.url}
+        src={src}
         alt={label || "Foto do relatório"}
         className="w-full aspect-video object-contain rounded-md border border-gray-200 bg-gray-50 shadow-sm"
       />
       {label && <p className="text-center text-xs mt-1.5 font-medium text-muted-foreground">{label}</p>}
     </div>
-  );
-}
-
-function scoreColor(score: number): string {
-  if (score >= 8) return "#16a34a";
-  if (score >= 5) return "#d97706";
-  return "#dc2626";
-}
-
-function scoreColorRgb(score: number): [number, number, number] {
-  if (score >= 8) return [22, 163, 74];
-  if (score >= 5) return [217, 119, 6];
-  return [220, 38, 38];
-}
-
-function ScoreGauge({ score }: { score: number }) {
-  const radius = 42;
-  const circumference = 2 * Math.PI * radius;
-  const pct = Math.max(0, Math.min(1, score / 10));
-  const offset = circumference * (1 - pct);
-  const color = scoreColor(score);
-
-  return (
-    <svg width="96" height="96" viewBox="0 0 96 96" className="shrink-0">
-      <circle cx="48" cy="48" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="9" />
-      <circle
-        cx="48"
-        cy="48"
-        r={radius}
-        fill="none"
-        stroke={color}
-        strokeWidth="9"
-        strokeLinecap="round"
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        transform="rotate(-90 48 48)"
-      />
-      <text x="48" y="46" textAnchor="middle" fontSize="22" fontWeight="700" fontFamily="ui-monospace, monospace" fill={color}>
-        {score.toFixed(1)}
-      </text>
-      <text x="48" y="61" textAnchor="middle" fontSize="9" fill="#94a3b8">
-        / 10
-      </text>
-    </svg>
   );
 }
 
@@ -254,15 +238,24 @@ async function loadImageForPdf(url: string): Promise<LoadedImage> {
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
-  const { width, height } = await new Promise<{ width: number; height: number }>((resolve, reject) => {
-    const img = new window.Image();
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    img.onerror = reject;
-    img.src = dataUrl;
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new window.Image();
+    el.onload = () => resolve(el);
+    el.onerror = reject;
+    el.src = dataUrl;
   });
+
+  // Foto vertical: gira 90° para caber na horizontal, igual às demais no PDF.
+  if (img.naturalHeight > img.naturalWidth) {
+    const rotated = rotateToLandscapeCanvas(img);
+    if (rotated) {
+      return { dataUrl: rotated, format: "JPEG", width: img.naturalHeight, height: img.naturalWidth };
+    }
+  }
+
   const mime = blob.type || "image/jpeg";
   const imgFormat: LoadedImage["format"] = mime.includes("png") ? "PNG" : mime.includes("webp") ? "WEBP" : "JPEG";
-  return { dataUrl, format: imgFormat, width, height };
+  return { dataUrl, format: imgFormat, width: img.naturalWidth, height: img.naturalHeight };
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -398,57 +391,6 @@ function drawTextSection(pdf: jsPDF, x: number, y: number, contentWidth: number,
   return y + lines.length * 4.6 + 6;
 }
 
-function drawArc(pdf: jsPDF, cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
-  const steps = 48;
-  let prev: [number, number] | null = null;
-  for (let i = 0; i <= steps; i++) {
-    const t = startDeg + (endDeg - startDeg) * (i / steps);
-    const rad = (t * Math.PI) / 180;
-    const pt: [number, number] = [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
-    if (prev) pdf.line(prev[0], prev[1], pt[0], pt[1]);
-    prev = pt;
-  }
-}
-
-function drawScoreSection(pdf: jsPDF, x: number, y: number, contentWidth: number, score: number, feedback: string | undefined, margin: number, pageHeight: number): number {
-  const boxHeight = 34;
-  y = ensureSpace(pdf, y, boxHeight + 8, margin, pageHeight);
-  y = drawSectionTitle(pdf, x, y, "Nota do Relatório (IA)");
-
-  pdf.setDrawColor(229, 231, 235);
-  pdf.roundedRect(x, y, contentWidth, boxHeight, 2, 2, "S");
-
-  const cx = x + 20;
-  const cy = y + boxHeight / 2;
-  const r = 12;
-  const color = scoreColorRgb(score);
-  const pct = Math.max(0, Math.min(1, score / 10));
-
-  pdf.setLineWidth(2.2);
-  pdf.setDrawColor(229, 231, 235);
-  drawArc(pdf, cx, cy, r, 0, 360);
-  pdf.setDrawColor(color[0], color[1], color[2]);
-  drawArc(pdf, cx, cy, r, -90, -90 + pct * 360);
-
-  pdf.setFont("courier", "bold");
-  pdf.setFontSize(12);
-  pdf.setTextColor(color[0], color[1], color[2]);
-  pdf.text(score.toFixed(1), cx, cy + 1.5, { align: "center" });
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(6);
-  pdf.setTextColor(148, 163, 184);
-  pdf.text("/ 10", cx, cy + 5.5, { align: "center" });
-
-  if (feedback) {
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(9);
-    pdf.setTextColor(55, 65, 81);
-    const lines = pdf.splitTextToSize(feedback, contentWidth - 50) as string[];
-    pdf.text(lines, x + 45, cy - ((lines.length - 1) * 4.6) / 2 + 1.5);
-  }
-
-  return y + boxHeight + 6;
-}
 
 async function buildAndDownloadPdf(report: TechnicalReport): Promise<void> {
   const { default: JsPdfCtor } = await import("jspdf");
@@ -527,9 +469,105 @@ async function buildAndDownloadPdf(report: TechnicalReport): Promise<void> {
   if (report.observations) {
     y = drawTextSection(pdf, margin, y, contentWidth, "Observações", report.observations, margin, pageHeight);
   }
-  if (report.aiScore != null) {
-    y = drawScoreSection(pdf, margin, y, contentWidth, report.aiScore, report.aiScoreFeedback, margin, pageHeight);
+
+  const reportBytes = pdf.output("arraybuffer");
+  let finalBytes: ArrayBuffer | Uint8Array = reportBytes;
+
+  if (report.checklistTemplateId) {
+    try {
+      const template = await checklistService.getById(report.checklistTemplateId);
+      if (template) {
+        const checklistBytes = await buildFilledChecklistBytes(template, report);
+        if (checklistBytes) {
+          finalBytes = await mergePdfBytes(reportBytes, checklistBytes);
+        }
+      }
+    } catch (e) {
+      console.error("Falha ao anexar checklist ao PDF — baixando só o relatório.", e);
+    }
   }
 
-  pdf.save(`${report.serviceOrderNumber}-relatorio.pdf`);
+  const blob = new Blob([finalBytes as BlobPart], { type: "application/pdf" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${report.serviceOrderNumber}-relatorio.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
+
+// ── Checklist anexado ao PDF ────────────────────────────────────────────────
+// Preenche o template de checklist selecionado usando os próprios dados do
+// relatório (Serial, Modelo, Cliente, Observações, Técnico, OS, Data) e anexa
+// as páginas ao final do PDF do relatório. A assinatura do cliente capturada
+// no relatório é embutida no(s) campo(s) de assinatura do checklist.
+
+function resolveChecklistValue(variableKey: string, report: TechnicalReport): string {
+  const data: Record<string, string> = {
+    serviceOrder: report.serviceOrderNumber,
+    consumerName: report.consumerName || "",
+    model: report.productModel || "",
+    serial: report.serialNumber || "",
+    observations: report.observations || report.repairDescription || "",
+    technicianName: report.technicianName || "",
+    currentDate: new Date().toLocaleDateString("pt-BR"),
+  };
+  return data[variableKey] || "";
+}
+
+async function buildFilledChecklistBytes(template: ChecklistTemplate, report: TechnicalReport): Promise<Uint8Array | null> {
+  const { PDFDocument, rgb, StandardFonts } = await import("pdf-lib");
+  const pdfUrl = template.pdfUrl.startsWith("http") ? template.pdfUrl : `${window.location.origin}${template.pdfUrl}`;
+  const existingPdfBytes = await fetch(pdfUrl).then(res => res.arrayBuffer());
+  const pdfDoc = await PDFDocument.load(existingPdfBytes);
+  const pages = pdfDoc.getPages();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  for (const field of template.fields || []) {
+    const pageToDraw = pages[field.page - 1] || pages[0];
+    if (!pageToDraw) continue;
+    const pageHeight = pageToDraw.getHeight();
+
+    if (field.type === "signature") {
+      if (report.clientSignature) {
+        const pngImage = await pdfDoc.embedPng(report.clientSignature);
+        const w = field.width || 150;
+        const h = field.height || 40;
+        pageToDraw.drawImage(pngImage, { x: field.x, y: pageHeight - field.y - h, width: w, height: h });
+      }
+      continue;
+    }
+
+    // Campos vinculados a uma variável usam o valor correspondente do relatório.
+    // Como fallback (ex: campo "Serial" deixado sem vínculo no editor de checklist,
+    // já que normalmente é preenchido via scanner na tela original), qualquer campo
+    // cujo nome contenha "serial" também recebe o número de série do relatório.
+    let value = field.variableKey ? resolveChecklistValue(field.variableKey, report) : "";
+    if (!value && field.name?.toLowerCase().includes("serial")) {
+      value = report.serialNumber || "";
+    }
+    if (!value) continue;
+
+    if (field.type === "text") {
+      pageToDraw.drawText(value, { x: field.x, y: pageHeight - field.y - 10, font, size: 12, color: rgb(0, 0, 0) });
+    }
+  }
+
+  return pdfDoc.save();
+}
+
+async function mergePdfBytes(reportBytes: ArrayBuffer, checklistBytes: Uint8Array): Promise<Uint8Array> {
+  const { PDFDocument } = await import("pdf-lib");
+  const merged = await PDFDocument.create();
+
+  const reportDoc = await PDFDocument.load(reportBytes);
+  const reportPages = await merged.copyPages(reportDoc, reportDoc.getPageIndices());
+  reportPages.forEach(p => merged.addPage(p));
+
+  const checklistDoc = await PDFDocument.load(checklistBytes);
+  const checklistPages = await merged.copyPages(checklistDoc, checklistDoc.getPageIndices());
+  checklistPages.forEach(p => merged.addPage(p));
+
+  return merged.save();
 }

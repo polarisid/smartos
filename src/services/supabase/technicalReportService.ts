@@ -103,8 +103,10 @@ export const technicalReportService = {
       observations: row.observations,
       responsibleName: row.responsible_name,
       responsibleSignature: row.responsible_signature,
+      clientSignature: row.client_signature,
       aiScore: row.ai_score != null ? Number(row.ai_score) : undefined,
       aiScoreFeedback: row.ai_score_feedback,
+      checklistTemplateId: row.checklist_template_id,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     };
@@ -123,8 +125,10 @@ export const technicalReportService = {
     if (obj.observations !== undefined) row.observations = obj.observations;
     if (obj.responsibleName !== undefined) row.responsible_name = obj.responsibleName;
     if (obj.responsibleSignature !== undefined) row.responsible_signature = obj.responsibleSignature;
+    if (obj.clientSignature !== undefined) row.client_signature = obj.clientSignature;
     if (obj.aiScore !== undefined) row.ai_score = obj.aiScore;
     if (obj.aiScoreFeedback !== undefined) row.ai_score_feedback = obj.aiScoreFeedback;
+    if (obj.checklistTemplateId !== undefined) row.checklist_template_id = obj.checklistTemplateId;
     return row;
   }
 };
