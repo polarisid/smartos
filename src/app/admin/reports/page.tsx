@@ -84,10 +84,18 @@ async function downloadPhoto(url: string, filename: string) {
   URL.revokeObjectURL(blobUrl);
 }
 
+const CATEGORY_FILENAME_LABELS: Record<TechnicalReportPhotoCategory, string> = {
+  produto_frontal: "FRONTAL",
+  produto_traseira: "TRASEIRA",
+  produto_serial: "SERIAL",
+  defeito: "DEFEITO",
+  pos_reparo: "POS_REPARO",
+};
+
 function photoFilename(report: TechnicalReport, category: TechnicalReportPhotoCategory, url: string, index: number) {
   const ext = url.split(".").pop()?.split("?")[0] || "jpg";
-  const slug = category + (index > 0 ? `-${index + 1}` : "");
-  return `${report.serviceOrderNumber}-${slug}.${ext}`;
+  const label = CATEGORY_FILENAME_LABELS[category] + (index > 0 ? `_${index + 1}` : "");
+  return `${report.serviceOrderNumber}_${label}.${ext}`;
 }
 
 async function downloadAllPhotos(report: TechnicalReport) {

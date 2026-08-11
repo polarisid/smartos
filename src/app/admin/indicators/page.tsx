@@ -27,6 +27,8 @@ import { type Indicator } from "@/lib/data";
 import { indicatorService } from "@/services/supabase/indicatorService";
 import { useIndicators } from "@/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { IndicatorReportTab } from "@/components/indicators/IndicatorReportTab";
 
 type FormData = Omit<Indicator, 'id'>;
 
@@ -241,60 +243,76 @@ export default function IndicatorsPage() {
         <>
             <div className="flex flex-col gap-6 p-4 sm:p-6">
                 <div className="flex items-center justify-between">
-                    <h1 className="text-2xl font-bold">Gerenciar Indicadores</h1>
-                    <div className="flex items-center gap-2">
-                        <LaunchIndicatorsDialog indicators={indicators} onSave={handleSaveIndicatorResults} />
-                        <Button onClick={handleOpenAddDialog}>
-                            <PlusCircle className="mr-2 h-4 w-4" /> Criar Indicador
-                        </Button>
-                    </div>
+                    <h1 className="text-2xl font-bold">Indicadores</h1>
                 </div>
 
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                           <Target /> Indicadores de Desempenho da Equipe
-                        </CardTitle>
-                        <CardDescription>Crie e gerencie os indicadores e suas respectivas metas que serão usados para avaliar a equipe.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        {contextLoading ? (
-                            <div className="text-center p-4">Carregando indicadores...</div>
-                        ) : (
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Nome do Indicador</TableHead>
-                                        <TableHead>Meta</TableHead>
-                                        <TableHead>Resultado Atual</TableHead>
-                                        <TableHead>Descrição</TableHead>
-                                        <TableHead className="text-right w-[220px]">Ações</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {indicators.map((indicator) => (
-                                        <TableRow key={indicator.id}>
-                                            <TableCell className="font-medium">{indicator.name}</TableCell>
-                                            <TableCell>{getGoalDisplay(indicator)}</TableCell>
-                                            <TableCell className="font-mono font-semibold">
-                                                {indicator.currentValue ?? 0}{indicator.goalType === 'percentage' ? '%' : ''}
-                                            </TableCell>
-                                            <TableCell>{indicator.description}</TableCell>
-                                            <TableCell className="text-right">
-                                                <Button variant="outline" size="sm" onClick={() => handleOpenEditDialog(indicator)}>
-                                                    <Edit className="mr-2 h-4 w-4" /> Editar
-                                                </Button>
-                                                <Button variant="destructive" size="sm" className="ml-2" onClick={() => handleOpenDeleteDialog(indicator)}>
-                                                    <Trash2 className="mr-2 h-4 w-4" /> Excluir
-                                                </Button>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                        )}
-                    </CardContent>
-                </Card>
+                <Tabs defaultValue="relatorio">
+                    <TabsList>
+                        <TabsTrigger value="relatorio">Relatório PDF</TabsTrigger>
+                        <TabsTrigger value="metas">Metas Manuais</TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="relatorio" className="pt-4">
+                        <IndicatorReportTab />
+                    </TabsContent>
+
+                    <TabsContent value="metas" className="pt-4">
+                        <div className="flex flex-col gap-6">
+                            <div className="flex items-center justify-end gap-2">
+                                <LaunchIndicatorsDialog indicators={indicators} onSave={handleSaveIndicatorResults} />
+                                <Button onClick={handleOpenAddDialog}>
+                                    <PlusCircle className="mr-2 h-4 w-4" /> Criar Indicador
+                                </Button>
+                            </div>
+
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                       <Target /> Indicadores de Desempenho da Equipe
+                                    </CardTitle>
+                                    <CardDescription>Crie e gerencie os indicadores e suas respectivas metas que serão usados para avaliar a equipe.</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    {contextLoading ? (
+                                        <div className="text-center p-4">Carregando indicadores...</div>
+                                    ) : (
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>Nome do Indicador</TableHead>
+                                                    <TableHead>Meta</TableHead>
+                                                    <TableHead>Resultado Atual</TableHead>
+                                                    <TableHead>Descrição</TableHead>
+                                                    <TableHead className="text-right w-[220px]">Ações</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {indicators.map((indicator) => (
+                                                    <TableRow key={indicator.id}>
+                                                        <TableCell className="font-medium">{indicator.name}</TableCell>
+                                                        <TableCell>{getGoalDisplay(indicator)}</TableCell>
+                                                        <TableCell className="font-mono font-semibold">
+                                                            {indicator.currentValue ?? 0}{indicator.goalType === 'percentage' ? '%' : ''}
+                                                        </TableCell>
+                                                        <TableCell>{indicator.description}</TableCell>
+                                                        <TableCell className="text-right">
+                                                            <Button variant="outline" size="sm" onClick={() => handleOpenEditDialog(indicator)}>
+                                                                <Edit className="mr-2 h-4 w-4" /> Editar
+                                                            </Button>
+                                                            <Button variant="destructive" size="sm" className="ml-2" onClick={() => handleOpenDeleteDialog(indicator)}>
+                                                                <Trash2 className="mr-2 h-4 w-4" /> Excluir
+                                                            </Button>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        </div>
+                    </TabsContent>
+                </Tabs>
             </div>
 
             <Dialog open={isFormDialogOpen} onOpenChange={setIsFormDialogOpen}>

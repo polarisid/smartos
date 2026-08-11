@@ -9,6 +9,9 @@ const withPWA = require('next-pwa')({
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   /* config options here */
+  experimental: {
+    serverComponentsExternalPackages: ['pdfjs-dist'],
+  },
   images: {
     remotePatterns: [
       {

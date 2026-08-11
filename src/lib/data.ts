@@ -159,6 +159,41 @@ export type Indicator = {
   currentValue?: number;
 }
 
+export type IndicatorMetricUnit = 'percent' | 'currency' | 'number' | 'days';
+export type IndicatorMetricDirection = 'up' | 'down' | null;
+
+export type IndicatorMetricPoint = {
+  period: string; // ex: "2026.01" (mês) ou "2026.29" (semana)
+  value: number | null;
+};
+
+export type IndicatorMetric = {
+  key: string; // estável entre uploads, ex: "ftc__ftc-so"
+  section: string; // ex: "FTC", "Velocidade", "Qualidade"
+  name: string; // ex: "FTC SO"
+  unit: IndicatorMetricUnit;
+  meta: number | null;
+  direction: IndicatorMetricDirection;
+  monthly: IndicatorMetricPoint[];
+  weekly: IndicatorMetricPoint[];
+};
+
+export type IndicatorReport = {
+  id: string;
+  fileName?: string;
+  partnerName?: string;
+  location?: string;
+  metrics: IndicatorMetric[];
+  uploadedAt: Date;
+};
+
+export type TrackedIndicatorMetric = {
+  id: string;
+  metricKey: string;
+  metricName?: string;
+  metricSection?: string;
+};
+
 export type RoutePart = {
     code: string;
     description: string;

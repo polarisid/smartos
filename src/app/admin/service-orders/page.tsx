@@ -36,6 +36,7 @@ import { type ServiceOrder, type Technician } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
 
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
+import { technicalReportService } from "@/services/supabase/technicalReportService";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -82,6 +83,7 @@ export default function ServiceOrdersPage() {
   const [hasMore, setHasMore] = useState(true);
   const [lastDoc, setLastDoc] = useState<any>(null);
   const [surveyFilter, setSurveyFilter] = useState<'all' | 'completed' | 'pending'>('all');
+  const [reportedOrders, setReportedOrders] = useState<Set<string>>(new Set());
 
   const filteredServiceOrders = useMemo(() => {
     return serviceOrders.filter(order => {
@@ -117,6 +119,15 @@ export default function ServiceOrdersPage() {
     return map;
   }, [technicians]);
 
+  const loadReportedFlags = useCallback(async (orderNumbers: string[]) => {
+    try {
+      const found = await technicalReportService.getServiceOrderNumbersWithReports(orderNumbers);
+      setReportedOrders(prev => new Set([...prev, ...found]));
+    } catch (e) {
+      // Não bloqueia a listagem se essa checagem falhar - botão fica desabilitado.
+    }
+  }, []);
+
   const loadInitialOrders = useCallback(async (map: Record<string, string>) => {
     setIsLoading(true);
     try {
@@ -128,12 +139,13 @@ export default function ServiceOrdersPage() {
       setServiceOrders(orders);
       setLastDoc(data.lastDoc);
       setHasMore(data.hasMore);
+      loadReportedFlags(orders.map(o => o.serviceOrderNumber));
     } catch (e) {
       toast({ variant: "destructive", title: "Erro ao carregar OS" });
     } finally {
       setIsLoading(false);
     }
-  }, [toast]);
+  }, [toast, loadReportedFlags]);
 
   useEffect(() => {
     loadInitialOrders(techMap);
@@ -152,6 +164,7 @@ export default function ServiceOrdersPage() {
       setServiceOrders(prev => [...prev, ...newOrders]);
       setLastDoc(data.lastDoc);
       setHasMore(data.hasMore);
+      loadReportedFlags(newOrders.map(o => o.serviceOrderNumber));
     } catch (e) {
       toast({ variant: "destructive", title: "Erro ao carregar mais OS" });
     } finally {
@@ -179,6 +192,7 @@ export default function ServiceOrdersPage() {
       setServiceOrders(mappedResults);
       setHasMore(false); // disable "load more" during search
       setLastDoc(null);
+      loadReportedFlags(mappedResults.map(o => o.serviceOrderNumber));
     } catch (e) {
       toast({ variant: "destructive", title: "Erro na busca", description: "Verifique se o índice do Firestore está configurado." });
     } finally {
@@ -408,11 +422,17 @@ export default function ServiceOrdersPage() {
                           {order.cleaningPerformed && <Sparkles className="h-5 w-5 text-yellow-500 mx-auto" />}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button variant="outline" size="sm" asChild>
-                            <Link href={`/report-view/${encodeURIComponent(order.serviceOrderNumber)}`} target="_blank">
+                          {reportedOrders.has(order.serviceOrderNumber) ? (
+                            <Button variant="outline" size="sm" asChild>
+                              <Link href={`/report-view/${encodeURIComponent(order.serviceOrderNumber)}`} target="_blank">
+                                <Camera className="mr-2 h-4 w-4" /> Ver Relatório
+                              </Link>
+                            </Button>
+                          ) : (
+                            <Button variant="outline" size="sm" disabled title="Nenhum relatório fotográfico gerado para esta OS">
                               <Camera className="mr-2 h-4 w-4" /> Ver Relatório
-                            </Link>
-                          </Button>
+                            </Button>
+                          )}
                           <Button variant="outline" size="sm" className="ml-2" onClick={() => handleOpenEditDialog(order)}>
                             <Edit className="mr-2 h-4 w-4" /> Editar
                           </Button>

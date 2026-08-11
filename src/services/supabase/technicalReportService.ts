@@ -91,6 +91,19 @@ export const technicalReportService = {
       .map(Number);
   },
 
+  // Usado pra habilitar/desabilitar o botão "Ver Relatório" na lista de OSs
+  // sem precisar carregar o relatório inteiro (fotos, etc).
+  async getServiceOrderNumbersWithReports(serviceOrderNumbers: string[]): Promise<Set<string>> {
+    if (serviceOrderNumbers.length === 0) return new Set();
+    const { data, error } = await supabase
+      .from('technical_reports')
+      .select('service_order_number')
+      .in('service_order_number', serviceOrderNumbers);
+
+    if (error) throw error;
+    return new Set((data || []).map((row: any) => row.service_order_number));
+  },
+
   async create(data: Omit<TechnicalReport, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
     const dbData = this.mapToDb(data);
     const { data: newDoc, error } = await supabase

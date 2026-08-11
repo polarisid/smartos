@@ -14,7 +14,7 @@ import { subDays } from "date-fns";
 import { routeService } from "@/services/supabase/routeService";
 import { type Route, type RouteStop, type RoutePart, type Technician, type ServiceOrder } from "@/lib/data";
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
-import { Printer, Smartphone, Table as TableIcon, Activity, CheckCircle2, AlertCircle, FileBarChart2, Search, ChevronDown, PackageSearch, Save, FileDown, CheckCircle, ScanLine, Copy, Loader2, Route as RouteIcon, XCircle } from "lucide-react";
+import { Printer, Smartphone, Table as TableIcon, Activity, CheckCircle2, AlertCircle, FileBarChart2, Search, ChevronDown, PackageSearch, Save, FileDown, CheckCircle, ScanLine, Copy, Loader2, Route as RouteIcon, XCircle, Share2 } from "lucide-react";
 import { useServiceOrders } from "@/hooks/queries";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
@@ -35,7 +35,7 @@ const ScannerDialog = dynamic(
 );
 
 
-function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCodes, onTrackingCodeChange, onGeneratePdf, onOpenScanner, externalFilter, isHistory = false }: {
+function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCodes, onTrackingCodeChange, onGeneratePdf, onOpenScanner, onShareLink, externalFilter, isHistory = false }: {
     routes: Route[],
     onSaveChanges?: (routeId: string) => void,
     onSavePart: (routeId: string, stopServiceOrder: string, part: RoutePart) => Promise<void>,
@@ -44,6 +44,7 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
     onTrackingCodeChange: (routeId: string, stopServiceOrder: string, partCode: string, value: string) => void,
     onGeneratePdf: (route: Route) => void,
     onOpenScanner: (target: { routeId: string, stopServiceOrder: string, partCode: string }) => void,
+    onShareLink: (routeId: string, routeName: string) => void,
     externalFilter: string;
     isHistory?: boolean
 }) {
@@ -83,14 +84,27 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
 
                 return (
                     <Card key={route.id} className={cn(areAllPartsTracked && "bg-green-100 dark:bg-green-900/50")}>
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                {areAllPartsTracked && <CheckCircle className="h-6 w-6 text-green-600" />}
-                                {route.name}
-                            </CardTitle>
-                            <CardDescription>
-                                Rota criada em {route.createdAt instanceof Date ? route.createdAt.toLocaleDateString('pt-BR') : 'N/A'} com {route.stops.length} paradas.
-                            </CardDescription>
+                        <CardHeader className="flex flex-row items-start justify-between gap-3">
+                            <div>
+                                <CardTitle className="flex items-center gap-2">
+                                    {areAllPartsTracked && <CheckCircle className="h-6 w-6 text-green-600" />}
+                                    {route.name}
+                                </CardTitle>
+                                <CardDescription>
+                                    Rota criada em {route.createdAt instanceof Date ? route.createdAt.toLocaleDateString('pt-BR') : 'N/A'} com {route.stops.length} paradas.
+                                </CardDescription>
+                            </div>
+                            {!isHistory && (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="shrink-0"
+                                    onClick={() => onShareLink(route.id, route.name)}
+                                >
+                                    <Share2 className="mr-2 h-4 w-4" /> Compartilhar Link
+                                </Button>
+                            )}
                         </CardHeader>
                         <CardContent>
                             <Collapsible className="space-y-2">
@@ -829,7 +843,10 @@ function OsRouteSearch() {
         }
     };
 
-    const getRouteStatusBadge = (isActive: boolean) => {
+    const getRouteStatusBadge = (isActive: boolean, isCanceled?: boolean) => {
+        if (isCanceled) {
+            return <Badge variant="destructive"><XCircle className="mr-1 h-3 w-3" />Cancelada</Badge>;
+        }
         return isActive
             ? <Badge className="bg-blue-600 hover:bg-blue-700 text-white"><RouteIcon className="mr-1 h-3 w-3" />Ativa</Badge>
             : <Badge variant="outline"><CheckCircle2 className="mr-1 h-3 w-3" />Finalizada</Badge>;
@@ -882,13 +899,13 @@ function OsRouteSearch() {
                 <div className="space-y-3">
                     <p className="text-sm text-muted-foreground">{results.length} resultado(s) encontrado(s) para <strong>&quot;{searchTerm}&quot;</strong>.</p>
                     {results.map((r, i) => (
-                        <Card key={i} className="border-l-4" style={{ borderLeftColor: r.route.isActive ? '#2563eb' : '#6b7280' }}>
+                        <Card key={i} className="border-l-4" style={{ borderLeftColor: r.route.isCanceled ? '#dc2626' : r.route.isActive ? '#2563eb' : '#6b7280' }}>
                             <CardHeader className="pb-2">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                     <div className="flex items-center gap-2">
                                         <RouteIcon className="h-4 w-4 text-muted-foreground" />
                                         <CardTitle className="text-base">{r.route.name}</CardTitle>
-                                        {getRouteStatusBadge(r.route.isActive)}
+                                        {getRouteStatusBadge(r.route.isActive, r.route.isCanceled)}
                                     </div>
                                     {getOsStatusBadge(r.osStatus)}
                                 </div>
@@ -1282,6 +1299,16 @@ export default function PartSeparationPage() {
         setScanTarget(target);
         setIsScannerOpen(true);
     };
+
+    const handleShareLink = async (routeId: string, routeName: string) => {
+        const url = `${window.location.origin}/mobile-conference/${routeId}`;
+        try {
+            await navigator.clipboard.writeText(url);
+            toast({ title: "Link copiado!", description: `Compartilhe com o técnico da rota "${routeName}" para conferir só as peças dela.` });
+        } catch {
+            toast({ title: "Link da conferência", description: url });
+        }
+    };
     
     const handleScanSuccess = (decodedText: string) => {
         if (scanTarget) {
@@ -1351,6 +1378,7 @@ export default function PartSeparationPage() {
                                 onTrackingCodeChange={handleTrackingCodeChange}
                                 onGeneratePdf={handleGeneratePdf}
                                 onOpenScanner={handleOpenScanner}
+                                onShareLink={handleShareLink}
                                 externalFilter={filterText}
                             />
                         </TabsContent>
@@ -1363,6 +1391,7 @@ export default function PartSeparationPage() {
                                 onTrackingCodeChange={handleTrackingCodeChange}
                                 onGeneratePdf={handleGeneratePdf}
                                 onOpenScanner={handleOpenScanner}
+                                onShareLink={handleShareLink}
                                 externalFilter={filterText}
                                 isHistory={true}
                             />
