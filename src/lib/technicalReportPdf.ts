@@ -232,6 +232,13 @@ function wrapPdfText(text: string, font: PDFFont, fontSize: number, maxWidth: nu
   return lines;
 }
 
+function normalizeForMatch(s: string): string {
+  return (s || "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+}
+
 function resolveChecklistValue(variableKey: string, report: TechnicalReport): string {
   const data: Record<string, string> = {
     serviceOrder: report.serviceOrderNumber,
@@ -273,12 +280,18 @@ async function buildFilledChecklistBytes(template: ChecklistTemplate, report: Te
       }
 
       // Campos vinculados a uma variável usam o valor correspondente do relatório.
-      // Como fallback (ex: campo "Serial" deixado sem vínculo no editor de checklist,
-      // já que normalmente é preenchido via scanner na tela original), qualquer campo
-      // cujo nome contenha "serial" também recebe o número de série do relatório.
+      // Fallback por NOME do campo para os casos comuns onde o checklist não tem o
+      // campo vinculado a uma variável (ex: "Serial", normalmente preenchido via
+      // scanner na tela original; ou "Observações", normalmente digitado à mão) —
+      // qualquer campo cujo nome contenha esses termos recebe o valor correspondente
+      // do relatório mesmo sem vínculo explícito no editor de checklist.
       let value = field.variableKey ? resolveChecklistValue(field.variableKey, report) : "";
-      if (!value && field.name?.toLowerCase().includes("serial")) {
+      const normalizedName = normalizeForMatch(field.name || "");
+      if (!value && normalizedName.includes("serial")) {
         value = report.serialNumber || "";
+      }
+      if (!value && normalizedName.includes("observa")) {
+        value = report.observations || report.repairDescription || "";
       }
       if (!value) {
         console.warn(`[checklist] Campo "${field.name}" (variável: ${field.variableKey || "nenhuma"}) sem valor no relatório — deixado em branco.`);

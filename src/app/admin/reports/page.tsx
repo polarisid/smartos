@@ -15,7 +15,18 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Camera, Loader2, Search, ExternalLink, ImageIcon, Download, FolderDown, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
+import { Camera, Loader2, Search, ExternalLink, ImageIcon, Download, FolderDown, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
 import { type TechnicalReport, type TechnicalReportPhotoCategory } from "@/lib/data";
 import { format } from "date-fns";
@@ -109,11 +120,13 @@ async function downloadAllPhotos(report: TechnicalReport) {
 }
 
 export default function AdminReportsPage() {
+  const { toast } = useToast();
   const [reports, setReports] = useState<TechnicalReport[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [avgScore, setAvgScore] = useState<number | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -122,6 +135,9 @@ export default function AdminReportsPage() {
   const [photosDialogReport, setPhotosDialogReport] = useState<TechnicalReport | null>(null);
   const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+
+  const [deleteTarget, setDeleteTarget] = useState<TechnicalReport | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Debounce da busca — evita disparar uma query a cada tecla digitada.
   useEffect(() => {
@@ -156,7 +172,7 @@ export default function AdminReportsPage() {
       });
 
     return () => { cancelled = true; };
-  }, [page, search, dateRange]);
+  }, [page, search, dateRange, reloadKey]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -168,6 +184,35 @@ export default function AdminReportsPage() {
       setPhotosDialogReport(full);
     } finally {
       setIsLoadingPhotos(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      // Busca o relatório completo (a listagem não traz `photos`) pra também
+      // limpar os arquivos no Storage, não só a linha no banco.
+      const full = await technicalReportService.getById(deleteTarget.id);
+      if (full) {
+        await Promise.all(full.photos.map(p => technicalReportService.deleteReportPhoto(p.path)));
+      }
+      await technicalReportService.remove(deleteTarget.id);
+
+      toast({ title: "Relatório excluído." });
+      setDeleteTarget(null);
+
+      // Se essa era a única linha da página atual (e não é a primeira página),
+      // volta uma página pra não ficar numa página vazia.
+      if (reports.length === 1 && page > 0) {
+        setPage(p => p - 1);
+      } else {
+        setReloadKey(k => k + 1);
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Erro ao excluir relatório", description: e?.message });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -250,6 +295,9 @@ export default function AdminReportsPage() {
                             <ExternalLink className="mr-2 h-4 w-4" /> Ver Relatório
                           </Link>
                         </Button>
+                        <Button variant="destructive" size="sm" onClick={() => setDeleteTarget(report)}>
+                          <Trash2 className="mr-2 h-4 w-4" /> Excluir
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -315,6 +363,24 @@ export default function AdminReportsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && !isDeleting && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir relatório?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isso vai apagar o relatório da OS <strong>{deleteTarget?.serviceOrderNumber}</strong> e todas as fotos anexadas a ele, de forma permanente. Essa ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDelete} disabled={isDeleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {isDeleting ? "Excluindo..." : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
