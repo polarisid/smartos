@@ -159,6 +159,14 @@ export default function RouteMap({
     // 1. Fetch Base coordinates dynamically from baseAddress or configService
     useEffect(() => {
         const resolveBase = async () => {
+            // Pino fixado manualmente nas Configurações tem prioridade sobre
+            // geocodificar o texto do endereço.
+            const storedCoords = await configService.getBaseCoords();
+            if (storedCoords) {
+                setBaseCoords([storedCoords.lat, storedCoords.lng]);
+                return;
+            }
+
             let addr = baseAddress;
             if (!addr || addr.includes("Avenida Barão de Maruim")) {
                 const configBase = await configService.getBaseAddress();

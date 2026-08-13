@@ -22,6 +22,9 @@ const STATE_NAMES: Record<string, string> = {
 };
 
 const CITY_FALLBACK_COORDINATES: Record<string, [number, number]> = {
+  // ── Piauí (PI) ──
+  "teresina": [-5.0870, -42.7972],
+
   // ── Sergipe (SE) - Todos os 75 municípios ──
   "amparo de sao francisco": [-10.1333, -36.9333],
   "aquidaba": [-10.2811, -37.0183],
@@ -355,6 +358,8 @@ const STATE_BOUNDING_BOXES: Record<string, { minLat: number; maxLat: number; min
   'ceara': { minLat: -7.90, maxLat: -2.70, minLng: -41.50, maxLng: -37.20 },
   'ma': { minLat: -10.50, maxLat: -1.00, minLng: -48.90, maxLng: -41.70 },
   'maranhao': { minLat: -10.50, maxLat: -1.00, minLng: -48.90, maxLng: -41.70 },
+  'pi': { minLat: -10.95, maxLat: -2.75, minLng: -45.95, maxLng: -40.35 },
+  'piaui': { minLat: -10.95, maxLat: -2.75, minLng: -45.95, maxLng: -40.35 },
 };
 
 /**
@@ -463,9 +468,11 @@ function isValidStateCoords(coords: [number, number], state: string): boolean {
     // Valid Brazil bounding box check
     if (lat < -34.0 || lat > 5.5 || lng < -74.0 || lng > -32.0) return false;
 
-    // Specific state bounding box check if state is configured (defaults to Sergipe box)
-    const stKey = normalizeStr(state || 'SE');
-    const box = STATE_BOUNDING_BOXES[stKey] || STATE_BOUNDING_BOXES['se'];
+    // Specific state bounding box check, when we have one mapped for this state.
+    // States without a mapped box just rely on the national check above -
+    // silently reusing another state's box here would reject valid coordinates.
+    const stKey = normalizeStr(state || '');
+    const box = STATE_BOUNDING_BOXES[stKey];
     if (box) {
         return lat >= box.minLat && lat <= box.maxLat && lng >= box.minLng && lng <= box.maxLng;
     }
@@ -474,7 +481,10 @@ function isValidStateCoords(coords: [number, number], state: string): boolean {
 }
 
 function isValidBrazilCoords(coords: [number, number]): boolean {
-    return isValidStateCoords(coords, 'SE');
+    if (!coords || !Array.isArray(coords) || coords.length !== 2) return false;
+    const [lat, lng] = coords;
+    if (isNaN(lat) || isNaN(lng)) return false;
+    return !(lat < -34.0 || lat > 5.5 || lng < -74.0 || lng > -32.0);
 }
 
 function normalizeStr(str: string): string {
