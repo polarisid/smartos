@@ -227,14 +227,14 @@ function LpSurveyRatingButtons({ value, onChange }: { value?: number; onChange: 
       : "bg-white dark:bg-slate-900 text-red-700 dark:text-red-300 border-red-300 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/40";
   };
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex items-center gap-1">
       {Array.from({ length: 11 }, (_, n) => (
         <button
           type="button"
           key={n}
           onClick={() => onChange(n)}
           aria-pressed={value === n}
-          className={cn("h-9 w-9 rounded-md border text-sm font-bold transition-all", classesFor(n))}
+          className={cn("flex-1 min-w-0 h-8 rounded-md border text-xs font-bold transition-all", classesFor(n))}
         >
           {n}
         </button>
@@ -674,7 +674,7 @@ const { toast } = useToast();
       cleaningPerformed: false,
       isFinalized: true,
       pendingReason: "",
-      samsungLpSurveyPerformed: false,
+      samsungLpSurveyPerformed: true,
       samsungLpSurveyRating: undefined,
       samsungLpSurveyNotDoneReason: "",
     },
@@ -1118,7 +1118,7 @@ const { toast } = useToast();
         cleaningPerformed: false,
         isFinalized: true,
         pendingReason: "",
-        samsungLpSurveyPerformed: false,
+        samsungLpSurveyPerformed: true,
         samsungLpSurveyRating: undefined,
         samsungLpSurveyNotDoneReason: "",
     });
