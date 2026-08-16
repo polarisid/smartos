@@ -757,10 +757,16 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
                     <div className="rounded-lg border p-4 space-y-3">
                       <div className="flex items-start gap-2 text-sm text-muted-foreground">
                         <Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                        <p>{optimizationSummary}</p>
+                        <p>
+                          {isOptimizing
+                            ? optimizationSummary
+                            : hasOptimized
+                              ? optimizationSummary
+                              : "Ordem atual da planilha. Você pode seguir assim, reordenar manualmente, inverter o sentido ou otimizar com IA — como preferir."}
+                        </p>
                       </div>
 
-                      {!isOptimizing && totalOrigKm > 0 && (
+                      {!isOptimizing && hasOptimized && totalOrigKm > 0 ? (
                         <div className="flex items-center gap-4 sm:gap-8 pt-1">
                           <div>
                             <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Antes</p>
@@ -791,7 +797,14 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
                             )}
                           </div>
                         </div>
-                      )}
+                      ) : (!isOptimizing && totalPropKm > 0) ? (
+                        <div className="pt-1">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Km total (ordem atual)</p>
+                          <p className="font-mono text-xl font-bold text-foreground">
+                            {totalPropKm.toFixed(1)} <span className="text-xs font-sans font-normal">km</span>
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -812,12 +825,12 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
                         </button>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button type="button" variant="outline" size="sm" onClick={handleReverseOrder} disabled={isOptimizing || stops.length < 2} title="Inverte a ordem das paradas em um clique" className="gap-1.5">
+                        <Button type="button" variant="outline" size="sm" onClick={handleReverseOrder} disabled={isOptimizing || isLoadingLegs || stops.length < 2} title="Inverte a ordem das paradas em um clique" className="gap-1.5">
                           <ArrowLeftRight className="h-3.5 w-3.5" /> Inverter Ordem
                         </Button>
-                        <Button type="button" variant="outline" size="sm" onClick={runOptimization} disabled={isOptimizing} className="gap-1.5">
-                          {isOptimizing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                          Recalcular
+                        <Button type="button" variant={hasOptimized ? "outline" : "default"} size="sm" onClick={runOptimization} disabled={isOptimizing || isLoadingLegs} className="gap-1.5">
+                          {isOptimizing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : hasOptimized ? <RefreshCw className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
+                          {hasOptimized ? "Recalcular" : "Otimizar com IA"}
                         </Button>
                       </div>
                     </div>
@@ -841,13 +854,16 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
                                   isMoved={isMoved}
                                   posDiff={posDiff}
                                   segKm={propKm[i]}
-                                  segsLoading={isOptimizing}
+                                  segsLoading={isOptimizing || isLoadingLegs}
                                   isHovered={hoveredStopId === stop.serviceOrder}
                                   onHover={setHoveredStopId}
                                   onSetTurn={() => {}}
                                   onToggleCall={() => {}}
                                   onToggleMessage={() => {}}
                                   showTurnControls={false}
+                                  lastVisit={lastVisitByOs.get(stop.serviceOrder) || null}
+                                  lastVisitTechnicianName={technicians.find(t => t.id === lastVisitByOs.get(stop.serviceOrder)?.technicianId)?.name}
+                                  lastVisitTotal={visitCountByOs.get(stop.serviceOrder) || 1}
                                 />
                               );
                             })}
@@ -915,6 +931,9 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
                           onSetTurn={(turn) => handleSetTurn(i, turn)}
                           onToggleCall={() => handleToggleCall(i)}
                           onToggleMessage={() => handleToggleMessage(i)}
+                          lastVisit={lastVisitByOs.get(stop.serviceOrder) || null}
+                          lastVisitTechnicianName={technicians.find(t => t.id === lastVisitByOs.get(stop.serviceOrder)?.technicianId)?.name}
+                          lastVisitTotal={visitCountByOs.get(stop.serviceOrder) || 1}
                         />
                       ))}
 
@@ -1021,7 +1040,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
           )}
           {step === 2 && (
             <Button type="button" onClick={handleAdvanceStep2} disabled={isSaving || isOptimizing} className="gap-2">
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />} Aplicar e Avançar
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />} Avançar
             </Button>
           )}
           {step === 3 && (
