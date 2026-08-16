@@ -133,6 +133,8 @@ const formSchema = z.object({
   isFinalized: z.boolean().default(true),
   pendingReason: z.string().optional(),
   samsungLpSurveyPerformed: z.boolean().optional(),
+  samsungLpSurveyRating: z.number().min(0).max(10).optional(),
+  samsungLpSurveyNotDoneReason: z.string().optional(),
 }).superRefine((data, ctx) => {
   if (data.isFinalized === false) {
     if (!data.pendingReason) {
@@ -205,6 +207,41 @@ const formSchema = z.object({
 });
 
 type FormValues = z.infer<typeof formSchema>;
+
+/*
+  LpSurveyRatingButtons — seletor de nota 0 a 10 (padrão NPS) para a pesquisa
+  de satisfação LP. Verde para promotores (9–10), amarelo para neutros (7–8),
+  vermelho para detratores (0–6).
+*/
+function LpSurveyRatingButtons({ value, onChange }: { value?: number; onChange: (n: number) => void }) {
+  const classesFor = (n: number) => {
+    const selected = value === n;
+    if (n >= 9) return selected
+      ? "bg-emerald-500 text-white border-emerald-600 shadow"
+      : "bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40";
+    if (n >= 7) return selected
+      ? "bg-amber-500 text-white border-amber-600 shadow"
+      : "bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/40";
+    return selected
+      ? "bg-red-500 text-white border-red-600 shadow"
+      : "bg-white dark:bg-slate-900 text-red-700 dark:text-red-300 border-red-300 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/40";
+  };
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {Array.from({ length: 11 }, (_, n) => (
+        <button
+          type="button"
+          key={n}
+          onClick={() => onChange(n)}
+          aria-pressed={value === n}
+          className={cn("h-9 w-9 rounded-md border text-sm font-bold transition-all", classesFor(n))}
+        >
+          {n}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 
 
@@ -638,6 +675,8 @@ const { toast } = useToast();
       isFinalized: true,
       pendingReason: "",
       samsungLpSurveyPerformed: false,
+      samsungLpSurveyRating: undefined,
+      samsungLpSurveyNotDoneReason: "",
     },
   });
 
@@ -673,6 +712,32 @@ const { toast } = useToast();
           fieldsToValidate.push('symptomCode');
           if (sType !== 'visita_orcamento_samsung' && sType !== 'reparo_samsung') {
               fieldsToValidate.push('repairCode');
+          }
+      }
+
+      // Pesquisa de Satisfação LP: exige nota (0-10) sempre, e justificativa quando não realizada.
+      const lpApplies = sType === 'reparo_samsung' &&
+        ((currentRouteStop?.warrantyType === 'LP') || (!currentRouteStop && form.getValues('samsungRepairType') === 'LP'));
+      if (lpApplies) {
+          const performed = form.getValues('samsungLpSurveyPerformed');
+          const rating = form.getValues('samsungLpSurveyRating');
+          if (!performed && !form.getValues('samsungLpSurveyNotDoneReason')?.trim()) {
+              toast({
+                  variant: "destructive",
+                  title: "⚠️ Justifique a pesquisa não realizada",
+                  description: "Informe o motivo pelo qual a pesquisa de satisfação LP não foi feita.",
+              });
+              return;
+          }
+          if (rating === undefined || rating === null) {
+              toast({
+                  variant: "destructive",
+                  title: "⚠️ Informe a nota (0 a 10)",
+                  description: performed
+                      ? "Selecione a nota da pesquisa de satisfação LP."
+                      : "Selecione a nota que o cliente possivelmente daria.",
+              });
+              return;
           }
       }
     }
@@ -720,6 +785,7 @@ const { toast } = useToast();
   const watchedSamsungRepairType = form.watch("samsungRepairType");
   const watchedServiceOrderNumber = form.watch("serviceOrderNumber");
   const watchedIsFinalized = form.watch("isFinalized");
+  const watchedLpSurveyPerformed = form.watch("samsungLpSurveyPerformed");
   const { resetField, setValue } = form;
 
   useEffect(() => {
@@ -935,7 +1001,11 @@ const { toast } = useToast();
 
     const optionalParts = [
         data.replacedPart ? `- **Peça Trocada:** ${data.replacedPart}` : '',
-        ((data.samsungRepairType === 'LP' || currentRouteStop?.warrantyType === 'LP') && data.samsungLpSurveyPerformed) ? `- **Pesquisa de Satisfação LP:** Realizada` : '',
+        (data.samsungRepairType === 'LP' || currentRouteStop?.warrantyType === 'LP')
+          ? (data.samsungLpSurveyPerformed
+              ? `- **Pesquisa de Satisfação LP:** Realizada${data.samsungLpSurveyRating !== undefined ? ` (Nota: ${data.samsungLpSurveyRating}/10)` : ''}`
+              : `- **Pesquisa de Satisfação LP:** Não realizada${data.samsungLpSurveyNotDoneReason ? ` — ${data.samsungLpSurveyNotDoneReason}` : ''}${data.samsungLpSurveyRating !== undefined ? ` (Nota possível do cliente: ${data.samsungLpSurveyRating}/10)` : ''}`)
+          : '',
         data.observations ? `- **Observações:** ${data.observations}` : ''
     ].filter(Boolean);
 
@@ -971,8 +1041,12 @@ const { toast } = useToast();
             symptomCode: data.symptomCode || '',
             repairCode: data.repairCode || '',
             replacedPart: data.replacedPart || '',
-            observations: ((data.samsungRepairType === 'LP' || currentRouteStop?.warrantyType === 'LP') && data.samsungLpSurveyPerformed)
-                ? `${data.observations || ''}\n[Pesquisa LP realizada: Sim]`.trim()
+            observations: (data.samsungRepairType === 'LP' || currentRouteStop?.warrantyType === 'LP')
+                ? `${data.observations || ''}\n${
+                    data.samsungLpSurveyPerformed
+                      ? `[Pesquisa LP realizada: Sim${data.samsungLpSurveyRating !== undefined ? ` | Nota: ${data.samsungLpSurveyRating}/10` : ''}]`
+                      : `[Pesquisa LP realizada: Não${data.samsungLpSurveyNotDoneReason ? ` | Motivo: ${data.samsungLpSurveyNotDoneReason}` : ''}${data.samsungLpSurveyRating !== undefined ? ` | Nota possível: ${data.samsungLpSurveyRating}/10` : ''}]`
+                  }`.trim()
                 : data.observations || '',
             defectFound: data.defectFound || '',
             partsRequested: data.partsRequested || '',
@@ -1045,6 +1119,8 @@ const { toast } = useToast();
         isFinalized: true,
         pendingReason: "",
         samsungLpSurveyPerformed: false,
+        samsungLpSurveyRating: undefined,
+        samsungLpSurveyNotDoneReason: "",
     });
      setGeneratedText("");
     setOsIsSaved(false);
@@ -1547,6 +1623,50 @@ const { toast } = useToast();
                                                                             </FormControl>
                                                                         </FormItem>
                                                                     )}/>
+
+                                                                    {watchedLpSurveyPerformed ? (
+                                                                        <FormField control={form.control} name="samsungLpSurveyRating" render={({ field }) => (
+                                                                            <FormItem className="rounded-lg border border-emerald-200 dark:border-emerald-900 bg-white dark:bg-slate-900 p-3 shadow-sm space-y-2">
+                                                                                <FormLabel className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                                                                                    Nota da pesquisa (0 a 10)
+                                                                                </FormLabel>
+                                                                                <FormControl>
+                                                                                    <LpSurveyRatingButtons value={field.value} onChange={field.onChange} />
+                                                                                </FormControl>
+                                                                                <FormMessage />
+                                                                            </FormItem>
+                                                                        )}/>
+                                                                    ) : (
+                                                                        <div className="rounded-lg border border-red-200 dark:border-red-900 bg-white dark:bg-slate-900 p-3 shadow-sm space-y-3">
+                                                                            <FormField control={form.control} name="samsungLpSurveyNotDoneReason" render={({ field }) => (
+                                                                                <FormItem className="space-y-1">
+                                                                                    <FormLabel className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                                                                                        Por que a pesquisa não foi realizada?
+                                                                                    </FormLabel>
+                                                                                    <FormControl>
+                                                                                        <Textarea
+                                                                                            placeholder="Justifique o motivo (ex: cliente recusou, sem internet no local, etc.)"
+                                                                                            className="text-sm resize-none"
+                                                                                            rows={2}
+                                                                                            {...field}
+                                                                                        />
+                                                                                    </FormControl>
+                                                                                    <FormMessage />
+                                                                                </FormItem>
+                                                                            )}/>
+                                                                            <FormField control={form.control} name="samsungLpSurveyRating" render={({ field }) => (
+                                                                                <FormItem className="space-y-2">
+                                                                                    <FormLabel className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                                                                                        Nota possível do cliente (0 a 10)
+                                                                                    </FormLabel>
+                                                                                    <FormControl>
+                                                                                        <LpSurveyRatingButtons value={field.value} onChange={field.onChange} />
+                                                                                    </FormControl>
+                                                                                    <FormMessage />
+                                                                                </FormItem>
+                                                                            )}/>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                              )}
                                                         </div>
