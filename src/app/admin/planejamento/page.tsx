@@ -65,6 +65,11 @@ async function geocodeStop(stop: RouteStop): Promise<[number, number] | null> {
 }
 
 async function geocodeBase(baseAddress: string): Promise<[number, number] | null> {
+  // Pino fixado manualmente nas Configurações tem prioridade sobre
+  // geocodificar o texto do endereço.
+  const storedCoords = await configService.getBaseCoords();
+  if (storedCoords) return [storedCoords.lat, storedCoords.lng];
+
   const { city, state, street } = parseFullAddress(baseAddress);
   return getCoordinates(
     city || 'Aracaju',

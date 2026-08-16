@@ -71,14 +71,39 @@ export const configService = {
     return 'Aracaju';
   },
 
-  async setBaseAddress(address: string): Promise<void> {
+  async setBaseAddress(address: string, coords?: { lat: number; lng: number } | null): Promise<void> {
     if (typeof window !== 'undefined') {
       localStorage.setItem('smartos_base_address', address);
     }
+    const value: { address: string; lat?: number; lng?: number } = { address };
+    if (coords) {
+      value.lat = coords.lat;
+      value.lng = coords.lng;
+    }
     const { error } = await supabase
       .from('configs')
-      .upsert({ id: 'base_address', value: { address } });
+      .upsert({ id: 'base_address', value });
 
     if (error) throw error;
+  },
+
+  // Coordenadas fixadas manualmente pelo admin (arrastando o pino no mapa),
+  // quando existirem, têm prioridade sobre geocodificar o texto do endereço -
+  // evita depender da precisão da geocodificação automática para o ponto base.
+  async getBaseCoords(): Promise<{ lat: number; lng: number } | null> {
+    try {
+      const { data, error } = await supabase
+        .from('configs')
+        .select('value')
+        .eq('id', 'base_address')
+        .single();
+
+      if (!error && typeof data?.value?.lat === 'number' && typeof data?.value?.lng === 'number') {
+        return { lat: data.value.lat, lng: data.value.lng };
+      }
+    } catch (e) {
+      console.warn("Could not fetch base coords from Supabase", e);
+    }
+    return null;
   }
 };

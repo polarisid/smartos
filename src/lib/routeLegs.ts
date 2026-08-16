@@ -1,6 +1,7 @@
 import type { RouteStop } from "./data";
 import { getCoordinates, parseFullAddress } from "./geocode";
 import { fetchOsrmDrivingMatrix, haversineDistanceKm, type PointCoord } from "./routingEngine";
+import { configService } from "@/services/supabase/configService";
 
 const DEFAULT_BASE: PointCoord = { lat: -10.9142, lng: -37.0545 }; // Base Aracaju
 const FALLBACK_KMH = 40; // usado só quando OSRM está indisponível
@@ -16,6 +17,11 @@ export async function geocodeStop(stop: RouteStop): Promise<[number, number] | n
 }
 
 export async function geocodeBase(baseAddress: string): Promise<[number, number] | null> {
+  // Pino fixado manualmente nas Configurações tem prioridade sobre
+  // geocodificar o texto do endereço.
+  const storedCoords = await configService.getBaseCoords();
+  if (storedCoords) return [storedCoords.lat, storedCoords.lng];
+
   const { city, state, street } = parseFullAddress(baseAddress);
   return getCoordinates(city || "Aracaju", "", state || "Sergipe", street || baseAddress);
 }

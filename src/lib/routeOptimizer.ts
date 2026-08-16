@@ -1,5 +1,6 @@
 import { type RouteStop } from "@/lib/data";
 import { getCoordinates, parseFullAddress } from "@/lib/geocode";
+import { configService } from "@/services/supabase/configService";
 import {
 
   apply2OptMatrix,
@@ -2088,6 +2089,11 @@ async function resolveStopCoordAsync(stop: RouteStop, defaultState: string = 'Se
 }
 
 async function resolveBaseCoordAsync(baseAddress: string): Promise<PointCoord> {
+  // Pino fixado manualmente nas Configurações tem prioridade sobre
+  // geocodificar o texto do endereço.
+  const storedCoords = await configService.getBaseCoords();
+  if (storedCoords) return storedCoords;
+
   const { city, state, street } = parseFullAddress(baseAddress);
   const coords = await getCoordinates(
     city || 'Aracaju',
