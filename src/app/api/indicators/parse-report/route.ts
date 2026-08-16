@@ -237,6 +237,18 @@ export async function POST(req: Request) {
       value: typeof values?.[i] === 'number' ? values[i] : null,
     }));
 
+    // Mês no futuro (posterior ao mês corrente) não pode ter dado real ainda — a IA
+    // às vezes preenche um número onde deveria ser null. Descarta esses pontos para
+    // o gráfico não mostrar meses que ainda não existem no relatório.
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth() + 1;
+    const isFutureMonth = (period: string) => {
+      const [y, m] = (period || '').split('.').map(Number);
+      if (!y || !m || m > 12) return false; // só se aplica a períodos mensais válidos
+      return y > curYear || (y === curYear && m > curMonth);
+    };
+
     // Algumas linhas do relatório compartilham o mesmo nome dentro da mesma
     // seção (ex: duas linhas "(Qty)" sob grupos diferentes de CRRR) - só
     // sufixa a chave quando há colisão, pra manter a chave estável entre
@@ -268,7 +280,7 @@ export async function POST(req: Request) {
           unit: ['percent', 'currency', 'number'].includes(m.unit) ? m.unit : 'number',
           meta: typeof m.meta === 'number' ? m.meta : null,
           direction: m.direction === 'up' || m.direction === 'down' ? m.direction : null,
-          monthly: zipPoints(monthPeriods, m.monthly || []),
+          monthly: zipPoints(monthPeriods, m.monthly || []).filter(pt => !isFutureMonth(pt.period)),
           weekly: zipPoints(effectiveWeekPeriods, weeklyValues),
         };
       });

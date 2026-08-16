@@ -40,6 +40,15 @@ function formatMonthLabel(period: string): string {
   return `${name}/${(year || "").slice(2)}`;
 }
 
+// Mês posterior ao mês corrente não pode ter dado real ainda. Protege relatórios
+// já salvos (parseados antes do filtro na API) de mostrar meses que não existem.
+function isFutureMonthPeriod(period: string): boolean {
+  const [y, m] = (period || "").split(".").map(Number);
+  if (!y || !m || m > 12) return false;
+  const now = new Date();
+  return y > now.getFullYear() || (y === now.getFullYear() && m > now.getMonth() + 1);
+}
+
 function formatWeekLabel(period: string): string {
   const [, week] = period.split(".");
   return `Sem ${week}`;
@@ -65,7 +74,9 @@ function readFileAsBase64(file: File): Promise<string> {
 }
 
 function MetricChartCard({ metric }: { metric: IndicatorMetric }) {
-  const monthlyData = metric.monthly.map(p => ({ label: formatMonthLabel(p.period), value: p.value }));
+  const monthlyData = metric.monthly
+    .filter(p => !isFutureMonthPeriod(p.period))
+    .map(p => ({ label: formatMonthLabel(p.period), value: p.value }));
   const weeklyData = metric.weekly.map(p => ({ label: formatWeekLabel(p.period), value: p.value }));
   const DirectionIcon = metric.direction === "up" ? TrendingUp : metric.direction === "down" ? TrendingDown : null;
 

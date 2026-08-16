@@ -1,9 +1,10 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, ArrowUp, ArrowDown } from "lucide-react";
+import { GripVertical, ArrowUp, ArrowDown, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { RouteStop } from "@/lib/data";
+import type { RouteStop, ServiceOrder } from "@/lib/data";
 import { StopTurnControls } from "./StopTurnControls";
+import { LastVisitBadge } from "./LastVisitBadge";
 
 /*
   SortableStopCard — card arrastável (dnd-kit) da lista "Sugerido pela IA".
@@ -23,6 +24,9 @@ export function SortableStopCard({
   onToggleCall,
   onToggleMessage,
   showTurnControls = true,
+  lastVisit = null,
+  lastVisitTechnicianName,
+  lastVisitTotal = 1,
 }: {
   stop: RouteStop;
   newPos: number;
@@ -37,6 +41,9 @@ export function SortableStopCard({
   onToggleCall: () => void;
   onToggleMessage: () => void;
   showTurnControls?: boolean;
+  lastVisit?: ServiceOrder | null;
+  lastVisitTechnicianName?: string;
+  lastVisitTotal?: number;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: stop.serviceOrder });
   const style = { transform: CSS.Transform.toString(transform), transition };
@@ -89,10 +96,21 @@ export function SortableStopCard({
           </span>
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <p className="font-mono font-bold truncate">{stop.serviceOrder}</p>
               {stop.warrantyType === 'LP' && (
                 <span className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 text-[9px] px-1 rounded font-bold shrink-0">LP</span>
+              )}
+              {lastVisit && (
+                <LastVisitBadge os={lastVisit} technicianName={lastVisitTechnicianName} totalVisits={lastVisitTotal} />
+              )}
+              {stop.zipMismatch && (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[9px] font-bold text-red-700 bg-red-100 dark:bg-red-950 dark:text-red-300 px-1.5 py-0 rounded border border-red-300 shrink-0"
+                  title={stop.zipMismatchDetails || `CEP ${stop.zipCode} parece ser de ${stop.suggestedCityState}, mas a parada está em ${stop.city}`}
+                >
+                  <AlertTriangle className="w-2.5 h-2.5" /> CEP{stop.suggestedCityState ? ` de ${stop.suggestedCityState}` : ""}
+                </span>
               )}
             </div>
             <p className="text-[10px] text-muted-foreground truncate flex items-center flex-wrap gap-1 mt-0.5">

@@ -719,6 +719,7 @@ const { toast } = useToast();
   const watchedPreset = form.watch("presetId");
   const watchedSamsungRepairType = form.watch("samsungRepairType");
   const watchedServiceOrderNumber = form.watch("serviceOrderNumber");
+  const watchedIsFinalized = form.watch("isFinalized");
   const { resetField, setValue } = form;
 
   useEffect(() => {
@@ -859,6 +860,25 @@ const { toast } = useToast();
         setValue("replacedPart", replacedPartText);
     }
   }, [partsStatus, partsUsedQuantity, currentRouteStop, setValue, form]);
+
+  // Atendimento não finalizado ⇒ nenhuma peça foi usada. Marca automaticamente todas
+  // as peças da parada como "não usadas". Roda quando o técnico desmarca "Finalizado"
+  // e também se as peças da rota carregarem depois (idempotente: não sobrescreve à toa
+  // e não impede o técnico de marcar uma peça como usada depois, se precisar).
+  useEffect(() => {
+    if (watchedIsFinalized !== false) return;
+    const parts = currentRouteStop?.parts || [];
+    if (parts.length === 0) return;
+    setPartsStatus(prev => {
+      let changed = false;
+      const next = { ...prev };
+      parts.forEach((p: { code: string }) => {
+        if (next[p.code] !== 'not_used') { next[p.code] = 'not_used'; changed = true; }
+      });
+      return changed ? next : prev;
+    });
+    setPartsUsedQuantity(prev => (Object.keys(prev).length > 0 ? {} : prev));
+  }, [watchedIsFinalized, currentRouteStop]);
 
 
   const previewText = useMemo(() => {
@@ -1254,18 +1274,9 @@ const { toast } = useToast();
                                                                     <div className="text-xs text-muted-foreground">Desmarque caso precise de mais peças, reagendamento ou peça com defeito</div>
                                                                 </div>
                                                                 <FormControl>
-                                                                    <Switch 
-                                                                        checked={field.value} 
-                                                                        onCheckedChange={(val) => {
-                                                                            field.onChange(val);
-                                                                            if (!val && currentRouteStop?.parts) {
-                                                                                const newStatus = { ...partsStatus };
-                                                                                currentRouteStop.parts.forEach((p: { code: string }) => {
-                                                                                    newStatus[p.code] = 'not_used';
-                                                                                });
-                                                                                setPartsStatus(newStatus);
-                                                                            }
-                                                                        }} 
+                                                                    <Switch
+                                                                        checked={field.value}
+                                                                        onCheckedChange={field.onChange}
                                                                     />
                                                                 </FormControl>
                                                             </FormItem>

@@ -24,11 +24,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { useTechnicians, useDrivers } from "@/hooks/queries";
+import { useTechnicians, useDrivers, useServiceOrders } from "@/hooks/queries";
 import { routeService } from "@/services/supabase/routeService";
 import { configService } from "@/services/supabase/configService";
 import { triggerWebhook } from "@/lib/webhook";
-import { type Route, type RouteStop } from "@/lib/data";
+import { type Route, type RouteStop, type ServiceOrder } from "@/lib/data";
 import { parseRouteText } from "@/lib/parseRouteText";
 import { validateCepWithCityState } from "@/lib/geocode";
 import { optimizeRouteStopsAsync } from "@/lib/routeOptimizer";
@@ -62,6 +62,20 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
   const queryClient = useQueryClient();
   const { data: technicians = [] } = useTechnicians();
   const { data: drivers = [] } = useDrivers();
+  const { data: serviceOrders = [] } = useServiceOrders(2000);
+
+  // Último atendimento (mais recente) e total de atendimentos por número de OS —
+  // usado para mostrar o selo "Visitada" com o resumo da última visita.
+  const { lastVisitByOs, visitCountByOs } = useMemo(() => {
+    const last = new Map<string, ServiceOrder>();
+    const count = new Map<string, number>();
+    for (const os of serviceOrders) {
+      count.set(os.serviceOrderNumber, (count.get(os.serviceOrderNumber) || 0) + 1);
+      const prev = last.get(os.serviceOrderNumber);
+      if (!prev || os.date.getTime() > prev.date.getTime()) last.set(os.serviceOrderNumber, os);
+    }
+    return { lastVisitByOs: last, visitCountByOs: count };
+  }, [serviceOrders]);
 
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [routeId, setRouteId] = useState<string | null>(null);
@@ -82,13 +96,15 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
 
   // ── Passo 2: otimização ──
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [isLoadingLegs, setIsLoadingLegs] = useState(false);
+  const [hasOptimized, setHasOptimized] = useState(false);
   const [optimizationSummary, setOptimizationSummary] = useState("");
   const [origKm, setOrigKm] = useState<number[]>([]);
   const [propKm, setPropKm] = useState<number[]>([]);
   const [hoveredStopId, setHoveredStopId] = useState<string | null>(null);
   const [step2View, setStep2View] = useState<"list" | "map">("list");
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const optimizedForRouteId = useRef<string | null>(null);
+  const legsComputedForRouteId = useRef<string | null>(null);
   // Ordem "antes" (como veio da colagem/planilha) — fixa por rascunho, usada só pra
   // comparação visual no Passo 2 (quem moveu, quanto), independe de otimizar/arrastar de novo.
   const rawOrderRef = useRef<string[]>([]);
@@ -121,7 +137,8 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     setLegKm([]); setLegDurationMin([]);
     setDepartureDate(undefined); setArrivalDate(undefined);
     setEmailConfirmed(false);
-    optimizedForRouteId.current = null;
+    setHasOptimized(false);
+    legsComputedForRouteId.current = null;
   }, []);
 
   // Inicializa/reseta o wizard ao abrir
@@ -280,9 +297,9 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
         setRouteId(newId);
       }
       await queryClient.invalidateQueries({ queryKey: ["routes", "draft"] });
-      // Força recálculo da otimização ao entrar no Passo 2 — relevante quando o
-      // admin volta ao Passo 1, edita as paradas e avança de novo.
-      optimizedForRouteId.current = null;
+      // Recalcula as distâncias ao entrar no Passo 2 (a otimização por IA é opcional).
+      legsComputedForRouteId.current = null;
+      setHasOptimized(false);
       rawOrderRef.current = stops.map(s => s.serviceOrder);
       setStep(2);
     } catch (e: any) {
@@ -292,7 +309,25 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     }
   };
 
-  // ── Passo 2: otimização de percurso ──
+  // ── Passo 2: só calcula as distâncias da ordem ATUAL (sem reordenar) ──
+  // A otimização por IA é opcional — o admin pode prosseguir com a ordem da planilha.
+  const computeLegs = useCallback(async (order: RouteStop[]) => {
+    if (order.length === 0) return;
+    setIsLoadingLegs(true);
+    try {
+      const r = await fetchLegDistancesAndDurations(order, baseAddress);
+      setOrigKm(r.km);
+      setPropKm(r.km);
+      setLegKm(r.km);
+      setLegDurationMin(r.durationMin);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoadingLegs(false);
+    }
+  }, [baseAddress]);
+
+  // ── Otimização por IA (opcional, sob demanda) ──
   const runOptimization = useCallback(async () => {
     if (stops.length === 0) return;
     setIsOptimizing(true);
@@ -314,6 +349,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
       setPropKm(prop.km);
       setLegKm(prop.km);
       setLegDurationMin(prop.durationMin);
+      setHasOptimized(true);
     } catch (e) {
       console.error(e);
       toast({ variant: "destructive", title: "Erro ao otimizar", description: "Não foi possível calcular a rota otimizada." });
@@ -324,9 +360,9 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
   }, [stops, baseAddress]);
 
   useEffect(() => {
-    if (step === 2 && routeId && optimizedForRouteId.current !== routeId) {
-      optimizedForRouteId.current = routeId;
-      runOptimization();
+    if (step === 2 && routeId && legsComputedForRouteId.current !== routeId) {
+      legsComputedForRouteId.current = routeId;
+      computeLegs(stops); // só distâncias; NÃO otimiza automaticamente
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, routeId]);
