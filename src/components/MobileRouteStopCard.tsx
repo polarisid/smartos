@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ChevronDown, MessageSquare, XCircle, Calendar, MapPin, History } from "lucide-react";
+import { ChevronDown, MessageSquare, XCircle, Calendar, MapPin, History, Wrench } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import type { ServiceOrder, RouteStop } from "@/lib/data";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -33,7 +34,8 @@ export function MobileRouteStopCard({
     onUnblock: (serviceOrder: string) => void,
 }) {
     const { toast } = useToast();
-    
+    const router = useRouter();
+
     // Separate service orders into "this route" vs "previous visits"
     const allRelatedOs = serviceOrders
         .filter(os => os.serviceOrderNumber === stop.serviceOrder)
@@ -178,6 +180,16 @@ export function MobileRouteStopCard({
                         </div>
                     </div>
                 )}
+
+                <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full font-bold h-9 text-primary border-primary/30 bg-primary/5 hover:bg-primary/10"
+                    onClick={() => router.push(`/?os=${encodeURIComponent(stop.serviceOrder)}`)}
+                >
+                    <Wrench className="mr-2 h-4 w-4" />
+                    Lançar OS
+                </Button>
 
                 {isBlocked && (
                     <div className="bg-red-100 dark:bg-red-900/30 border border-red-300 rounded p-2">
