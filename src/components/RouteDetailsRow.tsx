@@ -6,7 +6,8 @@ import { useToast } from "@/hooks/use-toast";
 import { TableRow, TableCell } from "@/components/ui/table";
 import { CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, MessageSquare, History, MapPin } from "lucide-react";
+import { ChevronDown, MessageSquare, History, MapPin, Wrench } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import type { ServiceOrder, RouteStop } from "@/lib/data";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +27,8 @@ export function RouteDetailsRow({
     visitTemplate?: string
 }) {
     const { toast } = useToast();
-    
+    const router = useRouter();
+
     // Separate service orders into "this route" vs "previous visits"
     const allRelatedOs = serviceOrders
         .filter(os => os.serviceOrderNumber === stop.serviceOrder)
@@ -124,7 +126,23 @@ export function RouteDetailsRow({
                         )}
                     </TableCell>
                     <TableCell className="text-right">
-                        <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
+                        <div className="flex items-center justify-end gap-1">
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs gap-1 text-primary border-primary/30 bg-primary/5 hover:bg-primary/10"
+                                title="Lançar OS com este número já preenchido"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    router.push(`/?os=${encodeURIComponent(stop.serviceOrder)}`);
+                                }}
+                            >
+                                <Wrench className="h-3.5 w-3.5" />
+                                Lançar
+                            </Button>
+                            <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
+                        </div>
                     </TableCell>
                 </TableRow>
             </CollapsibleTrigger>

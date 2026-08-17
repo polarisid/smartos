@@ -289,7 +289,7 @@ export default function RoutesPage() {
                                                                 <TableHead>Bairro</TableHead>
                                                                 <TableHead>Modelo</TableHead>
                                                                 <TableHead>Peças</TableHead>
-                                                                <TableHead className="w-[50px]"></TableHead>
+                                                                <TableHead className="w-[130px]"></TableHead>
                                                             </TableRow>
                                                         </TableHeader>
                                                         <TableBody>

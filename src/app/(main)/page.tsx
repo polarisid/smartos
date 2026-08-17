@@ -765,8 +765,15 @@ const { toast } = useToast();
         } catch (e) {
             console.error("Failed to parse form data from localStorage", e);
         }
+        // Pré-preenche o número da OS quando aberto via ?os=... (botão "Lançar"
+        // nos Detalhes da Rota). Aplicado após o reset para prevalecer sobre o
+        // rascunho salvo; o effect de detecção de parada cuida do restante.
+        const osParam = new URLSearchParams(window.location.search).get('os');
+        if (osParam) {
+            form.setValue('serviceOrderNumber', osParam);
+        }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); 
+    }, []);
 
     useEffect(() => {
       localStorage.setItem('serviceOrderFormData', JSON.stringify(allFormValues));
