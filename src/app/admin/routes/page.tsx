@@ -27,7 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useTechnicians, useServiceOrders } from "@/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart, type Driver } from "@/lib/data";
-import { validateCepWithCityState } from "@/lib/geocode";
+import { tagStopsWithZipMismatch } from "@/lib/geocode";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -336,7 +336,9 @@ function RouteForm({
                 setLicensePlate(initialData.licensePlate || "");
                 setTechnicianId(initialData.technicianId || "");
                 setDriverId(initialData.driverId || "none");
-                setParsedStops(initialData.stops.map(s => ({ ...s, stopType: s.stopType || 'padrao' })));
+                const initialStops = initialData.stops.map(s => ({ ...s, stopType: s.stopType || 'padrao' }));
+                setParsedStops(initialStops);
+                tagStopsWithZipMismatch(initialStops).then(setParsedStops).catch(console.error);
                 const initialText = reconstructRouteText(initialData.stops);
                 setRouteText(initialText);
             } else {
@@ -368,22 +370,7 @@ function RouteForm({
             };
         });
         setParsedStops(updatedStops);
-
-        const validatedStops = await Promise.all(updatedStops.map(async (stop) => {
-            if (stop.zipCode) {
-                const val = await validateCepWithCityState(stop.zipCode, stop.city, stop.state);
-                if (val.mismatch) {
-                    return {
-                        ...stop,
-                        zipMismatch: true,
-                        zipMismatchDetails: val.details,
-                        suggestedCityState: `${val.suggestedCity}-${val.suggestedState}`
-                    };
-                }
-            }
-            return stop;
-        }));
-        setParsedStops(validatedStops);
+        setParsedStops(await tagStopsWithZipMismatch(updatedStops));
     };
 
     const handleStopTypeChange = (index: number, type: 'padrao' | 'coleta' | 'entrega') => {

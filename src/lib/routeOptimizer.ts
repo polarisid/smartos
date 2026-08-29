@@ -17,6 +17,42 @@ function normalize(str: string): string {
     .trim();
 }
 
+// Nomes completos -> UF, s\u00f3 para os estados que aparecem com sufixo "(uf)"
+// em CITY_COORDINATES (ver coment\u00e1rio na defini\u00e7\u00e3o da tabela).
+const STATE_NAME_TO_UF: Record<string, string> = {
+  "alagoas": "al", "bahia": "ba", "ceara": "ce", "maranhao": "ma",
+  "paraiba": "pb", "pernambuco": "pe", "piaui": "pi",
+  "rio grande do norte": "rn", "sergipe": "se",
+};
+
+function stateToUf(state?: string): string {
+  const norm = normalize(state || "");
+  if (!norm) return "";
+  if (norm.length === 2) return norm;
+  return STATE_NAME_TO_UF[norm] || "";
+}
+
+// Faixas oficiais de CEP dos Correios por região (2 primeiros dígitos) -> UF.
+// Usado como sinal extra de desambiguação: mesmo quando o campo "estado" da
+// parada vem vazio ou errado, o prefixo do CEP indica o estado real de forma
+// confiável, sem depender de geocodificação por texto.
+const CEP_PREFIX_RANGES: [number, number, string][] = [
+  [1, 19, "sp"], [20, 28, "rj"], [29, 29, "es"], [30, 39, "mg"],
+  [40, 48, "ba"], [49, 49, "se"], [50, 56, "pe"], [57, 57, "al"],
+  [58, 58, "pb"], [59, 59, "rn"], [60, 63, "ce"], [64, 64, "pi"],
+  [65, 65, "ma"], [66, 68, "pa"], [69, 69, "am"], [70, 73, "df"],
+  [74, 76, "go"], [77, 77, "to"], [78, 78, "mt"], [79, 79, "ms"],
+  [80, 87, "pr"], [88, 89, "sc"], [90, 99, "rs"],
+];
+
+function ufFromCep(zipCode?: string): string {
+  const digits = (zipCode || "").replace(/\D/g, "");
+  if (digits.length < 5) return "";
+  const prefix = parseInt(digits.slice(0, 2), 10);
+  const range = CEP_PREFIX_RANGES.find(([min, max]) => prefix >= min && prefix <= max);
+  return range ? range[2] : "";
+}
+
 /**
  * Parses a TAT string like "5 days", "3 dias", "10d" into a number of days.
  */
@@ -1889,8 +1925,14 @@ function getNeighborhoodZoneScore(cityKey: string, nKey: string): number {
 
 /**
  * Resolves approximate coordinates for a city using exact or fuzzy normalized matching.
+ *
+ * Vários nomes de cidade se repetem entre estados (ex: "Bom Jardim" existe no MA
+ * e em outros estados) - quando o estado é conhecido, ele desambigua: primeiro
+ * tenta a chave sufixada "cidade (uf)" (convenção usada em CITY_COORDINATES para
+ * os nomes duplicados), e no fallback por substring, ignora candidatos cuja chave
+ * tenha um sufixo "(uf)" de OUTRO estado, pra não pegar a cidade errada.
  */
-export function getCityCoordinates(cityName: string): { lat: number; lng: number } | null {
+export function getCityCoordinates(cityName: string, state?: string): { lat: number; lng: number } | null {
   const norm = normalize(cityName)
     .replace(/\bn\.?\s*sra\.?\b/g, "nossa senhora")
     .replace(/\bsto\.?\b/g, "santo")
@@ -1898,13 +1940,23 @@ export function getCityCoordinates(cityName: string): { lat: number; lng: number
     .replace(/\bs\.?\b/g, "sao")
     .trim();
 
+  const uf = stateToUf(state);
+
+  if (uf) {
+    const suffixed = CITY_COORDINATES[`${norm} (${uf})`];
+    if (suffixed) return suffixed;
+  }
+
   if (CITY_COORDINATES[norm]) return CITY_COORDINATES[norm];
 
-  // Try partial key matching
+  // Try partial key matching - quando sabemos o estado, pula chaves com
+  // sufixo "(uf)" de um estado diferente (evita colisão entre cidades
+  // homônimas de estados distintos).
   for (const [key, coords] of Object.entries(CITY_COORDINATES)) {
-    if (norm.length >= 4 && (norm.includes(key) || key.includes(norm))) {
-      return coords;
-    }
+    if (norm.length < 4 || !(norm.includes(key) || key.includes(norm))) continue;
+    const keySuffixMatch = key.match(/\(([a-z]{2})\)$/);
+    if (uf && keySuffixMatch && keySuffixMatch[1] !== uf) continue;
+    return coords;
   }
 
   return null;
@@ -2019,7 +2071,10 @@ import {
  * Resolves coordinates for a stop using city/neighborhood coordinates fallback map
  */
 function getStopCoordinates(stop: RouteStop): PointCoord {
-  const cityCoords = getCityCoordinates(stop.city || 'Aracaju');
+  // O prefixo do CEP indica o estado real de forma confiável - prioriza ele
+  // sobre o campo "estado" da parada, que às vezes vem vazio ou incorreto.
+  const uf = ufFromCep(stop.zipCode) || stop.state;
+  const cityCoords = getCityCoordinates(stop.city || 'Aracaju', uf);
   if (cityCoords) return cityCoords;
   return { lat: -10.9472, lng: -37.0731 }; // Aracaju default
 }
@@ -2077,10 +2132,14 @@ export function optimizeRouteStopsSync(stops: RouteStop[], originCity: string = 
 }
 
 async function resolveStopCoordAsync(stop: RouteStop, defaultState: string = 'Sergipe'): Promise<PointCoord> {
+  // Quando a parada não tem estado preenchido, o prefixo do CEP é mais
+  // confiável que cair no estado padrão da base (que pode ser de outra
+  // cidade/estado na mesma rota).
+  const resolvedState = stop.state || ufFromCep(stop.zipCode) || defaultState;
   const coords = await getCoordinates(
     stop.city,
     stop.neighborhood,
-    stop.state || defaultState,
+    resolvedState,
     stop.addressDetails,
     stop.zipCode
   );

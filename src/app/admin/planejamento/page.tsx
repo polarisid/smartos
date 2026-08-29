@@ -29,7 +29,7 @@ import { type Route, type RouteStop } from "@/lib/data";
 import { parseRouteText } from "@/lib/parseRouteText";
 import { optimizeRouteStops, optimizeRouteStopsAsync, describeOptimization } from "@/lib/routeOptimizer";
 import { optimizeRouteWithGeminiAI } from "@/services/aiRouteService";
-import { parseFullAddress, validateCepWithCityState, getCoordinates } from "@/lib/geocode";
+import { parseFullAddress, tagStopsWithZipMismatch, getCoordinates } from "@/lib/geocode";
 import { copyRouteEmailToClipboard } from "@/lib/emailExport";
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Trash2, CheckCircle2,
@@ -63,6 +63,7 @@ async function geocodeStop(stop: RouteStop): Promise<[number, number] | null> {
     stop.zipCode
   );
 }
+
 
 async function geocodeBase(baseAddress: string): Promise<[number, number] | null> {
   // Pino fixado manualmente nas Configurações tem prioridade sobre
@@ -891,21 +892,7 @@ export default function PlanejamentoPage() {
     setIsEditOpen(true);
 
     // Validate stops on open
-    const validatedStops = await Promise.all(route.stops.map(async (stop) => {
-      if (stop.zipCode) {
-        const val = await validateCepWithCityState(stop.zipCode, stop.city, stop.state);
-        if (val.mismatch) {
-          return {
-            ...stop,
-            zipMismatch: true,
-            zipMismatchDetails: val.details,
-            suggestedCityState: `${val.suggestedCity}-${val.suggestedState}`
-          };
-        }
-      }
-      return stop;
-    }));
-    setEditParsedPreview(validatedStops);
+    setEditParsedPreview(await tagStopsWithZipMismatch(route.stops));
   };
 
   const handleEditTextChange = async (v: string) => {
@@ -1018,7 +1005,7 @@ export default function PlanejamentoPage() {
         try {
           const parsed = JSON.parse(cached);
           if (parsed.stops && parsed.origKm && parsed.propKm && parsed.stops.length === route.stops.length) {
-            setProposedStops(parsed.stops);
+            setProposedStops(await tagStopsWithZipMismatch(parsed.stops));
             setOptimizationSummary(parsed.summary || "Circuito rodoviário otimizado (carregado da última salvação).");
             setOrigSegsKm(parsed.origKm);
             setPropSegsKm(parsed.propKm);
@@ -1055,15 +1042,18 @@ export default function PlanejamentoPage() {
       const origTotal = origKm.reduce((a, b) => a + b, 0);
       const propTotal = propKm.reduce((a, b) => a + b, 0);
       const finalSummary = buildGoogleSummary(origTotal, propTotal, movedCount, finalStops.length);
-    
-      setProposedStops(finalStops);
+
+      // Alerta de CEP que não bate com cidade/estado, igual já existe na edição manual.
+      const validatedStops = await tagStopsWithZipMismatch(finalStops);
+
+      setProposedStops(validatedStops);
       setOptimizationSummary(finalSummary);
       setOrigSegsKm(origKm);
       setPropSegsKm(propKm);
-    
+
       if (typeof window !== 'undefined') {
         localStorage.setItem(cacheKey, JSON.stringify({
-          stops: finalStops,
+          stops: validatedStops,
           summary: finalSummary,
           origKm,
           propKm,

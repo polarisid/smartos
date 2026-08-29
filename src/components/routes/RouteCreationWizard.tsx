@@ -30,7 +30,7 @@ import { configService } from "@/services/supabase/configService";
 import { triggerWebhook } from "@/lib/webhook";
 import { type Route, type RouteStop, type ServiceOrder } from "@/lib/data";
 import { parseRouteText } from "@/lib/parseRouteText";
-import { validateCepWithCityState } from "@/lib/geocode";
+import { tagStopsWithZipMismatch } from "@/lib/geocode";
 import { optimizeRouteStopsAsync } from "@/lib/routeOptimizer";
 import { buildGoogleSummary } from "@/services/googleRouteOptimizer";
 import { fetchLegDistancesAndDurations } from "@/lib/routeLegs";
@@ -155,6 +155,9 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
       setFuelAvgKml(initialRoute.fuelAvgKml || 10);
       setStops(initialRoute.stops || []);
       rawOrderRef.current = (initialRoute.stops || []).map(s => s.serviceOrder);
+      if (initialRoute.stops && initialRoute.stops.length > 0) {
+        tagStopsWithZipMismatch(initialRoute.stops).then(setStops).catch(console.error);
+      }
       const dep = initialRoute.departureDate ? new Date(initialRoute.departureDate) : (initialRoute.plannedDate ? new Date(initialRoute.plannedDate) : undefined);
       setDepartureDate(dep);
       setArrivalDate(initialRoute.arrivalDate ? new Date(initialRoute.arrivalDate) : undefined);
@@ -171,22 +174,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     setPasteText(v);
     const parsed = parseRouteText(v);
     setStops(parsed);
-
-    const validated = await Promise.all(parsed.map(async (stop) => {
-      if (stop.zipCode) {
-        const val = await validateCepWithCityState(stop.zipCode, stop.city, stop.state);
-        if (val.mismatch) {
-          return {
-            ...stop,
-            zipMismatch: true,
-            zipMismatchDetails: val.details,
-            suggestedCityState: `${val.suggestedCity}-${val.suggestedState}`,
-          };
-        }
-      }
-      return stop;
-    }));
-    setStops(validated);
+    setStops(await tagStopsWithZipMismatch(parsed));
   }, []);
 
   const selectedTechnician = technicians.find(t => t.id === technicianId);
@@ -429,6 +417,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
   }, [step]);
 
   const handleSetTurn = (idx: number, turn: string) => setStops(prev => prev.map((s, i) => (i === idx ? { ...s, turn } : s)));
+  const handleSetVisitDate = (idx: number, firstVisitDate: string) => setStops(prev => prev.map((s, i) => (i === idx ? { ...s, firstVisitDate } : s)));
   const handleToggleCall = (idx: number) => setStops(prev => prev.map((s, i) => (i === idx ? { ...s, confirmedByCall: !s.confirmedByCall } : s)));
   const handleToggleMessage = (idx: number) => setStops(prev => prev.map((s, i) => (i === idx ? { ...s, confirmedByMessage: !s.confirmedByMessage } : s)));
 
@@ -929,6 +918,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
                           legDurationMin={legDurationMin[i]}
                           legsLoading={legsLoading}
                           onSetTurn={(turn) => handleSetTurn(i, turn)}
+                          onSetVisitDate={(date) => handleSetVisitDate(i, date)}
                           onToggleCall={() => handleToggleCall(i)}
                           onToggleMessage={() => handleToggleMessage(i)}
                           lastVisit={lastVisitByOs.get(stop.serviceOrder) || null}

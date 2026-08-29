@@ -1,8 +1,25 @@
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, CalendarClock } from "lucide-react";
+import { format, parse, isValid } from "date-fns";
 import type { RouteStop, ServiceOrder } from "@/lib/data";
 import { formatLegTempo } from "@/lib/emailExport";
 import { StopTurnControls } from "./StopTurnControls";
 import { LastVisitBadge } from "./LastVisitBadge";
+
+// A data de visita é guardada como texto livre ("dd/MM/yyyy", vindo da
+// planilha colada) - convertidas só na borda pro <input type="date"> nativo,
+// que exige "yyyy-MM-dd". Uma data em formato inesperado vira campo vazio,
+// nunca quebra a tela.
+function toDateInputValue(raw?: string): string {
+  if (!raw) return "";
+  const parsed = parse(raw.trim(), "dd/MM/yyyy", new Date());
+  return isValid(parsed) ? format(parsed, "yyyy-MM-dd") : "";
+}
+
+function fromDateInputValue(iso: string): string {
+  if (!iso) return "";
+  const parsed = parse(iso, "yyyy-MM-dd", new Date());
+  return isValid(parsed) ? format(parsed, "dd/MM/yyyy") : "";
+}
 
 /*
   StopSummaryCard — versão não-arrastável do card de parada, usada no passo
@@ -18,6 +35,7 @@ export function StopSummaryCard({
   legDurationMin,
   legsLoading,
   onSetTurn,
+  onSetVisitDate,
   onToggleCall,
   onToggleMessage,
   lastVisit = null,
@@ -30,6 +48,7 @@ export function StopSummaryCard({
   legDurationMin?: number;
   legsLoading: boolean;
   onSetTurn: (turn: string) => void;
+  onSetVisitDate: (date: string) => void;
   onToggleCall: () => void;
   onToggleMessage: () => void;
   lastVisit?: ServiceOrder | null;
@@ -94,6 +113,17 @@ export function StopSummaryCard({
           onToggleCall={onToggleCall}
           onToggleMessage={onToggleMessage}
         />
+
+        <div className="flex items-center gap-1.5 px-2.5 pb-2">
+          <CalendarClock className="h-3 w-3 text-muted-foreground shrink-0" />
+          <span className="text-[10px] font-medium text-muted-foreground">Data da visita</span>
+          <input
+            type="date"
+            value={toDateInputValue(stop.firstVisitDate)}
+            onChange={(e) => onSetVisitDate(fromDateInputValue(e.target.value))}
+            className="h-5 text-[10px] px-1.5 rounded border border-input bg-background focus:ring-1 focus:ring-primary focus:outline-none"
+          />
+        </div>
       </div>
     </div>
   );
