@@ -158,6 +158,7 @@ export const technicalReportService = {
     return {
       id: row.id,
       serviceOrderNumber: row.service_order_number,
+      reportType: row.report_type || 'reparo',
       technicianId: row.technician_id,
       technicianName: row.technician_name,
       consumerName: row.consumer_name,
@@ -180,6 +181,7 @@ export const technicalReportService = {
   mapToDb(obj: Partial<TechnicalReport>): any {
     const row: any = {};
     if (obj.serviceOrderNumber !== undefined) row.service_order_number = obj.serviceOrderNumber;
+    if (obj.reportType !== undefined) row.report_type = obj.reportType;
     if (obj.technicianId !== undefined) row.technician_id = obj.technicianId;
     if (obj.technicianName !== undefined) row.technician_name = obj.technicianName;
     if (obj.consumerName !== undefined) row.consumer_name = obj.consumerName;

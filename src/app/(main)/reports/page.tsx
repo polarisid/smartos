@@ -12,9 +12,10 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { useToast } from "@/hooks/use-toast";
 import { useTechnicians, useActiveRoutes, useChecklists } from "@/hooks/queries";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
-import type { ChecklistTemplate, TechnicalReport, TechnicalReportPhotoCategory } from "@/lib/data";
+import type { ChecklistTemplate, TechnicalReport, TechnicalReportPhotoCategory, TechnicalReportType } from "@/lib/data";
 import { buildAndDownloadPdf } from "@/lib/technicalReportPdf";
-import { Camera, Loader2, Plus, Trash2, Download, Search, ScanLine, ClipboardList } from "lucide-react";
+import { compressImageIfNeeded } from "@/lib/imageCompression";
+import { Camera, Loader2, Plus, Trash2, Download, Search, ScanLine, ClipboardList, Wrench, ClipboardCheck } from "lucide-react";
 
 type LocalPhoto = {
   id: string;
@@ -40,6 +41,12 @@ const REQUIRED_CATEGORIES: TechnicalReportPhotoCategory[] = [
   "pos_reparo",
 ];
 
+// Numa visita (sem reparo concluído), não faz sentido cobrar foto do
+// pós-reparo nem descrição do que foi feito.
+function requiredCategoriesFor(reportType: TechnicalReportType): TechnicalReportPhotoCategory[] {
+  return reportType === "visita" ? REQUIRED_CATEGORIES.filter(c => c !== "pos_reparo") : REQUIRED_CATEGORIES;
+}
+
 export default function ReportsPage() {
   return (
     <Suspense fallback={null}>
@@ -56,6 +63,7 @@ function ReportsPageInner() {
   const searchParams = useSearchParams();
 
   const [serviceOrderNumber, setServiceOrderNumber] = useState(() => searchParams.get("os") || "");
+  const [reportType, setReportType] = useState<TechnicalReportType>("reparo");
   const [technicianId, setTechnicianId] = useState("");
   const [consumerName, setConsumerName] = useState("");
   const [productModel, setProductModel] = useState("");
@@ -93,6 +101,7 @@ function ReportsPageInner() {
   const resetForm = () => {
     photos.forEach(p => { if (!p.url) URL.revokeObjectURL(p.previewUrl); });
     setServiceOrderNumber("");
+    setReportType("reparo");
     setTechnicianId("");
     setConsumerName("");
     setProductModel("");
@@ -107,9 +116,23 @@ function ReportsPageInner() {
     clientSignatureRef.current?.clear();
   };
 
-  const handleSlotFile = (category: TechnicalReportPhotoCategory, fileList: FileList | null) => {
-    const file = fileList?.[0];
-    if (!file) return;
+  // Fotos de celular às vezes passam de 10MB - comprime (mantendo a
+  // resolução, só reduzindo a qualidade JPEG) antes de guardar no formulário,
+  // pra não travar o upload em campo com internet ruim.
+  const compressPhotoWithFeedback = async (file: File): Promise<File> => {
+    const { file: compressed, wasCompressed } = await compressImageIfNeeded(file);
+    if (wasCompressed) {
+      const beforeMb = (file.size / (1024 * 1024)).toFixed(1);
+      const afterMb = (compressed.size / (1024 * 1024)).toFixed(1);
+      toast({ title: "Foto compactada automaticamente", description: `${beforeMb}MB → ${afterMb}MB` });
+    }
+    return compressed;
+  };
+
+  const handleSlotFile = async (category: TechnicalReportPhotoCategory, fileList: FileList | null) => {
+    const rawFile = fileList?.[0];
+    if (!rawFile) return;
+    const file = await compressPhotoWithFeedback(rawFile);
     setPhotos(prev => {
       const existing = prev.find(p => p.category === category);
       if (existing && !existing.url) URL.revokeObjectURL(existing.previewUrl);
@@ -198,11 +221,12 @@ function ReportsPageInner() {
     }
   };
 
-  const handleMultiFiles = (category: TechnicalReportPhotoCategory, fileList: FileList | null) => {
+  const handleMultiFiles = async (category: TechnicalReportPhotoCategory, fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
+    const files = await Promise.all(Array.from(fileList).map(f => compressPhotoWithFeedback(f)));
     setPhotos(prev => {
       const currentCount = prev.filter(p => p.category === category).length;
-      const added = Array.from(fileList).map((file, i) => ({
+      const added = files.map((file, i) => ({
         id: crypto.randomUUID(),
         category,
         file,
@@ -235,6 +259,7 @@ function ReportsPageInner() {
       }
       const report = reports[0];
       setSavedReportId(report.id);
+      setReportType(report.reportType || "reparo");
       setSavedReportCreatedAt(report.createdAt);
       setTechnicianId(report.technicianId || "");
       setConsumerName(report.consumerName || "");
@@ -286,7 +311,7 @@ function ReportsPageInner() {
       toast({ variant: "destructive", title: "Informe o número da OS." });
       return;
     }
-    if (!repairDescription.trim()) {
+    if (reportType === "reparo" && !repairDescription.trim()) {
       toast({ variant: "destructive", title: "Descreva o que foi feito no reparo ou o que foi observado." });
       return;
     }
@@ -309,13 +334,14 @@ function ReportsPageInner() {
 
       const payload = {
         serviceOrderNumber: serviceOrderNumber.trim(),
+        reportType,
         technicianId: technicianId || undefined,
         technicianName: technician?.name,
         consumerName: consumerName || undefined,
         productModel: productModel || undefined,
         serialNumber: serialNumber || undefined,
         photos: uploaded.map(p => ({ category: p.category, url: p.url!, path: p.path!, order: p.order })),
-        repairDescription: repairDescription.trim(),
+        repairDescription: reportType === "visita" ? undefined : repairDescription.trim(),
         observations: observations || undefined,
         checklistTemplateId: checklistTemplateId || undefined,
         ...(drawnSignature ? { clientSignature: drawnSignature } : {}),
@@ -373,13 +399,14 @@ function ReportsPageInner() {
         createdAt: savedReportCreatedAt || new Date(),
         updatedAt: new Date(),
         serviceOrderNumber: serviceOrderNumber.trim(),
+        reportType,
         technicianId: technicianId || undefined,
         technicianName: technician?.name,
         consumerName: consumerName || undefined,
         productModel: productModel || undefined,
         serialNumber: serialNumber || undefined,
         photos: photos.filter(p => p.url && p.path).map(p => ({ category: p.category, url: p.url!, path: p.path!, order: p.order })),
-        repairDescription: repairDescription.trim(),
+        repairDescription: reportType === "visita" ? undefined : repairDescription.trim(),
         observations: observations || undefined,
         checklistTemplateId: checklistTemplateId || undefined,
         clientSignature: storedClientSignature || undefined,
@@ -396,7 +423,8 @@ function ReportsPageInner() {
   const multiPhotos = (category: TechnicalReportPhotoCategory) =>
     photos.filter(p => p.category === category);
 
-  const completedCount = REQUIRED_CATEGORIES.filter(cat => photos.some(p => p.category === cat)).length;
+  const requiredCategories = requiredCategoriesFor(reportType);
+  const completedCount = requiredCategories.filter(cat => photos.some(p => p.category === cat)).length;
 
   return (
     <div className="max-w-3xl mx-auto p-4 md:p-8 space-y-4">
@@ -405,20 +433,44 @@ function ReportsPageInner() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Camera className="h-5 w-5" /> Relatório</CardTitle>
-          <CardDescription>Preencha ao final do reparo: fotos do produto, do defeito apresentado e do pós-reparo.</CardDescription>
+          <CardDescription>
+            {reportType === "visita"
+              ? "Preencha os dados da visita: fotos do produto e do defeito apresentado."
+              : "Preencha ao final do reparo: fotos do produto, do defeito apresentado e do pós-reparo."}
+          </CardDescription>
           <div className="flex items-center gap-2 pt-1">
             <div className="flex-1 flex gap-1">
-              {REQUIRED_CATEGORIES.map(cat => (
+              {requiredCategories.map(cat => (
                 <div
                   key={cat}
                   className={`h-1.5 flex-1 rounded-full transition-colors ${photos.some(p => p.category === cat) ? "bg-primary" : "bg-muted"}`}
                 />
               ))}
             </div>
-            <span className="text-xs font-medium text-muted-foreground shrink-0">{completedCount}/5 fotos</span>
+            <span className="text-xs font-medium text-muted-foreground shrink-0">{completedCount}/{requiredCategories.length} fotos</span>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
+          <div className="space-y-1.5">
+            <Label>Tipo de Relatório</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setReportType("reparo")}
+                className={`flex items-center justify-center gap-2 rounded-md border py-2 text-sm font-medium transition-colors ${reportType === "reparo" ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-muted/50"}`}
+              >
+                <Wrench className="h-4 w-4" /> Reparo
+              </button>
+              <button
+                type="button"
+                onClick={() => setReportType("visita")}
+                className={`flex items-center justify-center gap-2 rounded-md border py-2 text-sm font-medium transition-colors ${reportType === "visita" ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-muted/50"}`}
+              >
+                <ClipboardCheck className="h-4 w-4" /> Visita
+              </button>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>Nº da OS</Label>
@@ -500,23 +552,27 @@ function ReportsPageInner() {
             onRemove={removePhoto}
           />
 
-          <PhotoCategorySection
-            title="Pós-Reparo"
-            category="pos_reparo"
-            photos={multiPhotos("pos_reparo")}
-            onAdd={handleMultiFiles}
-            onRemove={removePhoto}
-          />
-
-          <div className="space-y-1.5">
-            <Label>Descrição do Reparo *</Label>
-            <Textarea
-              value={repairDescription}
-              onChange={e => setRepairDescription(e.target.value)}
-              rows={4}
-              placeholder="Descreva o que foi feito no reparo (diagnóstico, peças trocadas, procedimento) ou o que foi observado no atendimento."
+          {reportType === "reparo" && (
+            <PhotoCategorySection
+              title="Pós-Reparo"
+              category="pos_reparo"
+              photos={multiPhotos("pos_reparo")}
+              onAdd={handleMultiFiles}
+              onRemove={removePhoto}
             />
-          </div>
+          )}
+
+          {reportType === "reparo" && (
+            <div className="space-y-1.5">
+              <Label>Descrição do Reparo *</Label>
+              <Textarea
+                value={repairDescription}
+                onChange={e => setRepairDescription(e.target.value)}
+                rows={4}
+                placeholder="Descreva o que foi feito no reparo (diagnóstico, peças trocadas, procedimento) ou o que foi observado no atendimento."
+              />
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label>Observações</Label>

@@ -285,9 +285,12 @@ export type TechnicalReportPhoto = {
   order: number;
 };
 
+export type TechnicalReportType = 'reparo' | 'visita';
+
 export type TechnicalReport = {
   id: string;
   serviceOrderNumber: string;
+  reportType?: TechnicalReportType;
   technicianId?: string;
   technicianName?: string;
   consumerName?: string;

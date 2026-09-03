@@ -34,7 +34,7 @@ import { copyRouteEmailToClipboard } from "@/lib/emailExport";
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, Trash2, CheckCircle2,
   Sparkles, Download, MapPin, Calendar, Users, Truck, Rocket,
-  Eye, Loader2, List, Edit, Copy, Search
+  Eye, Loader2, List, Edit, Copy, Search, ArrowLeftRight
 } from "lucide-react";
 import { RouteCreationWizard } from "@/components/routes/RouteCreationWizard";
 import { cn } from "@/lib/utils";
@@ -579,6 +579,23 @@ export default function PlanejamentoPage() {
     setSegsLoading(true);
     try {
       const propKm = await fetchOsrmRoadDistances(newStops, defaultBaseAddress || originCity || "Aracaju");
+      setPropSegsKm(propKm);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSegsLoading(false);
+    }
+  };
+
+  // Inverte a ordem das paradas sugeridas em um clique (mesmo padrão do
+  // RouteCreationWizard) e recalcula as distâncias reais via OSRM.
+  const handleReverseProposedOrder = async () => {
+    if (proposedStops.length < 2) return;
+    const reversed = [...proposedStops].reverse();
+    setProposedStops(reversed);
+    setSegsLoading(true);
+    try {
+      const propKm = await fetchOsrmRoadDistances(reversed, defaultBaseAddress || originCity || "Aracaju");
       setPropSegsKm(propKm);
     } catch (err) {
       console.error(err);
@@ -2388,6 +2405,17 @@ export default function PlanejamentoPage() {
                 </span>
               </div>
               <div className="flex items-center gap-2 self-end sm:self-auto">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleReverseProposedOrder}
+                  disabled={segsLoading || isOptimizing || proposedStops.length < 2}
+                  className="h-8 text-xs gap-1.5 font-bold"
+                  title="Inverte a ordem das paradas em um clique"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                  Inverter Ordem
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"

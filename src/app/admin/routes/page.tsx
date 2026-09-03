@@ -277,6 +277,7 @@ function RouteForm({
     const [technicianId, setTechnicianId] = useState<string | undefined>();
     const [driverId, setDriverId] = useState<string | undefined>("none");
     const [parsedStops, setParsedStops] = useState<RouteStop[]>([]);
+    const [previewViewTab, setPreviewViewTab] = useState<'list' | 'map'>('list');
 
     const [expandedStops, setExpandedStops] = useState<Set<string>>(new Set());
     const toggleExpand = (so: string) => {
@@ -300,6 +301,21 @@ function RouteForm({
         setDragIndex(null);
         setDragOverIndex(null);
     };
+
+    // Paradas da pré-visualização (parsedStops, ainda sendo editadas) no
+    // formato que o RouteMap espera - status fica sempre "todo" aqui, já que
+    // isso é só um preview geográfico da edição atual, não o status real da OS.
+    const previewMapStops = useMemo(() => {
+        const previewRoute = {
+            id: initialData?.id || 'draft',
+            name: routeName || 'Nova Rota',
+            technicianName: technicians.find(t => t.id === technicianId)?.name,
+            stops: parsedStops,
+            createdAt: initialData?.createdAt || new Date(),
+            isActive: true,
+        } as Route;
+        return parsedStops.map(stop => ({ stop, route: previewRoute, status: 'todo' as const }));
+    }, [parsedStops, routeName, technicianId, technicians, initialData]);
 
     const [manualStopData, setManualStopData] = useState({
         serviceOrder: '',
@@ -824,11 +840,43 @@ function RouteForm({
                 </div>
 
                 <div className="space-y-2 pt-6 border-t">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
                         <Label className="text-base">Pré-visualização da Rota</Label>
-                        <span className="text-xs text-muted-foreground">{parsedStops.length} parada(s)</span>
+                        <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-1 rounded-lg border p-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setPreviewViewTab('list')}
+                                    className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors", previewViewTab === 'list' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
+                                >
+                                    <List className="h-3.5 w-3.5" /> Lista
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPreviewViewTab('map')}
+                                    className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors", previewViewTab === 'map' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
+                                >
+                                    <MapIcon className="h-3.5 w-3.5" /> Mapa
+                                </button>
+                            </div>
+                            <span className="text-xs text-muted-foreground">{parsedStops.length} parada(s)</span>
+                        </div>
                     </div>
 
+                    {previewViewTab === 'map' ? (
+                        <div className="h-[500px] rounded-lg border overflow-hidden">
+                            {parsedStops.length > 0 ? (
+                                <DynamicalRouteMap
+                                    routes={[]}
+                                    activeStops={previewMapStops}
+                                />
+                            ) : (
+                                <div className="h-full flex items-center justify-center text-center text-sm text-muted-foreground">
+                                    A pré-visualização aparecerá aqui.
+                                </div>
+                            )}
+                        </div>
+                    ) : (
                     <div className="border rounded-lg p-1.5 space-y-1.5">
                         {parsedStops.length > 0 ? parsedStops.map((stop, index) => {
                             const matchingOs = serviceOrders
@@ -1157,6 +1205,7 @@ function RouteForm({
                             </div>
                         )}
                     </div>
+                    )}
                 </div>
 
                 <div className="space-y-4 border-t pt-6">
