@@ -663,6 +663,16 @@ export default function CommandCenterPage() {
         return { total: list.length, completed, pending, weekStart, now, byDay, maxDay };
     }, [serviceOrders]);
 
+    // Stops do mapa já filtrados e memoizados — evita recriar o array a cada
+    // segundo (relógio/feed), o que fazia o mapa piscar e reenquadrar sozinho.
+    const filteredMapStops = React.useMemo(() => {
+        return dashboardData.mapActiveStops.filter(s => {
+            if (selectedMapRoutes.size > 0 && !selectedMapRoutes.has(s.route.id)) return false;
+            if (mapStatusFilter !== 'all' && s.status !== mapStatusFilter) return false;
+            return true;
+        });
+    }, [dashboardData.mapActiveStops, selectedMapRoutes, mapStatusFilter]);
+
 
     return (
         <div className="min-h-screen bg-[#0B1420] text-slate-100 font-body flex flex-col lg:flex-row lg:overflow-hidden">
@@ -778,15 +788,9 @@ export default function CommandCenterPage() {
                             </div>
 
                             <div className="flex-1 rounded-xl shadow-2xl relative overflow-hidden">
-                                <DynamicalRouteMap 
-                                    routes={routes} 
-                                    activeStops={dashboardData.mapActiveStops.filter(s => {
-                                        // Route filter: if none explicitly selected → show all
-                                        if (selectedMapRoutes.size > 0 && !selectedMapRoutes.has(s.route.id)) return false;
-                                        // Status filter
-                                        if (mapStatusFilter !== 'all' && s.status !== mapStatusFilter) return false;
-                                        return true;
-                                    })}
+                                <DynamicalRouteMap
+                                    routes={routes}
+                                    activeStops={filteredMapStops}
                                 />
                             </div>
                         </div>

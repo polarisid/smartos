@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -36,7 +36,7 @@ const getCustomIcon = (color: 'green' | 'blue' | 'yellow', index: number) => {
     
     return L.divIcon({
         className: 'custom-leaflet-icon',
-        html: `<div class="w-6 h-6 rounded-full border-2 border-white shadow-lg ${colorClasses[color]} flex items-center justify-center text-[10px] font-bold text-white animate-in zoom-in">${index}</div>`,
+        html: `<div class="w-6 h-6 rounded-full border-2 border-white shadow-lg ${colorClasses[color]} flex items-center justify-center text-[10px] font-bold text-white">${index}</div>`,
         iconSize: [24, 24],
         iconAnchor: [12, 12],
     });
@@ -45,7 +45,7 @@ const getCustomIcon = (color: 'green' | 'blue' | 'yellow', index: number) => {
 const getStoreIcon = () => {
     return L.divIcon({
         className: 'custom-store-leaflet-icon',
-        html: `<div class="w-8 h-8 rounded-full border-2 border-white shadow-xl bg-violet-600 flex items-center justify-center text-sm text-white font-bold ring-4 ring-violet-500/30 animate-in zoom-in">🏢</div>`,
+        html: `<div class="w-8 h-8 rounded-full border-2 border-white shadow-xl bg-violet-600 flex items-center justify-center text-sm text-white font-bold ring-4 ring-violet-500/30">🏢</div>`,
         iconSize: [32, 32],
         iconAnchor: [16, 16],
     });
@@ -68,6 +68,8 @@ type RouteLeg = {
     midpoint: [number, number];
     distanceKm: number;
     durationMin: number;
+    // Status do trecho: 'completed' pinta o percurso já concluído de verde.
+    status: 'completed' | 'pending' | 'todo';
 };
 
 type MapStop = {
@@ -129,10 +131,20 @@ async function fetchLegRoadPath(
 
 function MapBounds({ stops, baseCoords }: { stops: MapStop[]; baseCoords?: [number, number] | null }) {
     const map = useMap();
+    const lastSig = useRef<string>('');
     useEffect(() => {
         const allCoords = stops.map(s => s.coords);
         if (baseCoords) allCoords.push(baseCoords);
         if (allCoords.length === 0) return;
+
+        // Só reenquadra quando o conjunto de coordenadas realmente muda —
+        // assim o zoom/scroll manual do usuário não é desfeito a cada re-render.
+        const sig = allCoords
+            .map(c => `${c[0].toFixed(4)},${c[1].toFixed(4)}`)
+            .sort()
+            .join('|');
+        if (sig === lastSig.current) return;
+        lastSig.current = sig;
 
         const bounds = L.latLngBounds(allCoords);
         if (bounds.isValid()) {
@@ -233,41 +245,57 @@ export default function RouteMap({
 
         let isMounted = true;
 
-        const pointsWithLabels: { label: string; coords: [number, number] }[] = [];
-        if (baseCoords) {
-            pointsWithLabels.push({ label: 'Base (Loja)', coords: baseCoords });
-        }
-        mapStops.forEach((s, idx) => {
-            pointsWithLabels.push({
-                label: `#${idx + 1} (${s.stop.city} - ${s.stop.neighborhood})`,
-                coords: s.coords
-            });
+        // Agrupa as paradas por rota (mantendo a ordem) para desenhar o
+        // percurso de cada rota separadamente: Base → paradas → Base.
+        const groups = new Map<string, MapStop[]>();
+        mapStops.forEach(s => {
+            const key = s.route.id || s.route.name || 'rota';
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key)!.push(s);
         });
-        if (baseCoords) {
-            pointsWithLabels.push({ label: 'Retorno Base', coords: baseCoords });
-        }
 
-        if (pointsWithLabels.length < 2) return;
+        type PointWithStatus = { label: string; coords: [number, number]; status: MapStop['status'] };
 
         const loadLegs = async () => {
             const legs: RouteLeg[] = [];
-            for (let i = 0; i < pointsWithLabels.length - 1; i++) {
-                const from = pointsWithLabels[i];
-                const to = pointsWithLabels[i + 1];
 
-                const legData = await fetchLegRoadPath(from.coords, to.coords);
-                const midIdx = Math.floor(legData.coords.length / 2);
-                const midpoint = legData.coords[midIdx] || from.coords;
-
-                legs.push({
-                    id: `leg-${i}-${from.label}-${to.label}`,
-                    fromLabel: from.label,
-                    toLabel: to.label,
-                    coords: legData.coords,
-                    midpoint,
-                    distanceKm: legData.distanceKm,
-                    durationMin: legData.durationMin
+            for (const [routeKey, stops] of groups) {
+                const points: PointWithStatus[] = [];
+                if (baseCoords) points.push({ label: 'Base (Loja)', coords: baseCoords, status: 'completed' });
+                stops.forEach((s, idx) => {
+                    points.push({
+                        label: `#${idx + 1} (${s.stop.city} - ${s.stop.neighborhood})`,
+                        coords: s.coords,
+                        status: s.status,
+                    });
                 });
+                // Retorno à base — concluído só se todas as paradas da rota foram concluídas.
+                const allDone = stops.length > 0 && stops.every(s => s.status === 'completed');
+                if (baseCoords) points.push({ label: 'Retorno Base', coords: baseCoords, status: allDone ? 'completed' : 'todo' });
+
+                if (points.length < 2) continue;
+
+                for (let i = 0; i < points.length - 1; i++) {
+                    const from = points[i];
+                    const to = points[i + 1];
+                    const legData = await fetchLegRoadPath(from.coords, to.coords);
+                    const midIdx = Math.floor(legData.coords.length / 2);
+                    const midpoint = legData.coords[midIdx] || from.coords;
+
+                    // O trecho é "concluído" (verde) quando o destino já foi atendido.
+                    const status: RouteLeg['status'] = to.status;
+
+                    legs.push({
+                        id: `leg-${routeKey}-${i}`,
+                        fromLabel: from.label,
+                        toLabel: to.label,
+                        coords: legData.coords,
+                        midpoint,
+                        distanceKm: legData.distanceKm,
+                        durationMin: legData.durationMin,
+                        status,
+                    });
+                }
             }
 
             if (isMounted) {
@@ -361,7 +389,12 @@ export default function RouteMap({
                 )}
 
                 {/* Road Polyline along actual highway network */}
-                {showPolyline && routeLegs.map((leg, idx) => (
+                {showPolyline && routeLegs.map((leg, idx) => {
+                    // Cor do trecho pelo status do destino: concluído=verde, pendência=âmbar, a fazer=azul.
+                    const legColor = leg.status === 'completed' ? '#10b981'
+                        : leg.status === 'pending' ? '#f59e0b'
+                        : (polylineColor && polylineColor !== '#8b5cf6' ? polylineColor : '#3b82f6');
+                    return (
                     <React.Fragment key={leg.id}>
                         {/* High-contrast dark shadow outline */}
                         <Polyline
@@ -371,7 +404,7 @@ export default function RouteMap({
                         {/* Bright foreground polyline following roads */}
                         <Polyline
                             positions={leg.coords}
-                            pathOptions={{ color: polylineColor || '#6366f1', weight: 4.5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }}
+                            pathOptions={{ color: legColor, weight: 4.5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }}
                         >
                             <Popup className="custom-popup">
                                 <div className="p-1 text-xs">
@@ -400,7 +433,8 @@ export default function RouteMap({
                             </Popup>
                         </Marker>
                     </React.Fragment>
-                ))}
+                    );
+                })}
 
                 {/* Stop Markers */}
                 {mapStops.map((item, idx) => {

@@ -424,6 +424,26 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                 }
             });
             
+            // Peças marcadas como "Peça nova com defeito" nas pendências.
+            const defectiveParts: { [partCode: string]: { osNumbers: string[] } } = {};
+            serviceOrders.forEach(os => {
+                if (
+                    routeStopOSNumbers.has(os.serviceOrderNumber) &&
+                    os.pendingReason?.includes('Peça nova com defeito') &&
+                    createdAtDate &&
+                    isAfter(os.date, createdAtDate)
+                ) {
+                    Object.keys(plannedParts).forEach(code => {
+                        if (os.pendingReason!.includes(code)) {
+                            if (!defectiveParts[code]) defectiveParts[code] = { osNumbers: [] };
+                            if (!defectiveParts[code].osNumbers.includes(os.serviceOrderNumber)) {
+                                defectiveParts[code].osNumbers.push(os.serviceOrderNumber);
+                            }
+                        }
+                    });
+                }
+            });
+
             const totalPlanned = Object.values(plannedParts).reduce((sum, part) => sum + part.quantity, 0);
             const totalUsed = Object.values(usedParts).reduce((sum, part) => sum + part.count, 0);
             const utilizationRate = totalPlanned > 0 ? (totalUsed / totalPlanned) * 100 : 0;
@@ -431,9 +451,12 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
 
             const summary = Object.entries(plannedParts).map(([partCode, partData]) => {
                 const usedInfo = usedParts[partCode] || { count: 0, osNumbers: [] };
-                let status: 'usada' | 'nova' | 'parcial' = 'nova';
+                const defectiveInfo = defectiveParts[partCode];
+                let status: 'usada' | 'nova' | 'parcial' | 'defeito' = 'nova';
 
-                if (usedInfo.count === 0) {
+                if (defectiveInfo) {
+                    status = 'defeito';
+                } else if (usedInfo.count === 0) {
                     status = 'nova';
                 } else if (usedInfo.count >= partData.quantity) {
                     status = 'usada';
@@ -446,7 +469,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                     description: partData.description,
                     plannedQty: partData.quantity,
                     usedQty: Math.min(usedInfo.count, partData.quantity), // Cap at planned quantity
-                    osNumbers: usedInfo.osNumbers,
+                    osNumbers: status === 'defeito' ? defectiveInfo!.osNumbers : usedInfo.osNumbers,
                     status
                 };
             });
@@ -510,6 +533,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
 
             const routeStopsWithParts = route.stops.filter(s => s.parts && s.parts.length > 0);
             let usedCount = 0;
+            let defectiveCount = 0;
             let totalItems = 0;
 
             routeStopsWithParts.forEach(stop => {
@@ -520,9 +544,11 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                         isAfter(os.date, createdAtDate)
                     );
 
+                    const isDefective = !!(osRecord && osRecord.pendingReason?.includes('Peça nova com defeito') && osRecord.pendingReason.includes(part.code));
                     const isUsed = !!(osRecord && osRecord.replacedPart?.includes(part.code));
-                    const status = isUsed ? "Usada" : "Nova";
-                    if (isUsed) usedCount++;
+                    const status = isDefective ? "Defeito" : isUsed ? "Usada" : "Nova";
+                    if (isDefective) defectiveCount++;
+                    else if (isUsed) usedCount++;
                     totalItems += part.quantity || 0;
 
                     tableBody.push([
@@ -543,6 +569,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                 ['Saída', departureDate ? departureDate.toLocaleDateString('pt-BR') : createdAtDate.toLocaleDateString('pt-BR')],
                 ['Total de itens', String(totalItems)],
                 ['Usadas', String(usedCount)],
+                ['Defeito', String(defectiveCount)],
             ];
             const colWidth = (pageWidth - marginX * 2) / metaItems.length;
             metaItems.forEach(([label, value], i) => {
@@ -578,7 +605,10 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                     // Realça as peças usadas (âmbar) pra facilitar a conferência de retorno
                     didParseCell: (data: any) => {
                         if (data.section === 'body' && data.column.index === 5) {
-                            if (data.cell.raw === 'Usada') {
+                            if (data.cell.raw === 'Defeito') {
+                                data.cell.styles.textColor = [185, 28, 28];
+                                data.cell.styles.fillColor = [254, 226, 226];
+                            } else if (data.cell.raw === 'Usada') {
                                 data.cell.styles.textColor = [180, 83, 9];
                                 data.cell.styles.fillColor = [254, 243, 199];
                             } else {
@@ -623,11 +653,12 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
     };
 
 
-    const getStatusBadge = (status: 'usada' | 'nova' | 'parcial') => {
+    const getStatusBadge = (status: 'usada' | 'nova' | 'parcial' | 'defeito') => {
         switch (status) {
             case 'usada': return <Badge variant="default" className="bg-green-600">Usada</Badge>;
             case 'nova': return <Badge variant="secondary">Nova</Badge>;
             case 'parcial': return <Badge variant="default">Parcial</Badge>;
+            case 'defeito': return <Badge variant="destructive" className="bg-red-600 hover:bg-red-600">Defeito</Badge>;
         }
     };
 

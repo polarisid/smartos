@@ -132,6 +132,8 @@ const formSchema = z.object({
   cleaningPerformed: z.boolean().optional(),
   isFinalized: z.boolean().default(true),
   pendingReason: z.string().optional(),
+  defectivePart: z.string().optional(),
+  reorderPart: z.string().optional(),
   samsungLpSurveyPerformed: z.boolean().optional(),
   samsungLpSurveyRating: z.number().min(0).max(10).optional(),
   samsungLpSurveyNotDoneReason: z.string().optional(),
@@ -671,6 +673,8 @@ const { toast } = useToast();
       cleaningPerformed: false,
       isFinalized: true,
       pendingReason: "",
+      defectivePart: "",
+      reorderPart: "",
       samsungLpSurveyPerformed: true,
       samsungLpSurveyRating: undefined,
       samsungLpSurveyNotDoneReason: "",
@@ -988,7 +992,7 @@ const { toast } = useToast();
       `**Data: ${today} - ${data.equipmentType}**`,
       `**Ordem de Serviço: ${data.serviceOrderNumber}**`,
       `- **Técnico:** ${technicianName}`,
-      isPending ? `⚠️ **ATENDIMENTO NÃO FINALIZADO:** ${data.pendingReason} ⚠️` : '',
+      isPending ? `⚠️ **ATENDIMENTO NÃO FINALIZADO:** ${data.pendingReason}${data.pendingReason === 'Peça nova com defeito' && data.defectivePart ? ` (Peça: ${data.defectivePart})` : ''}${data.pendingReason === 'Repedido' && data.reorderPart ? ` (Peça: ${data.reorderPart})` : ''} ⚠️` : '',
       (!isPending && serviceDetails) ? `- **Atendimento:** ${serviceDetails}` : '',
     ];
 
@@ -1068,7 +1072,11 @@ const { toast } = useToast();
             collectionType: data.collectionType as any,
             cleaningPerformed: data.cleaningPerformed || false,
             isFinalized: data.isFinalized !== undefined ? data.isFinalized : true,
-            pendingReason: data.pendingReason || '',
+            pendingReason: (data.pendingReason === 'Peça nova com defeito' && data.defectivePart)
+                ? `Peça nova com defeito (${data.defectivePart})`
+                : (data.pendingReason === 'Repedido' && data.reorderPart)
+                    ? `Repedido (${data.reorderPart})`
+                    : (data.pendingReason || ''),
         };
 
         await serviceOrderService.create(newServiceOrder as Omit<ServiceOrder, 'id'>);
@@ -1132,6 +1140,8 @@ const { toast } = useToast();
         cleaningPerformed: false,
         isFinalized: true,
         pendingReason: "",
+        defectivePart: "",
+        reorderPart: "",
         samsungLpSurveyPerformed: true,
         samsungLpSurveyRating: undefined,
         samsungLpSurveyNotDoneReason: "",
@@ -1387,6 +1397,54 @@ const { toast } = useToast();
                                                                             <SelectItem value="Outro">Outro</SelectItem>
                                                                         </SelectContent>
                                                                     </Select>
+                                                                    <FormMessage />
+                                                                </FormItem>
+                                                            )}/>
+                                                        )}
+                                                        {!form.watch('isFinalized') && form.watch('pendingReason') === 'Peça nova com defeito' && (
+                                                            <FormField control={form.control} name="defectivePart" render={({ field }) => (
+                                                                <FormItem className="animate-in fade-in slide-in-from-top-2">
+                                                                    <FormLabel className="text-red-600 dark:text-red-400">Qual peça está com defeito?</FormLabel>
+                                                                    {routeParts.length > 0 ? (
+                                                                        <Select onValueChange={field.onChange} value={field.value}>
+                                                                            <FormControl><SelectTrigger className="border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20"><SelectValue placeholder="Selecione a peça..." /></SelectTrigger></FormControl>
+                                                                            <SelectContent>
+                                                                                {routeParts.map((p: { code: string; description?: string }) => (
+                                                                                    <SelectItem key={p.code} value={p.code}>
+                                                                                        {p.code}{p.description ? ` — ${p.description}` : ''}
+                                                                                    </SelectItem>
+                                                                                ))}
+                                                                            </SelectContent>
+                                                                        </Select>
+                                                                    ) : (
+                                                                        <FormControl>
+                                                                            <Input placeholder="Código da peça com defeito" className="border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20" {...field} />
+                                                                        </FormControl>
+                                                                    )}
+                                                                    <FormMessage />
+                                                                </FormItem>
+                                                            )}/>
+                                                        )}
+                                                        {!form.watch('isFinalized') && form.watch('pendingReason') === 'Repedido' && (
+                                                            <FormField control={form.control} name="reorderPart" render={({ field }) => (
+                                                                <FormItem className="animate-in fade-in slide-in-from-top-2">
+                                                                    <FormLabel className="text-red-600 dark:text-red-400">Qual peça repedir?</FormLabel>
+                                                                    {routeParts.length > 0 ? (
+                                                                        <Select onValueChange={field.onChange} value={field.value}>
+                                                                            <FormControl><SelectTrigger className="border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20"><SelectValue placeholder="Selecione a peça..." /></SelectTrigger></FormControl>
+                                                                            <SelectContent>
+                                                                                {routeParts.map((p: { code: string; description?: string }) => (
+                                                                                    <SelectItem key={p.code} value={p.code}>
+                                                                                        {p.code}{p.description ? ` — ${p.description}` : ''}
+                                                                                    </SelectItem>
+                                                                                ))}
+                                                                            </SelectContent>
+                                                                        </Select>
+                                                                    ) : (
+                                                                        <FormControl>
+                                                                            <Input placeholder="Código da peça a repedir" className="border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20" {...field} />
+                                                                        </FormControl>
+                                                                    )}
                                                                     <FormMessage />
                                                                 </FormItem>
                                                             )}/>
