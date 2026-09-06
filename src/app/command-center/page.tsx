@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Truck, Users, Activity, Bell, BellOff, Calendar as CalendarIcon, CheckCircle2, ChevronRight, Search, TrendingUp, AlertTriangle, Clock, BarChart2, XCircle, Zap, MapPin, Timer, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { parse, isValid, format, isAfter, isToday, isYesterday, subDays } from "date-fns";
+import { parse, isValid, format, isAfter, isToday, isYesterday, subDays, startOfWeek, eachDayOfInterval, isSameDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import DynamicalRouteMap from "@/components/DynamicalRouteMap";
 import React from "react";
@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTechnicians } from "@/hooks/queries";
 import { RouteAnalysis } from "@/components/command-center/RouteAnalysis";
-import { StateOfDayBar } from "@/components/command-center/StateOfDayBar";
+import { StateOfDayBar, KpiFigure } from "@/components/command-center/StateOfDayBar";
 
 type FeedItem = {
     id: string;
@@ -213,28 +213,40 @@ export default function CommandCenterPage() {
 
     // Grouping stops by firstVisitDate
     const aggregatedData = React.useMemo(() => {
-        const groups: Record<string, { total: number; completed: number; routes: Set<string> }> = {};
-        
+        type OrderRow = { serviceOrder: string; city: string; routeName: string; status: 'completed' | 'pending' | 'todo' };
+        const groups: Record<string, { total: number; completed: number; routes: Set<string>; orders: OrderRow[] }> = {};
+
         routes.forEach(route => {
             (route.stops || []).forEach(stop => {
                 // Determine the group key mapping string values or defaulting to "S/D"
                 let dateKey = stop.firstVisitDate || stop.requestDate || "Sem Data";
-                
+
                 if (!groups[dateKey]) {
-                    groups[dateKey] = { total: 0, completed: 0, routes: new Set() };
+                    groups[dateKey] = { total: 0, completed: 0, routes: new Set(), orders: [] };
                 }
 
                 groups[dateKey].total += 1;
                 groups[dateKey].routes.add(route.name);
 
-                const isCompleted = serviceOrders.some(MathOs => 
-                    MathOs.serviceOrderNumber === stop.serviceOrder && 
-                    route.createdAt && isAfter(MathOs.date, route.createdAt as Date)
-                );
-                
-                if (isCompleted) {
+                // OS mais recente desta parada após a criação da rota
+                const matchedOs = serviceOrders
+                    .filter(os => os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt as Date))
+                    .sort((a, b) => b.date.getTime() - a.date.getTime())[0];
+
+                const status: OrderRow['status'] = matchedOs
+                    ? (matchedOs.isFinalized === false ? 'pending' : 'completed')
+                    : 'todo';
+
+                if (status === 'completed') {
                     groups[dateKey].completed += 1;
                 }
+
+                groups[dateKey].orders.push({
+                    serviceOrder: stop.serviceOrder,
+                    city: stop.city || '',
+                    routeName: route.name,
+                    status,
+                });
             });
         });
 
@@ -624,6 +636,33 @@ export default function CommandCenterPage() {
         };
     }, [routes, serviceOrders, technicians]);
 
+    // Resumo da semana (segunda → agora): atendimentos feitos, concluídos e pendentes.
+    const weeklyData = React.useMemo(() => {
+        const now = new Date();
+        const weekStart = startOfWeek(now, { weekStartsOn: 1 }); // segunda-feira
+
+        // OS da semana, deduplicadas por número (mantém a mais recente).
+        const unique: Record<string, ServiceOrder> = {};
+        serviceOrders.forEach(os => {
+            if (os.date < weekStart || os.date > now) return;
+            const existing = unique[os.serviceOrderNumber];
+            if (!existing || os.date > existing.date) unique[os.serviceOrderNumber] = os;
+        });
+        const list = Object.values(unique);
+        const completed = list.filter(os => os.isFinalized !== false).length;
+        const pending = list.filter(os => os.isFinalized === false).length;
+
+        // Concluídos por dia (segunda → hoje)
+        const days = eachDayOfInterval({ start: weekStart, end: now });
+        const byDay = days.map(d => ({
+            label: format(d, 'EEEEEE', { locale: ptBR }), // dom, seg, ter...
+            count: list.filter(os => os.isFinalized !== false && isSameDay(os.date, d)).length,
+        }));
+        const maxDay = Math.max(...byDay.map(d => d.count), 1);
+
+        return { total: list.length, completed, pending, weekStart, now, byDay, maxDay };
+    }, [serviceOrders]);
+
 
     return (
         <div className="min-h-screen bg-[#0B1420] text-slate-100 font-body flex flex-col lg:flex-row lg:overflow-hidden">
@@ -959,6 +998,37 @@ export default function CommandCenterPage() {
                     </TabsContent>
 
                     <TabsContent value="dashboard" className="animate-in fade-in-50 duration-500 mt-0 space-y-8">
+                        {/* Resumo da Semana */}
+                        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                            <div className="flex items-center gap-2 mb-4">
+                                <CalendarIcon className="h-4 w-4 text-[#17E9B0]" />
+                                <h3 className="text-base font-semibold text-slate-200">Resumo da Semana</h3>
+                                <span className="ml-auto text-xs text-slate-500 font-mono">
+                                    {format(weeklyData.weekStart, "dd/MM")} – {format(weeklyData.now, "dd/MM")}
+                                </span>
+                            </div>
+                            <div className="flex flex-col lg:flex-row lg:items-center gap-6">
+                                <div className="grid grid-cols-3 gap-6 lg:w-[360px] shrink-0">
+                                    <KpiFigure label="Atendimentos" value={weeklyData.total} tone="neutral" />
+                                    <KpiFigure label="Concluídos" value={weeklyData.completed} tone="teal" />
+                                    <KpiFigure label="Pendentes" value={weeklyData.pending} tone="amber" />
+                                </div>
+                                {/* Concluídos por dia */}
+                                <div className="flex-1 flex items-end gap-2 h-24 border-l border-white/10 lg:pl-6">
+                                    {weeklyData.byDay.map((d, i) => (
+                                        <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                                            <span className="text-[10px] font-mono text-slate-400">{d.count > 0 ? d.count : ''}</span>
+                                            <div
+                                                className="w-full rounded-t bg-gradient-to-t from-[#17E9B0] to-[#12b98a] transition-all duration-700"
+                                                style={{ height: `${(d.count / weeklyData.maxDay) * 64}px`, minHeight: d.count > 0 ? '4px' : '2px', opacity: d.count > 0 ? 1 : 0.2 }}
+                                            />
+                                            <span className="text-[9px] text-slate-500 capitalize">{d.label}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </section>
+
                         <div className="mb-6 flex items-center gap-2">
                             <BarChart2 className="text-[#17E9B0] h-5 w-5" />
                             <h2 className="text-xl font-semibold text-slate-200">Produtividade do Dia</h2>
