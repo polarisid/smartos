@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { isWithinInterval, startOfDay, endOfDay } from "date-fns";
+import { isWithinInterval, startOfDay, endOfDay, startOfMonth, endOfMonth, addMonths } from "date-fns";
 import { type DateRange } from "react-day-picker";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -30,7 +30,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Edit, Trash2, Calendar as CalendarIcon, FilterX, Sparkles, Search, ChevronDown, Loader2, Camera } from "lucide-react";
+import { Edit, Trash2, Calendar as CalendarIcon, FilterX, Sparkles, Search, ChevronDown, Loader2, Camera, BarChart3, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import Link from "next/link";
 import { type ServiceOrder, type Technician } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
@@ -119,6 +119,102 @@ export default function ServiceOrdersPage() {
     }
     return map;
   }, [technicians]);
+
+  // ── Relatório mensal (limpezas + valor aprovado por técnico) ──
+  const [isReportOpen, setIsReportOpen] = useState(false);
+  const [reportMonth, setReportMonth] = useState<Date>(startOfMonth(new Date()));
+  const [reportOrders, setReportOrders] = useState<ServiceOrder[]>([]);
+  const [reportLoading, setReportLoading] = useState(false);
+
+  const loadMonthlyReport = useCallback(async (month: Date) => {
+    setReportLoading(true);
+    try {
+      const orders = await serviceOrderService.getByDateRange(startOfMonth(month), endOfMonth(month));
+      setReportOrders(orders);
+    } catch (e) {
+      console.error("Erro ao carregar relatório mensal:", e);
+      toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar o relatório do mês." });
+    } finally {
+      setReportLoading(false);
+    }
+  }, [toast]);
+
+  const openMonthlyReport = () => {
+    const m = startOfMonth(new Date());
+    setReportMonth(m);
+    setIsReportOpen(true);
+    loadMonthlyReport(m);
+  };
+
+  const changeReportMonth = (delta: number) => {
+    const m = startOfMonth(addMonths(reportMonth, delta));
+    setReportMonth(m);
+    loadMonthlyReport(m);
+  };
+
+  const reportRows = useMemo(() => {
+    const map: Record<string, { name: string; cleanings: number; approved: number; approvedCount: number }> = {};
+    reportOrders.forEach(o => {
+      const techId = o.technicianId || 'sem';
+      const name = techMap[techId] || (o as any).technicianName || 'Sem técnico';
+      if (!map[techId]) map[techId] = { name, cleanings: 0, approved: 0, approvedCount: 0 };
+      if (o.cleaningPerformed) map[techId].cleanings++;
+      if (o.serviceType === 'visita_orcamento_samsung' && o.samsungBudgetApproved && o.samsungBudgetValue) {
+        map[techId].approved += o.samsungBudgetValue;
+        map[techId].approvedCount++;
+      }
+    });
+    return Object.values(map)
+      .filter(r => r.cleanings > 0 || r.approved > 0)
+      .sort((a, b) => b.approved - a.approved || b.cleanings - a.cleanings);
+  }, [reportOrders, techMap]);
+
+  const reportTotals = useMemo(() => ({
+    cleanings: reportRows.reduce((s, r) => s + r.cleanings, 0),
+    approved: reportRows.reduce((s, r) => s + r.approved, 0),
+    approvedCount: reportRows.reduce((s, r) => s + r.approvedCount, 0),
+  }), [reportRows]);
+
+  // Orçamentos aprovados do mês, para auditoria e download.
+  const approvedOrders = useMemo(() => {
+    return reportOrders
+      .filter(o => o.serviceType === 'visita_orcamento_samsung' && o.samsungBudgetApproved && o.samsungBudgetValue)
+      .map(o => ({
+        serviceOrderNumber: o.serviceOrderNumber,
+        date: o.date,
+        techName: techMap[o.technicianId || ''] || (o as any).technicianName || 'Sem técnico',
+        value: o.samsungBudgetValue || 0,
+      }))
+      .sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [reportOrders, techMap]);
+
+  const formatBRL = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  const exportApprovedCSV = () => {
+    if (approvedOrders.length === 0) return;
+    const esc = (v: string | number) => {
+      const s = String(v);
+      return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const header = ['Nº OS', 'Data', 'Técnico', 'Valor Aprovado (R$)'];
+    const rows = approvedOrders.map(o => [
+      o.serviceOrderNumber,
+      format(o.date, 'dd/MM/yyyy'),
+      o.techName,
+      o.value.toFixed(2).replace('.', ','),
+    ]);
+    const csv = [header, ...rows].map(r => r.map(esc).join(';')).join('\n');
+    // BOM para o Excel reconhecer acentos; separador ';' (padrão pt-BR).
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `orcamentos-aprovados-${format(reportMonth, 'yyyy-MM')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
 
   const loadReportedFlags = useCallback(async (orderNumbers: string[]) => {
     try {
@@ -359,11 +455,16 @@ export default function ServiceOrdersPage() {
                       : `Exibindo as ${serviceOrders.length} OSs mais recentes`}
                 </CardDescription>
               </div>
-              {!searchTerm && (
-                <Badge variant="outline" className="text-xs">
-                  Mais recentes primeiro
-                </Badge>
-              )}
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={openMonthlyReport} className="gap-1.5">
+                  <BarChart3 className="h-4 w-4" /> Relatório do mês
+                </Button>
+                {!searchTerm && (
+                  <Badge variant="outline" className="text-xs hidden sm:inline-flex">
+                    Mais recentes primeiro
+                  </Badge>
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -645,6 +746,123 @@ export default function ServiceOrdersPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={isReportOpen} onOpenChange={setIsReportOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-primary" /> Relatório do Mês
+            </DialogTitle>
+            <DialogDescription>
+              Limpezas realizadas e valor de orçamentos aprovados por técnico.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex items-center justify-between gap-2">
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => changeReportMonth(-1)} disabled={reportLoading}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm font-semibold capitalize">
+              {format(reportMonth, "MMMM 'de' yyyy", { locale: ptBR })}
+            </span>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => changeReportMonth(1)}
+              disabled={reportLoading || startOfMonth(addMonths(reportMonth, 1)) > startOfMonth(new Date())}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {reportLoading ? (
+            <div className="py-10 flex items-center justify-center text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" /> Carregando…
+            </div>
+          ) : reportRows.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              Nenhuma limpeza ou orçamento aprovado neste mês.
+            </div>
+          ) : (
+            <div className="border rounded-lg overflow-hidden max-h-[55vh] overflow-y-auto">
+              <Table>
+                <TableHeader className="sticky top-0 bg-muted/80 backdrop-blur">
+                  <TableRow>
+                    <TableHead>Técnico</TableHead>
+                    <TableHead className="text-center">Limpezas</TableHead>
+                    <TableHead className="text-right">Valor Aprovado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {reportRows.map((r, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="font-medium">{r.name}</TableCell>
+                      <TableCell className="text-center">
+                        <span className="inline-flex items-center gap-1 font-mono">
+                          <Sparkles className="h-3.5 w-3.5 text-primary" /> {r.cleanings}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                        {r.approved > 0 ? formatBRL(r.approved) : '—'}
+                        {r.approvedCount > 0 && (
+                          <span className="text-[10px] text-muted-foreground font-normal ml-1">({r.approvedCount})</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+                <tfoot className="border-t bg-muted/40">
+                  <TableRow>
+                    <TableCell className="font-bold">Total</TableCell>
+                    <TableCell className="text-center font-mono font-bold">{reportTotals.cleanings}</TableCell>
+                    <TableCell className="text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">{formatBRL(reportTotals.approved)}</TableCell>
+                  </TableRow>
+                </tfoot>
+              </Table>
+            </div>
+          )}
+
+          {!reportLoading && approvedOrders.length > 0 && (
+            <details className="rounded-lg border">
+              <summary className="flex items-center justify-between gap-2 px-3 py-2 cursor-pointer select-none text-sm font-semibold">
+                <span>Auditar orçamentos aprovados ({approvedOrders.length})</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={(e) => { e.preventDefault(); exportApprovedCSV(); }}
+                >
+                  <Download className="h-4 w-4" /> Baixar CSV
+                </Button>
+              </summary>
+              <div className="border-t max-h-[40vh] overflow-y-auto">
+                <Table>
+                  <TableHeader className="sticky top-0 bg-muted/80 backdrop-blur">
+                    <TableRow>
+                      <TableHead>Nº OS</TableHead>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Técnico</TableHead>
+                      <TableHead className="text-right">Valor</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {approvedOrders.map((o, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="font-mono">{o.serviceOrderNumber}</TableCell>
+                        <TableCell className="text-muted-foreground">{format(o.date, 'dd/MM/yyyy')}</TableCell>
+                        <TableCell>{o.techName}</TableCell>
+                        <TableCell className="text-right font-mono font-semibold text-emerald-600 dark:text-emerald-400">{formatBRL(o.value)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </details>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

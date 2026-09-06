@@ -57,6 +57,18 @@ export const serviceOrderService = {
     return data.map(this.mapFromDb);
   },
 
+  async getByDateRange(start: Date, end: Date): Promise<ServiceOrder[]> {
+    const { data, error } = await supabase
+        .from('service_orders')
+        .select('*')
+        .gte('date', start.toISOString())
+        .lte('date', end.toISOString())
+        .order('date', { ascending: false });
+
+    if (error) throw error;
+    return data.map(this.mapFromDb);
+  },
+
   async getAll(): Promise<ServiceOrder[]> {
     let allOrders: any[] = [];
     let from = 0;
