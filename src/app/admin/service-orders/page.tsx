@@ -88,10 +88,11 @@ export default function ServiceOrdersPage() {
   const filteredServiceOrders = useMemo(() => {
     return serviceOrders.filter(order => {
       if (surveyFilter === 'all') return true;
-      const hasSurvey = order.samsungRepairType === 'LP' && order.observations?.includes('[Pesquisa LP realizada: Sim]');
+      const surveyApplies = order.samsungRepairType === 'LP' && order.isFinalized !== false;
+      const hasSurvey = surveyApplies && order.observations?.includes('[Pesquisa LP realizada: Sim]');
       if (surveyFilter === 'completed') return hasSurvey;
       if (surveyFilter === 'pending') {
-        return order.samsungRepairType === 'LP' && !order.observations?.includes('[Pesquisa LP realizada: Sim]');
+        return surveyApplies && !order.observations?.includes('[Pesquisa LP realizada: Sim]');
       }
       return true;
     });
@@ -396,7 +397,7 @@ export default function ServiceOrdersPage() {
                               {serviceTypeLabels[order.serviceType] || order.serviceType}
                               {order.samsungRepairType ? ` - ${order.samsungRepairType}` : ''}
                             </span>
-                            {order.samsungRepairType === 'LP' && (
+                            {order.samsungRepairType === 'LP' && order.isFinalized !== false && (
                               <div>
                                 {order.observations?.includes('[Pesquisa LP realizada: Sim]') ? (
                                   <Badge className="bg-green-50 hover:bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300 text-[10px] px-1.5 py-0 border-green-200">

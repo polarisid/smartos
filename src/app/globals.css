@@ -117,6 +117,12 @@
   }
 }
 
+/* Assinatura: impede que o toque role/dê zoom na página em vez de desenhar (mobile). */
+.signature-canvas {
+  touch-action: none;
+  -ms-touch-action: none;
+}
+
 @media print {
   .no-print {
     display: none !important;

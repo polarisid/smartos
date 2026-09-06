@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTechnicians } from "@/hooks/queries";
 import { RouteAnalysis } from "@/components/command-center/RouteAnalysis";
+import { StateOfDayBar } from "@/components/command-center/StateOfDayBar";
 
 type FeedItem = {
     id: string;
@@ -625,34 +626,41 @@ export default function CommandCenterPage() {
 
 
     return (
-        <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex overflow-hidden">
-            
-            {/* Main Area: Progress & Dashboard */}
-            <main className="flex-1 p-6 md:p-10 flex flex-col overflow-y-auto">
-                 <header className="flex items-center justify-between mb-8">
-                    <div>
-                        <h1 className="text-3xl lg:text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-cyan-300 flex items-center gap-4">
-                            <Activity className="h-8 w-8 lg:h-12 lg:w-12 text-blue-400" />
-                            Command Center
-                        </h1>
-                        <p className="text-slate-400 mt-2 text-lg">Visão estratégica e andamento de agendamentos</p>
-                    </div>
-                    <div className="text-right hidden sm:block">
-                        <div className="text-4xl font-bold text-white tracking-wider glow-text">
-                            {format(currentTime, "HH:mm")}
-                        </div>
-                        <div className="text-slate-400 text-md mt-1 capitalize">
-                            {format(currentTime, "EEEE, d 'de' MMMM", { locale: ptBR })}
-                        </div>
-                    </div>
-                </header>
+        <div className="min-h-screen bg-[#0B1420] text-slate-100 font-body flex flex-col lg:flex-row lg:overflow-hidden">
 
-                <Tabs defaultValue="agendamento" className="w-full">
-                    <TabsList className="mb-8 grid w-full grid-cols-4 max-w-[800px] bg-slate-900 border border-slate-800">
-                        <TabsTrigger value="agendamento" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white">Por Agendamento</TabsTrigger>
-                        <TabsTrigger value="rota" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white">Análise de Rotas</TabsTrigger>
-                        <TabsTrigger value="mapa" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white">Mapa das Rotas</TabsTrigger>
-                        <TabsTrigger value="dashboard" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white">Dashboard</TabsTrigger>
+            {/* Área principal */}
+            <main className="flex-1 p-4 md:p-6 lg:p-8 flex flex-col overflow-y-auto">
+                {/* Barra "Estado do Dia" — sempre visível */}
+                <StateOfDayBar
+                    stats={{
+                        totalScheduledToday: dashboardData.totalScheduledToday,
+                        completedToday: dashboardData.completedToday,
+                        pendingToday: dashboardData.pendingToday,
+                        notDoneYet: dashboardData.notDoneYet,
+                        atrasados: dashboardData.atrasadosList.length,
+                        overdueBacklog: dashboardData.overdueBacklog,
+                        avgTimeMinutes: dashboardData.avgTimeMinutes,
+                    }}
+                    currentTime={currentTime}
+                    liveCount={feed.length}
+                />
+
+                <Tabs defaultValue="mapa" className="w-full mt-6">
+                    <TabsList className="mb-8 grid w-full grid-cols-4 max-w-[720px] bg-[#0f1c2e] border border-white/10 p-1 h-auto">
+                        {[
+                            { v: 'mapa', l: 'Mapa' },
+                            { v: 'rota', l: 'Rotas' },
+                            { v: 'agendamento', l: 'Agenda' },
+                            { v: 'dashboard', l: 'Desempenho' },
+                        ].map(t => (
+                            <TabsTrigger
+                                key={t.v}
+                                value={t.v}
+                                className="font-headline text-sm text-slate-400 rounded-md py-2 transition-colors data-[state=active]:bg-[#17E9B0] data-[state=active]:text-[#0B1420] data-[state=active]:font-bold"
+                            >
+                                {t.l}
+                            </TabsTrigger>
+                        ))}
                     </TabsList>
 
                     <TabsContent value="mapa" className="animate-in fade-in-50 duration-500 mt-0">
@@ -695,8 +703,9 @@ export default function CommandCenterPage() {
                                         );
                                     })}
                                     <div className="ml-auto flex gap-3 text-xs">
-                                        <button onClick={() => setSelectedMapRoutes(new Set())} className="text-blue-400 hover:text-blue-300 transition-colors">Selecionar todas</button>
-                                        <button onClick={() => setSelectedMapRoutes(new Set())} className="text-slate-500 hover:text-slate-300 transition-colors">Limpar</button>
+                                        {selectedMapRoutes.size > 0 && (
+                                            <button onClick={() => setSelectedMapRoutes(new Set())} className="text-[#17E9B0] hover:text-[#17E9B0]/80 transition-colors font-semibold">Mostrar todas</button>
+                                        )}
                                     </div>
                                 </div>
 
@@ -753,21 +762,21 @@ export default function CommandCenterPage() {
                         {/* Comparativo Ontem x Hoje */}
                         <section className="space-y-4">
                             <div className="flex items-center gap-2">
-                                <TrendingUp className="text-blue-500 h-5 w-5" />
+                                <TrendingUp className="text-[#17E9B0] h-5 w-5" />
                                 <h2 className="text-xl font-semibold text-slate-200">Comparativo Ontem × Hoje</h2>
                             </div>
                             <div className="grid grid-cols-3 gap-4">
-                                <Card className="border border-slate-800 bg-slate-900/40">
+                                <Card className="border border-white/10 bg-white/[0.03]">
                                     <CardContent className="p-4 flex flex-col gap-1">
                                         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Hoje (até agora)</span>
-                                        <span className="text-4xl font-black text-white">{analyticsData.todayTotal}</span>
+                                        <span className="font-mono text-4xl font-bold tabular-nums text-white">{analyticsData.todayTotal}</span>
                                         <span className="text-xs text-slate-500">atendimentos</span>
                                     </CardContent>
                                 </Card>
-                                <Card className="border border-slate-800 bg-slate-900/40">
+                                <Card className="border border-white/10 bg-white/[0.03]">
                                     <CardContent className="p-4 flex flex-col gap-1">
                                         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Ontem (mesmo horário)</span>
-                                        <span className="text-4xl font-black text-slate-400">{analyticsData.yestTotal}</span>
+                                        <span className="font-mono text-4xl font-bold tabular-nums text-slate-400">{analyticsData.yestTotal}</span>
                                         <span className="text-xs text-slate-500">atendimentos</span>
                                     </CardContent>
                                 </Card>
@@ -783,7 +792,7 @@ export default function CommandCenterPage() {
                                                 : analyticsData.trend < 0
                                                     ? <TrendingUp className="h-6 w-6 text-red-400 rotate-180" />
                                                     : <Activity className="h-6 w-6 text-slate-400" />}
-                                            <span className={`text-4xl font-black ${
+                                            <span className={`font-mono text-4xl font-bold tabular-nums ${
                                                 analyticsData.trend > 0 ? 'text-emerald-300'
                                                 : analyticsData.trend < 0 ? 'text-red-300' : 'text-slate-400'}`}>
                                                 {analyticsData.trend > 0 ? '+' : ''}{analyticsData.trend}
@@ -795,10 +804,10 @@ export default function CommandCenterPage() {
                             </div>
 
                             {/* Dual bar chart */}
-                            <Card className="border border-slate-800 bg-slate-900/40">
+                            <Card className="border border-white/10 bg-white/[0.03]">
                                 <CardHeader className="pb-2">
                                     <CardTitle className="text-sm font-semibold text-slate-300 flex items-center gap-4">
-                                        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-blue-500 inline-block" /> Hoje</span>
+                                        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#17E9B0] inline-block" /> Hoje</span>
                                         <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-slate-600 inline-block" /> Ontem</span>
                                     </CardTitle>
                                 </CardHeader>
@@ -814,11 +823,11 @@ export default function CommandCenterPage() {
                                                         <div className="flex-1 rounded-t bg-slate-700/60 transition-all duration-700"
                                                             style={{ height: `${Math.max(yH, d.yesterday > 0 ? 3 : 0)}px` }} />
                                                         <div className={`flex-1 rounded-t transition-all duration-700 ${
-                                                            isPast ? 'bg-gradient-to-t from-blue-600 to-cyan-400' : 'bg-slate-800/40'}`}
+                                                            isPast ? 'bg-gradient-to-t from-[#17E9B0] to-[#12b98a]' : 'bg-slate-800/40'}`}
                                                             style={{ height: `${Math.max(tH, d.today > 0 ? 3 : 0)}px` }} />
                                                     </div>
                                                     <span className={`text-[8px] font-mono ${
-                                                        d.h === analyticsData.curHour ? 'text-blue-400 font-bold' : 'text-slate-600'}`}>
+                                                        d.h === analyticsData.curHour ? 'text-[#17E9B0] font-bold' : 'text-slate-600'}`}>
                                                         {d.label}
                                                     </span>
                                                 </div>
@@ -832,10 +841,10 @@ export default function CommandCenterPage() {
                         {/* Taxa de Conclusão por Rota */}
                         <section className="space-y-4">
                             <div className="flex items-center gap-2">
-                                <Truck className="text-blue-500 h-5 w-5" />
+                                <Truck className="text-[#17E9B0] h-5 w-5" />
                                 <h2 className="text-xl font-semibold text-slate-200">Taxa de Conclusão por Rota</h2>
                                 <span className="ml-auto text-xs text-slate-500 font-mono">
-                                    Esperado agora: <span className="text-blue-400 font-bold">{analyticsData.xPct}%</span>
+                                    Esperado agora: <span className="text-[#17E9B0] font-bold">{analyticsData.xPct}%</span>
                                 </span>
                             </div>
                             {analyticsData.routeStats.length === 0 ? (
@@ -868,7 +877,7 @@ export default function CommandCenterPage() {
                                                                 r.status === 'critical' ? 'bg-gradient-to-r from-red-600 to-red-400'
                                                                 : r.status === 'behind' ? 'bg-gradient-to-r from-yellow-600 to-yellow-400'
                                                                 : r.status === 'ahead'  ? 'bg-gradient-to-r from-emerald-600 to-emerald-400'
-                                                                : 'bg-gradient-to-r from-blue-600 to-cyan-400'}`}
+                                                                : 'bg-gradient-to-r from-[#17E9B0] to-[#12b98a]'}`}
                                                                 style={{ width: `${r.actualPct}%` }} />
                                                         </div>
                                                         <div className="flex items-center justify-between text-xs text-slate-400">
@@ -892,7 +901,7 @@ export default function CommandCenterPage() {
                         {/* Projeção de Encerramento */}
                         <section className="space-y-4">
                             <div className="flex items-center gap-2">
-                                <Clock className="text-blue-500 h-5 w-5" />
+                                <Clock className="text-[#17E9B0] h-5 w-5" />
                                 <h2 className="text-xl font-semibold text-slate-200">Projeção de Encerramento</h2>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -951,119 +960,25 @@ export default function CommandCenterPage() {
 
                     <TabsContent value="dashboard" className="animate-in fade-in-50 duration-500 mt-0 space-y-8">
                         <div className="mb-6 flex items-center gap-2">
-                            <BarChart2 className="text-blue-500 h-5 w-5" />
+                            <BarChart2 className="text-[#17E9B0] h-5 w-5" />
                             <h2 className="text-xl font-semibold text-slate-200">Produtividade do Dia</h2>
                             <span className="ml-auto text-xs text-slate-500 font-mono">{format(new Date(), "dd/MM/yyyy", { locale: ptBR })}</span>
                             <a
                                 href="/admin/analytics"
-                                className="flex items-center gap-1.5 text-xs font-semibold text-blue-400 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-all"
+                                className="flex items-center gap-1.5 text-xs font-semibold text-[#17E9B0] border border-[#17E9B0]/30 bg-[#17E9B0]/10 hover:bg-[#17E9B0]/20 px-3 py-1.5 rounded-lg transition-all"
                             >
                                 <TrendingUp className="h-3.5 w-3.5" /> Ver Análise Completa
                             </a>
                         </div>
 
-                        {/* KPI Cards – single row, 7 columns */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
-                            {/* Programados */}
-                            <Card className="border border-blue-500/20 bg-blue-500/5 backdrop-blur-md">
-                                <CardContent className="p-4">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <div className="p-1.5 rounded-md bg-blue-500/10"><CalendarIcon className="h-4 w-4 text-blue-400" /></div>
-                                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider leading-tight">Programados</span>
-                                    </div>
-                                    <p className="text-4xl font-black text-white">{dashboardData.totalScheduledToday}</p>
-                                    <p className="text-[10px] text-slate-500 mt-1">agendados hoje</p>
-                                </CardContent>
-                            </Card>
-
-                            {/* Concluídos */}
-                            <Card className="border border-emerald-500/20 bg-emerald-500/5 backdrop-blur-md">
-                                <CardContent className="p-4">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <div className="p-1.5 rounded-md bg-emerald-500/10"><CheckCircle2 className="h-4 w-4 text-emerald-400" /></div>
-                                        <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider leading-tight">Concluídos</span>
-                                    </div>
-                                    <p className="text-4xl font-black text-white">{dashboardData.completedToday}</p>
-                                    <p className="text-[10px] text-slate-500 mt-1">
-                                        {dashboardData.totalScheduledToday > 0
-                                            ? `${Math.round((dashboardData.completedToday / dashboardData.totalScheduledToday) * 100)}% do planejado`
-                                            : 'OS no dia'}
-                                    </p>
-                                </CardContent>
-                            </Card>
-
-                            {/* Pendências */}
-                            <Card className="border border-yellow-500/20 bg-yellow-500/5 backdrop-blur-md">
-                                <CardContent className="p-4">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <div className="p-1.5 rounded-md bg-yellow-500/10"><AlertTriangle className="h-4 w-4 text-yellow-400" /></div>
-                                        <span className="text-[10px] font-bold text-yellow-400 uppercase tracking-wider leading-tight">Pendências</span>
-                                    </div>
-                                    <p className="text-4xl font-black text-white">{dashboardData.pendingToday}</p>
-                                    <p className="text-[10px] text-slate-500 mt-1">não finalizados</p>
-                                </CardContent>
-                            </Card>
-
-                            {/* Atrasados */}
-                            <Card className="border border-orange-500/20 bg-orange-500/5 backdrop-blur-md">
-                                <CardContent className="p-4">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <div className="p-1.5 rounded-md bg-orange-500/10"><Clock className="h-4 w-4 text-orange-400" /></div>
-                                        <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wider leading-tight">Atrasados</span>
-                                    </div>
-                                    <p className="text-4xl font-black text-white">{dashboardData.atrasadosList.length}</p>
-                                    <p className="text-[10px] text-slate-500 mt-1">realizados fora do prazo</p>
-                                </CardContent>
-                            </Card>
-
-                            {/* Acúmulo – past stops never serviced */}
-                            <Card className={`border backdrop-blur-md ${dashboardData.overdueBacklog > 0 ? 'border-red-500/30 bg-red-500/5' : 'border-slate-700/30 bg-slate-800/10'}`}>
-                                <CardContent className="p-4">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <div className={`p-1.5 rounded-md ${dashboardData.overdueBacklog > 0 ? 'bg-red-500/10' : 'bg-slate-700/20'}`}>
-                                            <AlertTriangle className={`h-4 w-4 ${dashboardData.overdueBacklog > 0 ? 'text-red-400' : 'text-slate-500'}`} />
-                                        </div>
-                                        <span className={`text-[10px] font-bold uppercase tracking-wider leading-tight ${dashboardData.overdueBacklog > 0 ? 'text-red-400' : 'text-slate-500'}`}>Acúmulo</span>
-                                    </div>
-                                    <p className={`text-4xl font-black ${dashboardData.overdueBacklog > 0 ? 'text-red-300' : 'text-slate-500'}`}>{dashboardData.overdueBacklog}</p>
-                                    <p className="text-[10px] text-slate-500 mt-1">vencidos sem OS</p>
-                                </CardContent>
-                            </Card>
-
-                            {/* Sem registro */}
-                            <Card className="border border-slate-600/30 bg-slate-800/20 backdrop-blur-md">
-                                <CardContent className="p-4">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <div className="p-1.5 rounded-md bg-slate-700/30"><XCircle className="h-4 w-4 text-slate-400" /></div>
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-tight">Sem Registro</span>
-                                    </div>
-                                    <p className="text-4xl font-black text-white">{dashboardData.notDoneYet}</p>
-                                    <p className="text-[10px] text-slate-500 mt-1">paradas sem OS</p>
-                                </CardContent>
-                            </Card>
-
-                            {/* Tempo Médio */}
-                            <Card className="border border-purple-500/20 bg-purple-500/5 backdrop-blur-md">
-                                <CardContent className="p-4">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <div className="p-1.5 rounded-md bg-purple-500/10"><Timer className="h-4 w-4 text-purple-400" /></div>
-                                        <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider leading-tight">Tempo Médio</span>
-                                    </div>
-                                    <p className="text-4xl font-black text-white">
-                                        {dashboardData.avgTimeMinutes > 0 ? dashboardData.avgTimeMinutes : '--'}
-                                        <span className="text-base font-bold text-slate-500 ml-1">min</span>
-                                    </p>
-                                    <p className="text-[10px] text-slate-500 mt-1">entre conclusões</p>
-                                </CardContent>
-                            </Card>
-                        </div>
+                        {/* KPIs do dia agora vivem na barra "Estado do Dia" (sempre visível). */}
 
                         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                             {/* Hourly Chart */}
-                            <Card className="border border-slate-800 bg-slate-900/40 backdrop-blur-md">
+                            <Card className="border border-white/10 bg-white/[0.03] backdrop-blur-md">
                                 <CardHeader className="pb-2">
                                     <CardTitle className="text-base font-semibold text-slate-200 flex items-center gap-2">
-                                        <TrendingUp className="h-4 w-4 text-blue-400" /> Atendimentos por Hora
+                                        <TrendingUp className="h-4 w-4 text-[#17E9B0]" /> Atendimentos por Hora
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent className="pb-6">
@@ -1077,7 +992,7 @@ export default function CommandCenterPage() {
                                                         height: `${(d.count / dashboardData.maxHourly) * 112}px`,
                                                         minHeight: d.count > 0 ? '4px' : '2px',
                                                         background: d.count > 0
-                                                            ? 'linear-gradient(to top, #3b82f6, #06b6d4)'
+                                                            ? 'linear-gradient(to top, #17E9B0, #12b98a)'
                                                             : 'rgba(100,116,139,0.2)'
                                                     }}
                                                 />
@@ -1089,10 +1004,10 @@ export default function CommandCenterPage() {
                             </Card>
 
                             {/* By Technician */}
-                            <Card className="border border-slate-800 bg-slate-900/40 backdrop-blur-md">
+                            <Card className="border border-white/10 bg-white/[0.03] backdrop-blur-md">
                                 <CardHeader className="pb-2">
                                     <CardTitle className="text-base font-semibold text-slate-200 flex items-center gap-2">
-                                        <Users className="h-4 w-4 text-blue-400" /> Ranking de Técnicos Hoje
+                                        <Users className="h-4 w-4 text-[#17E9B0]" /> Ranking de Técnicos Hoje
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent className="space-y-3">
@@ -1114,7 +1029,7 @@ export default function CommandCenterPage() {
                                                     </div>
                                                     <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
                                                         <div
-                                                            className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-700"
+                                                            className="h-full rounded-full bg-gradient-to-r from-[#17E9B0] to-[#12b98a] transition-all duration-700"
                                                             style={{ width: `${(tech.count / (dashboardData.completedByTech[0]?.count || 1)) * 100}%` }}
                                                         />
                                                     </div>
@@ -1128,10 +1043,10 @@ export default function CommandCenterPage() {
 
                         {/* City Heat Map */}
                         {dashboardData.cityHeatMap.length > 0 && (
-                            <Card className="border border-slate-800 bg-slate-900/40 backdrop-blur-md">
+                            <Card className="border border-white/10 bg-white/[0.03] backdrop-blur-md">
                                 <CardHeader className="pb-2">
                                     <CardTitle className="text-base font-semibold text-slate-200 flex items-center gap-2">
-                                        <MapPin className="h-4 w-4 text-blue-400" /> Atividade por Cidade
+                                        <MapPin className="h-4 w-4 text-[#17E9B0]" /> Atividade por Cidade
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent>
@@ -1145,7 +1060,7 @@ export default function CommandCenterPage() {
                                                     <span className="text-sm font-semibold text-slate-200 w-36 truncate">{c.city}</span>
                                                     <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
                                                         <div
-                                                            className={`h-full rounded-full transition-all duration-700 ${hasPending ? 'bg-gradient-to-r from-yellow-500 to-orange-400' : 'bg-gradient-to-r from-blue-500 to-emerald-400'}`}
+                                                            className={`h-full rounded-full transition-all duration-700 ${hasPending ? 'bg-gradient-to-r from-amber-500 to-orange-400' : 'bg-gradient-to-r from-[#17E9B0] to-[#12b98a]'}`}
                                                             style={{ width: `${pct}%` }}
                                                         />
                                                     </div>
@@ -1215,28 +1130,28 @@ export default function CommandCenterPage() {
             </main>
 
             {/* Right Panel: Live Feed / Timeline */}
-            <aside className="w-full lg:w-[400px] border-l border-slate-800 bg-slate-900/30 flex flex-col">
-                <div className="p-6 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+            <aside className="w-full lg:w-[400px] border-t lg:border-t-0 lg:border-l border-white/10 bg-[#0B1420] flex flex-col min-h-[420px] lg:min-h-0">
+                <div className="p-6 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
                     <div className="flex items-center gap-3">
                         <div className="relative">
                             <Bell className="h-5 w-5 text-slate-300" />
-                            {feed.length > 0 && <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-blue-500 animate-ping"></span>}
-                            {feed.length > 0 && <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-blue-500"></span>}
+                            {feed.length > 0 && <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-[#17E9B0] motion-safe:animate-ping"></span>}
+                            {feed.length > 0 && <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-[#17E9B0]"></span>}
                         </div>
-                        <h2 className="font-semibold text-lg text-slate-200">Radar de Interações</h2>
+                        <h2 className="font-headline font-semibold text-lg text-slate-100">Radar de Interações</h2>
                         {feed.length > 0 && (
-                            <span className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full font-mono">{feed.length}</span>
+                            <span className="text-xs bg-[#17E9B0]/15 text-[#17E9B0] border border-[#17E9B0]/30 px-2 py-0.5 rounded-full font-mono">{feed.length}</span>
                         )}
                     </div>
                     <div className="flex items-center gap-2">
                         <button
                             onClick={() => setSoundEnabled(s => !s)}
                             title={soundEnabled ? 'Desativar som' : 'Ativar som'}
-                            className={`p-2 rounded-lg border transition-all ${soundEnabled ? 'border-blue-500/40 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20' : 'border-slate-700 bg-slate-800/40 text-slate-500 hover:bg-slate-700/40'}`}
+                            className={`p-2 rounded-lg border transition-all ${soundEnabled ? 'border-[#17E9B0]/40 bg-[#17E9B0]/10 text-[#17E9B0] hover:bg-[#17E9B0]/20' : 'border-white/10 bg-white/[0.03] text-slate-500 hover:bg-white/10'}`}
                         >
                             {soundEnabled ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
                         </button>
-                        <Badge variant="outline" className="border-slate-700 text-slate-400">Ao Vivo</Badge>
+                        <Badge variant="outline" className="border-[#17E9B0]/30 text-[#17E9B0]">Ao Vivo</Badge>
                     </div>
                 </div>
 
@@ -1253,12 +1168,12 @@ export default function CommandCenterPage() {
                                     <div key={item.id} className="relative pl-6">
                                         {/* Timeline Line */}
                                         {index !== feed.length - 1 && (
-                                            <div className="absolute left-[7px] top-6 bottom-[-24px] w-0.5 bg-slate-800"></div>
+                                            <div className="absolute left-[7px] top-6 bottom-[-24px] w-0.5 bg-white/10"></div>
                                         )}
                                         {/* Timeline Dot */}
-                                        <div className={`absolute left-0 top-1.5 h-4 w-4 rounded-full border-4 border-slate-950 ${item.type === 'warning' ? 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)]' : 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]'}`}></div>
-                                        
-                                        <div className={`bg-slate-800/40 border p-3 rounded-lg shadow-sm hover:border-slate-600 transition-colors ${item.type === 'warning' ? 'border-yellow-500/30' : 'border-slate-700/50'}`}>
+                                        <div className={`absolute left-0 top-1.5 h-4 w-4 rounded-full border-4 border-[#0B1420] ${item.type === 'warning' ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]' : 'bg-[#17E9B0] shadow-[0_0_8px_rgba(23,233,176,0.5)]'}`}></div>
+
+                                        <div className={`bg-white/[0.03] border p-3 rounded-lg shadow-sm hover:border-white/20 transition-colors ${item.type === 'warning' ? 'border-amber-500/30' : 'border-white/10'}`}>
                                             <p className="text-sm text-slate-200 font-medium leading-relaxed whitespace-pre-line">{item.message}</p>
                                             <span className="text-xs text-slate-500 mt-2 block font-mono">
                                                 {format(item.timestamp, "HH:mm:ss")}

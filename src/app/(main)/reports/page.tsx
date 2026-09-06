@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import SignatureCanvas from "react-signature-canvas";
+import { SignaturePad } from "@/components/SignaturePad";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -616,10 +617,9 @@ function ReportsPageInner() {
               Se um checklist foi selecionado acima, essa assinatura preenche o campo de assinatura dele no PDF.
             </p>
             <div className="border rounded-md overflow-hidden bg-white shadow-sm border-gray-300">
-              <SignatureCanvas
+              <SignaturePad
                 ref={clientSignatureRef}
                 penColor="black"
-                canvasProps={{ className: "signature-canvas w-full h-40" }}
                 onEnd={() => setStoredClientSignature(null)}
               />
               <div className="bg-muted p-1 flex justify-between items-center border-t">

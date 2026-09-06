@@ -232,6 +232,9 @@ export type RouteStop = {
     suggestedCityState?: string;
     confirmedByCall?: boolean;
     confirmedByMessage?: boolean;
+    // Estado tri-state da confirmação por mensagem: enviada → confirmada.
+    // Mantido em sincronia com confirmedByMessage (true quando 'confirmed').
+    messageStatus?: 'sent' | 'confirmed';
 }
 
 export type Route = {

@@ -80,7 +80,7 @@ import React from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { ptBR } from 'date-fns/locale';
-import SignatureCanvas from 'react-signature-canvas';
+import { SignaturePad } from '@/components/SignaturePad';
 import dynamic from "next/dynamic";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
@@ -560,14 +560,11 @@ function ChecklistSection({
                                             </div>
                                         ) : (
                                             <div className="border rounded-md overflow-hidden bg-white shadow-sm border-gray-300">
-                                                <SignatureCanvas 
+                                                <SignaturePad
                                                     ref={(ref) => {
                                                         if (ref) signatureRefs.current[field.id] = ref;
                                                     }}
                                                     penColor="black"
-                                                    canvasProps={{
-                                                        className: 'signature-canvas w-full h-40'
-                                                    }}
                                                 />
                                                 <div className="bg-muted p-1 flex justify-end border-t">
                                                     <Button type="button" variant="ghost" size="sm" onClick={() => signatureRefs.current[field.id]?.clear()}>Limpar Assinatura</Button>
@@ -744,12 +741,19 @@ const { toast } = useToast();
 
     const isValid = await form.trigger(fieldsToValidate);
     if (isValid) {
-      setCurrentStep(prev => Math.min(prev + 1, totalSteps));
+      const notFinalized = form.getValues('isFinalized') === false;
+      // Atendimento não finalizado não precisa dos "Detalhes" — pula do Status (2) para o Fim (4).
+      const nextStep = (currentStep === 2 && notFinalized) ? 4 : currentStep + 1;
+      setCurrentStep(Math.min(nextStep, totalSteps));
     }
   };
 
   const handlePrevStep = () => {
-    setCurrentStep(prev => Math.max(prev - 1, 1));
+    const notFinalized = form.getValues('isFinalized') === false;
+    setCurrentStep(prev => {
+      const target = (prev === 4 && notFinalized) ? 2 : prev - 1;
+      return Math.max(target, 1);
+    });
   };
 
   const allFormValues = form.watch();
@@ -776,7 +780,10 @@ const { toast } = useToast();
     }, []);
 
     useEffect(() => {
-      localStorage.setItem('serviceOrderFormData', JSON.stringify(allFormValues));
+      // Não persistir o estado desses toggles — devem começar zerados a cada OS,
+      // sem carregar o valor da OS anterior.
+      const { cleaningPerformed, samsungBudgetApproved, samsungBudgetValue, ...persisted } = allFormValues;
+      localStorage.setItem('serviceOrderFormData', JSON.stringify(persisted));
     }, [allFormValues]);
 
 
@@ -1208,12 +1215,14 @@ const { toast } = useToast();
                                             const Icon = s.icon;
                                             const isActive = currentStep === s.step;
                                             const isCompleted = currentStep > s.step;
+                                            // "Detalhes" é pulado quando o atendimento não é finalizado.
+                                            const isSkipped = s.step === 3 && watchedIsFinalized === false;
                                             return (
-                                                <div key={s.step} className="flex items-center flex-1 last:flex-initial">
+                                                <div key={s.step} className={cn("flex items-center flex-1 last:flex-initial", isSkipped && "opacity-40")}>
                                                     <div className="flex items-center">
                                                         <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 transition-all shrink-0 ${
                                                             isActive ? 'border-primary bg-primary text-primary-foreground shadow-sm scale-105' :
-                                                            isCompleted ? 'border-primary bg-transparent text-primary' :
+                                                            isCompleted && !isSkipped ? 'border-primary bg-transparent text-primary' :
                                                             'border-muted bg-transparent text-muted-foreground'
                                                         }`}>
                                                             <Icon className="h-4 w-4" />
@@ -1222,7 +1231,7 @@ const { toast } = useToast();
                                                             "ml-2 text-sm font-semibold transition-all whitespace-nowrap",
                                                             isActive ? "text-foreground inline" : "text-muted-foreground hidden md:inline"
                                                         )}>
-                                                            {s.title}
+                                                            {s.title}{isSkipped && <span className="ml-1 text-[10px] font-normal">(pulado)</span>}
                                                         </span>
                                                     </div>
                                                     {index < 3 && (
