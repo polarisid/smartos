@@ -383,6 +383,14 @@ function RouteForm({
 
         const updatedStops = stopsFromText.map(newStop => {
             const existingStop = currentStops.find(cs => cs.serviceOrder === newStop.serviceOrder);
+            // Peças coladas de novo vêm sem rastreio (a planilha não tem essa coluna) -
+            // casa por código com a parada já existente e mantém o rastreio já salvo.
+            const mergedParts = (newStop.parts || []).map(newPart => {
+                const existingPart = existingStop?.parts?.find(p => p.code === newPart.code);
+                return existingPart
+                    ? { ...existingPart, ...newPart, trackingCode: newPart.trackingCode ? newPart.trackingCode : (existingPart.trackingCode || '') }
+                    : newPart;
+            });
             return {
                 ...newStop,
                 stopType: existingStop?.stopType || 'padrao',
@@ -393,6 +401,7 @@ function RouteForm({
                 confirmedByCall: existingStop?.confirmedByCall,
                 confirmedByMessage: existingStop?.confirmedByMessage,
                 messageStatus: existingStop?.messageStatus,
+                parts: mergedParts,
             };
         });
         setParsedStops(updatedStops);
