@@ -112,6 +112,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
   // ── Passo 3: turnos e datas ──
   const [legKm, setLegKm] = useState<number[]>([]);
   const [legDurationMin, setLegDurationMin] = useState<number[]>([]);
+  const [origDurationMin, setOrigDurationMin] = useState<number[]>([]);
   const [legsLoading, setLegsLoading] = useState(false);
   const [departureDate, setDepartureDate] = useState<Date | undefined>(undefined);
   const [arrivalDate, setArrivalDate] = useState<Date | undefined>(undefined);
@@ -134,7 +135,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     setTechnicianId(""); setDriverId(""); setLicensePlate("TEM8E13"); setFuelAvgKml(10);
     setPasteText(""); setStops([]);
     setOptimizationSummary(""); setOrigKm([]); setPropKm([]);
-    setLegKm([]); setLegDurationMin([]);
+    setLegKm([]); setLegDurationMin([]); setOrigDurationMin([]);
     setDepartureDate(undefined); setArrivalDate(undefined);
     setEmailConfirmed(false);
     setHasOptimized(false);
@@ -337,6 +338,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
       setPropKm(prop.km);
       setLegKm(prop.km);
       setLegDurationMin(prop.durationMin);
+      setOrigDurationMin(orig.durationMin);
       setHasOptimized(true);
     } catch (e) {
       console.error(e);
@@ -391,6 +393,14 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
   const totalPropKm = propKm.reduce((a, b) => a + b, 0);
   const kmSaved = totalOrigKm - totalPropKm;
   const kmSavedPct = totalOrigKm > 0 ? Math.round((kmSaved / totalOrigKm) * 100) : 0;
+  const totalPropMin = legDurationMin.reduce((a, b) => a + b, 0);
+  const totalOrigMin = origDurationMin.reduce((a, b) => a + b, 0);
+  const fmtMin = (min: number) => {
+    const total = Math.round(min);
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    return h > 0 ? `${h}h ${String(m).padStart(2, "0")}min` : `${m}min`;
+  };
 
   const handleAdvanceStep2 = async () => {
     if (!routeId) return;
@@ -762,6 +772,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
                             <p className="font-mono text-xl font-bold text-muted-foreground">
                               {totalOrigKm.toFixed(1)} <span className="text-xs font-sans font-normal">km</span>
                             </p>
+                            {totalOrigMin > 0 && <p className="text-[11px] text-muted-foreground">≈ {fmtMin(totalOrigMin)}</p>}
                           </div>
                           <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
                           <div>
@@ -769,6 +780,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
                             <p className="font-mono text-xl font-bold text-foreground">
                               {totalPropKm.toFixed(1)} <span className="text-xs font-sans font-normal">km</span>
                             </p>
+                            {totalPropMin > 0 && <p className="text-[11px] font-medium text-foreground">≈ {fmtMin(totalPropMin)} de percurso</p>}
                           </div>
                           <div className="ml-auto">
                             {kmSaved > 0.05 ? (
@@ -792,6 +804,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
                           <p className="font-mono text-xl font-bold text-foreground">
                             {totalPropKm.toFixed(1)} <span className="text-xs font-sans font-normal">km</span>
                           </p>
+                          {totalPropMin > 0 && <p className="text-[11px] text-muted-foreground">≈ {fmtMin(totalPropMin)} de percurso</p>}
                         </div>
                       ) : null}
                     </div>
