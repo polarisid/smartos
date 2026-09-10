@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { Switch } from "@/components/ui/switch";
 import { configService } from "@/services/supabase/configService";
 import { getCoordinates, parseFullAddress } from "@/lib/geocode";
-import { Settings, MapPin, Save, Loader2, Sparkles, Building2, Globe, LocateFixed } from "lucide-react";
+import type { TravelCostParams } from "@/lib/data";
+import { Settings, MapPin, Save, Loader2, Sparkles, Building2, Globe, LocateFixed, Calculator } from "lucide-react";
 
 const BaseLocationPicker = dynamic(() => import("@/components/BaseLocationPicker"), { ssr: false });
 
@@ -24,18 +26,39 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [savingBase, setSavingBase] = useState(false);
   const [savingWebhook, setSavingWebhook] = useState(false);
+  // Campos numéricos guardados como string enquanto edita (permite digitar
+  // vírgula/ponto e valores parciais); só viram número na hora de salvar.
+  type CostForm = {
+    costPerKm: string; fixedFee: string; costPerHour: string;
+    tollFlat: string; marginPct: string; minFee: string; roundTrip: boolean;
+  };
+  const numToStr = (n: number) => (n === 0 ? "" : String(n).replace(".", ","));
+  const [costForm, setCostForm] = useState<CostForm>({
+    costPerKm: "", fixedFee: "", costPerHour: "", tollFlat: "", marginPct: "", minFee: "", roundTrip: true,
+  });
+  const [savingCost, setSavingCost] = useState(false);
 
   useEffect(() => {
     async function loadConfigs() {
       try {
         setLoading(true);
-        const [base, storedCoords, webhook] = await Promise.all([
+        const [base, storedCoords, webhook, cost] = await Promise.all([
           configService.getBaseAddress(),
           configService.getBaseCoords(),
           configService.getWebhookUrl(),
+          configService.getTravelCostParams(),
         ]);
         setBaseAddress(base || "Aracaju");
         setWebhookUrl(webhook || "");
+        setCostForm({
+          costPerKm: numToStr(cost.costPerKm),
+          fixedFee: numToStr(cost.fixedFee),
+          costPerHour: numToStr(cost.costPerHour),
+          tollFlat: numToStr(cost.tollFlat),
+          marginPct: numToStr(cost.marginPct),
+          minFee: numToStr(cost.minFee),
+          roundTrip: cost.roundTrip,
+        });
 
         if (storedCoords) {
           setBaseCoords([storedCoords.lat, storedCoords.lng]);
@@ -111,6 +134,33 @@ export default function SettingsPage() {
       toast({ variant: "destructive", title: "Erro ao salvar webhook", description: err.message });
     } finally {
       setSavingWebhook(false);
+    }
+  };
+
+  const setCostText = (field: keyof CostForm, raw: string) => {
+    // Aceita só dígitos, vírgula e ponto (mantém a string como digitada).
+    setCostForm(prev => ({ ...prev, [field]: raw.replace(/[^\d.,]/g, "") }));
+  };
+
+  const handleSaveCostParams = async () => {
+    setSavingCost(true);
+    try {
+      const toNum = (s: string) => parseFloat(s.replace(",", ".")) || 0;
+      const params: TravelCostParams = {
+        costPerKm: toNum(costForm.costPerKm),
+        fixedFee: toNum(costForm.fixedFee),
+        costPerHour: toNum(costForm.costPerHour),
+        tollFlat: toNum(costForm.tollFlat),
+        marginPct: toNum(costForm.marginPct),
+        minFee: toNum(costForm.minFee),
+        roundTrip: costForm.roundTrip,
+      };
+      await configService.setTravelCostParams(params);
+      toast({ title: "Parâmetros salvos!", description: "A calculadora de custo de deslocamento vai usar esses valores." });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erro ao salvar parâmetros", description: err.message });
+    } finally {
+      setSavingCost(false);
     }
   };
 
@@ -233,6 +283,61 @@ export default function SettingsPage() {
             >
               {savingWebhook ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Salvar Webhook
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Parâmetros de Custo de Deslocamento */}
+        <Card className="border border-border/50 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Calculator className="h-5 w-5 text-primary" />
+              Parâmetros de Custo de Deslocamento
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Valores usados pela <span className="font-medium text-foreground">Calculadora de Custo</span> para estimar a taxa de visita a partir do CEP do cliente.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+              <div className="space-y-1.5">
+                <Label htmlFor="cost-perkm" className="text-xs font-semibold">Custo por km (R$)</Label>
+                <Input id="cost-perkm" inputMode="decimal" value={costForm.costPerKm} onChange={e => setCostText("costPerKm", e.target.value)} placeholder="Ex: 2,50" />
+                <p className="text-[11px] text-muted-foreground">Combustível + desgaste do veículo.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cost-fixed" className="text-xs font-semibold">Taxa fixa por visita (R$)</Label>
+                <Input id="cost-fixed" inputMode="decimal" value={costForm.fixedFee} onChange={e => setCostText("fixedFee", e.target.value)} placeholder="Ex: 30,00" />
+                <p className="text-[11px] text-muted-foreground">Custo administrativo/abertura, independe da distância.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cost-perhour" className="text-xs font-semibold">Custo por hora de deslocamento (R$)</Label>
+                <Input id="cost-perhour" inputMode="decimal" value={costForm.costPerHour} onChange={e => setCostText("costPerHour", e.target.value)} placeholder="0 = ignora" />
+                <p className="text-[11px] text-muted-foreground">Mão de obra do técnico em trânsito. Deixe vazio para ignorar.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cost-toll" className="text-xs font-semibold">Pedágio estimado por visita (R$)</Label>
+                <Input id="cost-toll" inputMode="decimal" value={costForm.tollFlat} onChange={e => setCostText("tollFlat", e.target.value)} placeholder="0 = ignora" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cost-margin" className="text-xs font-semibold">Margem (%)</Label>
+                <Input id="cost-margin" inputMode="decimal" value={costForm.marginPct} onChange={e => setCostText("marginPct", e.target.value)} placeholder="Ex: 20" />
+                <p className="text-[11px] text-muted-foreground">Aplicada sobre o custo para chegar no valor cobrado do cliente.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cost-minfee" className="text-xs font-semibold">Taxa mínima (R$)</Label>
+                <Input id="cost-minfee" inputMode="decimal" value={costForm.minFee} onChange={e => setCostText("minFee", e.target.value)} placeholder="0 = sem piso" />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <Switch id="cost-roundtrip" checked={costForm.roundTrip} onCheckedChange={c => setCostForm(prev => ({ ...prev, roundTrip: c }))} />
+              <Label htmlFor="cost-roundtrip" className="text-xs font-semibold cursor-pointer">Considerar ida e volta (dobra distância e tempo)</Label>
+            </div>
+
+            <Button onClick={handleSaveCostParams} disabled={savingCost} variant="outline" className="gap-2">
+              {savingCost ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Salvar Parâmetros de Custo
             </Button>
           </CardContent>
         </Card>

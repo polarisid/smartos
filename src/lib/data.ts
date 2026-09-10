@@ -313,6 +313,17 @@ export type TechnicalReport = {
 };
 
 
+export type TravelCostParams = {
+  costPerKm: number;     // R$/km rodado (combustível + desgaste)
+  fixedFee: number;      // R$ taxa fixa por visita
+  costPerHour: number;   // R$/h de deslocamento (mão de obra); 0 = ignora
+  tollFlat: number;      // R$ pedágio estimado por visita; 0 = ignora
+  roundTrip: boolean;    // considera ida e volta (dobra distância e tempo)
+  marginPct: number;     // % de margem aplicada sobre o custo
+  minFee: number;        // R$ piso da taxa; 0 = sem piso
+};
+
+
 const today = new Date();
 export const serviceOrders: ServiceOrder[] = [
   // João Silva (id: '1')

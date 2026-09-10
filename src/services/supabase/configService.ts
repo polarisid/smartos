@@ -1,4 +1,6 @@
 import { supabase } from "@/lib/supabase";
+import type { TravelCostParams } from "@/lib/data";
+import { DEFAULT_TRAVEL_COST_PARAMS } from "@/lib/travelCost";
 
 export const configService = {
   async getWebhookUrl(): Promise<string | null> {
@@ -105,5 +107,33 @@ export const configService = {
       console.warn("Could not fetch base coords from Supabase", e);
     }
     return null;
+  },
+
+  // Parâmetros da calculadora de custo de deslocamento (custo/km, taxa fixa,
+  // margem, etc). Sempre devolve um objeto completo, preenchendo com os
+  // defaults o que não estiver salvo.
+  async getTravelCostParams(): Promise<TravelCostParams> {
+    try {
+      const { data, error } = await supabase
+        .from('configs')
+        .select('value')
+        .eq('id', 'travel_cost')
+        .single();
+
+      if (!error && data?.value) {
+        return { ...DEFAULT_TRAVEL_COST_PARAMS, ...data.value };
+      }
+    } catch (e) {
+      console.warn("Could not fetch travel cost params from Supabase", e);
+    }
+    return { ...DEFAULT_TRAVEL_COST_PARAMS };
+  },
+
+  async setTravelCostParams(params: TravelCostParams): Promise<void> {
+    const { error } = await supabase
+      .from('configs')
+      .upsert({ id: 'travel_cost', value: params });
+
+    if (error) throw error;
   }
 };

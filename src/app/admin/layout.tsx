@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera } from "lucide-react"
+import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera, Calculator } from "lucide-react"
 import { Logo } from "@/components/Logo"
 
 // Static nav items defined outside component to prevent re-allocation on re-render
@@ -37,6 +37,7 @@ const NAV_ITEMS = [
   { href: '/admin/routes', label: 'Rotas', Icon: Route, tooltip: 'Rotas' },
   { href: '/admin/planejamento', label: 'Planejamento', Icon: CalendarDays, tooltip: 'Planejamento de Rotas' },
   { href: '/admin/part-separation', label: 'Conferência de Peças', Icon: PackageSearch, tooltip: 'Conferência de Peças' },
+  { href: '/admin/cost-calculator', label: 'Calculadora de Custo', Icon: Calculator, tooltip: 'Calculadora de Custo de Deslocamento' },
   { href: '/admin/checklists', label: 'Checklists', Icon: ClipboardList, tooltip: 'Checklists' },
   { href: '/admin/reports', label: 'Relatórios Fotográficos', Icon: Camera, tooltip: 'Relatórios Fotográficos' },
   { href: '/admin/settings', label: 'Configurações', Icon: Settings, tooltip: 'Configurações do Sistema' },
