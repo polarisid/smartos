@@ -741,7 +741,9 @@ function OsRouteSearch() {
 
                 (route.stops || []).forEach(stop => {
                     const matchesPart = (stop.parts || []).some(
-                        part => part.code?.toLowerCase().includes(term)
+                        part =>
+                            part.code?.toLowerCase().includes(term) ||
+                            part.trackingCode?.toLowerCase().includes(term)
                     );
                     if (
                         stop.serviceOrder.toLowerCase().includes(term) ||
@@ -888,14 +890,14 @@ function OsRouteSearch() {
             <Card>
                 <CardHeader>
                     <CardTitle>Buscar OS em Rotas</CardTitle>
-                    <CardDescription>Pesquise pelo número da OS, nome do cliente, modelo ou código de peça para encontrar em qual rota ela está (ativa ou finalizada).</CardDescription>
+                    <CardDescription>Pesquise pelo número da OS, nome do cliente, modelo, código de peça ou código de rastreio para encontrar em qual rota ela está (ativa ou finalizada).</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <div className="flex gap-2">
                         <div className="relative flex-1">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input
-                                placeholder="Ex: 4000123456, João Silva, UN55, BN96..."
+                                placeholder="Ex: 4000123456, João Silva, UN55, BN96..., rastreio"
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
                                 onKeyDown={e => e.key === "Enter" && handleSearch()}
