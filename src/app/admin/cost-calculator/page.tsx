@@ -16,6 +16,36 @@ import { Calculator, Loader2, MapPin, Copy, Settings2, TriangleAlert } from "luc
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+// Geocodifica um endereço em texto livre (ex: "João Pessoa, Bancários, PB")
+// via Photon, com Nominatim como fallback. Usado quando o operador digita um
+// endereço em vez de um CEP, ou quando o CEP não é encontrado.
+async function geocodeFreeText(q: string): Promise<{ coords: PointCoord; label: string } | null> {
+  const query = /brasil|brazil/i.test(q) ? q : `${q}, Brasil`;
+  try {
+    const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=1&lang=default`);
+    if (r.ok) {
+      const d = await r.json();
+      const f = d?.features?.[0];
+      if (f?.geometry?.coordinates?.length === 2) {
+        const [lng, lat] = f.geometry.coordinates;
+        const p = f.properties || {};
+        const label = [p.name, p.district, [p.city || p.county || p.name, p.state].filter(Boolean).join(" - ")]
+          .filter(Boolean)
+          .join(", ") || q;
+        return { coords: { lat, lng }, label };
+      }
+    }
+  } catch { /* tenta o fallback */ }
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&limit=1&q=${encodeURIComponent(query)}`);
+    if (r.ok) {
+      const d = await r.json();
+      if (d?.[0]) return { coords: { lat: parseFloat(d[0].lat), lng: parseFloat(d[0].lon) }, label: d[0].display_name || q };
+    }
+  } catch { /* sem resultado */ }
+  return null;
+}
+
 type CalcResult = {
   breakdown: VisitCostBreakdown;
   destLabel: string;
@@ -60,9 +90,9 @@ export default function CostCalculatorPage() {
   }, []);
 
   const handleCalculate = async () => {
-    const digits = cep.replace(/\D/g, "");
-    if (digits.length !== 8) {
-      toast({ variant: "destructive", title: "CEP inválido", description: "Informe um CEP com 8 dígitos." });
+    const raw = cep.trim();
+    if (!raw) {
+      toast({ variant: "destructive", title: "Informe o CEP ou o endereço do cliente." });
       return;
     }
     if (!baseCoords) {
@@ -70,31 +100,57 @@ export default function CostCalculatorPage() {
       return;
     }
 
+    const digits = raw.replace(/\D/g, "");
+    const isCep = digits.length === 8 && !/[a-zA-ZÀ-ÿ]/.test(raw);
+
     setIsCalculating(true);
     setResult(null);
     try {
-      // 1. Detalhes do CEP (cidade/UF/bairro/logradouro) via ViaCEP, quando houver.
-      let city = "", state = "", neighborhood = "", street = "";
-      try {
-        const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
-        if (res.ok) {
-          const d = await res.json();
-          if (d && !d.erro) {
-            city = d.localidade || "";
-            state = d.uf || "";
-            neighborhood = d.bairro || "";
-            street = d.logradouro || "";
-          }
-        }
-      } catch { /* segue sem detalhe do CEP */ }
+      let destCoords: PointCoord;
+      let destLabel: string;
 
-      // 2. Coordenadas do destino.
-      const geo = await getCoordinates(city, neighborhood, state, street, digits);
-      if (!geo) {
-        toast({ variant: "destructive", title: "Não foi possível localizar esse CEP", description: "Confira o número e tente de novo." });
-        return;
+      if (isCep) {
+        // 1. Detalhes do CEP (cidade/UF/bairro/logradouro) via ViaCEP, quando houver.
+        let city = "", state = "", neighborhood = "", street = "";
+        try {
+          const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+          if (res.ok) {
+            const d = await res.json();
+            if (d && !d.erro) {
+              city = d.localidade || "";
+              state = d.uf || "";
+              neighborhood = d.bairro || "";
+              street = d.logradouro || "";
+            }
+          }
+        } catch { /* segue sem detalhe do CEP */ }
+
+        // 2. Coordenadas do destino - tenta pelo CEP; se falhar, cai pra busca por texto.
+        const geo = await getCoordinates(city, neighborhood, state, street, digits);
+        if (geo) {
+          destCoords = { lat: geo[0], lng: geo[1] };
+          destLabel = [street, neighborhood, [city, state].filter(Boolean).join(" - ")]
+            .filter(Boolean)
+            .join(", ") || `CEP ${digits.slice(0, 5)}-${digits.slice(5)}`;
+        } else {
+          const byText = city ? await geocodeFreeText([street, neighborhood, city, state].filter(Boolean).join(", ")) : null;
+          if (!byText) {
+            toast({ variant: "destructive", title: "CEP não localizado", description: "Tente digitar o endereço (cidade, bairro, UF)." });
+            return;
+          }
+          destCoords = byText.coords;
+          destLabel = byText.label;
+        }
+      } else {
+        // Busca por endereço em texto livre.
+        const byText = await geocodeFreeText(raw);
+        if (!byText) {
+          toast({ variant: "destructive", title: "Endereço não encontrado", description: "Tente ser mais específico (cidade, bairro, UF)." });
+          return;
+        }
+        destCoords = byText.coords;
+        destLabel = byText.label;
       }
-      const destCoords: PointCoord = { lat: geo[0], lng: geo[1] };
 
       // 3. Distância e tempo rodoviário (OSRM) entre a base e o destino.
       let roadKm: number;
@@ -113,10 +169,6 @@ export default function CostCalculatorPage() {
       }
 
       const breakdown = computeVisitCost(params, roadKm, roadSeconds);
-      const destLabel = [street, neighborhood, [city, state].filter(Boolean).join(" - ")]
-        .filter(Boolean)
-        .join(", ") || `CEP ${digits.slice(0, 5)}-${digits.slice(5)}`;
-
       setResult({ breakdown, destLabel, estimated });
     } catch (e: any) {
       console.error(e);
@@ -157,14 +209,14 @@ export default function CostCalculatorPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Calculadora de Custo de Deslocamento</h1>
           <p className="text-sm text-muted-foreground">
-            Estime a taxa de visita para um cliente a partir do CEP de destino.
+            Estime a taxa de visita para um cliente a partir do CEP ou endereço de destino.
           </p>
         </div>
       </div>
 
       <Card className="border border-border/50 shadow-sm">
         <CardHeader>
-          <CardTitle className="text-base">CEP do cliente</CardTitle>
+          <CardTitle className="text-base">CEP ou endereço do cliente</CardTitle>
           <CardDescription className="text-xs flex items-center gap-1.5">
             <MapPin className="h-3.5 w-3.5 text-rose-500" />
             Saída de: <span className="font-medium text-foreground">{baseLabel || "base não configurada"}</span>
@@ -185,15 +237,17 @@ export default function CostCalculatorPage() {
               value={cep}
               onChange={e => setCep(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleCalculate()}
-              placeholder="00000-000"
-              inputMode="numeric"
-              className="sm:max-w-[200px]"
+              placeholder="CEP (00000-000) ou endereço: cidade, bairro, UF"
+              className="sm:flex-1"
             />
-            <Button onClick={handleCalculate} disabled={isLoading || isCalculating} className="gap-2">
+            <Button onClick={handleCalculate} disabled={isLoading || isCalculating} className="gap-2 shrink-0">
               {isCalculating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}
               Calcular
             </Button>
           </div>
+          <p className="text-[11px] text-muted-foreground">
+            Digite o CEP quando tiver. Se não souber ou não for encontrado, informe o endereço (ex: "João Pessoa, Bancários, PB").
+          </p>
         </CardContent>
       </Card>
 
