@@ -11,10 +11,28 @@ import { configService } from "@/services/supabase/configService";
 import { getCoordinates, parseFullAddress } from "@/lib/geocode";
 import { fetchOsrmDrivingMatrix, haversineDistanceKm, type PointCoord } from "@/lib/routingEngine";
 import { computeVisitCost, DEFAULT_TRAVEL_COST_PARAMS, type VisitCostBreakdown } from "@/lib/travelCost";
-import type { TravelCostParams } from "@/lib/data";
-import { Calculator, Loader2, MapPin, Copy, Settings2, TriangleAlert } from "lucide-react";
+import type { TravelCostParams, RepairCenterInfo } from "@/lib/data";
+import { PartCostCalculator, type PartCostSummary } from "@/components/PartCostCalculator";
+import { QuoteBuilder } from "@/components/QuoteBuilder";
+import { Calculator, Loader2, MapPin, Copy, Settings2, TriangleAlert, Route, Wrench, ChevronDown, ChevronUp } from "lucide-react";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+// Junta partes de um endereço evitando repetir o mesmo trecho duas vezes
+// (ex: bairro igual ao nome da cidade em municípios pequenos).
+function joinUnique(parts: (string | undefined | null)[], separator = ", "): string {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const part of parts) {
+    const trimmed = part?.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+  }
+  return result.join(separator);
+}
 
 // Geocodifica um endereço em texto livre (ex: "João Pessoa, Bancários, PB")
 // via Photon, com Nominatim como fallback. Usado quando o operador digita um
@@ -29,9 +47,8 @@ async function geocodeFreeText(q: string): Promise<{ coords: PointCoord; label: 
       if (f?.geometry?.coordinates?.length === 2) {
         const [lng, lat] = f.geometry.coordinates;
         const p = f.properties || {};
-        const label = [p.name, p.district, [p.city || p.county || p.name, p.state].filter(Boolean).join(" - ")]
-          .filter(Boolean)
-          .join(", ") || q;
+        const cityPart = p.city || p.county || p.name;
+        const label = joinUnique([p.name, p.district, joinUnique([cityPart, p.state], " - ")]) || q;
         return { coords: { lat, lng }, label };
       }
     }
@@ -61,17 +78,22 @@ export default function CostCalculatorPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCalculating, setIsCalculating] = useState(false);
   const [result, setResult] = useState<CalcResult | null>(null);
+  const [showResultDetails, setShowResultDetails] = useState(false);
+  const [partSummary, setPartSummary] = useState<PartCostSummary | null>(null);
+  const [repairCenter, setRepairCenter] = useState<RepairCenterInfo>({ name: "", address: "", phone: "" });
 
   useEffect(() => {
     (async () => {
       try {
-        const [p, coords, address] = await Promise.all([
+        const [p, coords, address, repairCenterInfo] = await Promise.all([
           configService.getTravelCostParams(),
           configService.getBaseCoords(),
           configService.getBaseAddress(),
+          configService.getRepairCenter(),
         ]);
         setParams(p);
         setBaseLabel(address || "");
+        setRepairCenter(repairCenterInfo);
         if (coords) {
           setBaseCoords(coords);
         } else if (address) {
@@ -105,6 +127,7 @@ export default function CostCalculatorPage() {
 
     setIsCalculating(true);
     setResult(null);
+    setShowResultDetails(false);
     try {
       let destCoords: PointCoord;
       let destLabel: string;
@@ -129,9 +152,8 @@ export default function CostCalculatorPage() {
         const geo = await getCoordinates(city, neighborhood, state, street, digits);
         if (geo) {
           destCoords = { lat: geo[0], lng: geo[1] };
-          destLabel = [street, neighborhood, [city, state].filter(Boolean).join(" - ")]
-            .filter(Boolean)
-            .join(", ") || `CEP ${digits.slice(0, 5)}-${digits.slice(5)}`;
+          destLabel = joinUnique([street, neighborhood, joinUnique([city, state], " - ")])
+            || `CEP ${digits.slice(0, 5)}-${digits.slice(5)}`;
         } else {
           const byText = city ? await geocodeFreeText([street, neighborhood, city, state].filter(Boolean).join(", ")) : null;
           if (!byText) {
@@ -207,11 +229,16 @@ export default function CostCalculatorPage() {
           <Calculator className="h-6 w-6" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Calculadora de Custo de Deslocamento</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Calculadora de Custo</h1>
           <p className="text-sm text-muted-foreground">
-            Estime a taxa de visita para um cliente a partir do CEP ou endereço de destino.
+            Estime a taxa de visita de deslocamento ou o valor final de peças.
           </p>
         </div>
+      </div>
+
+      <div className="flex items-center gap-2 pt-1">
+        <Route className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Deslocamento</h2>
       </div>
 
       <Card className="border border-border/50 shadow-sm">
@@ -253,16 +280,27 @@ export default function CostCalculatorPage() {
 
       {result && (
         <Card className="border border-primary/30 shadow-sm">
-          <CardHeader>
-            <CardDescription className="text-xs">Taxa de visita estimada</CardDescription>
-            <CardTitle className="text-3xl font-bold text-primary">{brl(result.breakdown.visitFee)}</CardTitle>
-            <p className="text-xs text-muted-foreground pt-1">{result.destLabel}</p>
-            {result.estimated && (
-              <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1 pt-1">
-                <TriangleAlert className="h-3 w-3" /> Distância estimada (roteirizador indisponível no momento).
-              </p>
-            )}
+          <CardHeader
+            className="cursor-pointer select-none"
+            onClick={() => setShowResultDetails(v => !v)}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <CardDescription className="text-xs">Taxa de visita estimada</CardDescription>
+                <CardTitle className="text-3xl font-bold text-primary">{brl(result.breakdown.visitFee)}</CardTitle>
+                <p className="text-xs text-muted-foreground pt-1">{result.destLabel}</p>
+                {result.estimated && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1 pt-1">
+                    <TriangleAlert className="h-3 w-3" /> Distância estimada (roteirizador indisponível no momento).
+                  </p>
+                )}
+              </div>
+              <Button variant="ghost" size="sm" className="gap-1.5 shrink-0" onClick={e => { e.stopPropagation(); setShowResultDetails(v => !v); }}>
+                {showResultDetails ? <>Ocultar <ChevronUp className="h-4 w-4" /></> : <>Detalhes <ChevronDown className="h-4 w-4" /></>}
+              </Button>
+            </div>
           </CardHeader>
+          {showResultDetails && (
           <CardContent className="space-y-1.5 text-sm">
             <Row label={`Distância (só ida)`} value={`${result.breakdown.oneWayKm.toLocaleString("pt-BR")} km`} />
             {params.roundTrip && (
@@ -293,8 +331,38 @@ export default function CostCalculatorPage() {
               </Button>
             </div>
           </CardContent>
+          )}
         </Card>
       )}
+
+      <div className="flex items-center gap-2 pt-4">
+        <Wrench className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Peças</h2>
+      </div>
+      <PartCostCalculator onSummaryChange={setPartSummary} />
+
+      {(result || partSummary) && (
+        <Card className="border border-primary/40 shadow-sm">
+          <CardHeader>
+            <CardDescription className="text-xs">Resumo total (Deslocamento + Peças)</CardDescription>
+            <CardTitle className="text-3xl font-bold text-primary">
+              {brl((result?.breakdown.visitFee || 0) + (partSummary?.totalFinal || 0))}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1.5 text-sm">
+            {result && <Row label="Taxa de deslocamento" value={brl(result.breakdown.visitFee)} />}
+            {partSummary && <Row label={`Total de peças (${partSummary.items.length})`} value={brl(partSummary.totalFinal)} />}
+            <div className="border-t my-1.5" />
+            <Row label="Total geral" value={brl((result?.breakdown.visitFee || 0) + (partSummary?.totalFinal || 0))} bold />
+          </CardContent>
+        </Card>
+      )}
+
+      <QuoteBuilder
+        repairCenter={repairCenter}
+        travelSuggestion={result ? { label: `Taxa de Visita - ${result.destLabel}`, value: result.breakdown.visitFee } : null}
+        partSuggestions={partSummary?.items || []}
+      />
     </div>
   );
 }

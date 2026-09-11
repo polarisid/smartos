@@ -323,6 +323,19 @@ export type TravelCostParams = {
   minFee: number;        // R$ piso da taxa; 0 = sem piso
 };
 
+export type PartCostParams = {
+  marginPct: number;         // % de margem padrão aplicada sobre o valor de custo da peça
+  laborCostPerHour: number;  // R$/hora de mão de obra para a troca; 0 = ignora
+};
+
+// Dados do centro de reparo pré-configurados, usados no cabeçalho do PDF de
+// orçamento (template padrão Samsung) - evita digitar isso toda vez.
+export type RepairCenterInfo = {
+  name: string;
+  address: string;
+  phone: string;
+};
+
 
 const today = new Date();
 export const serviceOrders: ServiceOrder[] = [

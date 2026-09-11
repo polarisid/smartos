@@ -10,8 +10,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { configService } from "@/services/supabase/configService";
 import { getCoordinates, parseFullAddress } from "@/lib/geocode";
-import type { TravelCostParams } from "@/lib/data";
-import { Settings, MapPin, Save, Loader2, Sparkles, Building2, Globe, LocateFixed, Calculator } from "lucide-react";
+import type { TravelCostParams, PartCostParams, RepairCenterInfo } from "@/lib/data";
+import { Settings, MapPin, Save, Loader2, Sparkles, Building2, Globe, LocateFixed, Calculator, FileText, Phone } from "lucide-react";
 
 const BaseLocationPicker = dynamic(() => import("@/components/BaseLocationPicker"), { ssr: false });
 
@@ -37,19 +37,29 @@ export default function SettingsPage() {
     costPerKm: "", fixedFee: "", costPerHour: "", tollFlat: "", marginPct: "", minFee: "", roundTrip: true,
   });
   const [savingCost, setSavingCost] = useState(false);
+  const [partMarginText, setPartMarginText] = useState("");
+  const [partLaborCostText, setPartLaborCostText] = useState("");
+  const [savingPartCost, setSavingPartCost] = useState(false);
+  const [repairCenter, setRepairCenter] = useState<RepairCenterInfo>({ name: "", address: "", phone: "" });
+  const [savingRepairCenter, setSavingRepairCenter] = useState(false);
 
   useEffect(() => {
     async function loadConfigs() {
       try {
         setLoading(true);
-        const [base, storedCoords, webhook, cost] = await Promise.all([
+        const [base, storedCoords, webhook, cost, partCost, repairCenterInfo] = await Promise.all([
           configService.getBaseAddress(),
           configService.getBaseCoords(),
           configService.getWebhookUrl(),
           configService.getTravelCostParams(),
+          configService.getPartCostParams(),
+          configService.getRepairCenter(),
         ]);
         setBaseAddress(base || "Aracaju");
         setWebhookUrl(webhook || "");
+        setPartMarginText(numToStr(partCost.marginPct));
+        setPartLaborCostText(numToStr(partCost.laborCostPerHour));
+        setRepairCenter(repairCenterInfo);
         setCostForm({
           costPerKm: numToStr(cost.costPerKm),
           fixedFee: numToStr(cost.fixedFee),
@@ -161,6 +171,34 @@ export default function SettingsPage() {
       toast({ variant: "destructive", title: "Erro ao salvar parâmetros", description: err.message });
     } finally {
       setSavingCost(false);
+    }
+  };
+
+  const handleSavePartCostParams = async () => {
+    setSavingPartCost(true);
+    try {
+      const params: PartCostParams = {
+        marginPct: parseFloat(partMarginText.replace(",", ".")) || 0,
+        laborCostPerHour: parseFloat(partLaborCostText.replace(",", ".")) || 0,
+      };
+      await configService.setPartCostParams(params);
+      toast({ title: "Margem salva!", description: "A calculadora de custo de peça vai usar esse valor como padrão." });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erro ao salvar margem", description: err.message });
+    } finally {
+      setSavingPartCost(false);
+    }
+  };
+
+  const handleSaveRepairCenter = async () => {
+    setSavingRepairCenter(true);
+    try {
+      await configService.setRepairCenter(repairCenter);
+      toast({ title: "Dados do centro de reparo salvos!", description: "Usados automaticamente no cabeçalho do orçamento em PDF." });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erro ao salvar", description: err.message });
+    } finally {
+      setSavingRepairCenter(false);
     }
   };
 
@@ -338,6 +376,102 @@ export default function SettingsPage() {
             <Button onClick={handleSaveCostParams} disabled={savingCost} variant="outline" className="gap-2">
               {savingCost ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Salvar Parâmetros de Custo
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Parâmetros de Custo de Peça */}
+        <Card className="border border-border/50 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Calculator className="h-5 w-5 text-primary" />
+              Parâmetros de Custo de Peça
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Valores usados pela seção <span className="font-medium text-foreground">Peças</span> da Calculadora de Custo, para ir do valor de custo ao valor final da peça. Podem ser ajustados na hora, por cálculo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg">
+              <div className="space-y-1.5">
+                <Label htmlFor="part-margin" className="text-xs font-semibold">Margem padrão (%)</Label>
+                <Input
+                  id="part-margin"
+                  inputMode="decimal"
+                  value={partMarginText}
+                  onChange={e => setPartMarginText(e.target.value.replace(/[^\d.,]/g, ""))}
+                  placeholder="Ex: 30"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="part-labor" className="text-xs font-semibold">Mão de obra por hora (R$)</Label>
+                <Input
+                  id="part-labor"
+                  inputMode="decimal"
+                  value={partLaborCostText}
+                  onChange={e => setPartLaborCostText(e.target.value.replace(/[^\d.,]/g, ""))}
+                  placeholder="0 = ignora"
+                />
+                <p className="text-[11px] text-muted-foreground">Multiplicado pelo tempo de troca escolhido em cada peça.</p>
+              </div>
+            </div>
+            <Button onClick={handleSavePartCostParams} disabled={savingPartCost} variant="outline" className="gap-2">
+              {savingPartCost ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Salvar Parâmetros de Peça
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Dados do Centro de Reparo (cabeçalho do orçamento em PDF) */}
+        <Card className="border border-border/50 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileText className="h-5 w-5 text-primary" />
+              Dados do Centro de Reparo
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Aparecem automaticamente no cabeçalho do <span className="font-medium text-foreground">Orçamento em PDF</span> (template padrão Samsung) - não precisa digitar de novo a cada orçamento.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="repair-center-name" className="text-xs font-semibold flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5 text-rose-500" /> Centro de Reparo
+                </Label>
+                <Input
+                  id="repair-center-name"
+                  value={repairCenter.name}
+                  onChange={e => setRepairCenter(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Ex: 3198122 - SAMSUNG UNIDADE ARACAJU"
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="repair-center-address" className="text-xs font-semibold flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 text-rose-500" /> Endereço
+                </Label>
+                <Input
+                  id="repair-center-address"
+                  value={repairCenter.address}
+                  onChange={e => setRepairCenter(prev => ({ ...prev, address: e.target.value }))}
+                  placeholder="Ex: Travessa João Francisco da Silveira, 83 - Aracaju/SE"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="repair-center-phone" className="text-xs font-semibold flex items-center gap-1.5">
+                  <Phone className="h-3.5 w-3.5 text-rose-500" /> Telefone
+                </Label>
+                <Input
+                  id="repair-center-phone"
+                  value={repairCenter.phone}
+                  onChange={e => setRepairCenter(prev => ({ ...prev, phone: e.target.value }))}
+                  placeholder="Ex: (79) 3000-0000"
+                />
+              </div>
+            </div>
+            <Button onClick={handleSaveRepairCenter} disabled={savingRepairCenter} variant="outline" className="gap-2">
+              {savingRepairCenter ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Salvar Dados do Centro de Reparo
             </Button>
           </CardContent>
         </Card>

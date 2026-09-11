@@ -1,6 +1,9 @@
 import { supabase } from "@/lib/supabase";
-import type { TravelCostParams } from "@/lib/data";
+import type { TravelCostParams, PartCostParams, RepairCenterInfo } from "@/lib/data";
 import { DEFAULT_TRAVEL_COST_PARAMS } from "@/lib/travelCost";
+import { DEFAULT_PART_COST_PARAMS } from "@/lib/partCost";
+
+const DEFAULT_REPAIR_CENTER: RepairCenterInfo = { name: "", address: "", phone: "" };
 
 export const configService = {
   async getWebhookUrl(): Promise<string | null> {
@@ -133,6 +136,60 @@ export const configService = {
     const { error } = await supabase
       .from('configs')
       .upsert({ id: 'travel_cost', value: params });
+
+    if (error) throw error;
+  },
+
+  // Parâmetros da calculadora de custo de peça (margem padrão sobre o valor
+  // de custo). Mesmo padrão do travel_cost: sempre devolve objeto completo.
+  async getPartCostParams(): Promise<PartCostParams> {
+    try {
+      const { data, error } = await supabase
+        .from('configs')
+        .select('value')
+        .eq('id', 'part_cost')
+        .single();
+
+      if (!error && data?.value) {
+        return { ...DEFAULT_PART_COST_PARAMS, ...data.value };
+      }
+    } catch (e) {
+      console.warn("Could not fetch part cost params from Supabase", e);
+    }
+    return { ...DEFAULT_PART_COST_PARAMS };
+  },
+
+  async setPartCostParams(params: PartCostParams): Promise<void> {
+    const { error } = await supabase
+      .from('configs')
+      .upsert({ id: 'part_cost', value: params });
+
+    if (error) throw error;
+  },
+
+  // Dados do centro de reparo (nome/endereço/telefone), pré-preenchidos no
+  // cabeçalho do PDF de orçamento em vez de digitar toda vez.
+  async getRepairCenter(): Promise<RepairCenterInfo> {
+    try {
+      const { data, error } = await supabase
+        .from('configs')
+        .select('value')
+        .eq('id', 'repair_center')
+        .single();
+
+      if (!error && data?.value) {
+        return { ...DEFAULT_REPAIR_CENTER, ...data.value };
+      }
+    } catch (e) {
+      console.warn("Could not fetch repair center info from Supabase", e);
+    }
+    return { ...DEFAULT_REPAIR_CENTER };
+  },
+
+  async setRepairCenter(info: RepairCenterInfo): Promise<void> {
+    const { error } = await supabase
+      .from('configs')
+      .upsert({ id: 'repair_center', value: info });
 
     if (error) throw error;
   }
