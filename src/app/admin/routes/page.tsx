@@ -29,6 +29,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart, type Driver } from "@/lib/data";
 import { tagStopsWithZipMismatch } from "@/lib/geocode";
 import { optimizeRouteStopsAsync } from "@/lib/routeOptimizer";
+import { fetchLegDistancesAndDurations } from "@/lib/routeLegs";
+import { formatLegTempo } from "@/lib/emailExport";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -279,6 +281,40 @@ function RouteForm({
     const [driverId, setDriverId] = useState<string | undefined>("none");
     const [parsedStops, setParsedStops] = useState<RouteStop[]>([]);
     const [previewViewTab, setPreviewViewTab] = useState<'list' | 'map' | 'split'>('list');
+    const [legKm, setLegKm] = useState<number[]>([]);
+    const [legDurationMin, setLegDurationMin] = useState<number[]>([]);
+    const [legsLoading, setLegsLoading] = useState(false);
+
+    // Tempo/distância real (OSRM) entre cada parada, só calculado na aba
+    // "Lista + Mapa" (evita geocodificar tudo à toa quando não está em uso).
+    // Paradas realocadas não entram no cálculo — não fazem parte do trajeto.
+    useEffect(() => {
+        if (previewViewTab !== 'split') return;
+        const activeStops = parsedStops.filter(s => !s.isReallocated);
+        if (activeStops.length === 0) {
+            setLegKm([]);
+            setLegDurationMin([]);
+            return;
+        }
+        let cancelled = false;
+        setLegsLoading(true);
+        fetchLegDistancesAndDurations(activeStops, 'Aracaju')
+            .then(r => {
+                if (cancelled) return;
+                setLegKm(r.km);
+                setLegDurationMin(r.durationMin);
+            })
+            .catch(e => console.error("Falha ao calcular deslocamento entre paradas:", e))
+            .finally(() => { if (!cancelled) setLegsLoading(false); });
+        return () => { cancelled = true; };
+    }, [parsedStops, previewViewTab]);
+
+    // Índice de cada parada dentro de legKm/legDurationMin, ignorando as
+    // realocadas (que não fazem parte do trajeto calculado acima).
+    const activeIndexByStop = useMemo(() => {
+        let counter = -1;
+        return parsedStops.map(s => s.isReallocated ? -1 : ++counter);
+    }, [parsedStops]);
 
     const [expandedStops, setExpandedStops] = useState<Set<string>>(new Set());
     const toggleExpand = (so: string) => {
@@ -1034,10 +1070,23 @@ function RouteForm({
                                     : "border-l-blue-500";
 
                             const messageConfirmed = (stop.messageStatus ?? (stop.confirmedByMessage ? 'confirmed' : 'none')) === 'confirmed';
+                            const activeIdx = activeIndexByStop[index];
 
                             return (
+                                <React.Fragment key={stop.serviceOrder}>
+                                {previewViewTab === 'split' && activeIdx !== -1 && (
+                                    <div className="flex items-center gap-1 pl-3 py-0.5">
+                                        <span className="text-[9px] text-muted-foreground/50">↓</span>
+                                        {legsLoading ? (
+                                            <span className="text-[9px] text-muted-foreground animate-pulse">calculando deslocamento…</span>
+                                        ) : legKm[activeIdx] !== undefined ? (
+                                            <span className="text-[9px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                                                {formatLegTempo(legKm[activeIdx], legDurationMin[activeIdx]) || `${legKm[activeIdx].toFixed(1)} km`}
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                )}
                                 <div
-                                    key={stop.serviceOrder}
                                     onDragOver={(e) => { e.preventDefault(); if (dragOverIndex !== index) setDragOverIndex(index); }}
                                     onDrop={(e) => { e.preventDefault(); handleReorder(index); }}
                                     className={cn(
@@ -1357,6 +1406,7 @@ function RouteForm({
                                         </div>
                                     )}
                                 </div>
+                                </React.Fragment>
                             );
                         }) : (
                             <div className="h-24 flex items-center justify-center text-center text-sm text-muted-foreground">
