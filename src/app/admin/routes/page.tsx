@@ -285,12 +285,20 @@ function RouteForm({
     const [legDurationMin, setLegDurationMin] = useState<number[]>([]);
     const [legsLoading, setLegsLoading] = useState(false);
 
+    // Chave estável com só a ordem/localização das paradas (ignora turno,
+    // data, confirmações etc.) - evita recalcular o deslocamento (e piscar
+    // "calculando...") toda vez que o usuário só muda turno/data de uma parada.
+    const activeStops = useMemo(() => parsedStops.filter(s => !s.isReallocated), [parsedStops]);
+    const stopsGeoKey = useMemo(
+        () => activeStops.map(s => [s.serviceOrder, s.city, s.neighborhood, s.zipCode, s.addressDetails].join('|')).join(';'),
+        [activeStops]
+    );
+
     // Tempo/distância real (OSRM) entre cada parada, só calculado na aba
     // "Lista + Mapa" (evita geocodificar tudo à toa quando não está em uso).
     // Paradas realocadas não entram no cálculo — não fazem parte do trajeto.
     useEffect(() => {
         if (previewViewTab !== 'split') return;
-        const activeStops = parsedStops.filter(s => !s.isReallocated);
         if (activeStops.length === 0) {
             setLegKm([]);
             setLegDurationMin([]);
@@ -307,7 +315,8 @@ function RouteForm({
             .catch(e => console.error("Falha ao calcular deslocamento entre paradas:", e))
             .finally(() => { if (!cancelled) setLegsLoading(false); });
         return () => { cancelled = true; };
-    }, [parsedStops, previewViewTab]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stopsGeoKey, previewViewTab]);
 
     // Índice de cada parada dentro de legKm/legDurationMin, ignorando as
     // realocadas (que não fazem parte do trajeto calculado acima).
