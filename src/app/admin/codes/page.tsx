@@ -26,7 +26,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, FileText, Wifi, WifiOff, Edit, Trash2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { PlusCircle, FileText, Wifi, WifiOff, Edit, Trash2, Download } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { 
@@ -44,7 +45,11 @@ type CodeCategory = { "TV/AV": CodeItem[]; "DA": CodeItem[]; };
 
 function CodesTable({ data, onEdit, onDelete, isLoading }: { data: { code: string; description: string }[], onEdit: (item: any) => void, onDelete: (item: any) => void, isLoading: boolean }) {
     if (isLoading) {
-      return <div className="text-center p-4">Carregando códigos...</div>
+      return (
+        <div className="space-y-2 py-1">
+          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-11 w-full rounded-md" />)}
+        </div>
+      );
     }
     return (
         <Table>
@@ -282,50 +287,57 @@ export default function CodesPage() {
               const worksheet = workbook.Sheets[sheetName];
               const json = XLSX.utils.sheet_to_json<{ tipo: string, categoria: string, codigo: any, descricao: string }>(worksheet);
 
+              // Copia rasa é suficiente pro top-level, mas as listas por categoria
+              // são reatribuídas (nunca .push direto) pra não mutar o estado atual
+              // enquanto ele ainda está em uso (ex: pra achar o item existente).
               const newSymptoms = { ...symptoms };
               const newRepairs = { ...repairs };
               let importedCount = 0;
+              let updatedCount = 0;
               let skippedCount = 0;
 
               const itemsToInsert: { code: string; description: string; type: string; category: string }[] = [];
+              const itemsToUpdate: { code: string; description: string; type: string; category: string }[] = [];
 
               json.forEach(row => {
                   const { tipo, categoria, codigo, descricao } = row;
                   if (!tipo || !categoria || !codigo || !descricao) return;
 
                   const code = String(codigo);
-                  const item = { code, description: descricao };
                   const targetCategory = categoria.toUpperCase() as keyof CodeCategory;
+                  if (!['TV/AV', 'DA'].includes(targetCategory)) return;
 
-                  if (['TV/AV', 'DA'].includes(targetCategory)) {
-                      if (tipo.toLowerCase() === 'sintoma') {
-                          if (!newSymptoms[targetCategory].some(c => c.code === code)) {
-                             newSymptoms[targetCategory].push(item);
-                             itemsToInsert.push({ code, description: descricao, type: 'symptom', category: targetCategory });
-                             importedCount++;
-                          } else {
-                            skippedCount++;
-                          }
-                      } else if (tipo.toLowerCase() === 'reparo') {
-                          if (!newRepairs[targetCategory].some(c => c.code === code)) {
-                              newRepairs[targetCategory].push(item);
-                              itemsToInsert.push({ code, description: descricao, type: 'repair', category: targetCategory });
-                              importedCount++;
-                          } else {
-                            skippedCount++;
-                          }
-                      }
+                  const normalizedTipo = tipo.toLowerCase();
+                  if (normalizedTipo !== 'sintoma' && normalizedTipo !== 'reparo') return;
+
+                  const isSymptom = normalizedTipo === 'sintoma';
+                  const bucket = isSymptom ? newSymptoms : newRepairs;
+                  const existing = bucket[targetCategory].find(c => c.code === code);
+
+                  if (!existing) {
+                      bucket[targetCategory] = [...bucket[targetCategory], { code, description: descricao }];
+                      itemsToInsert.push({ code, description: descricao, type: isSymptom ? 'symptom' : 'repair', category: targetCategory });
+                      importedCount++;
+                  } else if (existing.description !== descricao) {
+                      // Já existe, mas a descrição mudou na planilha - atualiza em vez de ignorar
+                      // (era isso que fazia o reimport depois de editar em planilha não fazer nada).
+                      bucket[targetCategory] = bucket[targetCategory].map(c => c.code === code ? { ...c, description: descricao } : c);
+                      itemsToUpdate.push({ code, description: descricao, type: isSymptom ? 'symptom' : 'repair', category: targetCategory });
+                      updatedCount++;
+                  } else {
+                      skippedCount++;
                   }
               });
-              
+
               await codeService.insertMany(itemsToInsert);
+              await Promise.all(itemsToUpdate.map(item => codeService.update(item.code, item.type, item.category, item)));
 
               setSymptoms(newSymptoms);
               setRepairs(newRepairs);
 
               toast({
                   title: "Importação Concluída",
-                  description: `${importedCount} novos códigos importados. ${skippedCount} duplicados foram ignorados.`,
+                  description: `${importedCount} novos, ${updatedCount} atualizados, ${skippedCount} sem alteração.`,
               });
 
           } catch (error) {
@@ -346,12 +358,36 @@ export default function CodesPage() {
       reader.readAsArrayBuffer(file);
   };
 
+  // Exporta no MESMO formato aceito pelo import (colunas tipo/categoria/codigo/descricao),
+  // pra dar pra editar em planilha e reimportar direto.
+  const handleExport = () => {
+    const rows: { tipo: string; categoria: string; codigo: string; descricao: string }[] = [];
+    (['TV/AV', 'DA'] as const).forEach(cat => {
+      symptoms[cat].forEach(item => rows.push({ tipo: 'sintoma', categoria: cat, codigo: item.code, descricao: item.description }));
+      repairs[cat].forEach(item => rows.push({ tipo: 'reparo', categoria: cat, codigo: item.code, descricao: item.description }));
+    });
+
+    if (rows.length === 0) {
+      toast({ title: "Nenhum código para exportar" });
+      return;
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Codigos");
+    const dateStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+    XLSX.writeFile(workbook, `codigos-smartos-${dateStr}.xlsx`);
+  };
+
   return (
     <>
       <div className="flex flex-col gap-6 p-4 sm:p-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Gerenciar Códigos</h1>
           <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={handleExport}>
+                <Download className="mr-2 h-4 w-4" /> Exportar Planilha
+              </Button>
               <ImportDialog onImport={handleFileImport} isSubmitting={isSubmitting} />
               <Button onClick={handleOpenAddDialog}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Cadastrar Código
