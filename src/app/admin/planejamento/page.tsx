@@ -1274,7 +1274,7 @@ export default function PlanejamentoPage() {
 
         {/* ── Week Stats Bar ── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="rounded-xl border border-border/60 bg-card p-3.5 flex items-center gap-3 shadow-sm">
+          <div className="rounded-xl border border-border/60 bg-card p-3.5 flex items-center gap-3 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
             <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
               <MapPin className="h-4.5 w-4.5 text-primary" />
             </div>
@@ -1283,7 +1283,7 @@ export default function PlanejamentoPage() {
               <p className="text-[11px] text-muted-foreground mt-0.5">Rotas na semana</p>
             </div>
           </div>
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 dark:bg-emerald-950/20 dark:border-emerald-900/50 p-3.5 flex items-center gap-3 shadow-sm">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 dark:bg-emerald-950/20 dark:border-emerald-900/50 p-3.5 flex items-center gap-3 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
             <div className="h-9 w-9 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0">
               <CheckCircle2 className="h-4.5 w-4.5 text-emerald-600" />
             </div>
@@ -1292,7 +1292,7 @@ export default function PlanejamentoPage() {
               <p className="text-[11px] text-emerald-600/80 dark:text-emerald-500 mt-0.5">Publicadas</p>
             </div>
           </div>
-          <div className="rounded-xl border border-amber-200 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-900/50 p-3.5 flex items-center gap-3 shadow-sm">
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-900/50 p-3.5 flex items-center gap-3 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
             <div className="h-9 w-9 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
               <Edit className="h-4.5 w-4.5 text-amber-600" />
             </div>
@@ -1301,7 +1301,7 @@ export default function PlanejamentoPage() {
               <p className="text-[11px] text-amber-600/80 dark:text-amber-500 mt-0.5">Rascunhos</p>
             </div>
           </div>
-          <div className="rounded-xl border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 dark:border-blue-900/50 p-3.5 flex items-center gap-3 shadow-sm">
+          <div className="rounded-xl border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 dark:border-blue-900/50 p-3.5 flex items-center gap-3 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
             <div className="h-9 w-9 rounded-lg bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center shrink-0">
               <Users className="h-4.5 w-4.5 text-blue-600" />
             </div>
@@ -1624,14 +1624,14 @@ export default function PlanejamentoPage() {
                               key={route.id}
                               onClick={() => setSelectedRoute(isSelected ? null : route)}
                               className={cn(
-                                "rounded-lg border-2 border-l-4 cursor-pointer transition-all duration-150 p-2 text-xs overflow-hidden",
+                                "rounded-xl border-2 border-l-4 cursor-pointer transition-all duration-200 p-2 text-xs overflow-hidden",
                                 dayInfo.isEndDay
                                   ? "border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40"
                                   : "border-l-blue-500 bg-blue-50/40 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900/40",
                                 isFinalized && "grayscale opacity-80",
                                 isSelected
                                   ? "ring-2 ring-violet-500 border-violet-500 shadow-md bg-violet-500/15"
-                                  : "hover:border-primary/40 hover:shadow-xs"
+                                  : "hover:border-primary/40 hover:shadow-md hover:-translate-y-0.5"
                               )}
                             >
                               <div className="flex items-center justify-between gap-1 mb-1">
@@ -1679,12 +1679,12 @@ export default function PlanejamentoPage() {
                             key={route.id}
                             onClick={() => setSelectedRoute(isSelected ? null : route)}
                             className={cn(
-                              "rounded-lg border border-l-4 cursor-pointer transition-all duration-150 overflow-hidden",
+                              "rounded-xl border border-l-4 cursor-pointer transition-all duration-200 overflow-hidden",
                               borderColor,
                               isFinalized && "grayscale opacity-80",
                               isSelected
                                 ? "bg-violet-500/15 border-violet-500 shadow-md ring-2 ring-violet-500/50"
-                                : "bg-card hover:shadow-sm hover:border-primary/20 border-border/40"
+                                : "bg-card hover:shadow-md hover:-translate-y-0.5 hover:border-primary/20 border-border/40"
                             )}
                           >
                             <div className="px-2.5 pt-2 pb-2">
@@ -1757,7 +1757,7 @@ export default function PlanejamentoPage() {
                                 <div className="flex gap-1" onClick={e => e.stopPropagation()}>
                                 {route.isDraft ? (
                                   <button
-                                    className="flex-1 h-6 text-[9px] font-semibold rounded bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center gap-0.5 transition-colors"
+                                    className="flex-1 h-6 text-[9px] font-semibold rounded-md bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center gap-0.5 transition-all active:scale-95"
                                     title="Continuar o assistente de criação (otimizar, confirmar turnos/datas, e-mail, publicar)"
                                     onClick={() => { setWizardInitialRoute(route); setIsWizardOpen(true); }}
                                   >
@@ -1765,7 +1765,7 @@ export default function PlanejamentoPage() {
                                   </button>
                                 ) : (
                                   <button
-                                    className="flex-1 h-6 text-[9px] font-semibold rounded border border-violet-200 text-violet-700 hover:bg-violet-50 dark:border-violet-800 dark:text-violet-400 flex items-center justify-center gap-0.5 transition-colors"
+                                    className="flex-1 h-6 text-[9px] font-semibold rounded-md border border-violet-200 text-violet-700 hover:bg-violet-50 dark:border-violet-800 dark:text-violet-400 flex items-center justify-center gap-0.5 transition-all active:scale-95"
                                     title="IA Otimizar"
                                     disabled={isOptimizing}
                                     onClick={() => handleOpenOptimize(route)}
@@ -1774,13 +1774,13 @@ export default function PlanejamentoPage() {
                                   </button>
                                 )}
                                 <button
-                                  className="flex-1 h-6 text-[9px] font-semibold rounded border border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 flex items-center justify-center gap-0.5 transition-colors"
+                                  className="flex-1 h-6 text-[9px] font-semibold rounded-md border border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 flex items-center justify-center gap-0.5 transition-all active:scale-95"
                                   onClick={() => handleOpenEdit(route)}
                                 >
                                   <Edit className="h-2.5 w-2.5" /> Edit
                                 </button>
                                 <button
-                                  className="h-6 w-6 rounded border border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400 flex items-center justify-center transition-colors"
+                                  className="h-6 w-6 rounded-md border border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400 flex items-center justify-center transition-all active:scale-95"
                                   title="Duplicar"
                                   disabled={isDuplicating === route.id}
                                   onClick={() => handleDuplicateRoute(route)}
@@ -1789,7 +1789,7 @@ export default function PlanejamentoPage() {
                                 </button>
                                 {!route.isActive && (
                                   <button
-                                    className="h-6 w-6 rounded border border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 flex items-center justify-center transition-colors"
+                                    className="h-6 w-6 rounded-md border border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 flex items-center justify-center transition-all active:scale-95"
                                     onClick={() => { setRouteToDelete(route); setIsDeleteOpen(true); }}
                                   >
                                     <Trash2 className="h-2.5 w-2.5" />

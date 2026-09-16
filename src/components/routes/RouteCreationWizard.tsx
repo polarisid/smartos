@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
+import { format, getISOWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
@@ -83,6 +83,9 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
   const [baseAddress, setBaseAddress] = useState("Aracaju");
 
   // ── Passo 1: rascunho ──
+  // Semana ISO atual (ex: "W27") - só é inserida no nome se a pessoa clicar no botão,
+  // nunca preenchida sozinha (o nome pode ser de uma rota de outra semana).
+  const currentWeekLabel = `W${String(getISOWeek(new Date())).padStart(2, "0")}`;
   const [name, setName] = useState("");
   const [routeType, setRouteType] = useState<"capital" | "interior">("capital");
   const [plannedDate, setPlannedDate] = useState<Date | undefined>(undefined);
@@ -655,7 +658,18 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
                     <div className="space-y-4">
                       <div className="space-y-1.5">
                         <Label>Nome da Rota *</Label>
-                        <Input placeholder="Ex: W31 - ROTA CAPITAL - PEDRO" value={name} onChange={e => setName(e.target.value)} />
+                        <div className="flex gap-2">
+                          <Input placeholder="Ex: W31 - ROTA CAPITAL - PEDRO" value={name} onChange={e => setName(e.target.value)} className="flex-1" />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="shrink-0 font-mono font-bold"
+                            title={`Inserir semana atual (${currentWeekLabel}) no início do nome`}
+                            onClick={() => setName(prev => `${currentWeekLabel} - ${prev.replace(/^W\d+\s*-\s*/i, "")}`)}
+                          >
+                            {currentWeekLabel}
+                          </Button>
+                        </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5">
@@ -856,6 +870,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
                                   isMoved={isMoved}
                                   posDiff={posDiff}
                                   segKm={propKm[i]}
+                                  segDurationMin={legDurationMin[i]}
                                   segsLoading={isOptimizing || isLoadingLegs}
                                   isHovered={hoveredStopId === stop.serviceOrder}
                                   onHover={setHoveredStopId}
@@ -922,23 +937,52 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
                     </div>
 
                     <div className="max-w-3xl space-y-1">
-                      {stops.map((stop, i) => (
-                        <StopSummaryCard
-                          key={stop.serviceOrder}
-                          stop={stop}
-                          position={i + 1}
-                          legKm={legKm[i]}
-                          legDurationMin={legDurationMin[i]}
-                          legsLoading={legsLoading}
-                          onSetTurn={(turn) => handleSetTurn(i, turn)}
-                          onSetVisitDate={(date) => handleSetVisitDate(i, date)}
-                          onToggleCall={() => handleToggleCall(i)}
-                          onToggleMessage={() => handleToggleMessage(i)}
-                          lastVisit={lastVisitByOs.get(stop.serviceOrder) || null}
-                          lastVisitTechnicianName={technicians.find(t => t.id === lastVisitByOs.get(stop.serviceOrder)?.technicianId)?.name}
-                          lastVisitTotal={visitCountByOs.get(stop.serviceOrder) || 1}
-                        />
-                      ))}
+                      {(() => {
+                        // Marca onde cada dia começa (mesma "Data da visita") pra fechar um
+                        // traço de resumo (OS + km rodado) sempre que o dia muda ou acaba.
+                        let dayStartIndex = 0;
+                        return stops.map((stop, i) => {
+                          const nextStop = stops[i + 1];
+                          const dayEnds = !nextStop || (nextStop.firstVisitDate || "") !== (stop.firstVisitDate || "");
+                          let daySummary: { label: string; osCount: number; km: number } | null = null;
+                          if (dayEnds) {
+                            const km = legKm.slice(dayStartIndex, i + 1).reduce((a, b) => (b !== undefined ? a + b : a), 0);
+                            daySummary = {
+                              label: stop.firstVisitDate?.trim() || "Sem data definida",
+                              osCount: i - dayStartIndex + 1,
+                              km,
+                            };
+                            dayStartIndex = i + 1;
+                          }
+                          return (
+                            <Fragment key={stop.serviceOrder}>
+                              <StopSummaryCard
+                                stop={stop}
+                                position={i + 1}
+                                legKm={legKm[i]}
+                                legDurationMin={legDurationMin[i]}
+                                legsLoading={legsLoading}
+                                onSetTurn={(turn) => handleSetTurn(i, turn)}
+                                onSetVisitDate={(date) => handleSetVisitDate(i, date)}
+                                onToggleCall={() => handleToggleCall(i)}
+                                onToggleMessage={() => handleToggleMessage(i)}
+                                lastVisit={lastVisitByOs.get(stop.serviceOrder) || null}
+                                lastVisitTechnicianName={technicians.find(t => t.id === lastVisitByOs.get(stop.serviceOrder)?.technicianId)?.name}
+                                lastVisitTotal={visitCountByOs.get(stop.serviceOrder) || 1}
+                              />
+                              {daySummary && !legsLoading && (
+                                <div className="flex items-center gap-2 my-2.5">
+                                  <div className="flex-1 h-px bg-border" />
+                                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide bg-muted px-2.5 py-1 rounded-full whitespace-nowrap">
+                                    {daySummary.label} · {daySummary.osCount} OS · {daySummary.km.toFixed(1)} km
+                                  </span>
+                                  <div className="flex-1 h-px bg-border" />
+                                </div>
+                              )}
+                            </Fragment>
+                          );
+                        });
+                      })()}
 
                       {/* Trecho final: retorno à base, fecha o circuito da rota */}
                       {stops.length > 0 && (

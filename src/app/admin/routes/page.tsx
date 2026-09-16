@@ -38,7 +38,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { cn } from "@/lib/utils";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { format, isAfter, subDays } from "date-fns";
+import { format, isAfter, subDays, getISOWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -48,7 +48,6 @@ import { triggerWebhook } from "@/lib/webhook";
 import { RouteCreationWizard } from "@/components/routes/RouteCreationWizard";
 import { RouteSplitPlannerWizard } from "@/components/routes/RouteSplitPlannerWizard";
 import { Wand2 } from "lucide-react";
-import * as XLSX from 'xlsx';
 import dynamic from "next/dynamic";
 import { Clock, Map as MapIcon, List, History } from "lucide-react";
 import { GripVertical } from "lucide-react";
@@ -272,6 +271,8 @@ function RouteForm({
     serviceOrders?: ServiceOrder[]
 }) {
     const { toast } = useToast();
+    // Semana ISO atual (ex: "W27") - só entra no nome se a pessoa clicar no botão ao lado do campo.
+    const currentWeekLabel = `W${String(getISOWeek(new Date())).padStart(2, "0")}`;
     const [routeName, setRouteName] = useState("");
     const [routeText, setRouteText] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -296,11 +297,12 @@ function RouteForm({
         [activeStops]
     );
 
-    // Tempo/distância real (OSRM) entre cada parada, só calculado na aba
-    // "Lista + Mapa" (evita geocodificar tudo à toa quando não está em uso).
+    // Tempo/distância real (OSRM) entre cada parada - usado tanto pelo selo de
+    // deslocamento (aba "Lista + Mapa") quanto pelo traço de resumo por dia
+    // (Lista). Só não calcula na aba "Mapa" sozinha, onde a lista nem aparece.
     // Paradas realocadas não entram no cálculo — não fazem parte do trajeto.
     useEffect(() => {
-        if (previewViewTab !== 'split') return;
+        if (previewViewTab === 'map') return;
         if (activeStops.length === 0) {
             setLegKm([]);
             setLegDurationMin([]);
@@ -326,6 +328,27 @@ function RouteForm({
         let counter = -1;
         return parsedStops.map(s => s.isReallocated ? -1 : ++counter);
     }, [parsedStops]);
+
+    // Traço de resumo (OS + km) exibido depois da última parada de cada dia -
+    // agrupa por "Data da visita" (mesma lógica usada no assistente de Nova Rota).
+    const daySummaryByServiceOrder = useMemo(() => {
+        const map = new Map<string, { label: string; osCount: number; km: number }>();
+        let dayStart = 0;
+        activeStops.forEach((stop, i) => {
+            const next = activeStops[i + 1];
+            const dayEnds = !next || (next.firstVisitDate || "") !== (stop.firstVisitDate || "");
+            if (dayEnds) {
+                const km = legKm.slice(dayStart, i + 1).reduce((a, b) => (b !== undefined ? a + b : a), 0);
+                map.set(stop.serviceOrder, {
+                    label: stop.firstVisitDate?.trim() || "Sem data definida",
+                    osCount: i - dayStart + 1,
+                    km,
+                });
+                dayStart = i + 1;
+            }
+        });
+        return map;
+    }, [activeStops, legKm]);
 
     const [expandedStops, setExpandedStops] = useState<Set<string>>(new Set());
     const toggleExpand = (so: string) => {
@@ -861,12 +884,24 @@ function RouteForm({
                     <div className="space-y-4">
                         <div className="space-y-2">
                             <Label htmlFor="route-name">Nome da Rota</Label>
-                            <Input
-                                id="route-name"
-                                value={routeName}
-                                onChange={(e) => setRouteName(e.target.value)}
-                                placeholder="Ex: Rota de Segunda-feira"
-                            />
+                            <div className="flex gap-2">
+                                <Input
+                                    id="route-name"
+                                    value={routeName}
+                                    onChange={(e) => setRouteName(e.target.value)}
+                                    placeholder="Ex: Rota de Segunda-feira"
+                                    className="flex-1"
+                                />
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="shrink-0 font-mono font-bold"
+                                    title={`Inserir semana atual (${currentWeekLabel}) no início do nome`}
+                                    onClick={() => setRouteName(prev => `${currentWeekLabel} - ${prev.replace(/^W\d+\s*-\s*/i, "")}`)}
+                                >
+                                    {currentWeekLabel}
+                                </Button>
+                            </div>
                         </div>
 
                         <div className="space-y-2">
@@ -1417,6 +1452,21 @@ function RouteForm({
                                         </div>
                                     )}
                                 </div>
+                                {(() => {
+                                    const daySummary = daySummaryByServiceOrder.get(stop.serviceOrder);
+                                    if (!daySummary) return null;
+                                    return (
+                                        <div className="flex items-center gap-2 my-2">
+                                            <div className="flex-1 h-px bg-border" />
+                                            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide bg-muted px-2.5 py-1 rounded-full whitespace-nowrap">
+                                                {legsLoading
+                                                    ? "calculando…"
+                                                    : `${daySummary.label} · ${daySummary.osCount} OS · ${daySummary.km.toFixed(1)} km`}
+                                            </span>
+                                            <div className="flex-1 h-px bg-border" />
+                                        </div>
+                                    );
+                                })()}
                                 </React.Fragment>
                             );
                         }) : (
@@ -1672,11 +1722,16 @@ function RouteForm({
 
 function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop: RouteStop, index: number, serviceOrders: ServiceOrder[], routeCreatedAt: string | Date }) {
     const createdAtDate = new Date(routeCreatedAt);
-    const relatedOsList = serviceOrders.filter(os => 
-        os.serviceOrderNumber === stop.serviceOrder && 
+    const relatedOsList = serviceOrders.filter(os =>
+        os.serviceOrderNumber === stop.serviceOrder &&
         isAfter(os.date, createdAtDate)
     );
-    const relatedOs = relatedOsList.length > 0 ? relatedOsList[relatedOsList.length - 1] : null;
+    // serviceOrders vem ordenado por data DESCENDENTE (mais recente primeiro) - por isso
+    // ordenamos explicitamente aqui em vez de confiar na ordem do array pra achar a OS mais
+    // recente (pegar o "último" item de um array descendente pegava a mais ANTIGA).
+    const relatedOs = relatedOsList.length > 0
+        ? [...relatedOsList].sort((a, b) => b.date.getTime() - a.date.getTime())[0]
+        : null;
 
     const isPending = relatedOs && (relatedOs.isFinalized === false);
     const isCompleted = relatedOs && (relatedOs.isFinalized !== false);
@@ -1868,7 +1923,11 @@ export default function RoutesPage() {
                 os.serviceOrderNumber === stop.serviceOrder &&
                 isAfter(os.date, routeCreatedAt)
             );
-            const lastOs = relatedOsList.length > 0 ? relatedOsList[relatedOsList.length - 1] : null;
+            // Idem: pega a OS mais recente por data, não o "último" do array (que vem
+            // ordenado por data descendente - o último item é o mais antigo).
+            const lastOs = relatedOsList.length > 0
+                ? [...relatedOsList].sort((a, b) => b.date.getTime() - a.date.getTime())[0]
+                : null;
 
             let status: 'completed' | 'pending' | 'todo' = 'todo';
             if (lastOs) {
@@ -2016,6 +2075,18 @@ export default function RoutesPage() {
         }
     };
 
+    // Escapa texto pra dentro do XML SpreadsheetML (mesmo helper usado no export do Planejamento).
+    const escapeXmlForExport = (str: string | number | undefined | null) => {
+        if (str === undefined || str === null) return "";
+        return String(str)
+            .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+    };
+
     const handleExportActiveRoutes = () => {
         const activeRoutesToExport = activeRoutes.filter((route: Route) => route.isActive);
         if (activeRoutesToExport.length === 0) {
@@ -2023,7 +2094,14 @@ export default function RoutesPage() {
             return;
         }
 
-        const reportData: any[] = [];
+        const HEADERS = [
+            "OS Nro.", "Nome da Rota", "Data de Saída", "Técnico", "Motorista", "ASC Job No.",
+            "Nome Consumidor", "Cidade", "Bairro", "Modelo", "Tipo de Parada",
+            "Data Planejada", "Status da OS", "Motivo Pendência",
+        ];
+
+        type ReportRow = { values: (string | number)[]; status: 'A Fazer' | 'Pendente' | 'Finalizada' };
+        const rows: ReportRow[] = [];
 
         activeRoutesToExport.forEach((route: Route) => {
             const routeName = route.name;
@@ -2038,9 +2116,15 @@ export default function RoutesPage() {
                     os.serviceOrderNumber === stop.serviceOrder &&
                     isAfter(os.date, routeCreatedAt)
                 );
-                const lastOs = relatedOsList.length > 0 ? relatedOsList[relatedOsList.length - 1] : null;
+                // Idem: pega a OS mais recente por data, não o "último" do array (que vem
+                // ordenado por data descendente - o último item é o mais antigo, de rotas
+                // antigas). Isso causava o relatório mostrar pendências/status de visitas
+                // passadas em vez do atendimento mais recente daquele número de OS.
+                const lastOs = relatedOsList.length > 0
+                    ? [...relatedOsList].sort((a, b) => b.date.getTime() - a.date.getTime())[0]
+                    : null;
 
-                let osStatus: string;
+                let osStatus: ReportRow['status'];
                 if (!lastOs) {
                     osStatus = 'A Fazer';
                 } else if (lastOs.isFinalized === false) {
@@ -2051,36 +2135,130 @@ export default function RoutesPage() {
 
                 const numericOS = /^\d+$/.test(stop.serviceOrder) ? Number(stop.serviceOrder) : stop.serviceOrder;
 
-                reportData.push({
-                    "OS Nro.": numericOS,
-                    "Nome da Rota": routeName,
-                    "Data de Saída": departure,
-                    "Técnico": technician,
-                    "Motorista": driver,
-                    "ASC Job No.": stop.ascJobNumber || '',
-                    "Nome Consumidor": stop.consumerName || '',
-                    "Cidade": stop.city || '',
-                    "Bairro": stop.neighborhood || '',
-                    "Modelo": stop.model || '',
-                    "Tipo de Parada": stop.stopType === 'coleta' ? `Coleta (${stop.collectionType || ''})` : stop.stopType === 'entrega' ? 'Entrega' : 'Padrão',
-                    "Status da OS": osStatus,
-                    "Motivo Pendência": osStatus === 'Pendente' 
-                        ? [lastOs?.pendingReason, lastOs?.observations].filter(Boolean).join(' - ') || (stop.statusComment || '')
-                        : '',
+                rows.push({
+                    status: osStatus,
+                    values: [
+                        numericOS,
+                        routeName,
+                        departure,
+                        technician,
+                        driver,
+                        stop.ascJobNumber || '',
+                        stop.consumerName || '',
+                        stop.city || '',
+                        stop.neighborhood || '',
+                        stop.model || '',
+                        stop.stopType === 'coleta' ? `Coleta (${stop.collectionType || ''})` : stop.stopType === 'entrega' ? 'Entrega' : 'Padrão',
+                        stop.firstVisitDate || '',
+                        osStatus,
+                        osStatus === 'Pendente'
+                            ? [lastOs?.pendingReason, lastOs?.observations].filter(Boolean).join(' - ') || (stop.statusComment || '')
+                            : '',
+                    ],
                 });
             });
         });
 
-        if (reportData.length === 0) {
+        if (rows.length === 0) {
             toast({ title: "Atenção", description: "As rotas ativas não possuem ordens de serviço." });
             return;
         }
 
-        const worksheet = XLSX.utils.json_to_sheet(reportData);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Ordens em Rotas Ativas");
-        
-        XLSX.writeFile(workbook, `relatorio-rotas-ativas-${format(new Date(), 'dd-MM-yyyy')}.xlsx`);
+        // Formato SpreadsheetML (mesmo usado no export do Planejamento) - o pacote `xlsx`
+        // (build community) não escreve cor de célula, então geramos o XML na mão pra poder
+        // colorir a linha inteira por status (verde = finalizada, vermelho = pendente).
+        const styleIdByStatus: Record<ReportRow['status'], string> = {
+            'Finalizada': 'RowFinalizada',
+            'Pendente': 'RowPendente',
+            'A Fazer': 'DataCell',
+        };
+
+        let rowsXml = `   <Row ss:Height="22">\n`;
+        HEADERS.forEach(h => {
+            rowsXml += `    <Cell ss:StyleID="Header"><Data ss:Type="String">${escapeXmlForExport(h)}</Data></Cell>\n`;
+        });
+        rowsXml += `   </Row>\n`;
+
+        rows.forEach(row => {
+            const styleId = styleIdByStatus[row.status];
+            rowsXml += `   <Row ss:Height="19">\n`;
+            row.values.forEach(val => {
+                const isNumeric = typeof val === 'number';
+                rowsXml += `    <Cell ss:StyleID="${styleId}"><Data ss:Type="${isNumeric ? 'Number' : 'String'}">${escapeXmlForExport(val)}</Data></Cell>\n`;
+            });
+            rowsXml += `   </Row>\n`;
+        });
+
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#000000"/>
+  </Style>
+  <Style ss:ID="Header">
+   <Alignment ss:Vertical="Center" ss:Horizontal="Left"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#000000"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#FFFFFF" ss:Bold="1"/>
+   <Interior ss:Color="#000000" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="DataCell">
+   <Alignment ss:Vertical="Center" ss:Horizontal="Left"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#000000"/>
+  </Style>
+  <Style ss:ID="RowFinalizada">
+   <Alignment ss:Vertical="Center" ss:Horizontal="Left"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#006100"/>
+   <Interior ss:Color="#C6EFCE" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="RowPendente">
+   <Alignment ss:Vertical="Center" ss:Horizontal="Left"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#9C0006"/>
+   <Interior ss:Color="#FFC7CE" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="Ordens em Rotas Ativas">
+  <Table>
+${rowsXml}  </Table>
+ </Worksheet>
+</Workbook>`;
+
+        const blob = new Blob([xml], { type: 'application/vnd.ms-excel' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `relatorio-rotas-ativas-${format(new Date(), 'dd-MM-yyyy')}.xls`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     };
 
 

@@ -3,6 +3,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, ArrowUp, ArrowDown, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { RouteStop, ServiceOrder } from "@/lib/data";
+import { formatLegTempo } from "@/lib/emailExport";
 import { StopTurnControls } from "./StopTurnControls";
 import { LastVisitBadge } from "./LastVisitBadge";
 
@@ -17,6 +18,7 @@ export function SortableStopCard({
   isMoved,
   posDiff,
   segKm,
+  segDurationMin,
   segsLoading,
   isHovered,
   onHover,
@@ -34,6 +36,7 @@ export function SortableStopCard({
   isMoved: boolean;
   posDiff: number;
   segKm?: number;
+  segDurationMin?: number;
   segsLoading: boolean;
   isHovered: boolean;
   onHover: (id: string | null) => void;
@@ -57,7 +60,7 @@ export function SortableStopCard({
           <span className="text-[9px] text-muted-foreground animate-pulse px-1.5">atualizando…</span>
         ) : segKm !== undefined ? (
           <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-            {segKm.toFixed(1)} km
+            {formatLegTempo(segKm, segDurationMin) || `${segKm.toFixed(1)} km`}
           </span>
         ) : null}
       </div>
