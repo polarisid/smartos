@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 import { checklistService } from '@/services/supabase/checklistService';
 import { type ChecklistTemplate, type ChecklistField, type RouteStop } from '@/lib/data';
-import { ArrowLeft, PlusCircle, Trash2, Save, Move, TestTube2, Link as LinkIcon, ScanLine } from 'lucide-react';
+import { ArrowLeft, PlusCircle, Trash2, Save, Move, TestTube2, Link as LinkIcon, ScanLine, Loader2 } from 'lucide-react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
@@ -367,7 +367,12 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
     };
 
 
-    if (isLoading) return <div className="p-6 text-center">Carregando editor...</div>;
+    if (isLoading) return (
+        <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 text-muted-foreground">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            <p className="text-sm font-medium">Carregando editor...</p>
+        </div>
+    );
     if (!template) return null;
     
     const pdfUrl = template.pdfUrl.startsWith('http') ? template.pdfUrl : `${window.location.origin}${template.pdfUrl}`;
