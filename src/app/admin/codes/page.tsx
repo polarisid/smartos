@@ -329,8 +329,31 @@ export default function CodesPage() {
                   }
               });
 
-              await codeService.insertMany(itemsToInsert);
-              await Promise.all(itemsToUpdate.map(item => codeService.update(item.code, item.type, item.category, item)));
+              // Insere e atualiza separado do parsing da planilha, com sua própria
+              // mensagem de erro - assim uma falha ao salvar no banco não aparece
+              // como se fosse um problema no formato do arquivo (eram coisas
+              // diferentes mostrando a mesma mensagem genérica).
+              try {
+                  await codeService.insertMany(itemsToInsert);
+              } catch (insertError: any) {
+                  console.error("Erro ao inserir novos códigos:", insertError);
+                  toast({
+                      variant: "destructive",
+                      title: "Erro ao salvar novos códigos",
+                      description: insertError?.message || String(insertError),
+                  });
+              }
+
+              try {
+                  await Promise.all(itemsToUpdate.map(item => codeService.update(item.code, item.type, item.category, item)));
+              } catch (updateError: any) {
+                  console.error("Erro ao atualizar códigos:", updateError);
+                  toast({
+                      variant: "destructive",
+                      title: "Erro ao atualizar códigos existentes",
+                      description: updateError?.message || String(updateError),
+                  });
+              }
 
               setSymptoms(newSymptoms);
               setRepairs(newRepairs);
@@ -340,12 +363,12 @@ export default function CodesPage() {
                   description: `${importedCount} novos, ${updatedCount} atualizados, ${skippedCount} sem alteração.`,
               });
 
-          } catch (error) {
+          } catch (error: any) {
               console.error("Error importing file:", error);
               toast({
                   variant: "destructive",
                   title: "Erro na Importação",
-                  description: "Verifique o formato do arquivo e se as colunas 'tipo', 'categoria', 'codigo', 'descricao' estão corretas.",
+                  description: error?.message || "Verifique o formato do arquivo e se as colunas 'tipo', 'categoria', 'codigo', 'descricao' estão corretas.",
               });
           } finally {
             setIsSubmitting(false);
