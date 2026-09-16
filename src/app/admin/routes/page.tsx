@@ -46,6 +46,8 @@ import React from "react";
 import { Progress } from "@/components/ui/progress";
 import { triggerWebhook } from "@/lib/webhook";
 import { RouteCreationWizard } from "@/components/routes/RouteCreationWizard";
+import { RouteSplitPlannerWizard } from "@/components/routes/RouteSplitPlannerWizard";
+import { Wand2 } from "lucide-react";
 import * as XLSX from 'xlsx';
 import dynamic from "next/dynamic";
 import { Clock, Map as MapIcon, List, History } from "lucide-react";
@@ -1853,6 +1855,7 @@ export default function RoutesPage() {
     const [selectedRouteForEdit, setSelectedRouteForEdit] = useState<Route | null>(null);
     const [isWizardOpen, setIsWizardOpen] = useState(false);
     const [wizardInitialRoute, setWizardInitialRoute] = useState<Route | null>(null);
+    const [isSplitPlannerOpen, setIsSplitPlannerOpen] = useState(false);
 
     const activeStopsForMap = useMemo(() => {
         if (!selectedRoute) return [];
@@ -2158,6 +2161,9 @@ export default function RoutesPage() {
                                 </Button>
                                 <Button onClick={() => { setWizardInitialRoute(null); setIsWizardOpen(true); }}>
                                     <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Rota
+                                </Button>
+                                <Button variant="outline" className="gap-1.5" onClick={() => setIsSplitPlannerOpen(true)} title="Cola as OSs uma vez e divide em várias rotas por proximidade">
+                                    <Wand2 className="h-4 w-4" /> Planejador Livre
                                 </Button>
                             </>
                         )}
@@ -2481,6 +2487,12 @@ export default function RoutesPage() {
                 onOpenChange={(o) => { setIsWizardOpen(o); if (!o) setWizardInitialRoute(null); }}
                 initialRoute={wizardInitialRoute}
                 onCompleted={() => { fetchRoutes(); refreshDynamicData(); setWizardInitialRoute(null); }}
+            />
+
+            <RouteSplitPlannerWizard
+                open={isSplitPlannerOpen}
+                onOpenChange={setIsSplitPlannerOpen}
+                onCompleted={() => { fetchRoutes(); refreshDynamicData(); }}
             />
         </>
     );

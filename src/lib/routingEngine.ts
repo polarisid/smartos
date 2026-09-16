@@ -56,6 +56,37 @@ export async function fetchOsrmDrivingMatrix(
 }
 
 /**
+ * Busca a geometria real do percurso rodoviário (OSRM Route API) passando
+ * pelos pontos na ordem dada - usado só pra desenhar a linha da rota no
+ * mapa (não pra otimização/matriz de distância, que já usa fetchOsrmDrivingMatrix).
+ */
+export async function fetchOsrmRouteGeometry(points: PointCoord[]): Promise<PointCoord[] | null> {
+  if (!points || points.length < 2) return null;
+
+  const coordsStr = points.map(p => `${p.lng},${p.lat}`).join(';');
+  const osrmEndpoints = [
+    OSRM_BASE_URL ? `${OSRM_BASE_URL}/route/v1/driving/` : null,
+    `https://router.project-osrm.org/route/v1/driving/`,
+    `https://routing.openstreetmap.de/routed-car/route/v1/driving/`
+  ].filter(Boolean) as string[];
+
+  for (const baseUrl of osrmEndpoints) {
+    try {
+      const url = `${baseUrl}${coordsStr}?overview=full&geometries=geojson`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const coords = data?.routes?.[0]?.geometry?.coordinates;
+        if (data.code === 'Ok' && Array.isArray(coords)) {
+          return coords.map((c: [number, number]) => ({ lat: c[1], lng: c[0] }));
+        }
+      }
+    } catch (e) {}
+  }
+  return null;
+}
+
+/**
  * Calculates Haversine distance in km between two lat/lng points.
  */
 export function haversineDistanceKm(c1: PointCoord, c2: PointCoord): number {
