@@ -83,6 +83,14 @@ export function usePresets() {
   });
 }
 
+export function useCodeUsageCounts() {
+  return useQuery({
+    queryKey: ['service-orders', 'code-usage-counts'],
+    queryFn: () => serviceOrderService.getCodeUsageCounts(),
+    staleTime: 15 * 60 * 1000,
+  });
+}
+
 export function useCodes() {
   return useQuery({
     queryKey: ['codes'],

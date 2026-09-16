@@ -47,6 +47,7 @@ import Link from 'next/link';
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
@@ -84,7 +85,7 @@ import { SignaturePad } from '@/components/SignaturePad';
 import dynamic from "next/dynamic";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-import { useTechnicians, usePresets, useCodes, useActiveRoutes, useChecklists, useVisitTemplate } from "@/hooks/queries";
+import { useTechnicians, usePresets, useCodes, useCodeUsageCounts, useActiveRoutes, useChecklists, useVisitTemplate } from "@/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
 
 const ScannerDialog = dynamic(
@@ -253,16 +254,49 @@ function LpSurveyRatingButtons({ value, onChange }: { value?: number; onChange: 
 
 function SearchableSelect({
   options,
+  topOptions = [],
   value,
   onChange,
   placeholder,
+  disabled = false,
+  showNoneOption = true,
+  noneValue = "",
+  noneLabel = "Nenhum",
 }: {
   options: { value: string; label: string }[];
+  /** Atalhos (ex: códigos mais usados) mostrados num grupo separado, antes da lista completa. */
+  topOptions?: { value: string; label: string }[];
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
+  disabled?: boolean;
+  /** Some campos (ex: Técnico) não têm opção de limpar - é sempre obrigatório escolher um. */
+  showNoneOption?: boolean;
+  noneValue?: string;
+  noneLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const topValues = new Set(topOptions.map(o => o.value));
+  const restOptions = options.filter(o => !topValues.has(o.value));
+
+  const renderItem = (option: { value: string; label: string }) => (
+    <CommandItem
+      key={option.value}
+      value={option.label}
+      onSelect={() => {
+        onChange(option.value)
+        setOpen(false)
+      }}
+    >
+      <Check
+        className={cn(
+          "mr-2 h-4 w-4",
+          value === option.value ? "opacity-100" : "opacity-0"
+        )}
+      />
+      {option.label}
+    </CommandItem>
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -272,6 +306,7 @@ function SearchableSelect({
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          disabled={disabled}
           className="w-full justify-between font-normal"
         >
           <span className="truncate">
@@ -287,35 +322,25 @@ function SearchableSelect({
           <CommandInput placeholder="Pesquisar..." />
           <CommandEmpty>Nenhum item encontrado.</CommandEmpty>
           <CommandList>
-            <CommandGroup>
-              <CommandItem
-                key="none"
-                value="Nenhum"
-                onSelect={() => {
-                  onChange("")
-                  setOpen(false)
-                }}
-              >
-                Nenhum
-              </CommandItem>
-              {options.map((option) => (
+            {topOptions.length > 0 && (
+              <CommandGroup heading="Mais usados">
+                {topOptions.map(renderItem)}
+              </CommandGroup>
+            )}
+            <CommandGroup heading={topOptions.length > 0 ? "Todos" : undefined}>
+              {showNoneOption && (
                 <CommandItem
-                  key={option.value}
-                  value={option.label}
+                  key="none"
+                  value={noneLabel}
                   onSelect={() => {
-                    onChange(option.value)
+                    onChange(noneValue)
                     setOpen(false)
                   }}
                 >
-                  <Check
-                    className={cn(
-                      "mr-2 h-4 w-4",
-                      value === option.value ? "opacity-100" : "opacity-0"
-                    )}
-                  />
-                  {option.label}
+                  {noneLabel}
                 </CommandItem>
-              ))}
+              )}
+              {restOptions.map(renderItem)}
             </CommandGroup>
           </CommandList>
         </Command>
@@ -635,6 +660,7 @@ export default function OsFormPage() {
   const { data: visitTemplate = "", isError: errTemplate } = useVisitTemplate();
   const { data: codes = { symptomCodes: { "TV/AV": [], "DA": [] }, repairCodes: { "TV/AV": [], "DA": [] } }, isError: errCodes } = useCodes();
   const { symptomCodes, repairCodes } = codes;
+  const { data: codeUsageCounts } = useCodeUsageCounts();
 
   const dataFetchError = errTech || errPresets || errRoutes || errChecklists || errTemplate || errCodes;
   const refreshDynamicData = () => queryClient.invalidateQueries();
@@ -650,6 +676,19 @@ export default function OsFormPage() {
 const { toast } = useToast();
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 4;
+  const stepContentRef = useRef<HTMLDivElement>(null);
+
+  // Foca o primeiro campo/controle da etapa ao entrar nela - evita ter que
+  // tocar/clicar de novo depois de "Próximo" ou "Voltar" (fluxo repetido
+  // muitas vezes por dia por técnico em campo).
+  useEffect(() => {
+    const container = stepContentRef.current;
+    if (!container) return;
+    const focusable = container.querySelector<HTMLElement>(
+      'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])'
+    );
+    focusable?.focus();
+  }, [currentStep]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -680,6 +719,17 @@ const { toast } = useToast();
       samsungLpSurveyNotDoneReason: "",
     },
   });
+
+  // Enter num campo de texto simples avança pra próxima etapa (mesma
+  // validação de handleNextStep) - evita ter que tocar/clicar em "Próximo"
+  // depois de digitar. Não é usado em Select/combobox pra não capturar o
+  // Enter que essas listas já usam pra confirmar a opção destacada.
+  const handleEnterAdvance = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleNextStep();
+    }
+  };
 
   const handleNextStep = async () => {
     let fieldsToValidate: any[] = [];
@@ -798,6 +848,28 @@ const { toast } = useToast();
 
   const watchedServiceType = form.watch("serviceType");
   const watchedEquipmentType = form.watch("equipmentType");
+
+  // Top 5 códigos mais usados nas OSs já lançadas, pra esse tipo de
+  // equipamento - aparecem antes da lista completa no seletor.
+  const topN = 5;
+  const topSymptomOptions = useMemo(() => {
+    const counts = codeUsageCounts?.symptom[watchedEquipmentType] || {};
+    const options = symptomCodes[watchedEquipmentType as keyof typeof symptomCodes] || [];
+    return options
+      .filter(s => counts[s.code] > 0)
+      .sort((a, b) => (counts[b.code] || 0) - (counts[a.code] || 0))
+      .slice(0, topN)
+      .map(s => ({ value: s.code, label: `${s.code} - ${s.description}` }));
+  }, [codeUsageCounts, symptomCodes, watchedEquipmentType]);
+  const topRepairOptions = useMemo(() => {
+    const counts = codeUsageCounts?.repair[watchedEquipmentType] || {};
+    const options = repairCodes[watchedEquipmentType as keyof typeof repairCodes] || [];
+    return options
+      .filter(r => counts[r.code] > 0)
+      .sort((a, b) => (counts[b.code] || 0) - (counts[a.code] || 0))
+      .slice(0, topN)
+      .map(r => ({ value: r.code, label: `${r.code} - ${r.description}` }));
+  }, [codeUsageCounts, repairCodes, watchedEquipmentType]);
   const watchedTechnician = form.watch("technician");
   const watchedPreset = form.watch("presetId");
   const watchedSamsungRepairType = form.watch("samsungRepairType");
@@ -1254,6 +1326,7 @@ const { toast } = useToast();
                                             )
                                         })}
                                     </div>
+                                    <Progress value={(currentStep / totalSteps) * 100} className="h-1 max-w-md" />
                                 </CardHeader>
                                 <CardContent className="px-1 md:px-6">
                                     <Form {...form}>
@@ -1262,7 +1335,7 @@ const { toast } = useToast();
                                             className="space-y-4 md:space-y-5"
                                         >
                                             {currentStep === 1 && (
-                                                <div className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
+                                                <div ref={stepContentRef} className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
                                                     <FormField control={form.control} name="equipmentType" render={({ field }) => (
                                                          <FormItem className="space-y-2">
                                                              <FormLabel>Tipo de Aparelho</FormLabel>
@@ -1272,9 +1345,9 @@ const { toast } = useToast();
                                                                          type="button"
                                                                          variant={field.value === "TV/AV" ? "default" : "outline"}
                                                                          className={cn(
-                                                                             "h-14 flex items-center justify-center gap-2 border text-sm font-semibold transition-all rounded-lg w-full",
-                                                                             field.value === "TV/AV" 
-                                                                                 ? "border-primary bg-primary text-primary-foreground shadow-sm" 
+                                                                             "h-14 flex items-center justify-center gap-2 border text-sm font-semibold transition-all duration-150 rounded-lg w-full active:scale-95",
+                                                                             field.value === "TV/AV"
+                                                                                 ? "border-primary bg-primary text-primary-foreground shadow-sm scale-[1.02]"
                                                                                  : "border-input bg-background hover:bg-accent hover:text-accent-foreground"
                                                                          )}
                                                                          onClick={() => field.onChange("TV/AV")}
@@ -1286,9 +1359,9 @@ const { toast } = useToast();
                                                                          type="button"
                                                                          variant={field.value === "DA" ? "default" : "outline"}
                                                                          className={cn(
-                                                                             "h-14 flex items-center justify-center gap-2 border text-sm font-semibold transition-all rounded-lg w-full",
-                                                                             field.value === "DA" 
-                                                                                 ? "border-primary bg-primary text-primary-foreground shadow-sm" 
+                                                                             "h-14 flex items-center justify-center gap-2 border text-sm font-semibold transition-all duration-150 rounded-lg w-full active:scale-95",
+                                                                             field.value === "DA"
+                                                                                 ? "border-primary bg-primary text-primary-foreground shadow-sm scale-[1.02]"
                                                                                  : "border-input bg-background hover:bg-accent hover:text-accent-foreground"
                                                                          )}
                                                                          onClick={() => field.onChange("DA")}
@@ -1305,19 +1378,16 @@ const { toast } = useToast();
                                                     <FormField control={form.control} name="presetId" render={({ field }) => (
                                                         <FormItem>
                                                             <FormLabel className="flex items-center gap-2"><Bookmark className="h-4 w-4" />Preset de Códigos (Opcional)</FormLabel>
-                                                            <Select onValueChange={field.onChange} value={field.value || 'none'} disabled={!watchedEquipmentType || !serviceRequiresCodes}>
-                                                                <FormControl>
-                                                                    <SelectTrigger>
-                                                                        <SelectValue placeholder={!watchedEquipmentType ? "Selecione um tipo de aparelho primeiro" : !serviceRequiresCodes ? "Não aplicável para este atendimento" : "Selecione um preset para preencher os códigos"} />
-                                                                    </SelectTrigger>
-                                                                </FormControl>
-                                                                <SelectContent>
-                                                                    <SelectItem value="none">Nenhum</SelectItem>
-                                                                    {filteredPresets.map((preset) => (
-                                                                        <SelectItem key={preset.id} value={preset.id}>{preset.name}</SelectItem>
-                                                                    ))}
-                                                                </SelectContent>
-                                                            </Select>
+                                                            <FormControl>
+                                                                <SearchableSelect
+                                                                    value={field.value || 'none'}
+                                                                    onChange={field.onChange}
+                                                                    disabled={!watchedEquipmentType || !serviceRequiresCodes}
+                                                                    noneValue="none"
+                                                                    placeholder={!watchedEquipmentType ? "Selecione um tipo de aparelho primeiro" : !serviceRequiresCodes ? "Não aplicável para este atendimento" : "Selecione um preset para preencher os códigos"}
+                                                                    options={filteredPresets.map((preset) => ({ value: preset.id, label: preset.name }))}
+                                                                />
+                                                            </FormControl>
                                                             <FormMessage />
                                                         </FormItem>
                                                     )}/>
@@ -1327,39 +1397,35 @@ const { toast } = useToast();
                                                             <FormItem>
                                                                 <FormLabel>Técnico</FormLabel>
                                                                 {technicians.length === 0 ? (
-                                                                    <Select disabled>
-                                                                        <FormControl><SelectTrigger><SelectValue placeholder="Carregando..." /></SelectTrigger></FormControl>
-                                                                    </Select>
+                                                                    <Skeleton className="h-10 w-full rounded-md" />
                                                                 ) : (
-                                                                    <Select 
-                                                                        onValueChange={(val) => {
-                                                                            setLocalTechnician(val);
-                                                                            setValue('technician', val, { shouldValidate: true, shouldDirty: true });
-                                                                            localStorage.setItem('lastTechnician', val);
-                                                                        }} 
-                                                                        value={localTechnician || undefined}
-                                                                    >
-                                                                        <FormControl><SelectTrigger><SelectValue placeholder="Selecione o Técnico" /></SelectTrigger></FormControl>
-                                                                        <SelectContent>
-                                                                            {technicians.map((tech) => (
-                                                                                <SelectItem key={tech.id} value={tech.id}>{tech.name}</SelectItem>
-                                                                            ))}
-                                                                        </SelectContent>
-                                                                    </Select>
+                                                                    <FormControl>
+                                                                        <SearchableSelect
+                                                                            value={localTechnician}
+                                                                            onChange={(val) => {
+                                                                                setLocalTechnician(val);
+                                                                                setValue('technician', val, { shouldValidate: true, shouldDirty: true });
+                                                                                localStorage.setItem('lastTechnician', val);
+                                                                            }}
+                                                                            showNoneOption={false}
+                                                                            placeholder="Selecione o Técnico"
+                                                                            options={technicians.map((tech) => ({ value: tech.id, label: tech.name }))}
+                                                                        />
+                                                                    </FormControl>
                                                                 )}
                                                                 <FormMessage />
                                                             </FormItem>
                                                         )}/>
                                                         <div className="space-y-2">
                                                             <Label htmlFor="assistant" className="line-clamp-1">Auxiliar (Opcional)</Label>
-                                                            <Input id="assistant" placeholder="Nome" value={assistantName} onChange={(e) => setAssistantName(e.target.value)} />
+                                                            <Input id="assistant" placeholder="Nome" value={assistantName} onChange={(e) => setAssistantName(e.target.value)} onKeyDown={handleEnterAdvance} />
                                                         </div>
                                                     </div>
 
                                                     <FormField control={form.control} name="serviceOrderNumber" render={({ field }) => (
                                                         <FormItem>
                                                             <FormLabel>Número da OS</FormLabel>
-                                                            <FormControl><Input placeholder="Digite o número da OS" {...field} /></FormControl>
+                                                            <FormControl><Input placeholder="Digite o número da OS" inputMode="numeric" onKeyDown={handleEnterAdvance} {...field} /></FormControl>
                                                             <FormMessage />
                                                         </FormItem>
                                                     )}/>
@@ -1367,7 +1433,7 @@ const { toast } = useToast();
                                             )}
 
                                             {currentStep === 2 && (
-                                                <div className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
+                                                <div ref={stepContentRef} className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
                                                     <div className="grid grid-cols-1 gap-4 items-start rounded-lg border p-4 bg-slate-50/50 dark:bg-slate-900/50">
                                                         <FormField control={form.control} name="isFinalized" render={({ field }) => (
                                                             <FormItem className="flex flex-row items-center justify-between">
@@ -1599,7 +1665,7 @@ const { toast } = useToast();
                                             )}
 
                                             {currentStep === 3 && (
-                                                <div className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
+                                                <div ref={stepContentRef} className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
                                                     <FormField control={form.control} name="serviceType" render={({ field }) => (
                                                         <FormItem>
                                                             <FormLabel>Tipo de Atendimento</FormLabel>
@@ -1782,7 +1848,7 @@ const { toast } = useToast();
                                                                 <FormItem>
                                                                     <FormLabel>Código de Sintoma</FormLabel>
                                                                     <FormControl>
-                                                                        <SearchableSelect value={field.value || ""} onChange={field.onChange} placeholder="Selecione o sintoma" options={symptomCodes[watchedEquipmentType as keyof typeof symptomCodes]?.map(s => ({ value: s.code, label: `${s.code} - ${s.description}` })) || []} />
+                                                                        <SearchableSelect value={field.value || ""} onChange={field.onChange} placeholder="Selecione o sintoma" topOptions={topSymptomOptions} options={symptomCodes[watchedEquipmentType as keyof typeof symptomCodes]?.map(s => ({ value: s.code, label: `${s.code} - ${s.description}` })) || []} />
                                                                     </FormControl>
                                                                     <FormMessage />
                                                                 </FormItem>
@@ -1791,7 +1857,7 @@ const { toast } = useToast();
                                                                 <FormItem>
                                                                     <FormLabel>Código de Reparo {(watchedServiceType === 'visita_orcamento_samsung' || watchedServiceType === 'reparo_samsung') && '(Opcional)'}</FormLabel>
                                                                     <FormControl>
-                                                                        <SearchableSelect value={field.value || ""} onChange={field.onChange} placeholder="Selecione o reparo" options={repairCodes[watchedEquipmentType as keyof typeof repairCodes]?.map(r => ({ value: r.code, label: `${r.code} - ${r.description}` })) || []} />
+                                                                        <SearchableSelect value={field.value || ""} onChange={field.onChange} placeholder="Selecione o reparo" topOptions={topRepairOptions} options={repairCodes[watchedEquipmentType as keyof typeof repairCodes]?.map(r => ({ value: r.code, label: `${r.code} - ${r.description}` })) || []} />
                                                                     </FormControl>
                                                                     <FormMessage />
                                                                 </FormItem>
@@ -1819,7 +1885,7 @@ const { toast } = useToast();
                                             )}
 
                                             {currentStep === 4 && (
-                                                <div className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
+                                                <div ref={stepContentRef} className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
                                                     {showReplacedPart && (
                                                         <FormField control={form.control} name="replacedPart" render={({ field }) => (
                                                             <FormItem>

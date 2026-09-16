@@ -99,6 +99,47 @@ export const serviceOrderService = {
     return allOrders.map(this.mapFromDb);
   },
 
+  // Contagem de uso de cada código de sintoma/reparo por tipo de equipamento,
+  // pra sugerir os "mais usados" no formulário de lançamento rápido. Busca só
+  // as 3 colunas necessárias (bem mais leve que getAll com select('*')).
+  async getCodeUsageCounts(): Promise<{
+    symptom: Record<string, Record<string, number>>;
+    repair: Record<string, Record<string, number>>;
+  }> {
+    const symptom: Record<string, Record<string, number>> = {};
+    const repair: Record<string, Record<string, number>> = {};
+    let from = 0;
+    const step = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('service_orders')
+        .select('equipment_type, symptom_code, repair_code')
+        .range(from, from + step - 1);
+
+      if (error) throw error;
+
+      for (const row of data || []) {
+        const eq = row.equipment_type;
+        if (!eq) continue;
+        if (row.symptom_code) {
+          symptom[eq] = symptom[eq] || {};
+          symptom[eq][row.symptom_code] = (symptom[eq][row.symptom_code] || 0) + 1;
+        }
+        if (row.repair_code) {
+          repair[eq] = repair[eq] || {};
+          repair[eq][row.repair_code] = (repair[eq][row.repair_code] || 0) + 1;
+        }
+      }
+
+      if (!data || data.length < step) hasMore = false;
+      else from += step;
+    }
+
+    return { symptom, repair };
+  },
+
   async getOpenOrders(limitCount: number = 5): Promise<ServiceOrder[]> {
     const { data, error } = await supabase
       .from('service_orders')
