@@ -283,7 +283,10 @@ export default function AdminReportsPage() {
                     <TableRow key={report.id}>
                       <TableCell className="font-mono">{report.serviceOrderNumber}</TableCell>
                       <TableCell>{report.technicianName || "-"}</TableCell>
-                      <TableCell>{format(report.createdAt, "dd/MM/yyyy")}</TableCell>
+                      <TableCell>
+                        {format(report.createdAt, "dd/MM/yyyy")}
+                        <span className="text-muted-foreground text-xs ml-1.5">{format(report.createdAt, "HH:mm")}</span>
+                      </TableCell>
                       <TableCell>{report.productModel || "-"}</TableCell>
                       <TableCell>
                         {report.aiScore != null ? (

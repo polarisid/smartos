@@ -675,7 +675,7 @@ export default function CommandCenterPage() {
 
 
     return (
-        <div className="min-h-screen bg-[#0B1420] text-slate-100 font-body flex flex-col lg:flex-row lg:overflow-hidden">
+        <div className="min-h-screen lg:h-screen bg-[#0B1420] text-slate-100 font-body flex flex-col lg:flex-row lg:overflow-hidden">
 
             {/* Área principal */}
             <main className="flex-1 p-4 md:p-6 lg:p-8 flex flex-col overflow-y-auto">

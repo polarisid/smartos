@@ -12,7 +12,7 @@ import {
     Route as RouteIcon, CheckCircle, CalendarClock, TrendingUp, TrendingDown, AlertTriangle, Clock, Minus,
 } from "lucide-react";
 import { type ServiceOrder, type Technician, type Return, type Chargeback, type Route } from "@/lib/data";
-import { startOfWeek, startOfMonth, isAfter, startOfYear, isToday, eachWeekOfInterval, endOfWeek, subWeeks, subMonths, subYears, subDays, format, startOfDay, endOfDay, isBefore } from 'date-fns';
+import { startOfWeek, startOfMonth, isAfter, startOfYear, isToday, eachWeekOfInterval, endOfWeek, subWeeks, subMonths, subYears, subDays, format, startOfDay, endOfDay, isBefore, parse, isValid } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTechnicians, useServiceOrders, useReturns, useChargebacks, useActiveRoutes, useDraftRoutes, useAllRoutes } from "@/hooks/queries";
@@ -167,6 +167,7 @@ function GeneralDashboard({
     // Só conta paradas agendadas pra hoje (firstVisitDate) - uma rota ativa de interior pode
     // ter paradas de vários dias, e não queremos somar os dias futuros aqui. Mesma regra de
     // status (completed/pending/todo) usada no Command Center, pra bater com o resto do painel.
+    const today = startOfDay(now);
     const todayStr = format(now, 'dd/MM/yyyy');
     const todayStopsDetailed: { serviceOrder: string; city: string; routeName: string; status: 'completed' | 'pending' | 'todo' }[] = [];
     activeRoutes.forEach(route => {
@@ -185,6 +186,34 @@ function GeneralDashboard({
     const stopsPendingToday = todayStopsDetailed.filter(s => s.status === 'pending').length;
     const stopsTodoToday = todayStopsDetailed.filter(s => s.status === 'todo').length;
     const stopsPlannedToday = todayStopsDetailed.length;
+
+    // ── Backlog: paradas de rotas ativas já com data de visita passada e sem NENHUMA OS
+    // lançada ainda (mesma regra do "Overdue backlog" do Command Center) - diferente de
+    // "pendente" (que já tem OS lançada, só não finalizada). Exclui as de hoje, já contadas acima.
+    const backlogStops: { serviceOrder: string; city: string; routeName: string }[] = [];
+    activeRoutes.forEach(route => {
+        const originDateObj = (route.departureDate || route.createdAt) as Date | undefined;
+        (route.stops || []).forEach(stop => {
+            if ((stop.firstVisitDate || '').trim() === todayStr) return;
+
+            let isPastStop = false;
+            if (originDateObj && isBefore(originDateObj, today)) {
+                isPastStop = true;
+            } else if (stop.firstVisitDate) {
+                const parsed = parse(stop.firstVisitDate.trim(), 'dd/MM/yyyy', new Date());
+                if (isValid(parsed) && isBefore(parsed, today)) isPastStop = true;
+            }
+            if (!isPastStop) return;
+
+            const hasAnyOs = serviceOrders.some(os =>
+                os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt)
+            );
+            if (hasAnyOs) return;
+
+            backlogStops.push({ serviceOrder: stop.serviceOrder, city: stop.city || '', routeName: route.name });
+        });
+    });
+    const backlogCount = backlogStops.length;
 
     // ── Taxa de Efetividade: MÉDIA do % de conclusão de cada rota do último mês (não
     // só as ativas hoje - amostra pequena demais) - uma rota 50% concluída e outra 100%
@@ -214,7 +243,6 @@ function GeneralDashboard({
         : null;
 
     // ── Agenda: rascunhos com data planejada nos próximos dias - o que precisa de preparo ──
-    const today = startOfDay(now);
     const upcomingDraftRoutes = draftRoutes
         .filter(r => r.plannedDate && !isBefore(startOfDay(new Date(r.plannedDate)), today))
         .sort((a, b) => new Date(a.plannedDate!).getTime() - new Date(b.plannedDate!).getTime())
@@ -336,6 +364,11 @@ function GeneralDashboard({
                                     <AlertTriangle className="h-3 w-3" /> {stopsPendingToday} pendente{stopsPendingToday !== 1 ? "s" : ""}
                                 </p>
                             )}
+                            {backlogCount > 0 && (
+                                <p className="text-[11px] text-rose-600 mt-1 flex items-center justify-center gap-1">
+                                    <History className="h-3 w-3" /> {backlogCount} em atraso
+                                </p>
+                            )}
                         </button>
                         <div className="rounded-lg border p-3 text-center" title="Média do % de conclusão de cada rota do último mês, excluindo rascunhos e canceladas (não o total de paradas somado)">
                             <p className="text-2xl font-bold">{routeEffectivenessPct !== null ? `${routeEffectivenessPct.toFixed(0)}%` : "—"}</p>
@@ -386,27 +419,23 @@ function GeneralDashboard({
                         <DialogTitle>Atendimentos de hoje</DialogTitle>
                         <DialogDescription>
                             {format(now, "EEEE, dd/MM/yyyy", { locale: ptBR })} · {stopsPlannedToday} parada{stopsPlannedToday !== 1 ? "s" : ""} planejada{stopsPlannedToday !== 1 ? "s" : ""}
+                            {backlogCount > 0 && ` · ${backlogCount} em atraso`}
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4">
-                        {stopsPlannedToday === 0 ? (
+                        {stopsPlannedToday === 0 && backlogCount === 0 ? (
                             <p className="text-sm text-muted-foreground text-center py-6">Nenhuma parada agendada pra hoje.</p>
                         ) : (
-                            ([
-                                { key: 'pending' as const, label: 'Pendentes', count: stopsPendingToday, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-950/30', Icon: AlertTriangle },
-                                { key: 'todo' as const, label: 'Ainda faltando', count: stopsTodoToday, color: 'text-slate-500', bg: 'bg-slate-50 dark:bg-slate-900/40', Icon: Clock },
-                                { key: 'completed' as const, label: 'Concluídas', count: stopsCompletedToday, color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-950/30', Icon: CheckCircle },
-                            ]).map(({ key, label, count, color, bg, Icon }) => {
-                                if (count === 0) return null;
-                                const items = todayStopsDetailed.filter(s => s.status === key);
-                                return (
-                                    <div key={key}>
-                                        <div className={`flex items-center gap-1.5 text-sm font-semibold mb-2 ${color}`}>
-                                            <Icon className="h-4 w-4" /> {label} ({count})
+                            <>
+                                {backlogCount > 0 && (
+                                    <div>
+                                        <div className="flex items-center gap-1.5 text-sm font-semibold mb-2 text-rose-600">
+                                            <History className="h-4 w-4" /> Em atraso - ainda não lançados ({backlogCount})
                                         </div>
+                                        <p className="text-[11px] text-muted-foreground mb-2">Paradas de rotas ativas com data de visita já passada e nenhuma OS lançada.</p>
                                         <div className="space-y-1">
-                                            {items.map((item, i) => (
-                                                <div key={`${item.serviceOrder}-${i}`} className={`flex items-center justify-between gap-2 text-xs rounded-md px-2.5 py-1.5 ${bg}`}>
+                                            {backlogStops.map((item, i) => (
+                                                <div key={`${item.serviceOrder}-${i}`} className="flex items-center justify-between gap-2 text-xs rounded-md px-2.5 py-1.5 bg-rose-50 dark:bg-rose-950/30">
                                                     <div className="min-w-0 truncate">
                                                         <span className="font-mono font-bold">{item.serviceOrder}</span>
                                                         {item.city && <span className="text-muted-foreground"> · {item.city}</span>}
@@ -416,8 +445,34 @@ function GeneralDashboard({
                                             ))}
                                         </div>
                                     </div>
-                                );
-                            })
+                                )}
+                                {([
+                                    { key: 'pending' as const, label: 'Pendentes', count: stopsPendingToday, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-950/30', Icon: AlertTriangle },
+                                    { key: 'todo' as const, label: 'Ainda faltando', count: stopsTodoToday, color: 'text-slate-500', bg: 'bg-slate-50 dark:bg-slate-900/40', Icon: Clock },
+                                    { key: 'completed' as const, label: 'Concluídas', count: stopsCompletedToday, color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-950/30', Icon: CheckCircle },
+                                ]).map(({ key, label, count, color, bg, Icon }) => {
+                                    if (count === 0) return null;
+                                    const items = todayStopsDetailed.filter(s => s.status === key);
+                                    return (
+                                        <div key={key}>
+                                            <div className={`flex items-center gap-1.5 text-sm font-semibold mb-2 ${color}`}>
+                                                <Icon className="h-4 w-4" /> {label} ({count})
+                                            </div>
+                                            <div className="space-y-1">
+                                                {items.map((item, i) => (
+                                                    <div key={`${item.serviceOrder}-${i}`} className={`flex items-center justify-between gap-2 text-xs rounded-md px-2.5 py-1.5 ${bg}`}>
+                                                        <div className="min-w-0 truncate">
+                                                            <span className="font-mono font-bold">{item.serviceOrder}</span>
+                                                            {item.city && <span className="text-muted-foreground"> · {item.city}</span>}
+                                                        </div>
+                                                        <span className="text-muted-foreground shrink-0 truncate max-w-[130px]">{item.routeName}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </>
                         )}
                     </div>
                 </DialogContent>

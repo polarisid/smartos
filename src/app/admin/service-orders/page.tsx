@@ -490,7 +490,10 @@ export default function ServiceOrdersPage() {
                     {filteredServiceOrders.length > 0 ? filteredServiceOrders.map(order => (
                       <TableRow key={order.id}>
                         <TableCell className="font-mono">{order.serviceOrderNumber}</TableCell>
-                        <TableCell>{format(order.date, 'dd/MM/yyyy')}</TableCell>
+                        <TableCell>
+                          {format(order.date, 'dd/MM/yyyy')}
+                          <span className="text-muted-foreground text-xs ml-1.5">{format(order.date, 'HH:mm')}</span>
+                        </TableCell>
                         <TableCell>{order.technicianName}</TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1.5 items-start">

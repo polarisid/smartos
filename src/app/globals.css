@@ -117,6 +117,28 @@
   }
 }
 
+/* Scrollbar nativa fina em tom neutro - a barra padrão do navegador (grossa,
+   com setas) destoa de qualquer tela do app, clara ou escura (ex: painel
+   do Command Center). Regra mais específica abaixo (sidebar) tem prioridade. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.5) transparent;
+}
+html::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+html::-webkit-scrollbar-track {
+  background: transparent;
+}
+html::-webkit-scrollbar-thumb {
+  background-color: rgba(100, 116, 139, 0.5);
+  border-radius: 9999px;
+}
+html::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(100, 116, 139, 0.8);
+}
+
 /* Scrollbar discreta e no tom do menu lateral - em telas mais baixas o menu
    agrupado por seção pode não caber inteiro, e a barra cinza padrão do
    navegador destoa muito do fundo escuro do sidebar. */

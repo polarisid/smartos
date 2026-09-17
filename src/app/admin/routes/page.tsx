@@ -18,7 +18,7 @@ import { Phone, MessageSquare, ChevronRight } from "lucide-react";import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen, Copy, ArrowUp, ArrowDown, ArrowUpDown, FileDown, Loader2, ArrowRightLeft, MapPin, Zap, Rocket, Columns2 } from "lucide-react";
+import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen, Copy, ArrowUp, ArrowDown, ArrowUpDown, FileDown, Loader2, ArrowRightLeft, MapPin, Zap, Rocket, Columns2, Search } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { routeService } from "@/services/supabase/routeService";
@@ -1783,6 +1783,11 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
                                 </Badge>
                             )}
                         </span>
+                        {isCompleted && relatedOs && (
+                            <span className="block text-[10px] font-sans font-bold text-emerald-700 dark:text-emerald-400 no-underline mt-0.5 whitespace-nowrap">
+                                ✓ Concluído {format(relatedOs.date, "dd/MM 'às' HH:mm")}
+                            </span>
+                        )}
                     </TableCell>
                     <TableCell className="font-mono">{stop.ascJobNumber}</TableCell>
                     <TableCell>{getStopTypeDisplay()}</TableCell>
@@ -1911,6 +1916,8 @@ export default function RoutesPage() {
     const [isWizardOpen, setIsWizardOpen] = useState(false);
     const [wizardInitialRoute, setWizardInitialRoute] = useState<Route | null>(null);
     const [isSplitPlannerOpen, setIsSplitPlannerOpen] = useState(false);
+    const [isRouteSearchOpen, setIsRouteSearchOpen] = useState(false);
+    const [routeSearchTerm, setRouteSearchTerm] = useState("");
 
     const activeStopsForMap = useMemo(() => {
         if (!selectedRoute) return [];
@@ -2028,6 +2035,30 @@ export default function RoutesPage() {
     const filteredRoutes = showOnlyActive
         ? [...draftRoutes, ...activeRoutes]
         : [...draftRoutes, ...activeRoutes, ...inactiveRoutes];
+
+    // Busca uma OS dentro das rotas listadas (respeita o filtro "só ativas") - útil pra achar
+    // rapidamente em qual rota uma OS específica está sem abrir uma por uma.
+    const routeSearchResults = useMemo(() => {
+        const term = routeSearchTerm.trim();
+        if (!term) return [];
+        const results: { route: Route; stop: RouteStop; status: 'completed' | 'pending' | 'todo' }[] = [];
+        filteredRoutes.forEach(route => {
+            (route.stops || []).forEach(stop => {
+                if (!stop.serviceOrder?.includes(term)) return;
+                const relatedOsList = route.createdAt
+                    ? serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && isAfter(os.date, route.createdAt as Date))
+                    : [];
+                const lastOs = relatedOsList.length > 0
+                    ? [...relatedOsList].sort((a, b) => b.date.getTime() - a.date.getTime())[0]
+                    : null;
+                const status: 'completed' | 'pending' | 'todo' = lastOs
+                    ? (lastOs.isFinalized === false ? 'pending' : 'completed')
+                    : 'todo';
+                results.push({ route, stop, status });
+            });
+        });
+        return results;
+    }, [routeSearchTerm, filteredRoutes, serviceOrders]);
 
     const handleOpenDeleteDraftDialog = (route: Route) => {
         setRouteToDelete(route);
@@ -2329,6 +2360,9 @@ ${rowsXml}  </Table>
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <h1 className="text-2xl font-bold">Gerenciar Rotas</h1>
                     <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" onClick={() => setIsRouteSearchOpen(true)}>
+                            <Search className="mr-2 h-4 w-4" /> Buscar OS em Rota
+                        </Button>
                         <Button variant="outline" onClick={handleExportActiveRoutes}>
                             <FileDown className="mr-2 h-4 w-4" /> Exportar Relatório (Ativas)
                         </Button>
@@ -2537,6 +2571,60 @@ ${rowsXml}  </Table>
                     </TabsContent>
                 </Tabs>
             </div>
+
+            <Dialog open={isRouteSearchOpen} onOpenChange={(open) => { setIsRouteSearchOpen(open); if (!open) setRouteSearchTerm(""); }}>
+                <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2"><Search className="h-4 w-4" /> Buscar OS em Rota</DialogTitle>
+                        <DialogDescription>
+                            Digite o número (ou parte dele) de uma OS para achar em qual rota ela está{!showOnlyActive ? "" : " (entre as rotas ativas)"}.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <Input
+                        autoFocus
+                        placeholder="Número da OS..."
+                        value={routeSearchTerm}
+                        onChange={(e) => setRouteSearchTerm(e.target.value)}
+                    />
+                    <div className="max-h-[50vh] overflow-y-auto space-y-1.5">
+                        {routeSearchTerm.trim() === "" ? (
+                            <p className="text-sm text-muted-foreground text-center py-6">Digite um número de OS para buscar.</p>
+                        ) : routeSearchResults.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-6">Nenhuma OS encontrada nas rotas listadas.</p>
+                        ) : (
+                            routeSearchResults.map(({ route, stop, status }, i) => (
+                                <div key={`${route.id}-${stop.serviceOrder}-${i}`} className="flex items-center justify-between gap-3 rounded-lg border p-2.5">
+                                    <div className="min-w-0">
+                                        <p className="font-mono font-bold text-sm flex items-center gap-1.5">
+                                            {stop.serviceOrder}
+                                            <Badge
+                                                variant="outline"
+                                                className={cn(
+                                                    "text-[9px] px-1.5 py-0",
+                                                    status === 'completed' && "text-emerald-700 border-emerald-200 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400",
+                                                    status === 'pending' && "text-red-700 border-red-200 bg-red-50 dark:bg-red-950 dark:text-red-400",
+                                                    status === 'todo' && "text-slate-600 border-slate-200 bg-slate-50 dark:bg-slate-900 dark:text-slate-400",
+                                                )}
+                                            >
+                                                {status === 'completed' ? "Concluída" : status === 'pending' ? "Pendência" : "A fazer"}
+                                            </Badge>
+                                        </p>
+                                        <p className="text-xs text-muted-foreground truncate">{route.name} · {stop.city}</p>
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="shrink-0"
+                                        onClick={() => { setIsRouteSearchOpen(false); handleOpenViewDialog(route); }}
+                                    >
+                                        <Eye className="mr-1.5 h-3.5 w-3.5" /> Ver rota
+                                    </Button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
                 <DialogContent className="max-w-6xl w-[90vw]">
