@@ -14,6 +14,7 @@ import { FileText, User, CreditCard, Plus, Trash2, Loader2, RefreshCw, ChevronDo
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const toNum = (s: string) => parseFloat(s.replace(",", ".")) || 0;
+const toQty = (s: string) => Math.max(1, parseInt(s, 10) || 1);
 
 const COMPLETION_PRESETS = [
   "Mesmo dia útil",
@@ -30,6 +31,7 @@ type QuoteItemRow = {
   code: string;
   description: string;
   valueText: string;
+  quantityText: string;
   kind: "peca" | "servico";
 };
 
@@ -38,6 +40,7 @@ const newItem = (patch?: Partial<QuoteItemRow>): QuoteItemRow => ({
   code: "",
   description: "",
   valueText: "",
+  quantityText: "1",
   kind: "peca",
   ...patch,
 });
@@ -99,9 +102,13 @@ export function QuoteBuilder({
   const removeItem = (id: string) => setItems(prev => prev.filter(it => it.id !== id));
 
   const round = (n: number) => (roundValues ? Math.round(n) : n);
-  const computedItems = items.map(it => ({ ...it, value: round(toNum(it.valueText)) }));
-  const partsTotal = computedItems.filter(i => i.kind === "peca").reduce((a, i) => a + i.value, 0);
-  const serviceTotal = computedItems.filter(i => i.kind === "servico").reduce((a, i) => a + i.value, 0);
+  const computedItems = items.map(it => {
+    const quantity = toQty(it.quantityText);
+    const value = round(toNum(it.valueText));
+    return { ...it, value, quantity, lineTotal: round(value * quantity) };
+  });
+  const partsTotal = computedItems.filter(i => i.kind === "peca").reduce((a, i) => a + i.lineTotal, 0);
+  const serviceTotal = computedItems.filter(i => i.kind === "servico").reduce((a, i) => a + i.lineTotal, 0);
   const discount = round(toNum(discountText));
   const grandTotal = partsTotal + serviceTotal - discount;
 
@@ -120,7 +127,7 @@ export function QuoteBuilder({
         clientCpf: clientCpf.trim(),
         symptom, accessory, defectFound, serviceDescription, observations,
         completionTime,
-        items: computedItems.map(i => ({ code: i.code || undefined, description: i.description, value: i.value, kind: i.kind })),
+        items: computedItems.map(i => ({ code: i.code || undefined, description: i.description, value: i.value, quantity: i.quantity, kind: i.kind })),
         discount,
       });
     } catch (e: any) {
@@ -245,6 +252,16 @@ export function QuoteBuilder({
                     ))}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-xs text-muted-foreground">Qtd</span>
+                    <Input
+                      value={item.quantityText}
+                      onChange={e => updateItem(item.id, { quantityText: e.target.value.replace(/[^\d]/g, "") })}
+                      placeholder="1"
+                      inputMode="numeric"
+                      className="w-14"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <span className="text-xs text-muted-foreground">R$</span>
                     <Input
                       value={item.valueText}
@@ -254,6 +271,9 @@ export function QuoteBuilder({
                       className="w-24"
                     />
                   </div>
+                  {toQty(item.quantityText) > 1 && (
+                    <span className="text-xs text-muted-foreground shrink-0">= {brl(round(toNum(item.valueText) * toQty(item.quantityText)))}</span>
+                  )}
                   <Button type="button" variant="ghost" size="icon" className="shrink-0 text-muted-foreground hover:text-destructive" onClick={() => removeItem(item.id)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>

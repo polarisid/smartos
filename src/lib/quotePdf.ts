@@ -13,7 +13,7 @@ import type { RepairCenterInfo } from "@/lib/data";
 
 const brl2 = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export type QuoteItem = { code?: string; description: string; value: number; kind: "peca" | "servico" };
+export type QuoteItem = { code?: string; description: string; value: number; quantity: number; kind: "peca" | "servico" };
 
 // Medidas extraídas do template.pdf original (mm), preservadas para que o
 // layout final bata com o documento de referência.
@@ -170,9 +170,9 @@ export async function buildAndDownloadQuotePdf(input: {
         it.code || "",
         it.description || "",
         "",
-        "1",
+        String(it.quantity || 1),
         brl2(it.value),
-        brl2(it.value),
+        brl2(it.value * (it.quantity || 1)),
       ])
     : [["0001", "", "", "", "", "", ""], ["0002", "", "", "", "", "", ""]];
 
@@ -198,8 +198,8 @@ export async function buildAndDownloadQuotePdf(input: {
   y = ((doc as any).lastAutoTable?.finalY || y + 20) + 4;
 
   // ── Data de abertura/Tempo de Conclusão (esq.) + Totais (dir.) ──
-  const partsTotal = items.filter(i => i.kind === "peca").reduce((a, i) => a + i.value, 0);
-  const serviceTotal = items.filter(i => i.kind === "servico").reduce((a, i) => a + i.value, 0);
+  const partsTotal = items.filter(i => i.kind === "peca").reduce((a, i) => a + i.value * (i.quantity || 1), 0);
+  const serviceTotal = items.filter(i => i.kind === "servico").reduce((a, i) => a + i.value * (i.quantity || 1), 0);
   const total = partsTotal + serviceTotal - discount;
 
   if (y > pageHeight - 45) { doc.addPage(); y = 20; }
