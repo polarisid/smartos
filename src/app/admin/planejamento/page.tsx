@@ -80,6 +80,19 @@ async function geocodeBase(baseAddress: string): Promise<[number, number] | null
   );
 }
 
+// fetch() não tem timeout embutido - sem isso, um servidor OSRM público lento/instável
+// deixa a Promise pendurada pra sempre, travando o carregamento em vez de cair pro
+// próximo endpoint de fallback.
+async function fetchWithTimeout(url: string, timeoutMs = 8000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Busca distâncias REAIS de rodovia via OSRM Table API com suporte a múltiplos servidores e fallback.
  * Retorna km por trecho: [base→p1, p1→p2, ..., pN→base]
@@ -116,7 +129,7 @@ async function fetchOsrmRoadDistances(
   for (const baseUrl of osrmEndpoints) {
     try {
       const url = `${baseUrl}${coordStr}?annotations=distance`;
-      const res  = await fetch(url);
+      const res  = await fetchWithTimeout(url);
       if (res.ok) {
         const json = await res.json();
         if (json.code === 'Ok' && json.distances) {

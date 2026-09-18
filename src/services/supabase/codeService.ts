@@ -25,7 +25,9 @@ export const codeService = {
   },
 
   async create(data: { code: string; description: string; type: string; category: string }): Promise<void> {
-    const { error } = await supabase.from('codes').insert(data);
+    // A coluna id perdeu o DEFAULT gen_random_uuid() numa migração antiga (conversão de
+    // UUID pra TEXT) - sem gerar aqui, o insert falha com "null value in column id".
+    const { error } = await supabase.from('codes').insert({ id: crypto.randomUUID(), ...data });
     if (error) throw error;
   },
 
@@ -50,7 +52,8 @@ export const codeService = {
 
   async insertMany(items: { code: string; description: string; type: string; category: string }[]): Promise<void> {
     if (items.length === 0) return;
-    const { error } = await supabase.from('codes').insert(items);
+    const rows = items.map(item => ({ id: crypto.randomUUID(), ...item }));
+    const { error } = await supabase.from('codes').insert(rows);
     if (error) throw error;
   }
 };

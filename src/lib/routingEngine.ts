@@ -10,6 +10,19 @@ export const OSRM_BASE_URL = (
 // In-memory cache for OSRM matrix calls to prevent duplicate network hits
 const osrmMatrixCache = new Map<string, { durationMatrix: number[][]; distanceMatrix: number[][] }>();
 
+// fetch() não tem timeout embutido - sem isso, um servidor OSRM público lento/instável
+// pode deixar a Promise pendurada pra sempre (nunca resolve nem rejeita), travando o
+// spinner de carregamento indefinidamente em vez de cair pro próximo endpoint de fallback.
+async function fetchWithTimeout(url: string, timeoutMs = 8000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export type PointCoord = { lat: number; lng: number };
 
 /**
@@ -37,7 +50,7 @@ export async function fetchOsrmDrivingMatrix(
   for (const baseUrl of osrmEndpoints) {
     try {
       const url = `${baseUrl}${coordsStr}?annotations=duration,distance`;
-      const res = await fetch(url);
+      const res = await fetchWithTimeout(url);
       if (res.ok) {
         const data = await res.json();
         if (data.code === 'Ok' && data.durations) {
@@ -73,7 +86,7 @@ export async function fetchOsrmRouteGeometry(points: PointCoord[]): Promise<Poin
   for (const baseUrl of osrmEndpoints) {
     try {
       const url = `${baseUrl}${coordsStr}?overview=full&geometries=geojson`;
-      const res = await fetch(url);
+      const res = await fetchWithTimeout(url);
       if (res.ok) {
         const data = await res.json();
         const coords = data?.routes?.[0]?.geometry?.coordinates;

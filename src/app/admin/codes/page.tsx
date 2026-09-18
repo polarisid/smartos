@@ -329,39 +329,68 @@ export default function CodesPage() {
                   }
               });
 
-              // Insere e atualiza separado do parsing da planilha, com sua própria
-              // mensagem de erro - assim uma falha ao salvar no banco não aparece
-              // como se fosse um problema no formato do arquivo (eram coisas
-              // diferentes mostrando a mesma mensagem genérica).
+              // Insere e atualiza separado do parsing da planilha - assim dá pra saber
+              // exatamente o que foi realmente salvo no banco antes de refletir isso na
+              // tela. Antes, o estado local era atualizado (e o toast de sucesso exibido)
+              // mesmo quando o insert/update falhava no servidor - a lista parecia salva
+              // na hora, mas sumia ao recarregar porque nunca tinha ido pro banco de fato.
+              let insertError: any = null;
               try {
                   await codeService.insertMany(itemsToInsert);
-              } catch (insertError: any) {
-                  console.error("Erro ao inserir novos códigos:", insertError);
-                  toast({
-                      variant: "destructive",
-                      title: "Erro ao salvar novos códigos",
-                      description: insertError?.message || String(insertError),
-                  });
+              } catch (e: any) {
+                  insertError = e;
+                  console.error("Erro ao inserir novos códigos:", e);
               }
 
-              try {
-                  await Promise.all(itemsToUpdate.map(item => codeService.update(item.code, item.type, item.category, item)));
-              } catch (updateError: any) {
-                  console.error("Erro ao atualizar códigos:", updateError);
-                  toast({
-                      variant: "destructive",
-                      title: "Erro ao atualizar códigos existentes",
-                      description: updateError?.message || String(updateError),
+              // insertMany é um único INSERT com várias linhas - no Postgres isso é
+              // atômico (tudo ou nada), então se falhou, nenhum item novo foi salvo.
+              if (insertError) {
+                  itemsToInsert.forEach(item => {
+                      const bucket = item.type === 'symptom' ? newSymptoms : newRepairs;
+                      const cat = item.category as keyof CodeCategory;
+                      bucket[cat] = bucket[cat].filter(c => c.code !== item.code);
                   });
+                  importedCount = 0;
+              }
+
+              // Cada update é uma chamada separada - usa allSettled pra saber
+              // individualmente quais realmente foram salvos.
+              const updateResults = await Promise.allSettled(
+                  itemsToUpdate.map(item => codeService.update(item.code, item.type, item.category, item))
+              );
+              const failedUpdates = itemsToUpdate.filter((_, i) => updateResults[i].status === 'rejected');
+              failedUpdates.forEach(item => {
+                  const bucket = item.type === 'symptom' ? newSymptoms : newRepairs;
+                  const cat = item.category as keyof CodeCategory;
+                  const original = (item.type === 'symptom' ? symptoms : repairs)[cat].find(c => c.code === item.code);
+                  if (original) {
+                      bucket[cat] = bucket[cat].map(c => c.code === item.code ? original : c);
+                  }
+                  updatedCount--;
+              });
+              if (failedUpdates.length > 0) {
+                  const firstError = updateResults.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
+                  console.error("Erro ao atualizar códigos:", firstError?.reason);
               }
 
               setSymptoms(newSymptoms);
               setRepairs(newRepairs);
 
-              toast({
-                  title: "Importação Concluída",
-                  description: `${importedCount} novos, ${updatedCount} atualizados, ${skippedCount} sem alteração.`,
-              });
+              if (insertError || failedUpdates.length > 0) {
+                  const parts = [`${importedCount} novos, ${updatedCount} atualizados, ${skippedCount} sem alteração.`];
+                  if (insertError) parts.push(`Falha ao salvar ${itemsToInsert.length} código(s) novo(s): ${insertError?.message || String(insertError)}`);
+                  if (failedUpdates.length > 0) parts.push(`Falha ao atualizar ${failedUpdates.length} código(s) existente(s).`);
+                  toast({
+                      variant: "destructive",
+                      title: "Importação com falhas",
+                      description: parts.join(' '),
+                  });
+              } else {
+                  toast({
+                      title: "Importação Concluída",
+                      description: `${importedCount} novos, ${updatedCount} atualizados, ${skippedCount} sem alteração.`,
+                  });
+              }
 
           } catch (error: any) {
               console.error("Error importing file:", error);

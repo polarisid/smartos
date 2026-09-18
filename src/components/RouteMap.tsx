@@ -88,6 +88,19 @@ interface RouteMapProps {
     baseAddress?: string;
 }
 
+// fetch() não tem timeout embutido - sem isso, um servidor OSRM público lento/instável
+// deixa a Promise pendurada pra sempre, travando o carregamento em vez de cair pro
+// próximo endpoint de fallback.
+async function fetchWithTimeout(url: string, timeoutMs = 8000): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 async function fetchLegRoadPath(
     p1: [number, number],
     p2: [number, number]
@@ -105,7 +118,7 @@ async function fetchLegRoadPath(
 
     for (const baseUrl of endpoints) {
         try {
-            const res = await fetch(`${baseUrl}${coordsStr}?overview=full&geometries=geojson`);
+            const res = await fetchWithTimeout(`${baseUrl}${coordsStr}?overview=full&geometries=geojson`);
             if (res.ok) {
                 const data = await res.json();
                 if (data.routes && data.routes[0] && data.routes[0].geometry) {

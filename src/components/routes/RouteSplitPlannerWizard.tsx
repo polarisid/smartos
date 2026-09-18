@@ -342,7 +342,7 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-6xl h-[90vh] flex flex-col p-0 gap-0">
+      <DialogContent className="max-w-[1440px] w-[95vw] h-[92vh] flex flex-col p-0 gap-0">
         <DialogHeader className="p-6 pb-4 border-b shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Wand2 className="h-5 w-5 text-primary" /> Planejador Livre — Dividir em Múltiplas Rotas
@@ -417,8 +417,8 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
               </div>
             </div>
           ) : (
-            <div className="grid lg:grid-cols-[1fr_1.3fr] gap-4 h-full">
-              <div className="flex flex-col gap-2 min-h-[360px]">
+            <div className="grid lg:grid-cols-[1.5fr_1fr] gap-4 h-full">
+              <div className="flex flex-col gap-2 min-h-[480px]">
                 <div className="flex items-center gap-2 shrink-0 flex-wrap">
                   <Checkbox id="show-paths" checked={showRoutePaths} onCheckedChange={c => setShowRoutePaths(c === true)} />
                   <Label htmlFor="show-paths" className="text-xs font-medium cursor-pointer flex items-center gap-1.5">
