@@ -58,6 +58,11 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
   const [labels, setLabels] = useState<string[]>([]);
   const [coordsByOrder, setCoordsByOrder] = useState<Map<string, [number, number]>>(new Map());
   const [dragSource, setDragSource] = useState<{ groupIndex: number; stopIndex: number } | null>(null);
+  // Alternativa ao arrastar-e-soltar: marcar paradas (de grupos diferentes, mesmo
+  // fora da tela) e mover todas de uma vez - o drag nativo não rola a tela sozinho
+  // ao aproximar da borda, então mover um item pra um grupo que não está visível
+  // (ex: rota C quando ainda vê a rota A) é praticamente impossível só arrastando.
+  const [selectedStops, setSelectedStops] = useState<Set<string>>(new Set());
   const [createdRouteIds, setCreatedRouteIds] = useState<Record<number, string>>({});
   const [creatingIndex, setCreatingIndex] = useState<number | null>(null);
   const [optimizingIndex, setOptimizingIndex] = useState<number | null>(null);
@@ -94,6 +99,7 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
     setLabels([]);
     setCoordsByOrder(new Map());
     setDragSource(null);
+    setSelectedStops(new Set());
     setCreatedRouteIds({});
     setCreatingIndex(null);
     setShowRoutePaths(false);
@@ -134,6 +140,7 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
       setCreatedRouteIds({});
       setRoutePaths([]);
       setHiddenGroups(new Set());
+      setSelectedStops(new Set());
       setPhase("review");
     } catch (e: any) {
       console.error(e);
@@ -208,6 +215,7 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
     setGroups(split);
     setLabels(split.map((_, i) => defaultGroupLabel(i)));
     setHiddenGroups(new Set());
+    setSelectedStops(new Set());
   };
 
   // Solta no fim do grupo (espaço vazio da lista, fora de qualquer parada).
@@ -238,6 +246,35 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
       return next;
     });
     setDragSource(null);
+  };
+
+  const toggleStopSelection = (serviceOrder: string) => {
+    setSelectedStops(prev => {
+      const next = new Set(prev);
+      if (next.has(serviceOrder)) next.delete(serviceOrder);
+      else next.add(serviceOrder);
+      return next;
+    });
+  };
+
+  const handleMoveSelectedToGroup = (targetGroupIndex: number) => {
+    if (selectedStops.size === 0) return;
+    setGroups(prev => {
+      const movedStops: RouteStop[] = [];
+      const next = prev.map((g, gi) => {
+        if (gi === targetGroupIndex) return g;
+        return g.filter(s => {
+          if (selectedStops.has(s.serviceOrder)) {
+            movedStops.push(s);
+            return false;
+          }
+          return true;
+        });
+      });
+      next[targetGroupIndex] = [...next[targetGroupIndex], ...movedStops];
+      return next;
+    });
+    setSelectedStops(new Set());
   };
 
   const handleAddGroup = () => {
@@ -467,6 +504,26 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
                     </Button>
                   </div>
                 </div>
+                {selectedStops.size > 0 && (
+                  <div className="sticky top-0 z-10 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-2.5 shadow-sm">
+                    <span className="text-xs font-semibold flex-1">
+                      {selectedStops.size} parada{selectedStops.size !== 1 ? "s" : ""} selecionada{selectedStops.size !== 1 ? "s" : ""}
+                    </span>
+                    <Select onValueChange={v => handleMoveSelectedToGroup(Number(v))}>
+                      <SelectTrigger className="h-8 w-44 text-xs shrink-0">
+                        <SelectValue placeholder="Mover para..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {groups.map((_, gi) => (
+                          <SelectItem key={gi} value={String(gi)}>{labels[gi] || defaultGroupLabel(gi)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button type="button" size="sm" variant="ghost" className="h-8 shrink-0" onClick={() => setSelectedStops(new Set())}>
+                      Cancelar
+                    </Button>
+                  </div>
+                )}
                 {groups.map((groupStops, gi) => {
                   const color = colorForGroup(gi).hex;
                   const created = createdRouteIds[gi];
@@ -534,6 +591,12 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
                               onDrop={e => { e.preventDefault(); e.stopPropagation(); handleDropAtPosition(gi, si); }}
                               className="flex items-center gap-1.5 text-xs px-2 py-1.5 rounded border bg-card cursor-grab active:cursor-grabbing"
                             >
+                              <Checkbox
+                                checked={selectedStops.has(stop.serviceOrder)}
+                                onCheckedChange={() => toggleStopSelection(stop.serviceOrder)}
+                                onClick={e => e.stopPropagation()}
+                                className="shrink-0"
+                              />
                               <GripVertical className="h-3 w-3 text-muted-foreground/50 shrink-0" />
                               <span className="text-muted-foreground/70 w-4 text-right shrink-0">{si + 1}.</span>
                               <span className="font-mono font-bold shrink-0">{stop.serviceOrder}</span>

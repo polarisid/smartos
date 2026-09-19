@@ -345,6 +345,24 @@ const CITY_FALLBACK_COORDINATES: Record<string, [number, number]> = {
     "joao pessoa": [-7.1195, -34.8450],
     "campina grande": [-7.2219, -35.8828],
 
+    // ── Pernambuco (PE) - Agreste/Sertão (corredor BR-232, rotas de interior) ──
+    // Sem essas cidades aqui, o guard de distância (isValidCityCoords) não tem
+    // referência pra rejeitar um resultado errado do geocodificador externo -
+    // ele só checa se caiu dentro do estado inteiro (bounding box de PE é enorme),
+    // deixando passar erros de centenas de km sem detectar (caso real: Belo
+    // Jardim caindo perto de Salgueiro, ~250km de distância).
+    "belo jardim": [-8.3339, -36.4241],
+    "gravata": [-8.2016, -35.5661],
+    "bezerros": [-8.2400, -35.7972],
+    "arcoverde": [-8.4192, -37.0692],
+    "pesqueira": [-8.3592, -36.6953],
+    "sanharo": [-8.3717, -36.8564],
+    "salgueiro": [-8.0736, -39.1187],
+    "garanhuns": [-8.8900, -36.4939],
+    "serra talhada": [-7.9928, -38.2953],
+    "afogados da ingazeira": [-7.7511, -37.6414],
+    "sao bento do una": [-8.5236, -36.4364],
+
     // cidades do ceara
     "abaiara": [-7.3592, -39.0478],
     "acarape": [-4.2217, -38.7056],

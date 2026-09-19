@@ -1080,9 +1080,12 @@ function RouteForm({
                                 .sort((a, b) => a.date.getTime() - b.date.getTime());
                             const lastVisitOs = matchingOs.length > 0 ? matchingOs[matchingOs.length - 1] : null;
                             const isAlreadyVisited = lastVisitOs != null;
-                            // Já coletada/atendida = existe OS finalizada para esta parada.
-                            // Nesse caso não deixamos excluir da rota (perderia o registro).
-                            const alreadyCollected = matchingOs.some(os => os.isFinalized !== false);
+                            // Já coletada/atendida = a OS MAIS RECENTE desta parada está finalizada.
+                            // Checa só a última (não "alguma já foi") - senão uma OS antiga finalizada
+                            // por engano continuava bloqueando a exclusão mesmo depois de reaberta como
+                            // pendência (a mais recente é sempre a que vale, mesma regra usada no resto
+                            // desta tela pra status de parada).
+                            const alreadyCollected = lastVisitOs != null && lastVisitOs.isFinalized !== false;
                             const isExpanded = expandedStops.has(stop.serviceOrder);
                             const partsCount = stop.parts?.length || 0;
                             const location = [stop.city, stop.neighborhood].filter(Boolean).join(' · ');
@@ -1162,6 +1165,12 @@ function RouteForm({
                                         >
                                             {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                                         </button>
+
+                                        {activeIdx !== -1 && (
+                                            <span className="shrink-0 text-[11px] font-bold text-muted-foreground/60 w-5 text-right" title="Posição na sequência (mesmo número do mapa)">
+                                                {activeIdx + 1}.
+                                            </span>
+                                        )}
 
                                         <div className="flex flex-col min-w-[140px]">
                                             <span className="flex items-center gap-1.5">
