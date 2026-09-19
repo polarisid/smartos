@@ -71,6 +71,11 @@ export function buildRouteEmailPayload({
   const dataSaida = formatDateBr(route.departureDate || route.plannedDate);
   const dataRetorno = formatDateBr(route.arrivalDate || route.departureDate || route.plannedDate);
 
+  // Cada peça em sua própria coluna (Peça 1 | Qt | Peça 2 | Qt ...), no mesmo
+  // formato de pares repetidos usado pela planilha de importação da rota -
+  // em vez de uma única célula com tudo junto, difícil de ler/copiar pro Excel.
+  const maxParts = route.stops.reduce((max, s) => Math.max(max, (s.parts || []).length), 0);
+
   // 1. Build Plain Text
   let plain = `Prezados segue rota:\n`;
   plain += `VEÍCULO: ${placa}\n`;
@@ -82,17 +87,21 @@ export function buildRouteEmailPayload({
   plain += `TEMPO ESTIMADO: ${estimatedTimeStr}\n`;
   plain += `ESTIMATIVA COMBUSTÍVEL: ${liters} L (Média ${fuelAvgKml} km/L)\n\n`;
 
-  plain += `SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTempo\tKM\tTS\tOW/LP\tPeças\n`;
+  const partsHeaderPlain = Array.from({ length: maxParts }, (_, i) => `Peça ${i + 1}\tQt`).join("\t");
+  plain += `SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTempo\tKM\tTS\tOW/LP${partsHeaderPlain ? "\t" + partsHeaderPlain : ""}\n`;
 
   route.stops.forEach((stop, i) => {
     const kmStr = legKm[i] !== undefined ? `${Math.round(legKm[i])}` : "";
     const tempoStr = formatLegTempo(legKm[i], legDurationsMin?.[i]);
-    const partsStr = (stop.parts || []).map(p => `${p.code} (x${p.quantity})`).join("; ");
+    const partsCols = Array.from({ length: maxParts }, (_, pi) => {
+      const part = stop.parts?.[pi];
+      return `${part?.code || ""}\t${part ? part.quantity : ""}`;
+    }).join("\t");
 
-    plain += `${stop.serviceOrder || ""}\t${stop.ascJobNumber || stop.serviceOrder || ""}\t${stop.consumerName || ""}\t${stop.city || ""}\t${stop.neighborhood || ""}\t${stop.state || "Sergipe"}\t${stop.model || ""}\t${stop.turn || ""}\t${stop.tat || ""}\t${stop.requestDate || ""}\t${stop.firstVisitDate || dataSaida}\t${tempoStr}\t${kmStr}\t${stop.ts || "IH"}\t${stop.warrantyType || "LP"}\t${partsStr}\n`;
+    plain += `${stop.serviceOrder || ""}\t${stop.ascJobNumber || stop.serviceOrder || ""}\t${stop.consumerName || ""}\t${stop.city || ""}\t${stop.neighborhood || ""}\t${stop.state || "Sergipe"}\t${stop.model || ""}\t${stop.turn || ""}\t${stop.tat || ""}\t${stop.requestDate || ""}\t${stop.firstVisitDate || dataSaida}\t${tempoStr}\t${kmStr}\t${stop.ts || "IH"}\t${stop.warrantyType || "LP"}${partsCols ? "\t" + partsCols : ""}\n`;
   });
 
-  plain += `\t\t\t\t\t\t\t\t\t\t\t\t${roundedTotalKm}\t\t\t\n`;
+  plain += `\t\t\t\t\t\t\t\t\t\t\t\t${roundedTotalKm}\t\t\n`;
 
   // 2. Build Rich HTML Table matching user's screenshot
   let html = `
@@ -125,7 +134,10 @@ export function buildRouteEmailPayload({
           <th style="border: 1px solid #000000; padding: 5px 8px; text-align: right;">KM</th>
           <th style="border: 1px solid #000000; padding: 5px 8px;">TS</th>
           <th style="border: 1px solid #000000; padding: 5px 8px;">OW/LP</th>
-          <th style="border: 1px solid #000000; padding: 5px 8px;">Peças</th>
+          ${Array.from({ length: maxParts }, (_, i) => `
+          <th style="border: 1px solid #000000; padding: 5px 8px;">Peça ${i + 1}</th>
+          <th style="border: 1px solid #000000; padding: 5px 8px;">Qt</th>
+          `).join("")}
         </tr>
       </thead>
       <tbody>
@@ -134,7 +146,13 @@ export function buildRouteEmailPayload({
   route.stops.forEach((stop, i) => {
     const kmStr = legKm[i] !== undefined ? `${Math.round(legKm[i])}` : "";
     const tempoStr = formatLegTempo(legKm[i], legDurationsMin?.[i]);
-    const partsStr = (stop.parts || []).map(p => `${p.code} (x${p.quantity})`).join("; ");
+    const partsCells = Array.from({ length: maxParts }, (_, pi) => {
+      const part = stop.parts?.[pi];
+      return `
+          <td style="border: 1px solid #000000; padding: 5px 8px;">${part?.code || ""}</td>
+          <td style="border: 1px solid #000000; padding: 5px 8px; text-align: center;">${part ? part.quantity : ""}</td>
+      `;
+    }).join("");
 
     html += `
         <tr>
@@ -153,7 +171,7 @@ export function buildRouteEmailPayload({
           <td style="border: 1px solid #000000; padding: 5px 8px; text-align: right; font-weight: bold;">${kmStr}</td>
           <td style="border: 1px solid #000000; padding: 5px 8px;">${stop.ts || "IH"}</td>
           <td style="border: 1px solid #000000; padding: 5px 8px;">${stop.warrantyType || "LP"}</td>
-          <td style="border: 1px solid #000000; padding: 5px 8px;">${partsStr}</td>
+          ${partsCells}
         </tr>
     `;
   });
@@ -162,7 +180,7 @@ export function buildRouteEmailPayload({
         <tr style="font-weight: bold; background-color: #f8f9fa;">
           <td colspan="12" style="border: 1px solid #000000; padding: 5px 8px; text-align: right;">TOTAL:</td>
           <td style="border: 1px solid #000000; padding: 5px 8px; text-align: right; font-size: 13px;">${roundedTotalKm}</td>
-          <td colspan="3" style="border: 1px solid #000000; padding: 5px 8px;"></td>
+          <td colspan="${2 + maxParts * 2}" style="border: 1px solid #000000; padding: 5px 8px;"></td>
         </tr>
       </tbody>
     </table>
