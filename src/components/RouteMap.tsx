@@ -51,25 +51,33 @@ const getStoreIcon = () => {
     });
 };
 
-const getLegBadgeIcon = (legNumber: number) => {
+const getLegBadgeIcon = (legNumber: number, hasFerry: boolean = false) => {
+    const borderColor = hasFerry ? 'border-cyan-400/90' : 'border-emerald-400/80';
+    const dotColor = hasFerry ? 'bg-cyan-400' : 'bg-emerald-400';
+    const prefix = hasFerry ? '⛴️ ' : '';
     return L.divIcon({
         className: 'custom-leg-badge-icon',
-        html: `<div class="px-1.5 py-0.5 rounded-full bg-slate-900/90 text-white text-[9px] font-extrabold border border-emerald-400/80 shadow-md backdrop-blur-sm pointer-events-none flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>T${legNumber}</div>`,
-        iconSize: [36, 18],
-        iconAnchor: [18, 9],
+        html: `<div class="px-1.5 py-0.5 rounded-full bg-slate-900/90 text-white text-[9px] font-extrabold border ${borderColor} shadow-md backdrop-blur-sm pointer-events-none flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full ${dotColor} animate-pulse"></span>${prefix}T${legNumber}</div>`,
+        iconSize: [46, 18],
+        iconAnchor: [23, 9],
     });
 };
+
+type FerryAlternative = { coords: [number, number][]; distanceKm: number; durationMin: number };
 
 type RouteLeg = {
     id: string;
     fromLabel: string;
     toLabel: string;
     coords: [number, number][];
-    midpoint: [number, number];
     distanceKm: number;
     durationMin: number;
     // Status do trecho: 'completed' pinta o percurso já concluído de verde.
     status: 'completed' | 'pending' | 'todo';
+    hasFerry: boolean;
+    // Rota alternativa 100% rodoviária (exclude=ferry), só buscada quando hasFerry - pra
+    // o usuário poder optar por não usar a balsa e ver o percurso/tempo recalculados.
+    noFerry?: FerryAlternative;
 };
 
 type MapStop = {
@@ -101,10 +109,31 @@ async function fetchWithTimeout(url: string, timeoutMs = 8000): Promise<Response
     }
 }
 
+// Busca a rota 100% rodoviária (sem balsa) pra servir de alternativa quando o
+// trecho padrão inclui travessia - `exclude=ferry` é suportado pelo profile
+// "car" padrão do OSRM (inclusive no servidor público de demonstração).
+async function fetchNoFerryAlternative(baseUrl: string, coordsStr: string): Promise<FerryAlternative | undefined> {
+    try {
+        const res = await fetchWithTimeout(`${baseUrl}${coordsStr}?overview=full&geometries=geojson&exclude=ferry`);
+        if (res.ok) {
+            const data = await res.json();
+            const r = data.routes?.[0];
+            if (r?.geometry) {
+                return {
+                    coords: r.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]]),
+                    distanceKm: Math.round((r.distance / 1000) * 10) / 10,
+                    durationMin: Math.round(r.duration / 60),
+                };
+            }
+        }
+    } catch (e) {}
+    return undefined;
+}
+
 async function fetchLegRoadPath(
     p1: [number, number],
     p2: [number, number]
-): Promise<{ coords: [number, number][]; distanceKm: number; durationMin: number }> {
+): Promise<{ coords: [number, number][]; distanceKm: number; durationMin: number; hasFerry: boolean; noFerry?: FerryAlternative }> {
     const coordsStr = `${p1[1]},${p1[0]};${p2[1]},${p2[0]}`;
     const customOsrm = (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_OSRM_URL)
         ? `${process.env.NEXT_PUBLIC_OSRM_URL.replace(/\/$/, '')}/route/v1/driving/`
@@ -118,16 +147,22 @@ async function fetchLegRoadPath(
 
     for (const baseUrl of endpoints) {
         try {
-            const res = await fetchWithTimeout(`${baseUrl}${coordsStr}?overview=full&geometries=geojson`);
+            // steps=true só pra conseguir o "mode" de cada trecho (detectar balsa) -
+            // não usamos as instruções turn-by-turn em si.
+            const res = await fetchWithTimeout(`${baseUrl}${coordsStr}?overview=full&geometries=geojson&steps=true`);
             if (res.ok) {
                 const data = await res.json();
                 if (data.routes && data.routes[0] && data.routes[0].geometry) {
                     const r = data.routes[0];
                     const roadCoords: [number, number][] = r.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]]);
+                    const hasFerry = !!r.legs?.some((leg: any) => leg.steps?.some((s: any) => s.mode === 'ferry'));
+                    const noFerry = hasFerry ? await fetchNoFerryAlternative(baseUrl, coordsStr) : undefined;
                     return {
                         coords: roadCoords.length > 0 ? roadCoords : [p1, p2],
                         distanceKm: Math.round((r.distance / 1000) * 10) / 10,
-                        durationMin: Math.round(r.duration / 60)
+                        durationMin: Math.round(r.duration / 60),
+                        hasFerry,
+                        noFerry,
                     };
                 }
             }
@@ -138,7 +173,8 @@ async function fetchLegRoadPath(
     return {
         coords: [p1, p2],
         distanceKm: Math.round(dist * 10) / 10,
-        durationMin: Math.round((dist / 60) * 60)
+        durationMin: Math.round((dist / 60) * 60),
+        hasFerry: false,
     };
 }
 
@@ -179,6 +215,17 @@ export default function RouteMap({
     const [baseCoords, setBaseCoords] = useState<[number, number] | null>([-10.9142, -37.0545]);
     const [routeLegs, setRouteLegs] = useState<RouteLeg[]>([]);
     const [loading, setLoading] = useState(true);
+    // Trechos com balsa onde o usuário optou por recalcular só por rodovia -
+    // por padrão usa a balsa (rota mais rápida), já que é opcional desmarcar.
+    const [avoidFerryLegs, setAvoidFerryLegs] = useState<Set<string>>(new Set());
+    const toggleAvoidFerry = (legId: string) => {
+        setAvoidFerryLegs(prev => {
+            const next = new Set(prev);
+            if (next.has(legId)) next.delete(legId);
+            else next.add(legId);
+            return next;
+        });
+    };
     const [mapStyle, setMapStyle] = useState<'google' | 'google_satellite' | 'carto'>('carto');
 
     // 1. Fetch Base coordinates dynamically from baseAddress or configService
@@ -292,8 +339,6 @@ export default function RouteMap({
                     const from = points[i];
                     const to = points[i + 1];
                     const legData = await fetchLegRoadPath(from.coords, to.coords);
-                    const midIdx = Math.floor(legData.coords.length / 2);
-                    const midpoint = legData.coords[midIdx] || from.coords;
 
                     // O trecho é "concluído" (verde) quando o destino já foi atendido.
                     const status: RouteLeg['status'] = to.status;
@@ -303,10 +348,11 @@ export default function RouteMap({
                         fromLabel: from.label,
                         toLabel: to.label,
                         coords: legData.coords,
-                        midpoint,
                         distanceKm: legData.distanceKm,
                         durationMin: legData.durationMin,
                         status,
+                        hasFerry: legData.hasFerry,
+                        noFerry: legData.noFerry,
                     });
                 }
             }
@@ -407,17 +453,46 @@ export default function RouteMap({
                     const legColor = leg.status === 'completed' ? '#10b981'
                         : leg.status === 'pending' ? '#f59e0b'
                         : (polylineColor && polylineColor !== '#8b5cf6' ? polylineColor : '#3b82f6');
+
+                    // Se o usuário optou por não usar a balsa (e temos a alternativa), desenha
+                    // e informa a rota 100% rodoviária em vez da que inclui a travessia.
+                    const usingNoFerry = leg.hasFerry && avoidFerryLegs.has(leg.id) && !!leg.noFerry;
+                    const displayCoords = usingNoFerry ? leg.noFerry!.coords : leg.coords;
+                    const displayKm = usingNoFerry ? leg.noFerry!.distanceKm : leg.distanceKm;
+                    const displayMin = usingNoFerry ? leg.noFerry!.durationMin : leg.durationMin;
+                    const midpoint = displayCoords[Math.floor(displayCoords.length / 2)] || displayCoords[0];
+
+                    const ferryToggle = leg.hasFerry && (
+                        <div className="mt-2 pt-2 border-t border-slate-200">
+                            <p className="text-[11px] font-bold text-cyan-700 flex items-center gap-1">
+                                ⛴️ Este trecho inclui travessia de balsa
+                            </p>
+                            {!usingNoFerry && leg.noFerry && (
+                                <p className="text-[10px] text-slate-500 mt-0.5">Só por rodovia: {leg.noFerry.distanceKm} km ({leg.noFerry.durationMin} min)</p>
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => toggleAvoidFerry(leg.id)}
+                                className="mt-1.5 w-full text-[11px] font-semibold px-2 py-1 rounded-md bg-cyan-600 text-white hover:bg-cyan-700 transition-colors"
+                            >
+                                {usingNoFerry ? "Usar balsa novamente" : "Calcular sem usar a balsa"}
+                            </button>
+                        </div>
+                    );
+
                     return (
                     <React.Fragment key={leg.id}>
                         {/* High-contrast dark shadow outline */}
                         <Polyline
-                            positions={leg.coords}
+                            positions={displayCoords}
                             pathOptions={{ color: '#0f172a', weight: 7, opacity: 0.6, lineCap: 'round', lineJoin: 'round' }}
                         />
                         {/* Bright foreground polyline following roads */}
                         <Polyline
-                            positions={leg.coords}
-                            pathOptions={{ color: legColor, weight: 4.5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }}
+                            positions={displayCoords}
+                            pathOptions={usingNoFerry
+                                ? { color: legColor, weight: 4.5, opacity: 0.95, lineCap: 'round', lineJoin: 'round', dashArray: '2 8' }
+                                : { color: legColor, weight: 4.5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }}
                         >
                             <Popup className="custom-popup">
                                 <div className="p-1 text-xs">
@@ -428,20 +503,22 @@ export default function RouteMap({
                                         {leg.fromLabel} ➔ {leg.toLabel}
                                     </p>
                                     <div className="flex items-center gap-2 text-[11px] font-semibold text-violet-700 bg-violet-50 dark:bg-violet-950 p-1 rounded">
-                                        <span>📏 {leg.distanceKm} km</span>
-                                        <span>⏱️ {leg.durationMin} min</span>
+                                        <span>📏 {displayKm} km</span>
+                                        <span>⏱️ {displayMin} min</span>
                                     </div>
+                                    {ferryToggle}
                                 </div>
                             </Popup>
                         </Polyline>
 
                         {/* Midpoint Leg Marker Badge */}
-                        <Marker position={leg.midpoint} icon={getLegBadgeIcon(idx + 1)}>
+                        <Marker position={midpoint} icon={getLegBadgeIcon(idx + 1, leg.hasFerry && !usingNoFerry)}>
                             <Popup className="custom-popup">
                                 <div className="p-1 text-xs">
                                     <p className="font-bold text-slate-900">Trecho #{idx + 1}</p>
                                     <p className="text-slate-600 text-[11px]">{leg.fromLabel} ➔ {leg.toLabel}</p>
-                                    <p className="text-violet-700 font-semibold text-[11px]">{leg.distanceKm} km ({leg.durationMin} min)</p>
+                                    <p className="text-violet-700 font-semibold text-[11px]">{displayKm} km ({displayMin} min)</p>
+                                    {ferryToggle}
                                 </div>
                             </Popup>
                         </Marker>
