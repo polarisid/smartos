@@ -521,6 +521,13 @@ function RouteForm({
         }
     };
 
+    // Preferência de evitar balsa (ligada pelo mapa da pré-visualização) - grava
+    // direto na parada de onde o trecho sai, então já vai salva junto com a rota
+    // (o array de stops é salvo como veio, sem mapeamento campo a campo no banco).
+    const handleFerryPreferenceChange = (serviceOrder: string, avoid: boolean) => {
+        setParsedStops(prev => prev.map(s => s.serviceOrder === serviceOrder ? { ...s, avoidFerryToNext: avoid } : s));
+    };
+
     // Inverte o sentido da rota (última vira primeira).
     const handleInvertRoute = () => {
         if (parsedStops.length <= 1) return;
@@ -1537,7 +1544,11 @@ function RouteForm({
                     {previewViewTab !== 'list' && (
                         <div className={cn("rounded-lg border overflow-hidden h-[500px]", previewViewTab === 'split' && "lg:sticky lg:top-4")}>
                             {parsedStops.length > 0 ? (
-                                <DynamicalRouteMap routes={[]} activeStops={previewMapStops} />
+                                <DynamicalRouteMap
+                                    routes={[]}
+                                    activeStops={previewMapStops}
+                                    onFerryPreferenceChange={handleFerryPreferenceChange}
+                                />
                             ) : (
                                 <div className="h-full flex items-center justify-center text-center text-sm text-muted-foreground">
                                     A pré-visualização aparecerá aqui.

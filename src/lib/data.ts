@@ -235,6 +235,9 @@ export type RouteStop = {
     // Estado tri-state da confirmação por mensagem: enviada → confirmada.
     // Mantido em sincronia com confirmedByMessage (true quando 'confirmed').
     messageStatus?: 'sent' | 'confirmed';
+    // Preferência salva no mapa: evitar balsa no trecho que SAI desta parada rumo à
+    // próxima (ou de volta à base, se for a última) - ver RouteMap.tsx.
+    avoidFerryToNext?: boolean;
 }
 
 export type Route = {
