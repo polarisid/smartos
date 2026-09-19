@@ -504,26 +504,6 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
                     </Button>
                   </div>
                 </div>
-                {selectedStops.size > 0 && (
-                  <div className="sticky top-0 z-10 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-2.5 shadow-sm">
-                    <span className="text-xs font-semibold flex-1">
-                      {selectedStops.size} parada{selectedStops.size !== 1 ? "s" : ""} selecionada{selectedStops.size !== 1 ? "s" : ""}
-                    </span>
-                    <Select onValueChange={v => handleMoveSelectedToGroup(Number(v))}>
-                      <SelectTrigger className="h-8 w-44 text-xs shrink-0">
-                        <SelectValue placeholder="Mover para..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {groups.map((_, gi) => (
-                          <SelectItem key={gi} value={String(gi)}>{labels[gi] || defaultGroupLabel(gi)}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button type="button" size="sm" variant="ghost" className="h-8 shrink-0" onClick={() => setSelectedStops(new Set())}>
-                      Cancelar
-                    </Button>
-                  </div>
-                )}
                 {groups.map((groupStops, gi) => {
                   const color = colorForGroup(gi).hex;
                   const created = createdRouteIds[gi];
@@ -635,6 +615,27 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
             </div>
           )}
         </div>
+
+        {phase === "review" && selectedStops.size > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2.5 border-t bg-primary/5 shrink-0">
+            <span className="text-xs font-semibold flex-1">
+              {selectedStops.size} parada{selectedStops.size !== 1 ? "s" : ""} selecionada{selectedStops.size !== 1 ? "s" : ""}
+            </span>
+            <Select onValueChange={v => handleMoveSelectedToGroup(Number(v))}>
+              <SelectTrigger className="h-8 w-44 text-xs shrink-0">
+                <SelectValue placeholder="Mover para..." />
+              </SelectTrigger>
+              <SelectContent>
+                {groups.map((_, gi) => (
+                  <SelectItem key={gi} value={String(gi)}>{labels[gi] || defaultGroupLabel(gi)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button type="button" size="sm" variant="ghost" className="h-8 shrink-0" onClick={() => setSelectedStops(new Set())}>
+              Cancelar
+            </Button>
+          </div>
+        )}
 
         <DialogFooter className="p-4 border-t shrink-0">
           {phase === "input" ? (

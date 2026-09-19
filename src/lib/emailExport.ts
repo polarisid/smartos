@@ -82,16 +82,17 @@ export function buildRouteEmailPayload({
   plain += `TEMPO ESTIMADO: ${estimatedTimeStr}\n`;
   plain += `ESTIMATIVA COMBUSTÍVEL: ${liters} L (Média ${fuelAvgKml} km/L)\n\n`;
 
-  plain += `SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTempo\tKM\tTS\tOW/LP\n`;
+  plain += `SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTempo\tKM\tTS\tOW/LP\tPeças\n`;
 
   route.stops.forEach((stop, i) => {
     const kmStr = legKm[i] !== undefined ? `${Math.round(legKm[i])}` : "";
     const tempoStr = formatLegTempo(legKm[i], legDurationsMin?.[i]);
+    const partsStr = (stop.parts || []).map(p => `${p.code} (x${p.quantity})`).join("; ");
 
-    plain += `${stop.serviceOrder || ""}\t${stop.ascJobNumber || stop.serviceOrder || ""}\t${stop.consumerName || ""}\t${stop.city || ""}\t${stop.neighborhood || ""}\t${stop.state || "Sergipe"}\t${stop.model || ""}\t${stop.turn || ""}\t${stop.tat || ""}\t${stop.requestDate || ""}\t${stop.firstVisitDate || dataSaida}\t${tempoStr}\t${kmStr}\t${stop.ts || "IH"}\t${stop.warrantyType || "LP"}\n`;
+    plain += `${stop.serviceOrder || ""}\t${stop.ascJobNumber || stop.serviceOrder || ""}\t${stop.consumerName || ""}\t${stop.city || ""}\t${stop.neighborhood || ""}\t${stop.state || "Sergipe"}\t${stop.model || ""}\t${stop.turn || ""}\t${stop.tat || ""}\t${stop.requestDate || ""}\t${stop.firstVisitDate || dataSaida}\t${tempoStr}\t${kmStr}\t${stop.ts || "IH"}\t${stop.warrantyType || "LP"}\t${partsStr}\n`;
   });
 
-  plain += `\t\t\t\t\t\t\t\t\t\t\t\t${roundedTotalKm}\t\t\n`;
+  plain += `\t\t\t\t\t\t\t\t\t\t\t\t${roundedTotalKm}\t\t\t\n`;
 
   // 2. Build Rich HTML Table matching user's screenshot
   let html = `
@@ -124,6 +125,7 @@ export function buildRouteEmailPayload({
           <th style="border: 1px solid #000000; padding: 5px 8px; text-align: right;">KM</th>
           <th style="border: 1px solid #000000; padding: 5px 8px;">TS</th>
           <th style="border: 1px solid #000000; padding: 5px 8px;">OW/LP</th>
+          <th style="border: 1px solid #000000; padding: 5px 8px;">Peças</th>
         </tr>
       </thead>
       <tbody>
@@ -132,6 +134,7 @@ export function buildRouteEmailPayload({
   route.stops.forEach((stop, i) => {
     const kmStr = legKm[i] !== undefined ? `${Math.round(legKm[i])}` : "";
     const tempoStr = formatLegTempo(legKm[i], legDurationsMin?.[i]);
+    const partsStr = (stop.parts || []).map(p => `${p.code} (x${p.quantity})`).join("; ");
 
     html += `
         <tr>
@@ -150,6 +153,7 @@ export function buildRouteEmailPayload({
           <td style="border: 1px solid #000000; padding: 5px 8px; text-align: right; font-weight: bold;">${kmStr}</td>
           <td style="border: 1px solid #000000; padding: 5px 8px;">${stop.ts || "IH"}</td>
           <td style="border: 1px solid #000000; padding: 5px 8px;">${stop.warrantyType || "LP"}</td>
+          <td style="border: 1px solid #000000; padding: 5px 8px;">${partsStr}</td>
         </tr>
     `;
   });
@@ -158,7 +162,7 @@ export function buildRouteEmailPayload({
         <tr style="font-weight: bold; background-color: #f8f9fa;">
           <td colspan="12" style="border: 1px solid #000000; padding: 5px 8px; text-align: right;">TOTAL:</td>
           <td style="border: 1px solid #000000; padding: 5px 8px; text-align: right; font-size: 13px;">${roundedTotalKm}</td>
-          <td colspan="2" style="border: 1px solid #000000; padding: 5px 8px;"></td>
+          <td colspan="3" style="border: 1px solid #000000; padding: 5px 8px;"></td>
         </tr>
       </tbody>
     </table>

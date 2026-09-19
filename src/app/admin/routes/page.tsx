@@ -30,7 +30,7 @@ import { type Route, type RouteStop, type ServiceOrder, type Technician, type Ro
 import { tagStopsWithZipMismatch } from "@/lib/geocode";
 import { optimizeRouteStopsAsync } from "@/lib/routeOptimizer";
 import { fetchLegDistancesAndDurations } from "@/lib/routeLegs";
-import { formatLegTempo } from "@/lib/emailExport";
+import { formatLegTempo, copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -405,6 +405,7 @@ function RouteForm({
     const [manualAddOpen, setManualAddOpen] = useState(false);
     const [appendText, setAppendText] = useState("");
     const [isOptimizing, setIsOptimizing] = useState(false);
+    const [isCopyingEmail, setIsCopyingEmail] = useState(false);
 
     const routeDataModel = "SO Nro.\tASC Job No.\tNome Consumidor\tCidade\tBairro\tUF\tCEP\tModelo\tTURNO\tTAT\tData de Solicitação\t1st Visit Date\tTS\tOW/LP\tSPD\tStatus comment\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD\tCOD\tDESCRICAO\tQTD";
 
@@ -526,6 +527,40 @@ function RouteForm({
         const reversed = [...parsedStops].reverse();
         setParsedStops(reversed);
         setRouteText(reconstructRouteText(reversed));
+    };
+
+    // Copia a rota formatada (mesmo modelo da etapa de e-mail do assistente de
+    // Nova Rota) direto daqui, sem precisar passar pelo assistente completo.
+    const handleCopyEmail = async () => {
+        setIsCopyingEmail(true);
+        try {
+            const technician = technicians.find(t => t.id === technicianId);
+            const driver = drivers.find(d => d.id === driverId);
+            const emailRoute: Route = {
+                id: initialData?.id || '',
+                name: routeName,
+                technicianId: technicianId || '',
+                technicianName: technician?.name,
+                driverId: driverId || 'none',
+                driverName: driver?.name,
+                licensePlate,
+                departureDate,
+                arrivalDate,
+                routeType,
+                isActive: true,
+                isDraft: false,
+                isCanceled: false,
+                createdAt: new Date(),
+                stops: activeStops,
+            } as Route;
+            const totalKm = legKm.reduce((a, b) => a + (b || 0), 0);
+            const ok = await copyRouteEmailToClipboard({ route: emailRoute, legKm, legDurationsMin: legDurationMin, totalKm });
+            toast(ok
+                ? { title: "E-mail copiado!", description: "Cole no seu cliente de e-mail." }
+                : { variant: "destructive", title: "Não foi possível copiar", description: "Tente novamente." });
+        } finally {
+            setIsCopyingEmail(false);
+        }
     };
 
     // Preview ao vivo do texto colado: separa o que é novo do que já está na rota.
@@ -1042,6 +1077,20 @@ function RouteForm({
                                         <ArrowUpDown className="h-3.5 w-3.5" /> Inverter
                                     </Button>
                                 </>
+                            )}
+                            {parsedStops.length > 0 && (
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleCopyEmail}
+                                    disabled={isCopyingEmail}
+                                    className="h-8 gap-1.5"
+                                    title="Copia a rota formatada (com peças) para colar num e-mail"
+                                >
+                                    {isCopyingEmail ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
+                                    Copiar para Email
+                                </Button>
                             )}
                             <div className="flex items-center gap-1 rounded-lg border p-1">
                                 <button
