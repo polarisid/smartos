@@ -29,6 +29,7 @@ import { useIndicators } from "@/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { IndicatorReportTab } from "@/components/indicators/IndicatorReportTab";
+import { TechnicianPerformanceTab } from "@/components/indicators/TechnicianPerformanceTab";
 
 type FormData = Omit<Indicator, 'id'>;
 
@@ -249,11 +250,16 @@ export default function IndicatorsPage() {
                 <Tabs defaultValue="relatorio">
                     <TabsList>
                         <TabsTrigger value="relatorio">Relatório PDF</TabsTrigger>
+                        <TabsTrigger value="desempenho">Desempenho por Técnico</TabsTrigger>
                         <TabsTrigger value="metas">Metas Manuais</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="relatorio" className="pt-4">
                         <IndicatorReportTab />
+                    </TabsContent>
+
+                    <TabsContent value="desempenho" className="pt-4">
+                        <TechnicianPerformanceTab />
                     </TabsContent>
 
                     <TabsContent value="metas" className="pt-4">
