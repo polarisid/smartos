@@ -18,7 +18,7 @@ import { Phone, MessageSquare, ChevronRight } from "lucide-react";import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen, Copy, ArrowUp, ArrowDown, ArrowUpDown, FileDown, Loader2, ArrowRightLeft, MapPin, Zap, Rocket, Columns2, Search } from "lucide-react";
+import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen, Copy, ArrowUp, ArrowDown, ArrowUpDown, FileDown, Loader2, ArrowRightLeft, MapPin, Zap, Rocket, Columns2, Search, X, Plus } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { routeService } from "@/services/supabase/routeService";
@@ -599,6 +599,43 @@ function RouteForm({
         setParsedStops(currentStops => {
             const newStops = [...currentStops];
             newStops[index].firstVisitDate = value;
+            return newStops;
+        });
+    };
+
+    const handleObservationsChange = (index: number, value: string) => {
+        setParsedStops(currentStops => {
+            const newStops = [...currentStops];
+            newStops[index].observations = value;
+            return newStops;
+        });
+    };
+
+    const handlePartChange = (stopIndex: number, partIndex: number, field: 'code' | 'quantity', value: string) => {
+        setParsedStops(currentStops => {
+            const newStops = [...currentStops];
+            const parts = [...(newStops[stopIndex].parts || [])];
+            parts[partIndex] = {
+                ...parts[partIndex],
+                [field]: field === 'quantity' ? Math.max(1, parseInt(value, 10) || 1) : value,
+            };
+            newStops[stopIndex].parts = parts;
+            return newStops;
+        });
+    };
+
+    const handleAddPart = (stopIndex: number) => {
+        setParsedStops(currentStops => {
+            const newStops = [...currentStops];
+            newStops[stopIndex].parts = [...(newStops[stopIndex].parts || []), { code: '', description: '', quantity: 1 }];
+            return newStops;
+        });
+    };
+
+    const handleRemovePart = (stopIndex: number, partIndex: number) => {
+        setParsedStops(currentStops => {
+            const newStops = [...currentStops];
+            newStops[stopIndex].parts = (newStops[stopIndex].parts || []).filter((_, i) => i !== partIndex);
             return newStops;
         });
     };
@@ -1472,26 +1509,47 @@ function RouteForm({
 
                                             <div className="h-px bg-border" />
 
-                                            <div className="flex flex-wrap gap-x-6 gap-y-3">
-                                                <div className="min-w-0">
-                                                    <span className="text-[10px] text-muted-foreground block mb-1">Peças</span>
-                                                    {partsCount > 0 ? (
-                                                        <div className="flex flex-wrap gap-1">
-                                                            {stop.parts!.map((part, pIndex) => (
-                                                                <span
-                                                                    key={`${part.code}-${pIndex}`}
-                                                                    className="font-mono text-[11px] bg-muted border rounded px-1.5 py-0.5"
-                                                                    title={part.description || undefined}
-                                                                >
-                                                                    {part.code}{part.quantity > 1 ? ` ×${part.quantity}` : ''}
-                                                                </span>
-                                                            ))}
+                                            <div>
+                                                <span className="text-[10px] text-muted-foreground block mb-1">Peças</span>
+                                                <div className="flex flex-wrap items-center gap-1.5">
+                                                    {(stop.parts || []).map((part, pIndex) => (
+                                                        <div key={pIndex} className="flex items-center gap-1 bg-muted border rounded pl-1.5 pr-1 py-0.5">
+                                                            <Input
+                                                                value={part.code}
+                                                                onChange={(e) => handlePartChange(index, pIndex, 'code', e.target.value)}
+                                                                placeholder="Código"
+                                                                className="h-6 w-24 text-[11px] font-mono border-0 bg-transparent px-1 shadow-none focus-visible:ring-1"
+                                                            />
+                                                            <span className="text-[11px] text-muted-foreground">×</span>
+                                                            <Input
+                                                                type="number"
+                                                                min={1}
+                                                                value={part.quantity}
+                                                                onChange={(e) => handlePartChange(index, pIndex, 'quantity', e.target.value)}
+                                                                className="h-6 w-10 text-[11px] font-mono border-0 bg-transparent px-1 shadow-none focus-visible:ring-1"
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemovePart(index, pIndex)}
+                                                                className="text-muted-foreground/50 hover:text-destructive shrink-0"
+                                                            >
+                                                                <X className="h-3 w-3" />
+                                                            </button>
                                                         </div>
-                                                    ) : (
-                                                        <span className="text-[11px] text-muted-foreground">Nenhuma</span>
-                                                    )}
+                                                    ))}
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-6 text-[11px] px-2 gap-1"
+                                                        onClick={() => handleAddPart(index)}
+                                                    >
+                                                        <Plus className="h-3 w-3" /> Peça
+                                                    </Button>
                                                 </div>
+                                            </div>
 
+                                            <div className="flex flex-wrap gap-x-6 gap-y-3">
                                                 <div>
                                                     <span className="text-[10px] text-muted-foreground block mb-1">Turno personalizado</span>
                                                     <Input
@@ -1513,6 +1571,17 @@ function RouteForm({
                                                         className="h-8 text-xs"
                                                     />
                                                 </div>
+                                            </div>
+
+                                            <div>
+                                                <span className="text-[10px] text-muted-foreground block mb-1">Observações</span>
+                                                <Textarea
+                                                    placeholder="Observações sobre essa parada..."
+                                                    value={stop.observations || ''}
+                                                    onChange={(e) => handleObservationsChange(index, e.target.value)}
+                                                    className="text-xs min-h-[60px] resize-y"
+                                                    rows={2}
+                                                />
                                             </div>
                                         </div>
                                     )}

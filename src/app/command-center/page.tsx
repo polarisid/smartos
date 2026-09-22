@@ -591,16 +591,22 @@ export default function CommandCenterPage() {
         futureFutureStops.forEach(({ stop, route }) => {
             if (seenBacklog.has(stop.serviceOrder)) return;
 
+            // A data da PRÓPRIA parada manda - rotas de interior duram vários dias, então uma
+            // rota que começou no passado pode ter paradas planejadas ainda pra frente (não é
+            // atraso só porque a rota como um todo já começou). Só cai pra data de origem da
+            // rota quando a parada não tem firstVisitDate (ou vem num formato não reconhecido).
             let isPastStop = false;
             const originDateObj = (route.departureDate || route.createdAt) as Date;
-            
-            if (originDateObj && originDateObj.getTime() < todayStart.getTime()) {
-                isPastStop = true; // The whole route is from a past day
-            } else if (stop.firstVisitDate) {
+
+            if (stop.firstVisitDate) {
                 const parsed = parse(stop.firstVisitDate, 'dd/MM/yyyy', new Date());
-                if (isValid(parsed) && parsed < todayStart) {
-                    isPastStop = true;
+                if (isValid(parsed)) {
+                    isPastStop = parsed < todayStart;
+                } else if (originDateObj) {
+                    isPastStop = originDateObj.getTime() < todayStart.getTime();
                 }
+            } else if (originDateObj) {
+                isPastStop = originDateObj.getTime() < todayStart.getTime();
             }
 
             if (!isPastStop) return; // Ignore today or future stops

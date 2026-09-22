@@ -196,12 +196,20 @@ function GeneralDashboard({
         (route.stops || []).forEach(stop => {
             if ((stop.firstVisitDate || '').trim() === todayStr) return;
 
+            // A data da PRÓPRIA parada manda - rotas de interior duram vários dias, então uma
+            // rota que começou no passado pode ter paradas planejadas ainda pra frente (não é
+            // atraso só porque a rota como um todo já começou). Só cai pra data de origem da
+            // rota quando a parada não tem firstVisitDate (ou vem num formato não reconhecido).
             let isPastStop = false;
-            if (originDateObj && isBefore(originDateObj, today)) {
-                isPastStop = true;
-            } else if (stop.firstVisitDate) {
+            if (stop.firstVisitDate) {
                 const parsed = parse(stop.firstVisitDate.trim(), 'dd/MM/yyyy', new Date());
-                if (isValid(parsed) && isBefore(parsed, today)) isPastStop = true;
+                if (isValid(parsed)) {
+                    isPastStop = isBefore(parsed, today);
+                } else if (originDateObj) {
+                    isPastStop = isBefore(originDateObj, today);
+                }
+            } else if (originDateObj) {
+                isPastStop = isBefore(originDateObj, today);
             }
             if (!isPastStop) return;
 
