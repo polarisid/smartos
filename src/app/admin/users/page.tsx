@@ -19,11 +19,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Edit, Trash2, Users, PlusCircle } from "lucide-react";
+import { Edit, Trash2, Users, PlusCircle, KeyRound, Copy, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type AppUser, type Unidade } from "@/lib/data";
 import { userService } from "@/services/supabase/userService";
 import { unidadeService } from "@/services/supabase/unidadeService";
+import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
@@ -38,6 +39,10 @@ export default function UsersPage() {
     const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [isAddUserDialogOpen, setIsAddUserDialogOpen] = useState(false);
+    const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
+    const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
+    const [isResettingPassword, setIsResettingPassword] = useState(false);
+    const [passwordCopied, setPasswordCopied] = useState(false);
 
     const [newRole, setNewRole] = useState<AppUser['role']>('technician');
     const [newUnidadeId, setNewUnidadeId] = useState<string>('');
@@ -84,6 +89,44 @@ export default function UsersPage() {
     const handleOpenDeleteDialog = (user: AppUser) => {
         setSelectedUser(user);
         setIsDeleteDialogOpen(true);
+    };
+
+    const handleOpenPasswordDialog = (user: AppUser) => {
+        setSelectedUser(user);
+        setGeneratedPassword(null);
+        setPasswordCopied(false);
+        setIsPasswordDialogOpen(true);
+    };
+
+    const handleResetPassword = async () => {
+        if (!selectedUser) return;
+        setIsResettingPassword(true);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const res = await fetch('/api/admin/reset-password', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token || ''}`,
+                },
+                body: JSON.stringify({ userId: selectedUser.uid }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Falha ao trocar senha.');
+            setGeneratedPassword(data.newPassword);
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Erro ao trocar senha", description: error.message });
+        } finally {
+            setIsResettingPassword(false);
+        }
+    };
+
+    const handleCopyPassword = () => {
+        if (!generatedPassword) return;
+        navigator.clipboard.writeText(generatedPassword).then(() => {
+            setPasswordCopied(true);
+            setTimeout(() => setPasswordCopied(false), 2000);
+        });
     };
 
     const handleOpenAddUserDialog = () => {
@@ -229,6 +272,9 @@ export default function UsersPage() {
                                                 <Button variant="outline" size="sm" onClick={() => handleOpenRoleDialog(user)}>
                                                     <Edit className="mr-2 h-4 w-4" /> Alterar Função
                                                 </Button>
+                                                <Button variant="outline" size="sm" className="ml-2" onClick={() => handleOpenPasswordDialog(user)}>
+                                                    <KeyRound className="mr-2 h-4 w-4" /> Trocar Senha
+                                                </Button>
                                                 <Button variant="destructive" size="sm" className="ml-2" onClick={() => handleOpenDeleteDialog(user)}>
                                                     <Trash2 className="mr-2 h-4 w-4" /> Excluir
                                                 </Button>
@@ -353,6 +399,45 @@ export default function UsersPage() {
                         <Button onClick={handleSaveRole} disabled={isSubmitting}>
                             {isSubmitting ? 'Salvando...' : 'Salvar Alteração'}
                         </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Reset Password Dialog */}
+            <Dialog open={isPasswordDialogOpen} onOpenChange={setIsPasswordDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Trocar senha de {selectedUser?.name}</DialogTitle>
+                        <DialogDescription>
+                            Gera uma senha nova aleatória para esse usuário. A senha anterior deixa de funcionar imediatamente.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        {generatedPassword ? (
+                            <div className="space-y-2">
+                                <Label>Nova senha (copie e repasse para o usuário - não será mostrada de novo)</Label>
+                                <div className="flex items-center gap-2">
+                                    <Input readOnly value={generatedPassword} className="font-mono" />
+                                    <Button type="button" variant="outline" size="icon" onClick={handleCopyPassword}>
+                                        {passwordCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                                    </Button>
+                                </div>
+                            </div>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">
+                                Isso vai invalidar a senha atual de <span className="font-medium">{selectedUser?.email}</span> e gerar uma nova. Confirma?
+                            </p>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsPasswordDialogOpen(false)}>
+                            {generatedPassword ? 'Fechar' : 'Cancelar'}
+                        </Button>
+                        {!generatedPassword && (
+                            <Button onClick={handleResetPassword} disabled={isResettingPassword}>
+                                {isResettingPassword ? 'Gerando...' : 'Gerar Nova Senha'}
+                            </Button>
+                        )}
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
