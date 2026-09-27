@@ -21,15 +21,16 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Edit, Trash2, Users, PlusCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { type AppUser } from "@/lib/data";
+import { type AppUser, type Unidade } from "@/lib/data";
 import { userService } from "@/services/supabase/userService";
+import { unidadeService } from "@/services/supabase/unidadeService";
 import { Badge } from "@/components/ui/badge";
-import { useAuth } from "@/context/AuthContext";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 
 export default function UsersPage() {
     const [users, setUsers] = useState<AppUser[]>([]);
+    const [unidades, setUnidades] = useState<Unidade[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -37,8 +38,9 @@ export default function UsersPage() {
     const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [isAddUserDialogOpen, setIsAddUserDialogOpen] = useState(false);
-    
+
     const [newRole, setNewRole] = useState<AppUser['role']>('technician');
+    const [newUnidadeId, setNewUnidadeId] = useState<string>('');
 
     const [formError, setFormError] = useState('');
     const [formState, setFormState] = useState({
@@ -46,10 +48,14 @@ export default function UsersPage() {
         email: '',
         password: '',
         role: 'technician' as AppUser['role'],
+        unidadeId: '',
     });
 
+    useEffect(() => {
+        unidadeService.getAll().then(setUnidades).catch(() => {});
+    }, []);
+
     const { toast } = useToast();
-    const { signup } = useAuth();
 
     const fetchUsers = async () => {
         setIsLoading(true);
@@ -71,6 +77,7 @@ export default function UsersPage() {
     const handleOpenRoleDialog = (user: AppUser) => {
         setSelectedUser(user);
         setNewRole(user.role);
+        setNewUnidadeId(user.unidadeId ?? '');
         setIsRoleDialogOpen(true);
     };
 
@@ -80,23 +87,28 @@ export default function UsersPage() {
     };
 
     const handleOpenAddUserDialog = () => {
-        setFormState({ name: '', email: '', password: '', role: 'technician' });
+        setFormState({ name: '', email: '', password: '', role: 'technician', unidadeId: '' });
         setFormError('');
         setIsAddUserDialogOpen(true);
     }
     
     const handleSaveRole = async () => {
         if (!selectedUser) return;
+        if (newRole !== 'master' && !newUnidadeId) {
+            toast({ variant: "destructive", title: "Selecione a unidade", description: "Todo usuário que não é master precisa estar vinculado a uma unidade." });
+            return;
+        }
         setIsSubmitting(true);
         try {
-            await userService.update(selectedUser.uid, { role: newRole });
-            
-            setUsers(prev => prev.map(u => u.uid === selectedUser.uid ? { ...u, role: newRole } : u));
-            toast({ title: "Função atualizada com sucesso!" });
+            const unidadeId = newRole === 'master' ? null : newUnidadeId;
+            await userService.update(selectedUser.uid, { role: newRole, unidadeId });
+
+            setUsers(prev => prev.map(u => u.uid === selectedUser.uid ? { ...u, role: newRole, unidadeId } : u));
+            toast({ title: "Usuário atualizado com sucesso!" });
             setIsRoleDialogOpen(false);
         } catch (error) {
-            console.error("Error updating role:", error);
-            toast({ variant: "destructive", title: "Erro ao atualizar", description: "Não foi possível atualizar a função do usuário." });
+            console.error("Error updating user:", error);
+            toast({ variant: "destructive", title: "Erro ao atualizar", description: "Não foi possível atualizar o usuário." });
         } finally {
             setIsSubmitting(false);
         }
@@ -126,22 +138,35 @@ export default function UsersPage() {
             setFormError('Todos os campos são obrigatórios.');
             return;
         }
+        if (formState.role !== 'master' && !formState.unidadeId) {
+            setFormError('Selecione a unidade desse usuário.');
+            return;
+        }
         setFormError('');
         setIsSubmitting(true);
         try {
-            await signup(formState.email, formState.password, formState.name, formState.role);
+            // Via API com service role (não o signup público do client) - senão a
+            // RLS multi-unidade bloqueia o insert em profiles, e a conta ficaria
+            // sem unidade_id (sem acesso a nada até corrigir manualmente).
+            const res = await fetch('/api/admin/create-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: formState.email,
+                    password: formState.password,
+                    name: formState.name,
+                    role: formState.role,
+                    unidadeId: formState.role === 'master' ? null : formState.unidadeId,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Falha ao criar conta.');
+
             toast({ title: "Usuário criado com sucesso!" });
             setIsAddUserDialogOpen(false);
             await fetchUsers();
         } catch (err: any) {
-            let errorMessage = "Ocorreu um erro desconhecido.";
-            switch (err.code) {
-                case 'auth/email-already-in-use': errorMessage = 'Este email já está em uso.'; break;
-                case 'auth/invalid-email': errorMessage = 'O formato do email é inválido.'; break;
-                case 'auth/weak-password': errorMessage = 'A senha é muito fraca. Use pelo menos 6 caracteres.'; break;
-                default: errorMessage = 'Falha ao criar conta. Por favor, tente novamente.'; break;
-            }
-            setFormError(errorMessage);
+            setFormError(err.message || 'Falha ao criar conta. Por favor, tente novamente.');
         } finally {
             setIsSubmitting(false);
         }
@@ -150,7 +175,8 @@ export default function UsersPage() {
     const roleLabels: Record<AppUser['role'], string> = {
         admin: 'Admin',
         technician: 'Técnico',
-        counter_technician: 'Técnico de Balcão'
+        counter_technician: 'Técnico de Balcão',
+        master: 'Master'
     };
 
     return (
@@ -182,6 +208,7 @@ export default function UsersPage() {
                                         <TableHead>Nome</TableHead>
                                         <TableHead>Email</TableHead>
                                         <TableHead>Função</TableHead>
+                                        <TableHead>Unidade</TableHead>
                                         <TableHead className="text-right w-[220px]">Ações</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -194,6 +221,9 @@ export default function UsersPage() {
                                                 <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
                                                     {roleLabels[user.role]}
                                                 </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-sm text-muted-foreground">
+                                                {user.role === 'master' ? 'Todas' : (unidades.find(u => u.id === user.unidadeId)?.nome || '—')}
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 <Button variant="outline" size="sm" onClick={() => handleOpenRoleDialog(user)}>
@@ -244,9 +274,25 @@ export default function UsersPage() {
                                     <SelectItem value="admin">Admin</SelectItem>
                                     <SelectItem value="technician">Técnico</SelectItem>
                                     <SelectItem value="counter_technician">Técnico de Balcão</SelectItem>
+                                    <SelectItem value="master">Master (vê todas as unidades)</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
+                        {formState.role !== 'master' && (
+                            <div className="space-y-2">
+                                <Label htmlFor="unidade-add">Unidade</Label>
+                                <Select value={formState.unidadeId} onValueChange={(v) => setFormState(s => ({...s, unidadeId: v}))}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Selecione a unidade" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {unidades.map(u => (
+                                            <SelectItem key={u.id} value={u.id}>{u.nome}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
                         {formError && (
                             <Alert variant="destructive">
                                 <AlertDescription>{formError}</AlertDescription>
@@ -262,13 +308,13 @@ export default function UsersPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* Edit Role Dialog */}
+            {/* Edit User Dialog */}
             <Dialog open={isRoleDialogOpen} onOpenChange={setIsRoleDialogOpen}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Alterar Função de {selectedUser?.name}</DialogTitle>
+                        <DialogTitle>Editar {selectedUser?.name}</DialogTitle>
                         <DialogDescription>
-                            Selecione a nova função para este usuário.
+                            Altere a função e/ou a unidade deste usuário.
                         </DialogDescription>
                     </DialogHeader>
                      <div className="grid gap-4 py-4">
@@ -282,9 +328,25 @@ export default function UsersPage() {
                                     <SelectItem value="admin">Admin</SelectItem>
                                     <SelectItem value="technician">Técnico</SelectItem>
                                     <SelectItem value="counter_technician">Técnico de Balcão</SelectItem>
+                                    <SelectItem value="master">Master (vê todas as unidades)</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
+                        {newRole !== 'master' && (
+                            <div className="space-y-2">
+                                <Label htmlFor="unidade-edit">Unidade</Label>
+                                <Select value={newUnidadeId} onValueChange={setNewUnidadeId}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Selecione a unidade" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {unidades.map(u => (
+                                            <SelectItem key={u.id} value={u.id}>{u.nome}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsRoleDialogOpen(false)}>Cancelar</Button>

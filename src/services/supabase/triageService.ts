@@ -1,8 +1,10 @@
 import { supabase } from "@/lib/supabase";
 
 export const triageService = {
-  async getAll(): Promise<any[]> {
-    const { data, error } = await supabase.from('triages').select('*').order('created_at', { ascending: false });
+  async getAll(unidadeId?: string | null): Promise<any[]> {
+    let query = supabase.from('triages').select('*').order('created_at', { ascending: false });
+    if (unidadeId) query = query.eq('unidade_id', unidadeId);
+    const { data, error } = await query;
     if (error) throw error;
     return data;
   },

@@ -24,15 +24,21 @@ export async function POST(req: NextRequest) {
 
     const supabaseAdmin = getSupabaseAdmin();
 
-    const { email, password, name, role } = await req.json();
+    const { email, password, name, role, unidadeId } = await req.json();
 
     if (!email || !password || !name || !role) {
       return NextResponse.json({ error: 'Todos os campos são obrigatórios.' }, { status: 400 });
     }
 
-    const validRoles = ['admin', 'technician', 'counter_technician'];
+    const validRoles = ['admin', 'technician', 'counter_technician', 'master'];
     if (!validRoles.includes(role)) {
       return NextResponse.json({ error: 'Função inválida.' }, { status: 400 });
+    }
+
+    // Toda função exceto 'master' precisa estar vinculada a uma unidade -
+    // é o que a RLS usa pra isolar os dados dessa pessoa.
+    if (role !== 'master' && !unidadeId) {
+      return NextResponse.json({ error: 'Selecione a unidade para esse usuário.' }, { status: 400 });
     }
 
     // 1. Create auth user using admin API (no email confirmation, no session change)
@@ -64,6 +70,7 @@ export async function POST(req: NextRequest) {
       name,
       email: newUser.user.email,
       role,
+      unidade_id: role === 'master' ? null : unidadeId,
     });
 
     if (profileError) {

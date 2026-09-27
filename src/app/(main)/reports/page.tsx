@@ -16,6 +16,7 @@ import { technicalReportService } from "@/services/supabase/technicalReportServi
 import type { ChecklistTemplate, TechnicalReport, TechnicalReportPhotoCategory, TechnicalReportType } from "@/lib/data";
 import { buildAndDownloadPdf } from "@/lib/technicalReportPdf";
 import { compressImageIfNeeded } from "@/lib/imageCompression";
+import { queueReport, type PendingReportPhoto } from "@/lib/offlineReportQueue";
 import { Camera, Loader2, Plus, Trash2, Download, Search, ScanLine, ClipboardList, Wrench, ClipboardCheck } from "lucide-react";
 
 type LocalPhoto = {
@@ -307,6 +308,13 @@ function ReportsPageInner() {
       .catch(e => console.error("Falha ao pontuar relatório com IA", e));
   };
 
+  // Falha de rede de verdade (sem sinal) x erro de validação/permissão - só a
+  // primeira deve virar "guarda pra sincronizar depois" em vez de erro na cara.
+  const isNetworkError = (e: any): boolean => {
+    if (!navigator.onLine) return true;
+    return e instanceof TypeError || /fetch|network/i.test(e?.message || "");
+  };
+
   const handleSave = async () => {
     if (!serviceOrderNumber.trim()) {
       toast({ variant: "destructive", title: "Informe o número da OS." });
@@ -317,8 +325,66 @@ function ReportsPageInner() {
       return;
     }
 
+    const technician = technicians.find(t => t.id === technicianId);
+    const signatureEmpty = clientSignatureRef.current?.isEmpty() ?? true;
+    const drawnSignature = signatureEmpty ? undefined : clientSignatureRef.current!.toDataURL("image/png");
+    const clientSignature = drawnSignature || storedClientSignature || undefined;
+
+    const basePayload = {
+      serviceOrderNumber: serviceOrderNumber.trim(),
+      reportType,
+      technicianId: technicianId || undefined,
+      technicianName: technician?.name,
+      consumerName: consumerName || undefined,
+      productModel: productModel || undefined,
+      serialNumber: serialNumber || undefined,
+      repairDescription: reportType === "visita" ? undefined : repairDescription.trim(),
+      observations: observations || undefined,
+      checklistTemplateId: checklistTemplateId || undefined,
+      ...(drawnSignature ? { clientSignature: drawnSignature } : {}),
+    };
+
+    // Sem internet (ou perdeu no meio do envio): guarda tudo no aparelho pra
+    // sincronizar sozinho depois, em vez de só mostrar erro e o técnico ter
+    // que lembrar de refazer tudo na volta do sinal.
+    const saveOffline = async () => {
+      const pendingPhotos: PendingReportPhoto[] = photos.map(p =>
+        p.url && p.path
+          ? { category: p.category, order: p.order, url: p.url, path: p.path }
+          : { category: p.category, order: p.order, file: p.file! }
+      );
+      await queueReport(basePayload, pendingPhotos, savedReportId || undefined);
+      toast({ title: "Sem conexão — relatório salvo no aparelho", description: "Vai ser enviado sozinho assim que a internet voltar." });
+
+      // PDF sai na hora mesmo offline - usa a preview local da foto (blob),
+      // não depende de rede nenhuma.
+      const localReport: TechnicalReport = {
+        id: savedReportId || "pendente",
+        createdAt: savedReportCreatedAt || new Date(),
+        updatedAt: new Date(),
+        ...basePayload,
+        photos: photos.map(p => ({ category: p.category, order: p.order, url: p.url || p.previewUrl, path: p.path || "" })),
+        clientSignature,
+      };
+      setIsDownloadingPdf(true);
+      try {
+        await buildAndDownloadPdf(localReport);
+      } catch (pdfError) {
+        console.error("Falha ao gerar PDF (offline)", pdfError);
+      } finally {
+        setIsDownloadingPdf(false);
+      }
+
+      resetForm();
+    };
+
     setIsSaving(true);
     try {
+      if (!navigator.onLine) {
+        await saveOffline();
+        return;
+      }
+
       const uploaded = await Promise.all(
         photos.map(async (p) => {
           if (p.url && p.path) return p;
@@ -328,24 +394,9 @@ function ReportsPageInner() {
       );
       setPhotos(uploaded);
 
-      const technician = technicians.find(t => t.id === technicianId);
-      const signatureEmpty = clientSignatureRef.current?.isEmpty() ?? true;
-      const drawnSignature = signatureEmpty ? undefined : clientSignatureRef.current!.toDataURL("image/png");
-      const clientSignature = drawnSignature || storedClientSignature || undefined;
-
       const payload = {
-        serviceOrderNumber: serviceOrderNumber.trim(),
-        reportType,
-        technicianId: technicianId || undefined,
-        technicianName: technician?.name,
-        consumerName: consumerName || undefined,
-        productModel: productModel || undefined,
-        serialNumber: serialNumber || undefined,
+        ...basePayload,
         photos: uploaded.map(p => ({ category: p.category, url: p.url!, path: p.path!, order: p.order })),
-        repairDescription: reportType === "visita" ? undefined : repairDescription.trim(),
-        observations: observations || undefined,
-        checklistTemplateId: checklistTemplateId || undefined,
-        ...(drawnSignature ? { clientSignature: drawnSignature } : {}),
       };
 
       let id = savedReportId;
@@ -384,6 +435,10 @@ function ReportsPageInner() {
         setIsDownloadingPdf(false);
       }
     } catch (e: any) {
+      if (isNetworkError(e)) {
+        await saveOffline();
+        return;
+      }
       toast({ variant: "destructive", title: "Erro ao salvar relatório", description: e?.message });
     } finally {
       setIsSaving(false);

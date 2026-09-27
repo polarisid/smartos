@@ -12,7 +12,12 @@ interface AuthContextType {
     signup: (email: string, pass: string, name: string, role?: AppUser['role']) => Promise<any>;
     login: (email: string, pass: string) => Promise<any>;
     logout: () => Promise<void>;
+    /** Unidade que o master escolheu "entrar" pra ver como se fosse o admin dela. Null = todas as unidades. Sempre null pra quem não é master. */
+    activeUnidadeId: string | null;
+    setActiveUnidadeId: (id: string | null) => void;
 }
+
+const MASTER_ACTIVE_UNIDADE_KEY = 'masterActiveUnidadeId';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -20,6 +25,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const [user, setUser] = useState<User | null>(null);
     const [appUser, setAppUser] = useState<AppUser | null>(null);
     const [loading, setLoading] = useState(true);
+    const [activeUnidadeId, setActiveUnidadeIdState] = useState<string | null>(null);
+
+    useEffect(() => {
+        try {
+            const saved = localStorage.getItem(MASTER_ACTIVE_UNIDADE_KEY);
+            if (saved) setActiveUnidadeIdState(saved);
+        } catch {}
+    }, []);
+
+    const setActiveUnidadeId = (id: string | null) => {
+        setActiveUnidadeIdState(id);
+        try {
+            if (id) localStorage.setItem(MASTER_ACTIVE_UNIDADE_KEY, id);
+            else localStorage.removeItem(MASTER_ACTIVE_UNIDADE_KEY);
+        } catch {}
+    };
 
     useEffect(() => {
         // Initial session check
@@ -63,6 +84,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 if (error) {
                     // PGRST116 means no rows were found. The user exists in Auth but has no Profile.
                     if (error.code === 'PGRST116') {
+                        // Desde a RLS multi-unidade, só admin/master pode inserir em `profiles`
+                        // (mesmo a primeira conta) - esse auto-heal não vai mais conseguir se
+                        // inserir sozinho, só fica como fallback que falha de forma segura.
+                        // Criação de usuário (inclusive o primeiro master) passa a ser via SQL
+                        // direto (bootstrap) ou pela API com service role (bypassa RLS).
                         console.warn("AuthContext: Profile not found. Attempting to auto-create...");
                         const { data: authData } = await supabase.auth.getUser();
                         
@@ -84,7 +110,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                                         uid: newProfile.id,
                                         name: newProfile.name,
                                         email: newProfile.email,
-                                        role: newProfile.role
+                                        role: newProfile.role,
+                                        unidadeId: newProfile.unidade_id ?? null
                                     });
                                 }
                                 return; // Successfully auto-healed
@@ -101,7 +128,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                         uid: data.id,
                         name: data.name,
                         email: data.email,
-                        role: data.role
+                        role: data.role,
+                        unidadeId: data.unidade_id ?? null
                     });
                 } else if (isMounted) {
                     setAppUser(null);
@@ -166,6 +194,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         signup,
         login,
         logout,
+        activeUnidadeId: appUser?.role === 'master' ? activeUnidadeId : null,
+        setActiveUnidadeId,
     };
 
     return (

@@ -17,7 +17,8 @@ export const userService = {
       uid: profile.id,
       name: profile.name,
       email: profile.email,
-      role: profile.role
+      role: profile.role,
+      unidadeId: profile.unidade_id ?? null
     } as AppUser));
   },
 
@@ -40,7 +41,8 @@ export const userService = {
       uid: data.id,
       name: data.name,
       email: data.email,
-      role: data.role
+      role: data.role,
+      unidadeId: data.unidade_id ?? null
     } as AppUser;
   },
 
@@ -52,6 +54,7 @@ export const userService = {
     if (data.name !== undefined) updateData.name = data.name;
     if (data.email !== undefined) updateData.email = data.email;
     if (data.role !== undefined) updateData.role = data.role;
+    if (data.unidadeId !== undefined) updateData.unidade_id = data.unidadeId;
 
     const { error } = await supabase
       .from('profiles')

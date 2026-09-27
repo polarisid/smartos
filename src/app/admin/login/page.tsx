@@ -18,6 +18,7 @@ import { Logo } from "@/components/Logo";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useAuth } from "@/context/AuthContext";
+import { userService } from "@/services/supabase/userService";
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -35,9 +36,11 @@ export default function AdminLoginPage() {
     setIsLoading(true);
 
     try {
-      await login(email, password);
+      const { user } = await login(email, password);
       toast({ title: "Login bem-sucedido!" });
-      router.push("/admin/dashboard");
+      const profile = user ? await userService.getById(user.id) : null;
+      const isTechnician = profile?.role === 'technician' || profile?.role === 'counter_technician';
+      router.push(isTechnician ? "/" : "/admin/dashboard");
     } catch (err: any) {
       let errorMessage = "Ocorreu um erro desconhecido.";
       if (err.message === "Invalid login credentials") {
@@ -57,9 +60,9 @@ export default function AdminLoginPage() {
         <div className="mx-auto mb-4 flex justify-center">
           <Logo size={44} />
         </div>
-        <CardTitle className="text-2xl">Painel Admin</CardTitle>
+        <CardTitle className="text-2xl">Login</CardTitle>
         <CardDescription>
-          Acesse com sua conta de administrador
+          Acesse sua conta para continuar
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -69,7 +72,7 @@ export default function AdminLoginPage() {
             <Input
               id="email"
               type="email"
-              placeholder="admin@example.com"
+              placeholder="seu@email.com"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}

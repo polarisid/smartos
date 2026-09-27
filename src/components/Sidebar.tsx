@@ -2,17 +2,31 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Wrench, TrendingUp, Trophy, Map, QrCode, LogIn, Menu, Download, Shield, Camera } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { Wrench, TrendingUp, Trophy, Map, QrCode, LogIn, Menu, Download, Shield, Camera, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Logo } from "@/components/Logo";
+import { useAuth } from "@/context/AuthContext";
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { appUser, logout } = useAuth();
   const [installPromptEvent, setInstallPromptEvent] = useState<any>(null);
   const [open, setOpen] = useState(false);
+  const isAdminOrMaster = appUser?.role === 'admin' || appUser?.role === 'master';
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.push('/admin/login');
+    } catch (error) {
+      console.error("Failed to log out", error);
+    }
+  };
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (event: Event) => {
@@ -84,12 +98,30 @@ export function Sidebar() {
             </Button>
         )}
 
-        <Button asChild variant="ghost" className="w-full justify-start rounded-xl font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground">
-          <Link href="/admin/login">
-            <Shield className="mr-3 h-4 w-4 text-sidebar-primary" />
-            Painel Admin
-          </Link>
-        </Button>
+        {isAdminOrMaster && (
+          <Button asChild variant="ghost" className="w-full justify-start rounded-xl font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground">
+            <Link href="/admin/login">
+              <Shield className="mr-3 h-4 w-4 text-sidebar-primary" />
+              Painel Admin
+            </Link>
+          </Button>
+        )}
+
+        {appUser && (
+          <div className="flex items-center justify-between p-3 rounded-xl bg-sidebar-accent/50 border border-sidebar-border hover:bg-sidebar-accent transition-colors">
+            <div className="flex items-center gap-3 overflow-hidden">
+              <Avatar className="h-8 w-8 border-2 border-sidebar-primary/30">
+                <AvatarFallback className="bg-sidebar-primary/15 text-sidebar-primary font-bold text-xs">
+                  {appUser.name?.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <span className="font-medium text-sm truncate text-sidebar-foreground">{appUser.name}</span>
+            </div>
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors" onClick={handleLogout}>
+              <LogOut className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

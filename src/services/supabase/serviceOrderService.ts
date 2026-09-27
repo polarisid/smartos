@@ -32,12 +32,10 @@ export const serviceOrderService = {
     };
   },
 
-  async getRecentOrders(limitCount: number = 5): Promise<ServiceOrder[]> {
-    const { data, error } = await supabase
-      .from('service_orders')
-      .select('*')
-      .order('date', { ascending: false })
-      .limit(limitCount);
+  async getRecentOrders(limitCount: number = 5, unidadeId?: string | null): Promise<ServiceOrder[]> {
+    let query = supabase.from('service_orders').select('*').order('date', { ascending: false }).limit(limitCount);
+    if (unidadeId) query = query.eq('unidade_id', unidadeId);
+    const { data, error } = await query;
 
     if (error) throw error;
     return data.map(this.mapFromDb);
@@ -69,18 +67,16 @@ export const serviceOrderService = {
     return data.map(this.mapFromDb);
   },
 
-  async getAll(): Promise<ServiceOrder[]> {
+  async getAll(unidadeId?: string | null): Promise<ServiceOrder[]> {
     let allOrders: any[] = [];
     let from = 0;
     const step = 1000;
     let hasMore = true;
 
     while (hasMore) {
-      const { data, error } = await supabase
-        .from('service_orders')
-        .select('*')
-        .order('date', { ascending: false })
-        .range(from, from + step - 1);
+      let query = supabase.from('service_orders').select('*').order('date', { ascending: false }).range(from, from + step - 1);
+      if (unidadeId) query = query.eq('unidade_id', unidadeId);
+      const { data, error } = await query;
 
       if (error) throw error;
       

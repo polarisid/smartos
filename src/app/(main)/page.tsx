@@ -45,6 +45,7 @@ import { AlertTriangle, Check, CheckCircle, ChevronsUpDown, Copy, Wrench, LogIn,
 import Link from 'next/link';
 
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
+import { useAuth } from "@/context/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -662,6 +663,9 @@ export default function OsFormPage() {
   const { symptomCodes, repairCodes } = codes;
   const { data: codeUsageCounts } = useCodeUsageCounts();
 
+  const { appUser } = useAuth();
+  const isLockedTechnician = appUser?.role === 'technician' || appUser?.role === 'counter_technician';
+
   const dataFetchError = errTech || errPresets || errRoutes || errChecklists || errTemplate || errCodes;
   const refreshDynamicData = () => queryClient.invalidateQueries();
   const [generatedText, setGeneratedText] = useState("");
@@ -898,6 +902,14 @@ const { toast } = useToast();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Técnico logado não escolhe quem ele é - o próprio login já diz isso.
+  useEffect(() => {
+    if (isLockedTechnician && appUser) {
+        setLocalTechnician(appUser.uid);
+        setValue('technician', appUser.uid, { shouldValidate: true, shouldDirty: true });
+    }
+  }, [isLockedTechnician, appUser, setValue]);
 
   useEffect(() => {
     localStorage.setItem("assistantName", assistantName);
@@ -1407,6 +1419,7 @@ const { toast } = useToast();
                                                                                 setValue('technician', val, { shouldValidate: true, shouldDirty: true });
                                                                                 localStorage.setItem('lastTechnician', val);
                                                                             }}
+                                                                            disabled={isLockedTechnician}
                                                                             showNoneOption={false}
                                                                             placeholder="Selecione o Técnico"
                                                                             options={technicians.map((tech) => ({ value: tech.id, label: tech.name }))}

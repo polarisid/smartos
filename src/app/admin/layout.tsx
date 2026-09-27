@@ -21,8 +21,41 @@ import {
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera, Calculator, Loader2 } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera, Calculator, Loader2, Building2 } from "lucide-react"
 import { Logo } from "@/components/Logo"
+import { unidadeService } from "@/services/supabase/unidadeService"
+import { type Unidade } from "@/lib/data"
+
+// Dropdown só pra master "entrar" numa unidade específica e ver os dados
+// filtrados como se fosse o admin dela - sem isso, master vê tudo misturado
+// de todas as unidades ao mesmo tempo, o que não ajuda no dia a dia.
+function UnidadeSwitcher() {
+    const { activeUnidadeId, setActiveUnidadeId } = useAuth();
+    const [unidades, setUnidades] = React.useState<Unidade[]>([]);
+
+    React.useEffect(() => {
+        unidadeService.getAll().then(setUnidades).catch(() => {});
+    }, []);
+
+    return (
+        <Select
+            value={activeUnidadeId ?? "all"}
+            onValueChange={(v) => setActiveUnidadeId(v === "all" ? null : v)}
+        >
+            <SelectTrigger className="h-8 text-xs bg-sidebar-accent/40 border-sidebar-border text-sidebar-foreground">
+                <Building2 className="h-3.5 w-3.5 mr-1.5 text-sidebar-primary shrink-0" />
+                <SelectValue placeholder="Todas as unidades" />
+            </SelectTrigger>
+            <SelectContent>
+                <SelectItem value="all">Todas as unidades</SelectItem>
+                {unidades.map(u => (
+                    <SelectItem key={u.id} value={u.id}>{u.nome}</SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+    );
+}
 
 // Tela de carregamento com a identidade do app (logo + gradiente), em vez de
 // texto solto num fundo em branco - é a primeira coisa que aparece em toda
@@ -120,6 +153,11 @@ const AdminSidebar = memo(function AdminSidebar({children}: {children: React.Rea
                             <p className="text-[10px] font-mono uppercase tracking-widest text-sidebar-foreground/50">Painel Admin</p>
                         </div>
                     </div>
+                    {appUser?.role === 'master' && (
+                        <div className="px-2 pb-1">
+                            <UnidadeSwitcher />
+                        </div>
+                    )}
                 </SidebarHeader>
                 <SidebarContent className="px-2">
                     {NAV_GROUPS.map((group) => (
@@ -187,9 +225,9 @@ export default function AdminLayout({
       return;
     }
     
-    // If loading is done and there IS a user, but they are not an admin
-    // (either no appUser doc or role is not 'admin'), redirect to the home page with an error.
-    if (!appUser || appUser.role !== 'admin') {
+    // If loading is done and there IS a user, but they are not an admin/master
+    // (either no appUser doc or role isn't one of those), redirect with an error.
+    if (!appUser || !['admin', 'master'].includes(appUser.role)) {
       router.push('/?error=permission_denied');
     }
   }, [user, appUser, loading, router, pathname]);
@@ -213,8 +251,8 @@ export default function AdminLayout({
     )
   }
   
-  // If the user is an admin, show the content.
-  if (user && appUser?.role === 'admin') {
+  // If the user is an admin or master, show the content.
+  if (user && appUser && ['admin', 'master'].includes(appUser.role)) {
     return <AdminSidebar>{children}</AdminSidebar>
   }
 

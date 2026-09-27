@@ -65,8 +65,10 @@ export default function RouteSplitMap({
   return (
     <MapContainer center={[-10.9142, -37.0545]} zoom={10} style={{ height, width: "100%", zIndex: 0 }} className="z-0">
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+        attribution='&copy; <a href="https://maps.google.com">Google Maps</a>'
+        url="https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+        subdomains={['mt0', 'mt1', 'mt2', 'mt3']}
+        maxZoom={20}
       />
       <FitBounds points={points} />
       {paths.map(p => (

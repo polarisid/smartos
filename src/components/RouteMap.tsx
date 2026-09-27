@@ -241,7 +241,7 @@ export default function RouteMap({
             onFerryPreferenceChange(leg.fromServiceOrder, !leg.fromStopAvoidFerry);
         }
     };
-    const [mapStyle, setMapStyle] = useState<'google' | 'google_satellite' | 'carto'>('carto');
+    const [mapStyle, setMapStyle] = useState<'google' | 'google_satellite' | 'carto'>('google');
 
     // 1. Fetch Base coordinates dynamically from baseAddress or configService
     useEffect(() => {
