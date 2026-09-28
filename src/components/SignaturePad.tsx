@@ -45,7 +45,7 @@ export const SignaturePad = forwardRef<SignatureCanvas, SignaturePadProps>(
         const ratio = Math.max(window.devicePixelRatio || 1, 1);
         const w = canvas.offsetWidth;
         const h = canvas.offsetHeight;
-        if (!w || !h) return; // ainda não visível/medido
+        if (!w || !h) return; // ainda não visível/medido (ex.: teclado cobrindo, layout em transição)
         const nextW = Math.round(w * ratio);
         const nextH = Math.round(h * ratio);
         if (canvas.width === nextW && canvas.height === nextH) return; // sem mudança real
@@ -58,9 +58,23 @@ export const SignaturePad = forwardRef<SignatureCanvas, SignaturePadProps>(
         if (previous) pad.fromDataURL(previous);
       };
 
-      const ro = new ResizeObserver(fit);
+      // Debounce: no celular, abrir/fechar teclado ou tocar fora do campo
+      // (perdendo o foco) dispara vários eventos de resize em sequência
+      // durante a animação - sem esperar estabilizar, cada disparo intermediário
+      // podia capturar o canvas num tamanho transitório e acabar limpando o
+      // traço já feito. Só refaz o fit quando o tamanho parar de mudar.
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      const debouncedFit = () => {
+        if (timeout) clearTimeout(timeout);
+        timeout = setTimeout(fit, 150);
+      };
+
+      const ro = new ResizeObserver(debouncedFit);
       ro.observe(canvas);
-      return () => ro.disconnect();
+      return () => {
+        ro.disconnect();
+        if (timeout) clearTimeout(timeout);
+      };
     }, []);
 
     return (
