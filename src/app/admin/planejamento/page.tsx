@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
 import { useAllRoutes, useTechnicians, useDrivers } from "@/hooks/queries";
 import { routeService } from "@/services/supabase/routeService";
 import { configService } from "@/services/supabase/configService";
@@ -490,6 +491,7 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
 // ─── Main Component ──────────────────────────────────────────────────────────
 export default function PlanejamentoPage() {
   const { toast } = useToast();
+  const { activeUnidadeId } = useAuth();
   const queryClient = useQueryClient();
   const { data: allRoutes = [], isLoading } = useAllRoutes();
   const { data: technicians = [] } = useTechnicians();
@@ -1009,7 +1011,7 @@ export default function PlanejamentoPage() {
         driverName: route.driverName,
         driverPhone: route.driverPhone,
         createdAt: new Date(),
-      });
+      }, activeUnidadeId);
       await queryClient.invalidateQueries({ queryKey: ['routes', 'draft'] });
       await queryClient.invalidateQueries({ queryKey: ['routes'] });
       toast({ title: "Rota copiada com sucesso!", description: `Criado rascunho "${copyName}".` });

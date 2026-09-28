@@ -901,7 +901,7 @@ function RouteForm({
                     createdAt: new Date().toISOString(),
                     isActive: true,
                 };
-                await routeService.create(newRouteData as unknown as Omit<Route, 'id'>);
+                await routeService.create(newRouteData as unknown as Omit<Route, 'id'>, activeUnidadeId);
                 toast({ title: "Rota salva com sucesso!" });
 
                 await triggerWebhook({

@@ -25,8 +25,14 @@ export const routeService = {
     return this.mapFromDb(data);
   },
 
-  async create(data: Omit<Route, 'id'>): Promise<string> {
+  // unidadeId é opcional pra admin/técnico (a trigger set_unidade_id_on_insert
+  // já preenche sozinha a partir da sessão) - mas pra master ela deliberadamente
+  // NÃO preenche (master não tem unidade própria), e sem isso a rota era criada
+  // com unidade_id NULL: salvava sem erro (RLS libera master ler/gravar tudo)
+  // mas ficava invisível pra sempre em qualquer lista filtrada por unidade.
+  async create(data: Omit<Route, 'id'>, unidadeId?: string | null): Promise<string> {
     const dbData = this.mapToDb(data as Route);
+    if (unidadeId) dbData.unidade_id = unidadeId;
     const { data: newDoc, error } = await supabase
       .from('routes')
       .insert(dbData)

@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, ArrowLeft, Wand2, Plus, CheckCircle2, GripVertical, X, Trash2, Minus, Route as RouteIcon, Rocket, ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
 import { routeService } from "@/services/supabase/routeService";
 import { configService } from "@/services/supabase/configService";
 import type { Route, RouteStop } from "@/lib/data";
@@ -40,6 +41,7 @@ type Props = {
 
 export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Props) {
   const { toast } = useToast();
+  const { activeUnidadeId } = useAuth();
   const queryClient = useQueryClient();
 
   const [phase, setPhase] = useState<"input" | "review">("input");
@@ -342,7 +344,7 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
         isActive: false,
         isDraft: true,
         createdAt: new Date(),
-      } as Omit<Route, "id">);
+      } as Omit<Route, "id">, activeUnidadeId);
       setCreatedRouteIds(prev => ({ ...prev, [groupIndex]: newId }));
       await queryClient.invalidateQueries({ queryKey: ["routes", "draft"] });
       toast({ title: `${labels[groupIndex]} criada!`, description: "Encontre na lista de rotas pra definir técnico, veículo e data." });

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
 import { useTechnicians, useDrivers, useServiceOrders } from "@/hooks/queries";
 import { routeService } from "@/services/supabase/routeService";
 import { configService } from "@/services/supabase/configService";
@@ -59,6 +60,7 @@ type WizardProps = {
 
 export function RouteCreationWizard({ open, onOpenChange, initialRoute, onCompleted }: WizardProps) {
   const { toast } = useToast();
+  const { activeUnidadeId } = useAuth();
   const queryClient = useQueryClient();
   const { data: technicians = [] } = useTechnicians();
   const { data: drivers = [] } = useDrivers();
@@ -243,7 +245,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
           isActive: false,
           isDraft: true,
           createdAt: new Date(),
-        } as Omit<Route, "id">);
+        } as Omit<Route, "id">, activeUnidadeId);
         setRouteId(newId);
       }
       await queryClient.invalidateQueries({ queryKey: ["routes", "draft"] });
@@ -285,7 +287,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
           isActive: false,
           isDraft: true,
           createdAt: new Date(),
-        } as Omit<Route, "id">);
+        } as Omit<Route, "id">, activeUnidadeId);
         setRouteId(newId);
       }
       await queryClient.invalidateQueries({ queryKey: ["routes", "draft"] });
