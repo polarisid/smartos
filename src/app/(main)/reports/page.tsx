@@ -217,7 +217,15 @@ function ReportsPageInner() {
         toast({ title: "Não consegui identificar modelo/série nessa foto.", description: "Preencha manualmente se necessário." });
       }
     } catch (e: any) {
-      toast({ variant: "destructive", title: "Erro ao ler etiqueta", description: e?.message });
+      // Falha de rede aqui é só a leitura automática (conveniência) não ter
+      // rolado - o relatório em si nem chegou a ser enviado ainda. Não faz
+      // sentido assustar o técnico com "Failed to fetch": mesmo tratamento
+      // gentil de quando a IA não identifica nada, ele preenche na mão.
+      if (isNetworkError(e)) {
+        toast({ title: "Sem conexão para ler a etiqueta agora", description: "Preencha modelo e série manualmente." });
+      } else {
+        toast({ variant: "destructive", title: "Erro ao ler etiqueta", description: e?.message });
+      }
     } finally {
       setIsReadingLabel(false);
     }

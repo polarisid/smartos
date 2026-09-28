@@ -18,6 +18,7 @@ import { Table, TableHeader, TableRow, TableHead, TableBody } from "@/components
 import { MobileRouteStopCard } from "@/components/MobileRouteStopCard";
 import { RouteDetailsRow } from "@/components/RouteDetailsRow";
 import { RoutePartTracking } from "@/components/RoutePartTracking";
+import { cn } from "@/lib/utils";
 
 import { Map as RouteIcon, Calendar, Sun, MapPin, Car, Eye, Filter, CheckCircle2, Clock, LayoutList, Pin, PinOff, History } from "lucide-react";
 import type { Route, RouteStop } from "@/lib/data";
@@ -163,7 +164,11 @@ export default function RoutesPage() {
                 // rotas da equipe aparecem aqui (unidade toda), mas o técnico não deve
                 // mexer no rastreio de peças que não são dele.
                 const isOwnRoute = !!appUser?.uid && route.technicianId === appUser.uid;
-                const hasPartsToTrack = route.stops.some(s => s.parts && s.parts.length > 0);
+                const partsInRoute = route.stops.flatMap(s => s.parts || []);
+                const hasPartsToTrack = partsInRoute.length > 0;
+                // Mesmo critério do card verde na Conferência de Peças (admin): só "tudo
+                // rastreado" quando toda peça da rota já tem código preenchido.
+                const areAllPartsTracked = hasPartsToTrack && partsInRoute.every(p => (p.trackingCode || "").trim() !== "");
 
                 return (
                     <Card key={route.id} className="shadow-sm">
@@ -327,8 +332,14 @@ export default function RoutesPage() {
                             {isOwnRoute && hasPartsToTrack && (
                                 <Dialog>
                                     <DialogTrigger asChild>
-                                        <Button variant="outline" className="w-full md:w-auto mt-2 md:ml-2">
-                                            <PackageSearch className="mr-2 h-4 w-4" />
+                                        <Button
+                                            variant="outline"
+                                            className={cn(
+                                                "w-full md:w-auto mt-2 md:ml-2",
+                                                areAllPartsTracked && "bg-green-100 border-green-300 text-green-800 hover:bg-green-200 dark:bg-green-900/50 dark:border-green-800 dark:text-green-300 dark:hover:bg-green-900/70"
+                                            )}
+                                        >
+                                            {areAllPartsTracked ? <CheckCircle2 className="mr-2 h-4 w-4" /> : <PackageSearch className="mr-2 h-4 w-4" />}
                                             Rastreios de Peças
                                         </Button>
                                     </DialogTrigger>
