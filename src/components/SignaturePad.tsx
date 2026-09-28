@@ -41,7 +41,7 @@ export const SignaturePad = forwardRef<SignatureCanvas, SignaturePadProps>(
       if (!pad) return;
       const canvas = pad.getCanvas();
 
-      const fit = () => {
+      const fit = async () => {
         const ratio = Math.max(window.devicePixelRatio || 1, 1);
         const w = canvas.offsetWidth;
         const h = canvas.offsetHeight;
@@ -55,18 +55,43 @@ export const SignaturePad = forwardRef<SignatureCanvas, SignaturePadProps>(
         const ctx = canvas.getContext("2d");
         if (ctx) ctx.scale(ratio, ratio);
         pad.clear();
-        if (previous) pad.fromDataURL(previous);
+        if (previous) {
+          // pad.fromDataURL() é assíncrono por baixo dos panos (carrega uma <img>,
+          // só desenha no onload) mas já marca isEmpty=false na hora. Se outro
+          // resize chegasse antes desse desenho terminar, ele capturava o canvas
+          // ainda em branco (só que "marcado" como preenchido) e propagava o
+          // branco adiante - é assim que o traço sumia durante scroll/rotação.
+          // Desenhamos nós mesmos e SÓ seguimos depois que o onload disparar,
+          // garantindo que o pixel já está lá antes de liberar o próximo resize.
+          await new Promise<void>((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+              if (ctx) ctx.drawImage(img, 0, 0, w, h);
+              resolve();
+            };
+            img.onerror = () => resolve();
+            img.src = previous;
+          });
+          pad.fromDataURL(previous); // mantém o estado interno (isEmpty etc.) do signature_pad consistente
+        }
       };
 
-      // Debounce: no celular, abrir/fechar teclado ou tocar fora do campo
-      // (perdendo o foco) dispara vários eventos de resize em sequência
-      // durante a animação - sem esperar estabilizar, cada disparo intermediário
-      // podia capturar o canvas num tamanho transitório e acabar limpando o
-      // traço já feito. Só refaz o fit quando o tamanho parar de mudar.
+      // Debounce: no celular, abrir/fechar teclado, tocar fora do campo ou até
+      // rolar a página (a barra de endereço recolhendo muda a altura visível)
+      // dispara vários eventos de resize em sequência durante a animação - sem
+      // esperar estabilizar, cada disparo intermediário podia capturar o canvas
+      // num tamanho transitório. Só refaz o fit quando o tamanho parar de mudar.
       let timeout: ReturnType<typeof setTimeout> | null = null;
+      // Serializa as chamadas de fit(): cada uma só começa depois que a anterior
+      // (incluindo o redesenho assíncrono acima) terminar de verdade - sem isso,
+      // dois resizes espaçados por mais que o debounce (comum durante um scroll
+      // mais longo) ainda conseguiam se sobrepor.
+      let queue: Promise<void> = Promise.resolve();
       const debouncedFit = () => {
         if (timeout) clearTimeout(timeout);
-        timeout = setTimeout(fit, 150);
+        timeout = setTimeout(() => {
+          queue = queue.then(fit);
+        }, 150);
       };
 
       const ro = new ResizeObserver(debouncedFit);
