@@ -3,8 +3,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { format, differenceInDays, isAfter } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import { useActiveRoutes, useServiceOrders, useVisitTemplate } from "@/hooks/queries";
-import { AlertCircle } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { AlertCircle, PackageSearch } from "lucide-react";
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,6 +17,7 @@ import { Progress } from "@/components/ui/progress";
 import { Table, TableHeader, TableRow, TableHead, TableBody } from "@/components/ui/table";
 import { MobileRouteStopCard } from "@/components/MobileRouteStopCard";
 import { RouteDetailsRow } from "@/components/RouteDetailsRow";
+import { RoutePartTracking } from "@/components/RoutePartTracking";
 
 import { Map as RouteIcon, Calendar, Sun, MapPin, Car, Eye, Filter, CheckCircle2, Clock, LayoutList, Pin, PinOff, History } from "lucide-react";
 import type { Route, RouteStop } from "@/lib/data";
@@ -22,11 +25,13 @@ export default function RoutesPage() {
     const { data: activeRoutes = [], isError: errRoutes, isLoading: loadingRoutes } = useActiveRoutes();
     const { data: serviceOrders = [], isError: errSo, isLoading: loadingSo } = useServiceOrders(2000);
     const { data: visitTemplate = "", isError: errTemplate, isLoading: loadingTemplate } = useVisitTemplate();
-    
+
     const dataFetchError = errRoutes || errSo || errTemplate;
     const isLoading = loadingRoutes || loadingSo || loadingTemplate;
 
     const { toast } = useToast();
+    const { appUser } = useAuth();
+    const queryClient = useQueryClient();
 
     const [blockedOrders, setBlockedOrders] = useState<Record<string, string>>({});
     const [isBlocksLoaded, setIsBlocksLoaded] = useState(false);
@@ -153,6 +158,12 @@ export default function RoutesPage() {
                 const filteredCount = filteredStops.length;
                 const pendingCount = route.stops.filter(s => !isStopCompleted(s, routeCreated)).length;
                 const doneCount = completedStopsCount;
+
+                // Rastreio de peças só é liberado na própria rota do técnico - as demais
+                // rotas da equipe aparecem aqui (unidade toda), mas o técnico não deve
+                // mexer no rastreio de peças que não são dele.
+                const isOwnRoute = !!appUser?.uid && route.technicianId === appUser.uid;
+                const hasPartsToTrack = route.stops.some(s => s.parts && s.parts.length > 0);
 
                 return (
                     <Card key={route.id} className="shadow-sm">
@@ -312,6 +323,31 @@ export default function RoutesPage() {
                                     </div>
                                 </DialogContent>
                             </Dialog>
+
+                            {isOwnRoute && hasPartsToTrack && (
+                                <Dialog>
+                                    <DialogTrigger asChild>
+                                        <Button variant="outline" className="w-full md:w-auto mt-2 md:ml-2">
+                                            <PackageSearch className="mr-2 h-4 w-4" />
+                                            Rastreios de Peças
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent className="max-w-2xl w-[95vw] md:w-full p-2 md:p-6 bg-muted md:bg-background">
+                                        <DialogHeader>
+                                            <DialogTitle>Rastreios de Peças: {route.name}</DialogTitle>
+                                            <DialogDescription>
+                                                Insira ou leia o código de rastreio de cada peça desta rota.
+                                            </DialogDescription>
+                                        </DialogHeader>
+                                        <div className="max-h-[70vh] overflow-y-auto">
+                                            <RoutePartTracking
+                                                route={route}
+                                                onSaved={() => queryClient.invalidateQueries({ queryKey: ['routes'] })}
+                                            />
+                                        </div>
+                                    </DialogContent>
+                                </Dialog>
+                            )}
                         </CardContent>
                     </Card>
                 );
