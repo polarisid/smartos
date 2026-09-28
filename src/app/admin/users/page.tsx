@@ -19,7 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Edit, Trash2, Users, PlusCircle, KeyRound, Copy, Check } from "lucide-react";
+import { Edit, Trash2, Users, PlusCircle, KeyRound, Copy, Check, Shuffle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type AppUser, type Unidade } from "@/lib/data";
 import { userService } from "@/services/supabase/userService";
@@ -43,6 +43,7 @@ export default function UsersPage() {
     const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
     const [isResettingPassword, setIsResettingPassword] = useState(false);
     const [passwordCopied, setPasswordCopied] = useState(false);
+    const [passwordInput, setPasswordInput] = useState('');
 
     const [newRole, setNewRole] = useState<AppUser['role']>('technician');
     const [newUnidadeId, setNewUnidadeId] = useState<string>('');
@@ -95,11 +96,20 @@ export default function UsersPage() {
         setSelectedUser(user);
         setGeneratedPassword(null);
         setPasswordCopied(false);
+        setPasswordInput('');
         setIsPasswordDialogOpen(true);
+    };
+
+    const handleGenerateSuggestion = () => {
+        setPasswordInput(crypto.randomUUID().replace(/-/g, '').slice(0, 14));
     };
 
     const handleResetPassword = async () => {
         if (!selectedUser) return;
+        if (passwordInput && passwordInput.length < 6) {
+            toast({ variant: "destructive", title: "Senha muito curta", description: "Use pelo menos 6 caracteres." });
+            return;
+        }
         setIsResettingPassword(true);
         try {
             const { data: { session } } = await supabase.auth.getSession();
@@ -109,7 +119,7 @@ export default function UsersPage() {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${session?.access_token || ''}`,
                 },
-                body: JSON.stringify({ userId: selectedUser.uid }),
+                body: JSON.stringify({ userId: selectedUser.uid, ...(passwordInput ? { newPassword: passwordInput } : {}) }),
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Falha ao trocar senha.');
@@ -409,7 +419,7 @@ export default function UsersPage() {
                     <DialogHeader>
                         <DialogTitle>Trocar senha de {selectedUser?.name}</DialogTitle>
                         <DialogDescription>
-                            Gera uma senha nova aleatória para esse usuário. A senha anterior deixa de funcionar imediatamente.
+                            Defina uma senha nova para esse usuário (ou gere uma aleatória). A senha anterior deixa de funcionar imediatamente.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
@@ -424,9 +434,22 @@ export default function UsersPage() {
                                 </div>
                             </div>
                         ) : (
-                            <p className="text-sm text-muted-foreground">
-                                Isso vai invalidar a senha atual de <span className="font-medium">{selectedUser?.email}</span> e gerar uma nova. Confirma?
-                            </p>
+                            <div className="space-y-2">
+                                <Label htmlFor="new-password-input">Nova senha para {selectedUser?.email}</Label>
+                                <div className="flex items-center gap-2">
+                                    <Input
+                                        id="new-password-input"
+                                        value={passwordInput}
+                                        onChange={(e) => setPasswordInput(e.target.value)}
+                                        placeholder="Digite a nova senha (mín. 6 caracteres)"
+                                        className="font-mono"
+                                    />
+                                    <Button type="button" variant="outline" size="icon" onClick={handleGenerateSuggestion} title="Gerar senha aleatória">
+                                        <Shuffle className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                                <p className="text-xs text-muted-foreground">Deixe em branco para gerar uma senha aleatória automaticamente.</p>
+                            </div>
                         )}
                     </div>
                     <DialogFooter>
@@ -435,7 +458,7 @@ export default function UsersPage() {
                         </Button>
                         {!generatedPassword && (
                             <Button onClick={handleResetPassword} disabled={isResettingPassword}>
-                                {isResettingPassword ? 'Gerando...' : 'Gerar Nova Senha'}
+                                {isResettingPassword ? 'Salvando...' : 'Salvar Senha'}
                             </Button>
                         )}
                     </DialogFooter>

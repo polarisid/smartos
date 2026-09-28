@@ -27,7 +27,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
-import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera, Calculator, Loader2, Building2, KeyRound, Copy, Check } from "lucide-react"
+import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera, Calculator, Loader2, Building2, KeyRound, Copy, Check, Shuffle } from "lucide-react"
 import { Logo } from "@/components/Logo"
 import { unidadeService } from "@/services/supabase/unidadeService"
 import { type Unidade } from "@/lib/data"
@@ -42,22 +42,32 @@ function ChangeOwnPasswordButton() {
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const [newPassword, setNewPassword] = React.useState<string | null>(null);
     const [copied, setCopied] = React.useState(false);
+    const [passwordInput, setPasswordInput] = React.useState('');
 
     const handleOpen = () => {
         setNewPassword(null);
         setCopied(false);
+        setPasswordInput('');
         setIsOpen(true);
     };
 
-    const handleGenerate = async () => {
+    const handleGenerateSuggestion = () => {
+        setPasswordInput(crypto.randomUUID().replace(/-/g, '').slice(0, 14));
+    };
+
+    const handleSave = async () => {
         if (!user) return;
+        if (passwordInput && passwordInput.length < 6) {
+            toast({ variant: "destructive", title: "Senha muito curta", description: "Use pelo menos 6 caracteres." });
+            return;
+        }
         setIsSubmitting(true);
         try {
             const { data: { session } } = await supabase.auth.getSession();
             const res = await fetch('/api/admin/reset-password', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token || ''}` },
-                body: JSON.stringify({ userId: user.id }),
+                body: JSON.stringify({ userId: user.id, ...(passwordInput ? { newPassword: passwordInput } : {}) }),
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Falha ao trocar senha.');
@@ -87,7 +97,7 @@ function ChangeOwnPasswordButton() {
                     <DialogHeader>
                         <DialogTitle>Trocar minha senha</DialogTitle>
                         <DialogDescription>
-                            Gera uma senha nova aleatória pra sua conta. A senha atual deixa de funcionar imediatamente.
+                            Defina sua nova senha (ou gere uma aleatória). A senha atual deixa de funcionar imediatamente.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
@@ -102,14 +112,29 @@ function ChangeOwnPasswordButton() {
                                 </div>
                             </div>
                         ) : (
-                            <p className="text-sm text-muted-foreground">Confirma a troca da sua senha atual?</p>
+                            <div className="space-y-2">
+                                <Label htmlFor="own-new-password">Nova senha</Label>
+                                <div className="flex items-center gap-2">
+                                    <Input
+                                        id="own-new-password"
+                                        value={passwordInput}
+                                        onChange={(e) => setPasswordInput(e.target.value)}
+                                        placeholder="Digite a nova senha (mín. 6 caracteres)"
+                                        className="font-mono"
+                                    />
+                                    <Button type="button" variant="outline" size="icon" onClick={handleGenerateSuggestion} title="Gerar senha aleatória">
+                                        <Shuffle className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                                <p className="text-xs text-muted-foreground">Deixe em branco para gerar uma senha aleatória automaticamente.</p>
+                            </div>
                         )}
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsOpen(false)}>{newPassword ? 'Fechar' : 'Cancelar'}</Button>
                         {!newPassword && (
-                            <Button onClick={handleGenerate} disabled={isSubmitting}>
-                                {isSubmitting ? 'Gerando...' : 'Gerar Nova Senha'}
+                            <Button onClick={handleSave} disabled={isSubmitting}>
+                                {isSubmitting ? 'Salvando...' : 'Salvar Senha'}
                             </Button>
                         )}
                     </DialogFooter>

@@ -32,9 +32,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
     }
 
-    const { userId } = await req.json();
+    const { userId, newPassword: requestedPassword } = await req.json();
     if (!userId) {
       return NextResponse.json({ error: 'Usuário não informado.' }, { status: 400 });
+    }
+    if (requestedPassword !== undefined && requestedPassword.length < 6) {
+      return NextResponse.json({ error: 'A senha precisa ter pelo menos 6 caracteres.' }, { status: 400 });
     }
 
     const supabaseAdmin = getSupabaseAdmin();
@@ -79,7 +82,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Sem permissão para trocar a senha desse usuário.' }, { status: 403 });
     }
 
-    const newPassword = generatePassword();
+    const newPassword = requestedPassword || generatePassword();
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(userId, { password: newPassword });
 
     if (updateError) {
