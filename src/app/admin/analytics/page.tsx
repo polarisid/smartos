@@ -13,6 +13,7 @@ import {
 import { ptBR } from "date-fns/locale";
 import { routeService } from "@/services/supabase/routeService";
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
+import { useAuth } from "@/context/AuthContext";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 const WORK_START = 8;   // 8 AM
@@ -49,6 +50,7 @@ export default function AnalyticsPage() {
     const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);        // wide window — for route completion
     const [comparisonOrders, setComparisonOrders] = useState<ServiceOrder[]>([]); // 2-day window — for the chart
     const [currentTime, setCurrentTime] = useState(new Date());
+    const { activeUnidadeId } = useAuth();
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -61,7 +63,7 @@ export default function AnalyticsPage() {
         const fetchData = async () => {
             try {
                 // 1. Fetch Active Routes
-                const allRoutes = await routeService.getAll();
+                const allRoutes = await routeService.getAll(activeUnidadeId);
                 const activeRoutes = allRoutes.filter(r => r.isActive);
                 
                 if (!isMounted) return;
@@ -77,7 +79,7 @@ export default function AnalyticsPage() {
 
                 // 2. Fetch Service Orders
                 // We fetch all orders and filter them locally to match the old behavior.
-                const allOrders = await serviceOrderService.getAll();
+                const allOrders = await serviceOrderService.getAll(activeUnidadeId);
                 
                 if (!isMounted) return;
                 
@@ -99,11 +101,11 @@ export default function AnalyticsPage() {
         // Set a polling interval to update data every 60 seconds
         const dataTimer = setInterval(fetchData, 60000);
 
-        return () => { 
+        return () => {
             isMounted = false;
             clearInterval(dataTimer);
         };
-    }, []);
+    }, [activeUnidadeId]);
 
     // ── Yesterday vs Today hourly ──────────────────────────────────────────
     const comparison = useMemo(() => {

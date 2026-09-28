@@ -2,11 +2,10 @@ import { supabase } from "@/lib/supabase";
 import { type Technician } from "@/lib/data";
 
 export const technicianService = {
-  async getAll(): Promise<Technician[]> {
-    const { data, error } = await supabase
-      .from('technicians')
-      .select('*')
-      .order('name', { ascending: true });
+  async getAll(unidadeId?: string | null): Promise<Technician[]> {
+    let query = supabase.from('technicians').select('*').order('name', { ascending: true });
+    if (unidadeId) query = query.eq('unidade_id', unidadeId);
+    const { data, error } = await query;
 
     if (error) throw error;
     return data as Technician[];

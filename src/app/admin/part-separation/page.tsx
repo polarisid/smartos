@@ -16,6 +16,7 @@ import { type Route, type RouteStop, type RoutePart, type Technician, type Servi
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { Printer, Smartphone, Table as TableIcon, Activity, CheckCircle2, AlertCircle, FileBarChart2, Search, ChevronDown, PackageSearch, Save, FileDown, CheckCircle, ScanLine, Copy, Loader2, Route as RouteIcon, XCircle, Share2 } from "lucide-react";
 import { useServiceOrders } from "@/hooks/queries";
+import { useAuth } from "@/context/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import jsPDF from 'jspdf';
@@ -719,6 +720,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
 
 // ─── Busca de OS em Rotas ───────────────────────────────────────────────────
 function OsRouteSearch() {
+    const { activeUnidadeId } = useAuth();
     const [searchTerm, setSearchTerm] = useState("");
     const [isSearching, setIsSearching] = useState(false);
     const [results, setResults] = useState<{ route: Route; stop: RouteStop; osStatus: string; usedPartsSet: Set<string>; pendingReason?: string; pendingObservations?: string }[]>([]);
@@ -732,7 +734,7 @@ function OsRouteSearch() {
 
         try {
             // Busca todas as rotas (ativas e finalizadas) que contenham a OS no campo stops
-            const routesSnapshot = await routeService.getAll();
+            const routesSnapshot = await routeService.getAll(activeUnidadeId);
 
             const found: { route: Route; stop: RouteStop; osStatus: string; usedPartsSet: Set<string> }[] = [];
             const term = searchTerm.trim().toLowerCase();
@@ -1057,6 +1059,7 @@ function OsRouteSearch() {
 
 export default function PartSeparationPage() {
     const { toast } = useToast();
+    const { activeUnidadeId } = useAuth();
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [allRoutes, setAllRoutes] = useState<Route[]>([]);
@@ -1070,7 +1073,7 @@ export default function PartSeparationPage() {
     const fetchAllData = async () => {
         setIsLoading(true);
         try {
-            const routesData = await routeService.getAll();
+            const routesData = await routeService.getAll(activeUnidadeId);
             const cutoff30Days = subDays(new Date(), 30);
             const recentRoutes = routesData.filter(r => r.createdAt >= cutoff30Days);
             setAllRoutes(recentRoutes);
@@ -1100,7 +1103,7 @@ export default function PartSeparationPage() {
 
     useEffect(() => {
         fetchAllData();
-    }, [toast]);
+    }, [toast, activeUnidadeId]);
 
     const filteredRoutes = useMemo(() => {
         return allRoutes.filter(route => {

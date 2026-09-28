@@ -25,6 +25,7 @@ import { routeService } from "@/services/supabase/routeService";
 import { driverService } from "@/services/supabase/driverService";
 import { useToast } from "@/hooks/use-toast";
 import { useTechnicians, useServiceOrders } from "@/hooks/queries";
+import { useAuth } from "@/context/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
 import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart, type Driver } from "@/lib/data";
 import { tagStopsWithZipMismatch } from "@/lib/geocode";
@@ -271,6 +272,7 @@ function RouteForm({
     serviceOrders?: ServiceOrder[]
 }) {
     const { toast } = useToast();
+    const { activeUnidadeId } = useAuth();
     // Semana ISO atual (ex: "W27") - só entra no nome se a pessoa clicar no botão ao lado do campo.
     const currentWeekLabel = `W${String(getISOWeek(new Date())).padStart(2, "0")}`;
     const [routeName, setRouteName] = useState("");
@@ -759,7 +761,7 @@ function RouteForm({
         setIsReallocateOpen(true);
         setIsLoadingRoutes(true);
         try {
-            const routes = await routeService.getActiveRoutes();
+            const routes = await routeService.getActiveRoutes(activeUnidadeId);
             setAvailableRoutes(routes.filter(r => r.id !== initialData?.id));
         } catch (e) {
             toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar as rotas disponíveis." });
@@ -2024,6 +2026,7 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
 export default function RoutesPage() {
     const queryClient = useQueryClient();
     const { toast } = useToast();
+    const { activeUnidadeId } = useAuth();
     const { data: technicians = [], isLoading: loadingTech } = useTechnicians();
     const { data: serviceOrders = [], isLoading: loadingSo } = useServiceOrders(2000);
     const contextLoading = loadingTech || loadingSo;
@@ -2124,12 +2127,12 @@ export default function RoutesPage() {
 
             const [draftRoutesList, activeRoutesList, inactiveData, driversSnap] = await Promise.all([
                 // Draft routes (should be small)
-                routeService.getDraftRoutes(),
+                routeService.getDraftRoutes(activeUnidadeId),
                 // All active routes (no limit – should be small)
-                routeService.getActiveRoutes(),
+                routeService.getActiveRoutes(activeUnidadeId),
                 // Inactive: only last 15 days
-                routeService.getInactiveRoutesPaginated(INACTIVE_PAGE_SIZE, cutoff15Days),
-                driverService.getAll()
+                routeService.getInactiveRoutesPaginated(INACTIVE_PAGE_SIZE, cutoff15Days, undefined, activeUnidadeId),
+                driverService.getAll(activeUnidadeId)
             ]);
 
             setDraftRoutes(draftRoutesList);
@@ -2153,7 +2156,7 @@ export default function RoutesPage() {
         if (!lastInactiveDoc || isLoadingMoreInactive) return;
         setIsLoadingMoreInactive(true);
         try {
-            const data = await routeService.getInactiveRoutesPaginated(INACTIVE_PAGE_SIZE, undefined, lastInactiveDoc);
+            const data = await routeService.getInactiveRoutesPaginated(INACTIVE_PAGE_SIZE, undefined, lastInactiveDoc, activeUnidadeId);
             setInactiveRoutes(prev => [...prev, ...data.routes]);
             setLastInactiveDoc(data.lastVisible);
             setHasMoreInactive(data.routes.length === INACTIVE_PAGE_SIZE);
@@ -2166,7 +2169,7 @@ export default function RoutesPage() {
 
     useEffect(() => {
         fetchRoutes();
-    }, [toast]);
+    }, [toast, activeUnidadeId]);
 
     // Derived display list — rascunhos sempre aparecem primeiro, independente do filtro
     // de ativas/inativas (não são "inativas", são um estado à parte, ainda não postado).

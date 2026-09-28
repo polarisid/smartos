@@ -16,9 +16,11 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@
 import { Bot, Plus, Link as LinkIcon, MessageSquareShare, FileText, CheckCircle2, Clock, Eye, AlertTriangle, PenTool, User as UserIcon, Pencil, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/context/AuthContext";
 
 export default function TriageAdminPage() {
     const { toast } = useToast();
+    const { activeUnidadeId } = useAuth();
     const [sessions, setSessions] = useState<TriageSession[]>([]);
     const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDocument[]>([]);
     const [selectedSession, setSelectedSession] = useState<TriageSession | null>(null);
@@ -49,7 +51,7 @@ export default function TriageAdminPage() {
     const loadData = async () => {
         try {
             const [sessionsData, docsData] = await Promise.all([
-                triageService.getAll(),
+                triageService.getAll(activeUnidadeId),
                 knowledgeService.getAll()
             ]);
             setSessions(sessionsData as TriageSession[]);
@@ -65,7 +67,7 @@ export default function TriageAdminPage() {
         // Optional: Poll every 30s to keep it fresh
         const interval = setInterval(loadData, 30000);
         return () => clearInterval(interval);
-    }, []);
+    }, [activeUnidadeId]);
 
     const handleCreateTriage = async () => {
         if (!newOs || !newModel) return toast({ variant: "destructive", title: "Preencha OS e Modelo." });

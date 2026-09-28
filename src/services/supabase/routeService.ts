@@ -2,11 +2,10 @@ import { supabase } from "@/lib/supabase";
 import { type Route } from "@/lib/data";
 
 export const routeService = {
-  async getAll(): Promise<Route[]> {
-    const { data, error } = await supabase
-      .from('routes')
-      .select('*')
-      .order('created_at', { ascending: false });
+  async getAll(unidadeId?: string | null): Promise<Route[]> {
+    let query = supabase.from('routes').select('*').order('created_at', { ascending: false });
+    if (unidadeId) query = query.eq('unidade_id', unidadeId);
+    const { data, error } = await query;
 
     if (error) throw error;
     return data.map(this.mapFromDb);
@@ -61,23 +60,19 @@ export const routeService = {
     if (error) throw error;
   },
 
-  async getActiveRoutes(): Promise<Route[]> {
-    const { data, error } = await supabase
-      .from('routes')
-      .select('*')
-      .eq('is_active', true)
-      .order('created_at', { ascending: false });
+  async getActiveRoutes(unidadeId?: string | null): Promise<Route[]> {
+    let query = supabase.from('routes').select('*').eq('is_active', true).order('created_at', { ascending: false });
+    if (unidadeId) query = query.eq('unidade_id', unidadeId);
+    const { data, error } = await query;
 
     if (error) throw error;
     return data.map(this.mapFromDb);
   },
 
-  async getDraftRoutes(): Promise<Route[]> {
-    const { data, error } = await supabase
-      .from('routes')
-      .select('*')
-      .eq('is_draft', true)
-      .order('planned_date', { ascending: true });
+  async getDraftRoutes(unidadeId?: string | null): Promise<Route[]> {
+    let query = supabase.from('routes').select('*').eq('is_draft', true).order('planned_date', { ascending: true });
+    if (unidadeId) query = query.eq('unidade_id', unidadeId);
+    const { data, error } = await query;
 
     if (error) throw error;
     return (data || []).map(this.mapFromDb);
@@ -96,13 +91,17 @@ export const routeService = {
     if (error) throw error;
   },
 
-  async getInactiveRoutesPaginated(pageSize: number, cutoffDate?: Date, lastVisible?: number): Promise<{ routes: Route[], lastVisible: number | null }> {
+  async getInactiveRoutesPaginated(pageSize: number, cutoffDate?: Date, lastVisible?: number, unidadeId?: string | null): Promise<{ routes: Route[], lastVisible: number | null }> {
     let query = supabase
       .from('routes')
       .select('*')
       .eq('is_active', false)
       .eq('is_draft', false)
       .order('created_at', { ascending: false });
+
+    if (unidadeId) {
+      query = query.eq('unidade_id', unidadeId);
+    }
 
     if (cutoffDate) {
       query = query.gte('created_at', cutoffDate.toISOString());

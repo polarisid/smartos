@@ -5,7 +5,15 @@ export type AppUser = {
   uid: string;
   name: string;
   email: string;
-  role: 'admin' | 'technician' | 'counter_technician';
+  role: 'admin' | 'technician' | 'counter_technician' | 'master';
+  // Unidade de negócio do usuário - null só pra 'master' (enxerga todas).
+  unidadeId: string | null;
+};
+
+export type Unidade = {
+  id: string;
+  nome: string;
+  createdAt: Date;
 };
 
 export type Driver = {

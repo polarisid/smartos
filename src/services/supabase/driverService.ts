@@ -2,11 +2,10 @@ import { supabase } from "@/lib/supabase";
 import { type Driver } from "@/lib/data";
 
 export const driverService = {
-  async getAll(): Promise<Driver[]> {
-    const { data, error } = await supabase
-      .from('drivers')
-      .select('*')
-      .order('name', { ascending: true });
+  async getAll(unidadeId?: string | null): Promise<Driver[]> {
+    let query = supabase.from('drivers').select('*').order('name', { ascending: true });
+    if (unidadeId) query = query.eq('unidade_id', unidadeId);
+    const { data, error } = await query;
 
     if (error) throw error;
     return data as Driver[];

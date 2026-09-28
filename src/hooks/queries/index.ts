@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/context/AuthContext";
 import { technicianService } from "@/services/supabase/technicianService";
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { routeService } from "@/services/supabase/routeService";
@@ -12,65 +13,73 @@ import { checklistService } from "@/services/supabase/checklistService";
 import { configService } from "@/services/supabase/configService";
 
 export function useTechnicians() {
+  const { activeUnidadeId } = useAuth();
   return useQuery({
-    queryKey: ['technicians'],
-    queryFn: () => technicianService.getAll(),
+    queryKey: ['technicians', activeUnidadeId],
+    queryFn: () => technicianService.getAll(activeUnidadeId),
     staleTime: 5 * 60 * 1000,
   });
 }
 
 export function useServiceOrders(limit?: number) {
+  const { activeUnidadeId } = useAuth();
   return useQuery({
-    queryKey: ['service-orders', limit],
-    queryFn: () => limit ? serviceOrderService.getRecentOrders(limit) : serviceOrderService.getAll(),
+    queryKey: ['service-orders', limit, activeUnidadeId],
+    queryFn: () => limit ? serviceOrderService.getRecentOrders(limit, activeUnidadeId) : serviceOrderService.getAll(activeUnidadeId),
     staleTime: 1 * 60 * 1000,
   });
 }
 
 export function useActiveRoutes() {
+  const { activeUnidadeId } = useAuth();
   return useQuery({
-    queryKey: ['routes', 'active'],
-    queryFn: () => routeService.getActiveRoutes(),
+    queryKey: ['routes', 'active', activeUnidadeId],
+    queryFn: () => routeService.getActiveRoutes(activeUnidadeId),
     staleTime: 2 * 60 * 1000,
   });
 }
 
 export function useDraftRoutes() {
+  const { activeUnidadeId } = useAuth();
   return useQuery({
-    queryKey: ['routes', 'draft'],
-    queryFn: () => routeService.getDraftRoutes(),
+    queryKey: ['routes', 'draft', activeUnidadeId],
+    queryFn: () => routeService.getDraftRoutes(activeUnidadeId),
     staleTime: 30 * 1000, // 30s — planejamento muda frequentemente
   });
 }
 
 export function useAllRoutes() {
+  const { activeUnidadeId } = useAuth();
   return useQuery({
-    queryKey: ['routes', 'all'],
-    queryFn: () => routeService.getAll(),
+    queryKey: ['routes', 'all', activeUnidadeId],
+    queryFn: () => routeService.getAll(activeUnidadeId),
     staleTime: 2 * 60 * 1000,
   });
 }
 
 export function useReturns() {
+  const { activeUnidadeId } = useAuth();
   return useQuery({
-    queryKey: ['returns'],
-    queryFn: () => returnService.getAll(),
+    queryKey: ['returns', activeUnidadeId],
+    queryFn: () => returnService.getAll(activeUnidadeId),
     staleTime: 5 * 60 * 1000,
   });
 }
 
 export function useChargebacks() {
+  const { activeUnidadeId } = useAuth();
   return useQuery({
-    queryKey: ['chargebacks'],
-    queryFn: () => chargebackService.getAll(),
+    queryKey: ['chargebacks', activeUnidadeId],
+    queryFn: () => chargebackService.getAll(activeUnidadeId),
     staleTime: 5 * 60 * 1000,
   });
 }
 
 export function useIndicators() {
+  const { activeUnidadeId } = useAuth();
   return useQuery({
-    queryKey: ['indicators'],
-    queryFn: () => indicatorService.getAll(),
+    queryKey: ['indicators', activeUnidadeId],
+    queryFn: () => indicatorService.getAll(activeUnidadeId),
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -109,17 +118,19 @@ export function useCodes() {
 }
 
 export function useDrivers() {
+  const { activeUnidadeId } = useAuth();
   return useQuery({
-    queryKey: ['drivers'],
-    queryFn: () => driverService.getAll(),
+    queryKey: ['drivers', activeUnidadeId],
+    queryFn: () => driverService.getAll(activeUnidadeId),
     staleTime: 5 * 60 * 1000,
   });
 }
 
 export function useChecklists() {
+  const { activeUnidadeId } = useAuth();
   return useQuery({
-    queryKey: ['checklists'],
-    queryFn: () => checklistService.getAll(),
+    queryKey: ['checklists', activeUnidadeId],
+    queryFn: () => checklistService.getAll(activeUnidadeId),
     staleTime: 10 * 60 * 1000,
   });
 }

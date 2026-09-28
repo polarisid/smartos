@@ -18,6 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTechnicians } from "@/hooks/queries";
+import { useAuth } from "@/context/AuthContext";
 import { RouteAnalysis } from "@/components/command-center/RouteAnalysis";
 import { StateOfDayBar, KpiFigure } from "@/components/command-center/StateOfDayBar";
 
@@ -29,6 +30,7 @@ type FeedItem = {
 };
 
 export default function CommandCenterPage() {
+    const { activeUnidadeId } = useAuth();
     const { data: technicians = [] } = useTechnicians();
     const techniciansRef = useRef(technicians);
     useEffect(() => { techniciansRef.current = technicians; }, [technicians]);
@@ -94,16 +96,16 @@ export default function CommandCenterPage() {
         const fetchData = async () => {
             try {
                 // Fetch Active Routes
-                const allRoutesData = await routeService.getAll();
+                const allRoutesData = await routeService.getAll(activeUnidadeId);
                 const activeRoutes = allRoutesData.filter(r => r.isActive);
-                
+
                 if (!isMounted) return;
                 setRoutes(activeRoutes);
                 routesRef.current = activeRoutes;
 
                 // 60-day window needed for route completion tracking (past stops)
                 const sixtyDaysAgo = subDays(new Date(), 60);
-                const allOrdersData = await serviceOrderService.getAll();
+                const allOrdersData = await serviceOrderService.getAll(activeUnidadeId);
                 const soQuery = allOrdersData.filter(os => os.date >= sixtyDaysAgo);
                 
                 // Narrow 2-day window just for the Ontem × Hoje comparison chart
@@ -209,7 +211,7 @@ export default function CommandCenterPage() {
             supabase.removeChannel(channel);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [activeUnidadeId]);
 
     // Grouping stops by firstVisitDate
     const aggregatedData = React.useMemo(() => {

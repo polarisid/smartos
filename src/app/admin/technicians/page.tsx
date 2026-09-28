@@ -24,6 +24,7 @@ import { userService } from "@/services/supabase/userService";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { technicianService } from "@/services/supabase/technicianService";
+import { useAuth } from "@/context/AuthContext";
 
 type EnrichedTechnician = Technician & { role?: AppUser['role'] };
 type FormDataType = Partial<Omit<Technician, 'id' | 'goal'>> & { userId?: string };
@@ -50,12 +51,13 @@ export default function TechniciansPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { toast } = useToast();
+  const { activeUnidadeId } = useAuth();
 
   const fetchData = async () => {
       setIsLoading(true);
       try {
           const [techsData, users] = await Promise.all([
-            technicianService.getAll(),
+            technicianService.getAll(activeUnidadeId),
             userService.getAll()
           ]);
           const usersMap = new Map(users.map(u => [u.uid, u]));
@@ -86,7 +88,7 @@ export default function TechniciansPage() {
 
   useEffect(() => {
     fetchData();
-  }, [toast]);
+  }, [toast, activeUnidadeId]);
 
   const handleOpenGoalDialog = (tech: EnrichedTechnician) => {
     setSelectedTech(tech);

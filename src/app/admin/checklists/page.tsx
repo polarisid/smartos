@@ -37,6 +37,7 @@ import { useToast } from "@/hooks/use-toast";
 import { type ChecklistTemplate, type ChecklistField } from "@/lib/data";
 
 import { checklistService } from "@/services/supabase/checklistService";
+import { useAuth } from "@/context/AuthContext";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useRouter } from "next/navigation";
@@ -184,6 +185,7 @@ function TestChecklistDialog({ template }: { template: ChecklistTemplate | null 
 
 export default function ChecklistsPage() {
     const { toast } = useToast();
+    const { activeUnidadeId } = useAuth();
     const router = useRouter();
     const [templates, setTemplates] = useState<ChecklistTemplate[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -223,7 +225,7 @@ export default function ChecklistsPage() {
         const fetchTemplates = async () => {
             setIsLoading(true);
             try {
-                const data = await checklistService.getAll();
+                const data = await checklistService.getAll(activeUnidadeId);
                 // Ensure Carta Troca template exists in database
                 const hasCartaTroca = data.some((t: any) => t.pdfUrl === '/checklists/carta_troca.pdf' || (t.name || '').toLowerCase().includes('carta troca'));
                 if (!hasCartaTroca) {
@@ -254,7 +256,7 @@ export default function ChecklistsPage() {
             }
         };
         fetchTemplates();
-    }, [toast]);
+    }, [toast, activeUnidadeId]);
 
     const handleOpenAddDialog = () => {
         setFormMode('add');

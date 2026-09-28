@@ -22,6 +22,7 @@ import { PlusCircle, Edit, Trash2, Truck } from "lucide-react";
 import { type Driver } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
 import { driverService } from "@/services/supabase/driverService";
+import { useAuth } from "@/context/AuthContext";
 
 type FormData = Omit<Driver, 'id'>;
 
@@ -39,11 +40,12 @@ export default function DriversPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { toast } = useToast();
+  const { activeUnidadeId } = useAuth();
 
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const data = await driverService.getAll();
+      const data = await driverService.getAll(activeUnidadeId);
       setDrivers(data);
     } catch (error) {
       console.error("Error fetching drivers:", error);
@@ -55,7 +57,7 @@ export default function DriversPage() {
 
   useEffect(() => {
     fetchData();
-  }, [toast]);
+  }, [toast, activeUnidadeId]);
 
   const handleOpenFormDialog = (mode: 'add' | 'edit', driver: Driver | null = null) => {
     setFormMode(mode);
