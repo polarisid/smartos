@@ -5,59 +5,57 @@ import { DEFAULT_PART_COST_PARAMS } from "@/lib/partCost";
 
 const DEFAULT_REPAIR_CENTER: RepairCenterInfo = { name: "", address: "", phone: "" };
 
-export const configService = {
-  async getWebhookUrl(): Promise<string | null> {
-    const { data, error } = await supabase
-      .from('configs')
-      .select('value')
-      .eq('id', 'webhook')
-      .single();
+// unidadeId é opcional em tudo aqui: pra admin/técnico a RLS já resolve
+// sozinha (só existe a própria linha), mas master vê a mesma config das 3
+// unidades ao mesmo tempo - sem passar unidadeId (vindo do seletor de
+// unidade), master não teria como ler/gravar uma unidade específica.
+function withUnidade<T extends Record<string, any>>(query: any, unidadeId?: string | null) {
+  return unidadeId ? query.eq('unidade_id', unidadeId) : query;
+}
 
-    if (error) {
-        if (error.code === 'PGRST116') return null; // No rows
-        throw error;
-    }
-    
+export const configService = {
+  async getWebhookUrl(unidadeId?: string | null): Promise<string | null> {
+    const { data, error } = await withUnidade(
+      supabase.from('configs').select('value').eq('id', 'webhook'),
+      unidadeId
+    ).maybeSingle();
+
+    if (error) throw error;
     return data?.value?.url || null;
   },
 
-  async setWebhookUrl(url: string): Promise<void> {
+  async setWebhookUrl(url: string, unidadeId?: string | null): Promise<void> {
     const { error } = await supabase
       .from('configs')
-      .upsert({ id: 'webhook', value: { url } });
+      .upsert({ id: 'webhook', value: { url }, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
 
     if (error) throw error;
   },
 
-  async getTextTemplate(id: string): Promise<string | null> {
-    const { data, error } = await supabase
-      .from('configs')
-      .select('value')
-      .eq('id', `template_${id}`)
-      .single();
+  async getTextTemplate(id: string, unidadeId?: string | null): Promise<string | null> {
+    const { data, error } = await withUnidade(
+      supabase.from('configs').select('value').eq('id', `template_${id}`),
+      unidadeId
+    ).maybeSingle();
 
-    if (error) {
-        if (error.code === 'PGRST116') return null;
-        throw error;
-    }
+    if (error) throw error;
     return data?.value?.template || null;
   },
 
-  async setTextTemplate(id: string, template: string): Promise<void> {
+  async setTextTemplate(id: string, template: string, unidadeId?: string | null): Promise<void> {
     const { error } = await supabase
       .from('configs')
-      .upsert({ id: `template_${id}`, value: { template } });
+      .upsert({ id: `template_${id}`, value: { template }, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
 
     if (error) throw error;
   },
 
-  async getBaseAddress(): Promise<string> {
+  async getBaseAddress(unidadeId?: string | null): Promise<string> {
     try {
-      const { data, error } = await supabase
-        .from('configs')
-        .select('value')
-        .eq('id', 'base_address')
-        .single();
+      const { data, error } = await withUnidade(
+        supabase.from('configs').select('value').eq('id', 'base_address'),
+        unidadeId
+      ).maybeSingle();
 
       if (!error && data?.value?.address) {
         if (typeof window !== 'undefined') {
@@ -68,7 +66,7 @@ export const configService = {
     } catch (e) {
       console.warn("Could not fetch base address from Supabase, falling back to localStorage/default", e);
     }
-    
+
     if (typeof window !== 'undefined') {
       const local = localStorage.getItem('smartos_base_address');
       if (local) return local;
@@ -76,7 +74,7 @@ export const configService = {
     return 'Aracaju';
   },
 
-  async setBaseAddress(address: string, coords?: { lat: number; lng: number } | null): Promise<void> {
+  async setBaseAddress(address: string, coords?: { lat: number; lng: number } | null, unidadeId?: string | null): Promise<void> {
     if (typeof window !== 'undefined') {
       localStorage.setItem('smartos_base_address', address);
     }
@@ -87,7 +85,7 @@ export const configService = {
     }
     const { error } = await supabase
       .from('configs')
-      .upsert({ id: 'base_address', value });
+      .upsert({ id: 'base_address', value, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
 
     if (error) throw error;
   },
@@ -95,13 +93,12 @@ export const configService = {
   // Coordenadas fixadas manualmente pelo admin (arrastando o pino no mapa),
   // quando existirem, têm prioridade sobre geocodificar o texto do endereço -
   // evita depender da precisão da geocodificação automática para o ponto base.
-  async getBaseCoords(): Promise<{ lat: number; lng: number } | null> {
+  async getBaseCoords(unidadeId?: string | null): Promise<{ lat: number; lng: number } | null> {
     try {
-      const { data, error } = await supabase
-        .from('configs')
-        .select('value')
-        .eq('id', 'base_address')
-        .single();
+      const { data, error } = await withUnidade(
+        supabase.from('configs').select('value').eq('id', 'base_address'),
+        unidadeId
+      ).maybeSingle();
 
       if (!error && typeof data?.value?.lat === 'number' && typeof data?.value?.lng === 'number') {
         return { lat: data.value.lat, lng: data.value.lng };
@@ -115,13 +112,12 @@ export const configService = {
   // Parâmetros da calculadora de custo de deslocamento (custo/km, taxa fixa,
   // margem, etc). Sempre devolve um objeto completo, preenchendo com os
   // defaults o que não estiver salvo.
-  async getTravelCostParams(): Promise<TravelCostParams> {
+  async getTravelCostParams(unidadeId?: string | null): Promise<TravelCostParams> {
     try {
-      const { data, error } = await supabase
-        .from('configs')
-        .select('value')
-        .eq('id', 'travel_cost')
-        .single();
+      const { data, error } = await withUnidade(
+        supabase.from('configs').select('value').eq('id', 'travel_cost'),
+        unidadeId
+      ).maybeSingle();
 
       if (!error && data?.value) {
         return { ...DEFAULT_TRAVEL_COST_PARAMS, ...data.value };
@@ -132,23 +128,22 @@ export const configService = {
     return { ...DEFAULT_TRAVEL_COST_PARAMS };
   },
 
-  async setTravelCostParams(params: TravelCostParams): Promise<void> {
+  async setTravelCostParams(params: TravelCostParams, unidadeId?: string | null): Promise<void> {
     const { error } = await supabase
       .from('configs')
-      .upsert({ id: 'travel_cost', value: params });
+      .upsert({ id: 'travel_cost', value: params, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
 
     if (error) throw error;
   },
 
   // Parâmetros da calculadora de custo de peça (margem padrão sobre o valor
   // de custo). Mesmo padrão do travel_cost: sempre devolve objeto completo.
-  async getPartCostParams(): Promise<PartCostParams> {
+  async getPartCostParams(unidadeId?: string | null): Promise<PartCostParams> {
     try {
-      const { data, error } = await supabase
-        .from('configs')
-        .select('value')
-        .eq('id', 'part_cost')
-        .single();
+      const { data, error } = await withUnidade(
+        supabase.from('configs').select('value').eq('id', 'part_cost'),
+        unidadeId
+      ).maybeSingle();
 
       if (!error && data?.value) {
         return { ...DEFAULT_PART_COST_PARAMS, ...data.value };
@@ -159,23 +154,22 @@ export const configService = {
     return { ...DEFAULT_PART_COST_PARAMS };
   },
 
-  async setPartCostParams(params: PartCostParams): Promise<void> {
+  async setPartCostParams(params: PartCostParams, unidadeId?: string | null): Promise<void> {
     const { error } = await supabase
       .from('configs')
-      .upsert({ id: 'part_cost', value: params });
+      .upsert({ id: 'part_cost', value: params, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
 
     if (error) throw error;
   },
 
   // Dados do centro de reparo (nome/endereço/telefone), pré-preenchidos no
   // cabeçalho do PDF de orçamento em vez de digitar toda vez.
-  async getRepairCenter(): Promise<RepairCenterInfo> {
+  async getRepairCenter(unidadeId?: string | null): Promise<RepairCenterInfo> {
     try {
-      const { data, error } = await supabase
-        .from('configs')
-        .select('value')
-        .eq('id', 'repair_center')
-        .single();
+      const { data, error } = await withUnidade(
+        supabase.from('configs').select('value').eq('id', 'repair_center'),
+        unidadeId
+      ).maybeSingle();
 
       if (!error && data?.value) {
         return { ...DEFAULT_REPAIR_CENTER, ...data.value };
@@ -186,10 +180,10 @@ export const configService = {
     return { ...DEFAULT_REPAIR_CENTER };
   },
 
-  async setRepairCenter(info: RepairCenterInfo): Promise<void> {
+  async setRepairCenter(info: RepairCenterInfo, unidadeId?: string | null): Promise<void> {
     const { error } = await supabase
       .from('configs')
-      .upsert({ id: 'repair_center', value: info });
+      .upsert({ id: 'repair_center', value: info, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
 
     if (error) throw error;
   }

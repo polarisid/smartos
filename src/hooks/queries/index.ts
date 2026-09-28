@@ -136,10 +136,11 @@ export function useChecklists() {
 }
 
 export function useVisitTemplate() {
+  const { activeUnidadeId } = useAuth();
   return useQuery({
-    queryKey: ['visit-template'],
+    queryKey: ['visit-template', activeUnidadeId],
     queryFn: async () => {
-      const template = await configService.getTextTemplate("visitAnnouncement");
+      const template = await configService.getTextTemplate("visitAnnouncement", activeUnidadeId);
       return template || "Olá, bom dia! Somos da assistência técnica autorizada Samsung...";
     },
     staleTime: 60 * 60 * 1000, // 1 hour

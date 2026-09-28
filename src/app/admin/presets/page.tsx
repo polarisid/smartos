@@ -27,6 +27,7 @@ import { type Preset } from "@/lib/data";
 import { presetService } from "@/services/supabase/presetService";
 import { usePresets, useCodes, useVisitTemplate } from "@/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/context/AuthContext";
 
 type CodeItem = { code: string; description: string; };
 type CodeCategory = { "TV/AV": CodeItem[]; "DA": CodeItem[]; };
@@ -37,18 +38,23 @@ const defaultVisitTemplate = `Olá, bom dia! Somos da assistência técnica auto
 
 function WebhookManagement() {
     const { toast } = useToast();
+    const { appUser, activeUnidadeId } = useAuth();
+    const isMaster = appUser?.role === 'master';
+    const unidadeParaConfig = isMaster ? activeUnidadeId : undefined;
     const [webhookUrl, setWebhookUrl] = useState('');
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
+        if (isMaster && !activeUnidadeId) {
+            setIsLoading(false);
+            return;
+        }
         const fetchWebhookConfig = async () => {
             setIsLoading(true);
             try {
-                const url = await configService.getWebhookUrl();
-                if (url) {
-                    setWebhookUrl(url);
-                }
+                const url = await configService.getWebhookUrl(unidadeParaConfig);
+                setWebhookUrl(url || '');
             } catch (error) {
                 console.error("Error fetching webhook config:", error);
                 toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar a URL do webhook." });
@@ -57,12 +63,16 @@ function WebhookManagement() {
             }
         };
         fetchWebhookConfig();
-    }, [toast]);
-    
+    }, [toast, unidadeParaConfig]);
+
     const handleSaveWebhook = async () => {
+        if (isMaster && !activeUnidadeId) {
+            toast({ variant: "destructive", title: "Selecione uma unidade", description: "Escolha uma unidade no seletor no topo antes de salvar." });
+            return;
+        }
         setIsSubmitting(true);
         try {
-            await configService.setWebhookUrl(webhookUrl);
+            await configService.setWebhookUrl(webhookUrl, unidadeParaConfig);
             toast({ title: "Configuração do Webhook salva!" });
         } catch (error) {
             console.error("Error saving webhook config:", error);
@@ -107,6 +117,9 @@ function WebhookManagement() {
 
 export default function PresetsPage() {
     const queryClient = useQueryClient();
+    const { appUser, activeUnidadeId } = useAuth();
+    const isMaster = appUser?.role === 'master';
+    const unidadeParaConfig = isMaster ? activeUnidadeId : undefined;
     const { data: contextPresets = [], isLoading: loadingPresets } = usePresets();
     const { data: codes = { symptomCodes: { "TV/AV": [], "DA": [] }, repairCodes: { "TV/AV": [], "DA": [] } }, isLoading: loadingCodes } = useCodes();
     const { symptomCodes, repairCodes } = codes;
@@ -219,9 +232,13 @@ export default function PresetsPage() {
     };
     
     const handleSaveTemplate = async () => {
+        if (isMaster && !activeUnidadeId) {
+            toast({ variant: "destructive", title: "Selecione uma unidade", description: "Escolha uma unidade no seletor no topo antes de salvar." });
+            return;
+        }
         setIsSubmitting(true);
         try {
-            await configService.setTextTemplate("visitAnnouncement", visitTemplate);
+            await configService.setTextTemplate("visitAnnouncement", visitTemplate, unidadeParaConfig);
             toast({ title: "Template salvo com sucesso!" });
             queryClient.invalidateQueries({ queryKey: ['visit-template'] });
         } catch (error) {

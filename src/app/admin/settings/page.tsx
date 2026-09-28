@@ -12,6 +12,7 @@ import { configService } from "@/services/supabase/configService";
 import { getCoordinates, parseFullAddress } from "@/lib/geocode";
 import type { TravelCostParams, PartCostParams, RepairCenterInfo } from "@/lib/data";
 import { Settings, MapPin, Save, Loader2, Sparkles, Building2, Globe, LocateFixed, Calculator, FileText, Phone } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 const BaseLocationPicker = dynamic(() => import("@/components/BaseLocationPicker"), { ssr: false });
 
@@ -19,6 +20,11 @@ const DEFAULT_COORDS: [number, number] = [-14.235, -51.9253]; // centro do Brasi
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const { appUser, activeUnidadeId } = useAuth();
+  // Master vê a mesma tela de config pra 3 unidades ao mesmo tempo - sem
+  // escolher uma no seletor, não tem unidade certa pra ler/gravar.
+  const isMaster = appUser?.role === 'master';
+  const unidadeParaConfig = isMaster ? activeUnidadeId : undefined;
   const [baseAddress, setBaseAddress] = useState("");
   const [baseCoords, setBaseCoords] = useState<[number, number] | null>(null);
   const [isLocating, setIsLocating] = useState(false);
@@ -48,12 +54,12 @@ export default function SettingsPage() {
       try {
         setLoading(true);
         const [base, storedCoords, webhook, cost, partCost, repairCenterInfo] = await Promise.all([
-          configService.getBaseAddress(),
-          configService.getBaseCoords(),
-          configService.getWebhookUrl(),
-          configService.getTravelCostParams(),
-          configService.getPartCostParams(),
-          configService.getRepairCenter(),
+          configService.getBaseAddress(unidadeParaConfig),
+          configService.getBaseCoords(unidadeParaConfig),
+          configService.getWebhookUrl(unidadeParaConfig),
+          configService.getTravelCostParams(unidadeParaConfig),
+          configService.getPartCostParams(unidadeParaConfig),
+          configService.getRepairCenter(unidadeParaConfig),
         ]);
         setBaseAddress(base || "Aracaju");
         setWebhookUrl(webhook || "");
@@ -87,8 +93,13 @@ export default function SettingsPage() {
         setLoading(false);
       }
     }
+    if (isMaster && !activeUnidadeId) {
+      // Master sem unidade escolhida: não tem config certa pra mostrar.
+      setLoading(false);
+      return;
+    }
     loadConfigs();
-  }, []);
+  }, [unidadeParaConfig]);
 
   const handleLocateAddress = async () => {
     if (!baseAddress.trim()) {
@@ -112,15 +123,24 @@ export default function SettingsPage() {
     }
   };
 
+  const requireUnidadeIfMaster = (): boolean => {
+    if (isMaster && !activeUnidadeId) {
+      toast({ variant: "destructive", title: "Selecione uma unidade", description: "Escolha uma unidade no seletor no topo antes de salvar essas configurações." });
+      return false;
+    }
+    return true;
+  };
+
   const handleSaveBaseAddress = async () => {
     if (!baseAddress.trim()) {
       toast({ variant: "destructive", title: "Digite o endereço ou cidade da base" });
       return;
     }
+    if (!requireUnidadeIfMaster()) return;
     setSavingBase(true);
     try {
       const coords = baseCoords ? { lat: baseCoords[0], lng: baseCoords[1] } : null;
-      await configService.setBaseAddress(baseAddress.trim(), coords);
+      await configService.setBaseAddress(baseAddress.trim(), coords, unidadeParaConfig);
       toast({
         title: "Ponto de Saída Atualizado!",
         description: `Base operacional configurada como "${baseAddress.trim()}". As otimizações de rotas usarão este ponto por padrão.`,
@@ -133,9 +153,10 @@ export default function SettingsPage() {
   };
 
   const handleSaveWebhook = async () => {
+    if (!requireUnidadeIfMaster()) return;
     setSavingWebhook(true);
     try {
-      await configService.setWebhookUrl(webhookUrl.trim());
+      await configService.setWebhookUrl(webhookUrl.trim(), unidadeParaConfig);
       toast({
         title: "Webhook Salvo!",
         description: "URL de notificação de rotas atualizada com sucesso.",
@@ -153,6 +174,7 @@ export default function SettingsPage() {
   };
 
   const handleSaveCostParams = async () => {
+    if (!requireUnidadeIfMaster()) return;
     setSavingCost(true);
     try {
       const toNum = (s: string) => parseFloat(s.replace(",", ".")) || 0;
@@ -165,7 +187,7 @@ export default function SettingsPage() {
         minFee: toNum(costForm.minFee),
         roundTrip: costForm.roundTrip,
       };
-      await configService.setTravelCostParams(params);
+      await configService.setTravelCostParams(params, unidadeParaConfig);
       toast({ title: "Parâmetros salvos!", description: "A calculadora de custo de deslocamento vai usar esses valores." });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Erro ao salvar parâmetros", description: err.message });
@@ -175,13 +197,14 @@ export default function SettingsPage() {
   };
 
   const handleSavePartCostParams = async () => {
+    if (!requireUnidadeIfMaster()) return;
     setSavingPartCost(true);
     try {
       const params: PartCostParams = {
         marginPct: parseFloat(partMarginText.replace(",", ".")) || 0,
         laborCostPerHour: parseFloat(partLaborCostText.replace(",", ".")) || 0,
       };
-      await configService.setPartCostParams(params);
+      await configService.setPartCostParams(params, unidadeParaConfig);
       toast({ title: "Margem salva!", description: "A calculadora de custo de peça vai usar esse valor como padrão." });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Erro ao salvar margem", description: err.message });
@@ -191,9 +214,10 @@ export default function SettingsPage() {
   };
 
   const handleSaveRepairCenter = async () => {
+    if (!requireUnidadeIfMaster()) return;
     setSavingRepairCenter(true);
     try {
-      await configService.setRepairCenter(repairCenter);
+      await configService.setRepairCenter(repairCenter, unidadeParaConfig);
       toast({ title: "Dados do centro de reparo salvos!", description: "Usados automaticamente no cabeçalho do orçamento em PDF." });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Erro ao salvar", description: err.message });
