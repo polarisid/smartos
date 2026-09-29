@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '@supabase/supabase-js';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { type AppUser } from '@/lib/data';
 
@@ -22,6 +23,7 @@ const MASTER_ACTIVE_UNIDADE_KEY = 'masterActiveUnidadeId';
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
+    const queryClient = useQueryClient();
     const [user, setUser] = useState<User | null>(null);
     const [appUser, setAppUser] = useState<AppUser | null>(null);
     const [loading, setLoading] = useState(true);
@@ -185,6 +187,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const logout = async () => {
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
+        // Defesa extra além do uid entrar nas queryKeys (hooks/queries): garante
+        // que nada do cache do usuário que saiu (rotas/OS/etc. de OUTRA unidade)
+        // fica disponível pro próximo login no mesmo aparelho/navegador.
+        queryClient.clear();
     }
 
     const value: AuthContextType = {
