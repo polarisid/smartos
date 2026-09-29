@@ -60,7 +60,8 @@ type WizardProps = {
 
 export function RouteCreationWizard({ open, onOpenChange, initialRoute, onCompleted }: WizardProps) {
   const { toast } = useToast();
-  const { activeUnidadeId } = useAuth();
+  const { activeUnidadeId, appUser } = useAuth();
+  const isMaster = appUser?.role === 'master';
   const queryClient = useQueryClient();
   const { data: technicians = [] } = useTechnicians();
   const { data: drivers = [] } = useDrivers();
@@ -131,8 +132,8 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
   const [isPublishing, setIsPublishing] = useState(false);
 
   useEffect(() => {
-    configService.getBaseAddress().then(base => { if (base) setBaseAddress(base); }).catch(console.error);
-  }, []);
+    configService.getBaseAddress(activeUnidadeId).then(base => { if (base) setBaseAddress(base); }).catch(console.error);
+  }, [activeUnidadeId]);
 
   const resetAll = useCallback(() => {
     setRouteId(null);
@@ -220,6 +221,10 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
       toast({ variant: "destructive", title: "Preencha o nome e cole as OSs antes de salvar." });
       return;
     }
+    if (!routeId && isMaster && !activeUnidadeId) {
+      toast({ variant: "destructive", title: "Selecione uma unidade", description: "Escolha uma unidade no seletor no topo antes de criar a rota." });
+      return;
+    }
     setIsSaving(true);
     try {
       const payload: Partial<Route> = {
@@ -261,6 +266,10 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
   const handleAdvanceStep1 = async () => {
     if (!name.trim() || stops.length === 0) {
       toast({ variant: "destructive", title: "Preencha o nome e cole as OSs antes de avançar." });
+      return;
+    }
+    if (!routeId && isMaster && !activeUnidadeId) {
+      toast({ variant: "destructive", title: "Selecione uma unidade", description: "Escolha uma unidade no seletor no topo antes de criar a rota." });
       return;
     }
     setIsSaving(true);
@@ -309,7 +318,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     if (order.length === 0) return;
     setIsLoadingLegs(true);
     try {
-      const r = await fetchLegDistancesAndDurations(order, baseAddress);
+      const r = await fetchLegDistancesAndDurations(order, baseAddress, activeUnidadeId);
       setOrigKm(r.km);
       setPropKm(r.km);
       setLegKm(r.km);
@@ -319,7 +328,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     } finally {
       setIsLoadingLegs(false);
     }
-  }, [baseAddress]);
+  }, [baseAddress, activeUnidadeId]);
 
   // ── Otimização por IA (opcional, sob demanda) ──
   const runOptimization = useCallback(async () => {
@@ -327,11 +336,11 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     setIsOptimizing(true);
     setOptimizationSummary("Calculando circuito rodoviário ideal via OSRM...");
     try {
-      const osrmResult = await optimizeRouteStopsAsync(stops, baseAddress);
+      const osrmResult = await optimizeRouteStopsAsync(stops, baseAddress, activeUnidadeId);
       const finalStops = osrmResult.stops;
       const [orig, prop] = await Promise.all([
-        fetchLegDistancesAndDurations(stops, baseAddress),
-        fetchLegDistancesAndDurations(finalStops, baseAddress),
+        fetchLegDistancesAndDurations(stops, baseAddress, activeUnidadeId),
+        fetchLegDistancesAndDurations(finalStops, baseAddress, activeUnidadeId),
       ]);
       const movedCount = finalStops.filter((s, i) => stops.findIndex(o => o.serviceOrder === s.serviceOrder) !== i).length;
       const origTotal = orig.km.reduce((a, b) => a + b, 0);
@@ -352,7 +361,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
       setIsOptimizing(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stops, baseAddress]);
+  }, [stops, baseAddress, activeUnidadeId]);
 
   useEffect(() => {
     if (step === 2 && routeId && legsComputedForRouteId.current !== routeId) {
@@ -371,7 +380,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
       if (oldIndex === -1 || newIndex === -1) return prev;
       const next = arrayMove(prev, oldIndex, newIndex);
       setPropKm([]);
-      fetchLegDistancesAndDurations(next, baseAddress).then(r => {
+      fetchLegDistancesAndDurations(next, baseAddress, activeUnidadeId).then(r => {
         setPropKm(r.km);
         setLegKm(r.km);
         setLegDurationMin(r.durationMin);
@@ -385,7 +394,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     setStops(prev => {
       const next = [...prev].reverse();
       setPropKm([]);
-      fetchLegDistancesAndDurations(next, baseAddress).then(r => {
+      fetchLegDistancesAndDurations(next, baseAddress, activeUnidadeId).then(r => {
         setPropKm(r.km);
         setLegKm(r.km);
         setLegDurationMin(r.durationMin);
@@ -425,7 +434,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
   useEffect(() => {
     if (step !== 3 || stops.length === 0) return;
     setLegsLoading(true);
-    fetchLegDistancesAndDurations(stops, baseAddress)
+    fetchLegDistancesAndDurations(stops, baseAddress, activeUnidadeId)
       .then(r => { setLegKm(r.km); setLegDurationMin(r.durationMin); })
       .finally(() => setLegsLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -495,7 +504,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
         departureDate: departureDate ? format(departureDate, "dd/MM/yyyy") : undefined,
         arrivalDate: arrivalDate ? format(arrivalDate, "dd/MM/yyyy") : undefined,
         stops: stops.map(s => ({ so_nro: s.serviceOrder, cidade: s.city, spd: s.productType })),
-      });
+      }, activeUnidadeId);
       await queryClient.invalidateQueries({ queryKey: ["routes", "draft"] });
       await queryClient.invalidateQueries({ queryKey: ["routes", "active"] });
       await queryClient.invalidateQueries({ queryKey: ["routes"] });

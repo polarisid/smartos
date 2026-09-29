@@ -2147,10 +2147,10 @@ async function resolveStopCoordAsync(stop: RouteStop, defaultState: string = 'Se
   return getStopCoordinates(stop);
 }
 
-async function resolveBaseCoordAsync(baseAddress: string): Promise<PointCoord> {
+async function resolveBaseCoordAsync(baseAddress: string, unidadeId?: string | null): Promise<PointCoord> {
   // Pino fixado manualmente nas Configurações tem prioridade sobre
   // geocodificar o texto do endereço.
-  const storedCoords = await configService.getBaseCoords();
+  const storedCoords = await configService.getBaseCoords(unidadeId);
   if (storedCoords) return storedCoords;
 
   const { city, state, street } = parseFullAddress(baseAddress);
@@ -2175,7 +2175,8 @@ async function resolveBaseCoordAsync(baseAddress: string): Promise<PointCoord> {
  */
 export async function optimizeRouteStopsAsync(
   stops: RouteStop[],
-  originCity: string = "Aracaju"
+  originCity: string = "Aracaju",
+  unidadeId?: string | null
 ): Promise<{ stops: RouteStop[]; summary: string; totalDrivingMinutes: number }> {
   if (!stops || stops.length <= 1) {
     return { stops, summary: "Poucas paradas para otimização.", totalDrivingMinutes: 0 };
@@ -2183,7 +2184,7 @@ export async function optimizeRouteStopsAsync(
 
   const { state: baseState } = parseFullAddress(originCity);
   const [baseCoord, ...resolvedStopCoords] = await Promise.all([
-    resolveBaseCoordAsync(originCity),
+    resolveBaseCoordAsync(originCity, unidadeId),
     ...stops.map(stop => resolveStopCoordAsync(stop, baseState || 'Sergipe'))
   ]);
 

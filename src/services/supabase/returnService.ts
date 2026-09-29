@@ -13,8 +13,8 @@ export const returnService = {
     if (error) { if (error.code === 'PGRST116') return null; throw error; }
     return data;
   },
-  async create(data: any): Promise<string> {
-    const { data: newDoc, error } = await supabase.from('returns').insert(data).select().single();
+  async create(data: any, unidadeId?: string | null): Promise<string> {
+    const { data: newDoc, error } = await supabase.from('returns').insert(unidadeId ? { ...data, unidade_id: unidadeId } : data).select().single();
     if (error) throw error;
     return newDoc.id;
   },

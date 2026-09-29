@@ -272,7 +272,8 @@ function RouteForm({
     serviceOrders?: ServiceOrder[]
 }) {
     const { toast } = useToast();
-    const { activeUnidadeId } = useAuth();
+    const { activeUnidadeId, appUser } = useAuth();
+    const isMaster = appUser?.role === 'master';
     // Semana ISO atual (ex: "W27") - só entra no nome se a pessoa clicar no botão ao lado do campo.
     const currentWeekLabel = `W${String(getISOWeek(new Date())).padStart(2, "0")}`;
     const [routeName, setRouteName] = useState("");
@@ -312,7 +313,7 @@ function RouteForm({
         }
         let cancelled = false;
         setLegsLoading(true);
-        fetchLegDistancesAndDurations(activeStops, 'Aracaju')
+        fetchLegDistancesAndDurations(activeStops, 'Aracaju', activeUnidadeId)
             .then(r => {
                 if (cancelled) return;
                 setLegKm(r.km);
@@ -511,7 +512,7 @@ function RouteForm({
         setIsOptimizing(true);
         try {
             // Origem = base (Aracaju), de onde o técnico sai.
-            const result = await optimizeRouteStopsAsync(parsedStops, 'Aracaju');
+            const result = await optimizeRouteStopsAsync(parsedStops, 'Aracaju', activeUnidadeId);
             setParsedStops(result.stops);
             setRouteText(reconstructRouteText(result.stops));
             toast({ title: "Rota otimizada", description: result.summary });
@@ -832,6 +833,10 @@ function RouteForm({
             });
             return;
         }
+        if (mode === 'add' && isMaster && !activeUnidadeId) {
+            toast({ variant: "destructive", title: "Selecione uma unidade", description: "Escolha uma unidade no seletor no topo antes de criar a rota." });
+            return;
+        }
         setIsSubmitting(true);
         try {
             const technician = technicians.find(t => t.id === technicianId);
@@ -919,7 +924,7 @@ function RouteForm({
                         cidade: stop.city,
                         spd: stop.productType
                     }))
-                });
+                }, activeUnidadeId);
 
             } else if (initialData) {
                 await routeService.update(initialData.id, dataToSave as unknown as Partial<Route>);

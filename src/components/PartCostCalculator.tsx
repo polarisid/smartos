@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
 import { configService } from "@/services/supabase/configService";
 import { computePartFinalValue, DEFAULT_PART_COST_PARAMS } from "@/lib/partCost";
 import { Wrench, Plus, Trash2, Copy, Settings2 } from "lucide-react";
@@ -45,6 +46,7 @@ export type PartCostSummary = {
 
 export function PartCostCalculator({ onSummaryChange }: { onSummaryChange?: (summary: PartCostSummary | null) => void }) {
   const { toast } = useToast();
+  const { activeUnidadeId } = useAuth();
   const [defaultMarginPct, setDefaultMarginPct] = useState(DEFAULT_PART_COST_PARAMS.marginPct);
   const [laborCostPerHour, setLaborCostPerHour] = useState(DEFAULT_PART_COST_PARAMS.laborCostPerHour);
   const [marginText, setMarginText] = useState("");
@@ -54,7 +56,7 @@ export function PartCostCalculator({ onSummaryChange }: { onSummaryChange?: (sum
   useEffect(() => {
     (async () => {
       try {
-        const p = await configService.getPartCostParams();
+        const p = await configService.getPartCostParams(activeUnidadeId);
         setDefaultMarginPct(p.marginPct);
         setLaborCostPerHour(p.laborCostPerHour);
         setMarginText(p.marginPct === 0 ? "" : String(p.marginPct).replace(".", ","));
@@ -64,7 +66,7 @@ export function PartCostCalculator({ onSummaryChange }: { onSummaryChange?: (sum
         setIsLoading(false);
       }
     })();
-  }, []);
+  }, [activeUnidadeId]);
 
   const marginPct = marginText.trim() ? toNum(marginText) : defaultMarginPct;
 

@@ -6,6 +6,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { getCoordinates, parseFullAddress } from '@/lib/geocode';
 import { configService } from '@/services/supabase/configService';
+import { useAuth } from '@/context/AuthContext';
 import { Route, RouteStop } from '@/lib/data';
 
 // Fix for default Leaflet icons in Webpack/Next.js
@@ -216,6 +217,7 @@ export default function RouteMap({
     baseAddress = "Avenida Barão de Maruim, 83, São José, Aracaju - SE",
     onFerryPreferenceChange
 }: RouteMapProps) {
+    const { activeUnidadeId } = useAuth();
     const [mapStops, setMapStops] = useState<MapStop[]>([]);
     const [baseCoords, setBaseCoords] = useState<[number, number] | null>([-10.9142, -37.0545]);
     const [routeLegs, setRouteLegs] = useState<RouteLeg[]>([]);
@@ -248,7 +250,7 @@ export default function RouteMap({
         const resolveBase = async () => {
             // Pino fixado manualmente nas Configurações tem prioridade sobre
             // geocodificar o texto do endereço.
-            const storedCoords = await configService.getBaseCoords();
+            const storedCoords = await configService.getBaseCoords(activeUnidadeId);
             if (storedCoords) {
                 setBaseCoords([storedCoords.lat, storedCoords.lng]);
                 return;
@@ -256,7 +258,7 @@ export default function RouteMap({
 
             let addr = baseAddress;
             if (!addr || addr.includes("Avenida Barão de Maruim")) {
-                const configBase = await configService.getBaseAddress();
+                const configBase = await configService.getBaseAddress(activeUnidadeId);
                 if (configBase) addr = configBase;
             }
             if (!addr) return;
@@ -267,7 +269,7 @@ export default function RouteMap({
         };
 
         resolveBase().catch(console.error);
-    }, [baseAddress]);
+    }, [baseAddress, activeUnidadeId]);
 
     // 2. Fetch Stop coordinates in parallel
     useEffect(() => {

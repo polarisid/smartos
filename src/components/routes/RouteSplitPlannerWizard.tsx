@@ -41,7 +41,8 @@ type Props = {
 
 export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Props) {
   const { toast } = useToast();
-  const { activeUnidadeId } = useAuth();
+  const { activeUnidadeId, appUser } = useAuth();
+  const isMaster = appUser?.role === 'master';
   const queryClient = useQueryClient();
 
   const [phase, setPhase] = useState<"input" | "review">("input");
@@ -83,12 +84,12 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
   };
 
   useEffect(() => {
-    configService.getBaseAddress().then(addr => { if (addr) setBaseAddress(addr); }).catch(console.error);
-  }, []);
+    configService.getBaseAddress(activeUnidadeId).then(addr => { if (addr) setBaseAddress(addr); }).catch(console.error);
+  }, [activeUnidadeId]);
 
   useEffect(() => {
-    geocodeBase(baseAddress).then(setBaseCoords).catch(() => setBaseCoords(null));
-  }, [baseAddress]);
+    geocodeBase(baseAddress, activeUnidadeId).then(setBaseCoords).catch(() => setBaseCoords(null));
+  }, [baseAddress, activeUnidadeId]);
 
   const resetAll = () => {
     setPhase("input");
@@ -317,7 +318,7 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
     if (groupStops.length <= 1) return;
     setOptimizingIndex(groupIndex);
     try {
-      const result = await optimizeRouteStopsAsync(groupStops, baseAddress);
+      const result = await optimizeRouteStopsAsync(groupStops, baseAddress, activeUnidadeId);
       setGroups(prev => prev.map((g, i) => (i === groupIndex ? result.stops : g)));
       toast({ title: `${labels[groupIndex]} otimizada`, description: result.summary });
     } catch (e) {
@@ -335,6 +336,10 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
   const handleCreateGroupDraft = async (groupIndex: number) => {
     const groupStops = groups[groupIndex];
     if (groupStops.length === 0) return;
+    if (isMaster && !activeUnidadeId) {
+      toast({ variant: "destructive", title: "Selecione uma unidade", description: "Escolha uma unidade no seletor no topo antes de criar a rota." });
+      return;
+    }
     setCreatingIndex(groupIndex);
     try {
       const newId = await routeService.create({

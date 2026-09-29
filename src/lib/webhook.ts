@@ -1,8 +1,8 @@
 import { configService } from "@/services/supabase/configService";
 
-export async function triggerWebhook(payload: Record<string, unknown>) {
+export async function triggerWebhook(payload: Record<string, unknown>, unidadeId?: string | null) {
     try {
-        const webhookUrl = await configService.getWebhookUrl();
+        const webhookUrl = await configService.getWebhookUrl(unidadeId);
         if (!webhookUrl) {
             console.log("Webhook URL not configured or empty.");
             return;

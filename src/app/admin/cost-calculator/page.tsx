@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
 import { configService } from "@/services/supabase/configService";
 import { getCoordinates, parseFullAddress } from "@/lib/geocode";
 import { fetchOsrmDrivingMatrix, haversineDistanceKm, type PointCoord } from "@/lib/routingEngine";
@@ -71,6 +72,7 @@ type CalcResult = {
 
 export default function CostCalculatorPage() {
   const { toast } = useToast();
+  const { activeUnidadeId } = useAuth();
   const [cep, setCep] = useState("");
   const [params, setParams] = useState<TravelCostParams>(DEFAULT_TRAVEL_COST_PARAMS);
   const [baseCoords, setBaseCoords] = useState<PointCoord | null>(null);
@@ -86,10 +88,10 @@ export default function CostCalculatorPage() {
     (async () => {
       try {
         const [p, coords, address, repairCenterInfo] = await Promise.all([
-          configService.getTravelCostParams(),
-          configService.getBaseCoords(),
-          configService.getBaseAddress(),
-          configService.getRepairCenter(),
+          configService.getTravelCostParams(activeUnidadeId),
+          configService.getBaseCoords(activeUnidadeId),
+          configService.getBaseAddress(activeUnidadeId),
+          configService.getRepairCenter(activeUnidadeId),
         ]);
         setParams(p);
         setBaseLabel(address || "");
@@ -109,7 +111,7 @@ export default function CostCalculatorPage() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeUnidadeId]);
 
   const handleCalculate = async () => {
     const raw = cep.trim();

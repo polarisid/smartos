@@ -66,10 +66,10 @@ async function geocodeStop(stop: RouteStop): Promise<[number, number] | null> {
 }
 
 
-async function geocodeBase(baseAddress: string): Promise<[number, number] | null> {
+async function geocodeBase(baseAddress: string, unidadeId?: string | null): Promise<[number, number] | null> {
   // Pino fixado manualmente nas Configurações tem prioridade sobre
   // geocodificar o texto do endereço.
-  const storedCoords = await configService.getBaseCoords();
+  const storedCoords = await configService.getBaseCoords(unidadeId);
   if (storedCoords) return [storedCoords.lat, storedCoords.lng];
 
   const { city, state, street } = parseFullAddress(baseAddress);
@@ -100,12 +100,13 @@ async function fetchWithTimeout(url: string, timeoutMs = 8000): Promise<Response
  */
 async function fetchOsrmRoadDistances(
   stops: RouteStop[],
-  baseAddress: string
+  baseAddress: string,
+  unidadeId?: string | null
 ): Promise<number[]> {
   const DEFAULT: [number, number] = [-10.9142, -37.0545]; // Base Aracaju
 
   const [baseCoord, ...stopCoords] = await Promise.all([
-    geocodeBase(baseAddress),
+    geocodeBase(baseAddress, unidadeId),
     ...stops.map(geocodeStop),
   ]);
 
@@ -491,7 +492,8 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
 // ─── Main Component ──────────────────────────────────────────────────────────
 export default function PlanejamentoPage() {
   const { toast } = useToast();
-  const { activeUnidadeId } = useAuth();
+  const { activeUnidadeId, appUser } = useAuth();
+  const isMaster = appUser?.role === 'master';
   const queryClient = useQueryClient();
   const { data: allRoutes = [], isLoading } = useAllRoutes();
   const { data: technicians = [] } = useTechnicians();
@@ -508,7 +510,7 @@ export default function PlanejamentoPage() {
     recalcTimer.current = setTimeout(async () => {
       setSegsLoading(true);
       try {
-        const propKm = await fetchOsrmRoadDistances(stops, defaultBaseAddress || originCity || "Aracaju");
+        const propKm = await fetchOsrmRoadDistances(stops, defaultBaseAddress || originCity || "Aracaju", activeUnidadeId);
         setPropSegsKm(propKm);
       } catch (e) { console.error(e); }
       finally { setSegsLoading(false); }
@@ -593,7 +595,7 @@ export default function PlanejamentoPage() {
     // Recalculate distances for the new sequence
     setSegsLoading(true);
     try {
-      const propKm = await fetchOsrmRoadDistances(newStops, defaultBaseAddress || originCity || "Aracaju");
+      const propKm = await fetchOsrmRoadDistances(newStops, defaultBaseAddress || originCity || "Aracaju", activeUnidadeId);
       setPropSegsKm(propKm);
     } catch (err) {
       console.error(err);
@@ -610,7 +612,7 @@ export default function PlanejamentoPage() {
     setProposedStops(reversed);
     setSegsLoading(true);
     try {
-      const propKm = await fetchOsrmRoadDistances(reversed, defaultBaseAddress || originCity || "Aracaju");
+      const propKm = await fetchOsrmRoadDistances(reversed, defaultBaseAddress || originCity || "Aracaju", activeUnidadeId);
       setPropSegsKm(propKm);
     } catch (err) {
       console.error(err);
@@ -674,14 +676,14 @@ export default function PlanejamentoPage() {
 
 
   useEffect(() => {
-    configService.getBaseAddress().then(base => {
+    configService.getBaseAddress(activeUnidadeId).then(base => {
       if (base) {
         setDefaultBaseAddress(base);
         const { city } = parseFullAddress(base);
         setOriginCity(city || base);
       }
     }).catch(console.error);
-  }, []);
+  }, [activeUnidadeId]);
 
   const [searchOS, setSearchOS] = useState("");
 
@@ -994,6 +996,10 @@ export default function PlanejamentoPage() {
 
   // ── Duplicate / Copy Route ──
   const handleDuplicateRoute = async (route: Route) => {
+    if (isMaster && !activeUnidadeId) {
+      toast({ variant: "destructive", title: "Selecione uma unidade", description: "Escolha uma unidade no seletor no topo antes de duplicar a rota." });
+      return;
+    }
     setIsDuplicating(route.id);
     try {
       const copyName = `Cópia de ${route.name}`;
@@ -1058,13 +1064,13 @@ export default function PlanejamentoPage() {
     setSegsLoading(true);
     try {
       // ORDEM: OSRM 2-opt — global, determinístico, sem IA
-      const osrmResult = await optimizeRouteStopsAsync(route.stops, initialOrigin);
+      const osrmResult = await optimizeRouteStopsAsync(route.stops, initialOrigin, activeUnidadeId);
       const finalStops = osrmResult.stops;
-    
+
       // DISTÂNCIAS: OSRM (antes e depois)
       const [origKm, propKm] = await Promise.all([
-        fetchOsrmRoadDistances(route.stops, initialOrigin),
-        fetchOsrmRoadDistances(finalStops, initialOrigin),
+        fetchOsrmRoadDistances(route.stops, initialOrigin, activeUnidadeId),
+        fetchOsrmRoadDistances(finalStops, initialOrigin, activeUnidadeId),
       ]);
     
       // RESUMO: honesto a partir dos km reais (a IA entra aqui depois, só no texto)
@@ -1101,7 +1107,7 @@ export default function PlanejamentoPage() {
     setOriginCity(newOrigin);
     if (!optimizingRoute) return;
 
-    const osrmResult = await optimizeRouteStopsAsync(optimizingRoute.stops, newOrigin);
+    const osrmResult = await optimizeRouteStopsAsync(optimizingRoute.stops, newOrigin, activeUnidadeId);
     setProposedStops(osrmResult.stops);
     setOptimizationSummary(osrmResult.summary);
 
@@ -1109,9 +1115,9 @@ export default function PlanejamentoPage() {
     setSegsLoading(true);
     try {
       const [origKm, propKm] = await Promise.all([
-        fetchOsrmRoadDistances(optimizingRoute.stops, newOrigin),
-        fetchOsrmRoadDistances(osrmResult.stops, newOrigin),
-        
+        fetchOsrmRoadDistances(optimizingRoute.stops, newOrigin, activeUnidadeId),
+        fetchOsrmRoadDistances(osrmResult.stops, newOrigin, activeUnidadeId),
+
       ]);
       setOrigSegsKm(origKm);
       setPropSegsKm(propKm);
@@ -1125,7 +1131,7 @@ export default function PlanejamentoPage() {
       setOptimizationSummary(aiResult.summary);
       setSegsLoading(true);
       try {
-        const propKm2 = await fetchOsrmRoadDistances(aiResult.stops, newOrigin);
+        const propKm2 = await fetchOsrmRoadDistances(aiResult.stops, newOrigin, activeUnidadeId);
         setPropSegsKm(propKm2);
       } finally {
         setSegsLoading(false);
@@ -2343,7 +2349,7 @@ export default function PlanejamentoPage() {
                   driverName: driver?.name || editingRoute.driverName,
                 };
 
-                const legKm = await fetchOsrmRoadDistances(editParsedPreview, defaultBaseAddress || "Aracaju");
+                const legKm = await fetchOsrmRoadDistances(editParsedPreview, defaultBaseAddress || "Aracaju", activeUnidadeId);
                 const totalKm = legKm.reduce((a, b) => a + b, 0);
 
                 const ok = await copyRouteEmailToClipboard({

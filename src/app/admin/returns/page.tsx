@@ -32,12 +32,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useReturns, useTechnicians } from "@/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { triggerWebhook } from "@/lib/webhook";
+import { useAuth } from "@/context/AuthContext";
 
 type FormData = Omit<Return, 'id' | 'technicianName'>;
 
 
 export default function ReturnsPage() {
     const queryClient = useQueryClient();
+    const { activeUnidadeId } = useAuth();
     const { data: contextReturns = [], isLoading: loadingRet } = useReturns();
     const { data: technicians = [], isLoading: loadingTech } = useTechnicians();
     const contextLoading = loadingRet || loadingTech;
@@ -117,7 +119,7 @@ export default function ReturnsPage() {
             const fullDataToSave: Return = { id: '', technicianName, ...dataToSave } as Return;
 
             if (dialogMode === 'add') {
-                const newDocId = await returnService.create(dataToSave as Omit<Return, 'id'>);
+                const newDocId = await returnService.create(dataToSave as Omit<Return, 'id'>, activeUnidadeId);
                 fullDataToSave.id = newDocId;
                 setReturns(prev => [...prev, fullDataToSave].sort((a,b) => (b.returnDate?.getTime() || 0) - (a.returnDate?.getTime() || 0)));
                 toast({ title: "Retorno registrado com sucesso!" });
@@ -131,7 +133,7 @@ export default function ReturnsPage() {
                     originalServiceOrder: dataToSave.originalServiceOrder,
                     daysToReturn: dataToSave.daysToReturn,
                     productModel: dataToSave.productModel,
-                });
+                }, activeUnidadeId);
             } else if (selectedReturn) {
                 await returnService.update(selectedReturn.id, dataToSave as Partial<Return>);
                 fullDataToSave.id = selectedReturn.id;

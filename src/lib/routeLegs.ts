@@ -16,10 +16,10 @@ export async function geocodeStop(stop: RouteStop): Promise<[number, number] | n
   );
 }
 
-export async function geocodeBase(baseAddress: string): Promise<[number, number] | null> {
+export async function geocodeBase(baseAddress: string, unidadeId?: string | null): Promise<[number, number] | null> {
   // Pino fixado manualmente nas Configurações tem prioridade sobre
   // geocodificar o texto do endereço.
-  const storedCoords = await configService.getBaseCoords();
+  const storedCoords = await configService.getBaseCoords(unidadeId);
   if (storedCoords) return [storedCoords.lat, storedCoords.lng];
 
   const { city, state, street } = parseFullAddress(baseAddress);
@@ -38,10 +38,11 @@ export type LegDistancesAndDurations = {
  */
 export async function fetchLegDistancesAndDurations(
   stops: RouteStop[],
-  baseAddress: string
+  baseAddress: string,
+  unidadeId?: string | null
 ): Promise<LegDistancesAndDurations> {
   const [baseCoord, ...stopCoords] = await Promise.all([
-    geocodeBase(baseAddress),
+    geocodeBase(baseAddress, unidadeId),
     ...stops.map(geocodeStop),
   ]);
 
