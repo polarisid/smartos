@@ -38,6 +38,26 @@ export function rotateToLandscapeCanvas(img: HTMLImageElement): string | null {
   }
 }
 
+// Redesenha a imagem num canvas e reexporta como JPEG, sem girar. Necessário
+// porque o addImage do jsPDF não decodifica WEBP de forma confiável (fotos de
+// celulares Android que capturam nesse formato saem como ruído/listras na
+// página) - normalizando tudo pra JPEG aqui, o jsPDF nunca recebe um formato
+// problemático.
+function normalizeToJpegCanvas(img: HTMLImageElement): string | null {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0);
+    return canvas.toDataURL("image/jpeg", 0.96);
+  } catch {
+    // Ex: falha de CORS ao ler pixels da imagem — mantém a foto original.
+    return null;
+  }
+}
+
 type LoadedImage = { dataUrl: string; format: "JPEG" | "PNG" | "WEBP"; width: number; height: number };
 
 async function loadImageForPdf(url: string): Promise<LoadedImage> {
@@ -67,6 +87,14 @@ async function loadImageForPdf(url: string): Promise<LoadedImage> {
     if (rotated) {
       return { dataUrl: rotated, format: "JPEG", width: img.naturalHeight, height: img.naturalWidth };
     }
+  }
+
+  // Normaliza pra JPEG via canvas (ver comentário em normalizeToJpegCanvas) -
+  // só cai pro dataUrl original (com o format detectado pelo mime) se o canvas
+  // falhar por algum motivo (ex.: CORS bloqueando leitura de pixels).
+  const normalized = normalizeToJpegCanvas(img);
+  if (normalized) {
+    return { dataUrl: normalized, format: "JPEG", width: img.naturalWidth, height: img.naturalHeight };
   }
 
   const mime = blob.type || "image/jpeg";
