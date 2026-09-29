@@ -71,8 +71,13 @@ function scoreBadgeClasses(score?: number): string {
   return "bg-red-100 text-red-800 border-red-200";
 }
 
+// cache: 'no-store' é necessário aqui: as mesmas URLs já carregam como
+// thumbnail via <img> no modal, então o navegador guarda a resposta em
+// cache - um fetch() posterior pra essa mesma URL pode reaproveitar essa
+// entrada de um jeito que falha a checagem de CORS ("Failed to fetch"),
+// mesmo o servidor mandando os headers de CORS certinho.
 async function downloadPhoto(url: string, filename: string) {
-  const res = await fetch(url);
+  const res = await fetch(url, { cache: "no-store" });
   const blob = await res.blob();
   const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -110,7 +115,7 @@ async function downloadAllPhotos(report: TechnicalReport) {
       const idx = seen[photo.category] ?? 0;
       seen[photo.category] = idx + 1;
       const filename = photoFilename(report, photo.category, photo.url, idx);
-      const res = await fetch(photo.url);
+      const res = await fetch(photo.url, { cache: "no-store" });
       const blob = await res.blob();
       zip.file(filename, blob);
     })

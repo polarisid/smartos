@@ -41,7 +41,12 @@ export function rotateToLandscapeCanvas(img: HTMLImageElement): string | null {
 type LoadedImage = { dataUrl: string; format: "JPEG" | "PNG" | "WEBP"; width: number; height: number };
 
 async function loadImageForPdf(url: string): Promise<LoadedImage> {
-  const res = await fetch(url);
+  // cache: 'no-store' é necessário: a mesma URL da foto já foi carregada como
+  // <img> em algum ponto (thumbnail do formulário, visualização do relatório)
+  // antes de gerar o PDF - reaproveitar essa entrada do cache do navegador
+  // num fetch() pode falhar a checagem de CORS mesmo com o servidor mandando
+  // os headers certos (mesma causa do download de fotos falhar às vezes).
+  const res = await fetch(url, { cache: "no-store" });
   const blob = await res.blob();
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
