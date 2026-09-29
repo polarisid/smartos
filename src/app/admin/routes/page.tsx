@@ -2031,7 +2031,19 @@ function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop:
 export default function RoutesPage() {
     const queryClient = useQueryClient();
     const { toast } = useToast();
-    const { activeUnidadeId } = useAuth();
+    const { activeUnidadeId, appUser } = useAuth();
+    const isMaster = appUser?.role === 'master';
+    // Barra a entrada nos 3 fluxos de criar rota nova (não editar/continuar
+    // rascunho existente) logo no clique do botão - sem isso, master só
+    // descobria que faltava escolher a unidade depois de preencher tudo e
+    // tentar salvar, lá no fundo do formulário/assistente.
+    const requireUnidadeToCreate = (): boolean => {
+        if (isMaster && !activeUnidadeId) {
+            toast({ variant: "destructive", title: "Selecione uma unidade", description: "Escolha uma unidade no seletor no topo antes de criar uma rota nova." });
+            return false;
+        }
+        return true;
+    };
     const { data: technicians = [], isLoading: loadingTech } = useTechnicians();
     const { data: serviceOrders = [], isLoading: loadingSo } = useServiceOrders(2000);
     const contextLoading = loadingTech || loadingSo;
@@ -2450,6 +2462,7 @@ ${rowsXml}  </Table>
     };
 
     const handleOpenForm = (mode: 'add' | 'edit', route?: Route) => {
+        if (mode === 'add' && !requireUnidadeToCreate()) return;
         setFormMode(mode);
         setSelectedRouteForEdit(route || null);
         setActiveTab('form');
@@ -2517,10 +2530,10 @@ ${rowsXml}  </Table>
                                 <Button variant="outline" onClick={() => handleOpenForm('add')} title="Cria a rota já ativa direto, sem passar pelo assistente de rascunho/otimização/e-mail">
                                     <Zap className="mr-2 h-4 w-4" /> Postagem Rápida
                                 </Button>
-                                <Button onClick={() => { setWizardInitialRoute(null); setIsWizardOpen(true); }}>
+                                <Button onClick={() => { if (!requireUnidadeToCreate()) return; setWizardInitialRoute(null); setIsWizardOpen(true); }}>
                                     <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Rota
                                 </Button>
-                                <Button variant="outline" className="gap-1.5" onClick={() => setIsSplitPlannerOpen(true)} title="Cola as OSs uma vez e divide em várias rotas por proximidade">
+                                <Button variant="outline" className="gap-1.5" onClick={() => { if (!requireUnidadeToCreate()) return; setIsSplitPlannerOpen(true); }} title="Cola as OSs uma vez e divide em várias rotas por proximidade">
                                     <Wand2 className="h-4 w-4" /> Planejador Livre
                                 </Button>
                             </>

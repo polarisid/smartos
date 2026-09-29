@@ -494,6 +494,13 @@ export default function PlanejamentoPage() {
   const { toast } = useToast();
   const { activeUnidadeId, appUser } = useAuth();
   const isMaster = appUser?.role === 'master';
+  const requireUnidadeToCreate = (): boolean => {
+    if (isMaster && !activeUnidadeId) {
+      toast({ variant: "destructive", title: "Selecione uma unidade", description: "Escolha uma unidade no seletor no topo antes de criar uma rota nova." });
+      return false;
+    }
+    return true;
+  };
   const queryClient = useQueryClient();
   const { data: allRoutes = [], isLoading } = useAllRoutes();
   const { data: technicians = [] } = useTechnicians();
@@ -1285,7 +1292,7 @@ export default function PlanejamentoPage() {
                 <Download className="h-4 w-4" />
                 Baixar Semana (Excel)
               </Button>
-              <Button size="sm" onClick={() => { setWizardInitialRoute(null); setIsWizardOpen(true); }} className="gap-2">
+              <Button size="sm" onClick={() => { if (!requireUnidadeToCreate()) return; setWizardInitialRoute(null); setIsWizardOpen(true); }} className="gap-2">
                 <Plus className="h-4 w-4" />
                 Nova Rota
               </Button>
@@ -1626,7 +1633,7 @@ export default function PlanejamentoPage() {
                   <div className="flex flex-col gap-2">
                     {dayRoutes.length === 0 ? (
                       <button
-                        onClick={() => { setWizardInitialRoute(null); setIsWizardOpen(true); }}
+                        onClick={() => { if (!requireUnidadeToCreate()) return; setWizardInitialRoute(null); setIsWizardOpen(true); }}
                         className="rounded-lg border-2 border-dashed border-border/30 py-5 text-center hover:border-primary/30 hover:bg-muted/20 transition-colors group"
                       >
                         <Plus className="h-4 w-4 mx-auto text-muted-foreground/40 group-hover:text-primary/50 transition-colors" />
