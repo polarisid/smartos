@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
 
     // ?unidade=<id ou nome> filtra uma unidade só; sem o parâmetro vem todas,
     // cada rota marcada com unidadeId/unidadeNome pro outro sistema separar.
-    const unidadeParam = req.nextUrl.searchParams.get('unidade')?.trim().toLowerCase();
+    const unidadeParam = (req.nextUrl.searchParams.get('asc') || req.nextUrl.searchParams.get('unidade'))?.trim().toLowerCase();
     const unidadeNomeById = new Map<string, string>(unidades.map((u: any) => [u.id, u.nome]));
     const unidadeFiltroId = unidadeParam
       ? unidades.find((u: any) => u.id.toLowerCase() === unidadeParam || String(u.nome).toLowerCase() === unidadeParam)?.id
@@ -115,6 +115,7 @@ export async function GET(req: NextRequest) {
               ...serviceOrder,
               date: (serviceOrder.date instanceof Date ? serviceOrder.date : new Date()).toISOString(),
               technicianName: techniciansMap.get(serviceOrder.technicianId) || 'N/A',
+              asc: unidadeNomeById.get(row.unidade_id),
               unidadeId: row.unidade_id,
               unidadeNome: unidadeNomeById.get(row.unidade_id),
               status,
@@ -124,6 +125,7 @@ export async function GET(req: NextRequest) {
 
         return {
           ...route,
+          asc: unidadeNomeById.get(row.unidade_id),
           unidadeId: row.unidade_id,
           unidadeNome: unidadeNomeById.get(row.unidade_id),
           createdAt: route.createdAt instanceof Date ? route.createdAt.toISOString() : undefined,
