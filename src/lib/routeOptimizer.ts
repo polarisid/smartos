@@ -1952,8 +1952,12 @@ export function getCityCoordinates(cityName: string, state?: string): { lat: num
   // Try partial key matching - quando sabemos o estado, pula chaves com
   // sufixo "(uf)" de um estado diferente (evita colisão entre cidades
   // homônimas de estados distintos).
+  // Só por PREFIXO do nome (nome cortado "olin" -> "olinda", ou chave curta no
+  // início de um nome composto) - por trecho qualquer, "olin" casava com
+  // "petrolina" e jogava a parada na cidade errada.
   for (const [key, coords] of Object.entries(CITY_COORDINATES)) {
-    if (norm.length < 4 || !(norm.includes(key) || key.includes(norm))) continue;
+    const keyBase = key.replace(/\s*\([a-z]{2}\)$/, "");
+    if (norm.length < 4 || keyBase.length < 4 || !(keyBase.startsWith(norm) || norm.startsWith(keyBase))) continue;
     const keySuffixMatch = key.match(/\(([a-z]{2})\)$/);
     if (uf && keySuffixMatch && keySuffixMatch[1] !== uf) continue;
     return coords;

@@ -995,7 +995,11 @@ function getHaversineDistance(c1: [number, number], c2: [number, number]): numbe
     return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export function getKnownCityCoords(cityNorm: string, state: string): [number, number] | undefined {
+// allowFuzzy=false devolve só correspondência exata (chave da cidade ou chave
+// "cidade_uf") - usado pelo guarda de distância, que NUNCA pode se basear num
+// palpite aproximado: um nome cortado/errado ("OLIN") casando por engano com
+// outra cidade fazia o guarda rejeitar a coordenada certa do CEP.
+export function getKnownCityCoords(cityNorm: string, state: string, allowFuzzy: boolean = true): [number, number] | undefined {
     if (!cityNorm) return undefined;
     const stCode = (state || 'SE').trim().toLowerCase();
 
@@ -1019,21 +1023,25 @@ export function getKnownCityCoords(cityNorm: string, state: string): [number, nu
         return exactMatch;
     }
 
-    // 4. Fuzzy substring fallback — restricted to candidates that actually fall
-    // inside the requested state's bounding box, so a city name that collides
-    // with a same-named city in another state (e.g. "Santa Luzia" in MA vs.
-    // "Santa Luzia do Itanhy" in SE) can never resolve to the wrong state.
-    const fuzzyMatch = Object.entries(CITY_FALLBACK_COORDINATES).find(
-        ([k, coords]) => cityNorm.length >= 4 && (cityNorm.includes(k) || k.includes(cityNorm)) && isValidStateCoords(coords, state)
+    if (!allowFuzzy || cityNorm.length < 4) return undefined;
+
+    // 4. Fallback aproximado — SÓ por prefixo do nome (nome cortado pela planilha,
+    // ex.: "olin" -> "olinda"; ou chave curta no começo de um nome composto, ex.:
+    // "santa luzia do itanhy" -> "santa luzia"), restrito a candidatos dentro da
+    // caixa do estado pedido. Antes casava por QUALQUER trecho ("olin" estava
+    // dentro de "petrolina"), jogando a parada na cidade errada. Se houver mais
+    // de um candidato possível no estado, não chuta (melhor sem ponto do que errado).
+    const candidates = Object.entries(CITY_FALLBACK_COORDINATES).filter(
+        ([k, coords]) => (k.startsWith(cityNorm) || cityNorm.startsWith(k)) && k.length >= 4 && isValidStateCoords(coords, state)
     );
-    return fuzzyMatch?.[1];
+    return candidates.length === 1 ? candidates[0][1] : undefined;
 }
 
 function isValidCityCoords(coords: [number, number], cityNorm: string, state: string): boolean {
     if (!isValidStateCoords(coords, state)) return false;
     if (!cityNorm) return true;
 
-    const knownCityCoords = getKnownCityCoords(cityNorm, state);
+    const knownCityCoords = getKnownCityCoords(cityNorm, state, false);
     if (!knownCityCoords) return true;
 
     const distKm = getHaversineDistance(coords, knownCityCoords);
@@ -1051,7 +1059,7 @@ if (typeof window !== 'undefined') {
         const keysToRemove: string[] = [];
         for (let i = 0; i < localStorage.length; i++) {
             const k = localStorage.key(i);
-            if (k && k.includes('geocode_') && !k.startsWith('v8_geocode_')) {
+            if (k && k.includes('geocode_') && !k.startsWith('v9_geocode_')) {
                 keysToRemove.push(k);
             }
         }
@@ -1086,7 +1094,7 @@ export async function getCoordinates(city: string, neighborhood: string, state: 
         } catch (e) { }
     }
 
-    const key = `v8_geocode_${usableZip}_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
+    const key = `v9_geocode_${usableZip}_${safeAddress}_${safeNeighborhood}_${cityNorm}_${rawState}`.toLowerCase();
 
     // Check localStorage cache with strict city bounds validation
     if (typeof window !== 'undefined') {
