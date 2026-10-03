@@ -72,21 +72,13 @@ export default function RoutesPage() {
         toast({ title: "Ordem desbloqueada", description: `A OS ${serviceOrder} foi removida da lista de bloqueios.` });
     };
 
-    const isStopCompleted = (stop: RouteStop, routeCreatedAt: Date) => {
-        const currentRouteOs = serviceOrders
-            .filter(os => os.serviceOrderNumber === stop.serviceOrder && os.date.getTime() >= routeCreatedAt.getTime());
-        currentRouteOs.sort((a, b) => b.date.getTime() - a.date.getTime());
-        const lastOs = currentRouteOs.length > 0 ? currentRouteOs[0] : null;
-        return lastOs ? lastOs.isFinalized !== false : false;
-    };
+    // "Concluída" nos contadores/progresso da rota = a parada já foi atendida
+    // (existe OS lançada depois da criação da rota, finalizada ou com pendência) -
+    // mesmo critério do painel admin. Só finalizada deixava de fora as paradas
+    // visitadas com pendência e o progresso no celular ficava menor que no admin.
+    const isStopAttended = (stop: RouteStop, routeCreatedAt: Date) =>
+        serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder && os.date.getTime() >= routeCreatedAt.getTime());
 
-    const isStopPending = (stop: RouteStop, routeCreatedAt: Date) => {
-        const currentRouteOs = serviceOrders
-            .filter(os => os.serviceOrderNumber === stop.serviceOrder && os.date.getTime() >= routeCreatedAt.getTime());
-        currentRouteOs.sort((a, b) => b.date.getTime() - a.date.getTime());
-        const lastOs = currentRouteOs.length > 0 ? currentRouteOs[0] : null;
-        return lastOs ? lastOs.isFinalized === false : false;
-    };
     const displayedRoutes = useMemo(() => {
         const routes = [...activeRoutes];
         if (pinnedRouteId) {
@@ -152,12 +144,12 @@ export default function RoutesPage() {
 
                 const totalStops = route.stops.length;
                 const routeCreated = route.createdAt as Date;
-                const completedStopsCount = route.stops.filter(stop => isStopCompleted(stop, routeCreated)).length;
+                const completedStopsCount = route.stops.filter(stop => isStopAttended(stop, routeCreated)).length;
                 const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
 
                 const filteredStops = route.stops || [];
                 const filteredCount = filteredStops.length;
-                const pendingCount = route.stops.filter(s => !isStopCompleted(s, routeCreated)).length;
+                const pendingCount = totalStops - completedStopsCount;
                 const doneCount = completedStopsCount;
 
                 // Rastreio de peças só é liberado na própria rota do técnico - as demais
