@@ -68,6 +68,47 @@ export async function fetchOsrmDrivingMatrix(
   return null;
 }
 
+const noFerryLegCache = new Map<string, { km: number; durationMin: number } | null>();
+
+function osrmRouteUsesFerry(r: any): boolean {
+  return !!r?.legs?.some((leg: any) => leg.steps?.some((st: any) => st.mode === 'ferry'));
+}
+
+/**
+ * Tempo/distância do trecho p1 → p2 "só por terra" (sem balsa). Os servidores OSRM públicos não
+ * aceitam exclude=ferry, então usa a rota alternativa sem balsa que o próprio OSRM sugere (mesma
+ * lógica do botão "evitar balsa" do mapa). Se o trecho já não usa balsa, devolve o próprio trecho.
+ * null = não achou alternativa por terra (quem chamou mantém o tempo padrão).
+ */
+export async function fetchOsrmNoFerryLeg(p1: PointCoord, p2: PointCoord): Promise<{ km: number; durationMin: number } | null> {
+  const key = `${p1.lat.toFixed(4)},${p1.lng.toFixed(4)};${p2.lat.toFixed(4)},${p2.lng.toFixed(4)}`;
+  if (noFerryLegCache.has(key)) return noFerryLegCache.get(key)!;
+
+  const coordsStr = `${p1.lng},${p1.lat};${p2.lng},${p2.lat}`;
+  const endpoints = [
+    OSRM_BASE_URL ? `${OSRM_BASE_URL}/route/v1/driving/` : null,
+    'https://router.project-osrm.org/route/v1/driving/',
+    'https://routing.openstreetmap.de/routed-car/route/v1/driving/',
+  ].filter(Boolean) as string[];
+
+  for (const baseUrl of endpoints) {
+    try {
+      const res = await fetchWithTimeout(`${baseUrl}${coordsStr}?overview=false&steps=true&alternatives=true`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const routes: any[] = data?.routes || [];
+      if (routes.length === 0) continue;
+      const pick = !osrmRouteUsesFerry(routes[0]) ? routes[0] : routes.slice(1).find(r => !osrmRouteUsesFerry(r));
+      const result = pick
+        ? { km: Math.round((pick.distance / 1000) * 10) / 10, durationMin: Math.round(pick.duration / 60) }
+        : null;
+      noFerryLegCache.set(key, result);
+      return result;
+    } catch (e) {}
+  }
+  return null;
+}
+
 /**
  * Busca a geometria real do percurso rodoviário (OSRM Route API) passando
  * pelos pontos na ordem dada - usado só pra desenhar a linha da rota no

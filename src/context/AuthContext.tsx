@@ -5,6 +5,7 @@ import { User } from '@supabase/supabase-js';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { type AppUser } from '@/lib/data';
+import { saveOfflineSession, loadOfflineSession, clearOfflineSession, clearQueryCache } from '@/lib/offlineCache';
 
 interface AuthContextType {
     user: User | null;
@@ -47,12 +48,37 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => {
         // Initial session check
         supabase.auth.getSession().then(({ data: { session } }) => {
+            if (!session?.user && typeof navigator !== 'undefined' && !navigator.onLine) {
+                // Sem internet e token que não deu pra renovar: abre com o último usuário conhecido
+                // (modo offline), em vez de mandar o técnico pro login sem sinal.
+                const cached = loadOfflineSession();
+                if (cached) {
+                    setUser(cached.user as User);
+                    setAppUser(cached.appUser);
+                    setLoading(false);
+                    return;
+                }
+            }
             setUser(session?.user ?? null);
             if (!session?.user) {
                 setAppUser(null);
                 setLoading(false);
             }
         });
+
+        // Conexão voltou: confirma a sessão de verdade (renova o token). Se venceu mesmo, volta ao login.
+        const handleBackOnline = () => {
+            supabase.auth.getSession().then(({ data: { session } }) => {
+                if (session?.user) {
+                    setUser((prev) => (prev?.id === session.user.id ? prev : session.user));
+                } else {
+                    clearOfflineSession();
+                    setUser(null);
+                    setAppUser(null);
+                }
+            });
+        };
+        window.addEventListener('online', handleBackOnline);
 
         // Listen for changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -64,12 +90,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 return session?.user ?? null;
             });
             if (!session?.user) {
+                // Sem internet, uma sessão que não renovou não derruba o modo offline.
+                if (typeof navigator !== 'undefined' && !navigator.onLine && loadOfflineSession()) return;
                 setAppUser(null);
                 setLoading(false);
             }
         });
 
-        return () => subscription.unsubscribe();
+        return () => {
+            subscription.unsubscribe();
+            window.removeEventListener('online', handleBackOnline);
+        };
     }, []);
 
     useEffect(() => {
@@ -126,19 +157,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 }
 
                 if (isMounted && data) {
-                    setAppUser({
+                    const profile: AppUser = {
                         uid: data.id,
                         name: data.name,
                         email: data.email,
                         role: data.role,
                         unidadeId: data.unidade_id ?? null
-                    });
+                    };
+                    setAppUser(profile);
+                    if (user) saveOfflineSession(user, profile);
                 } else if (isMounted) {
                     setAppUser(null);
                 }
             } catch (error) {
                 console.error("AuthContext: Error fetching profile:", error);
-                if (isMounted) setAppUser(null);
+                // Falha de rede (sem sinal): usa o último perfil conhecido em vez de deslogar.
+                const cached = loadOfflineSession();
+                const offlineFailure = (typeof navigator !== 'undefined' && !navigator.onLine) || /fetch|network/i.test(String((error as any)?.message || ''));
+                if (isMounted) setAppUser(offlineFailure && cached?.appUser.uid === userId ? cached.appUser : null);
             } finally {
                 if (isMounted) setLoading(false);
             }
@@ -185,6 +221,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const logout = async () => {
+        // Primeiro apaga o que ficou guardado no aparelho: sem isso, um logout feito sem sinal
+        // (que falha no servidor) deixaria a sessão offline e o cache do usuário pra trás.
+        clearOfflineSession();
+        void clearQueryCache();
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
         // Defesa extra além do uid entrar nas queryKeys (hooks/queries): garante

@@ -4,6 +4,9 @@ import { DEFAULT_TRAVEL_COST_PARAMS } from "@/lib/travelCost";
 import { DEFAULT_PART_COST_PARAMS } from "@/lib/partCost";
 import { DEFAULT_PLANNING_PARAMS, type PlanningParams } from "@/lib/routePlanning";
 
+export type TechGoals = { cleaningsPerMonth: number; approvedBudgetsPerMonth: number };
+export const DEFAULT_TECH_GOALS: TechGoals = { cleaningsPerMonth: 0, approvedBudgetsPerMonth: 0 };
+
 const DEFAULT_REPAIR_CENTER: RepairCenterInfo = { name: "", address: "", phone: "" };
 
 // unidadeId é opcional em tudo aqui: pra admin/técnico a RLS já resolve
@@ -190,6 +193,27 @@ export const configService = {
       .from('configs')
       .upsert({ id: 'planning', value: params, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
 
+    if (error) throw error;
+  },
+
+  // Metas mensais por técnico (exibidas em "Minha Produção"). 0 = sem meta.
+  async getTechGoals(unidadeId?: string | null): Promise<TechGoals> {
+    try {
+      const { data, error } = await withUnidade(
+        supabase.from('configs').select('value').eq('id', 'tech_goals'),
+        unidadeId
+      ).maybeSingle();
+      if (!error && data?.value) return { ...DEFAULT_TECH_GOALS, ...data.value };
+    } catch (e) {
+      console.warn("Could not fetch tech goals from Supabase", e);
+    }
+    return { ...DEFAULT_TECH_GOALS };
+  },
+
+  async setTechGoals(goals: TechGoals, unidadeId?: string | null): Promise<void> {
+    const { error } = await supabase
+      .from('configs')
+      .upsert({ id: 'tech_goals', value: goals, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
     if (error) throw error;
   },
 

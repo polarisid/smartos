@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
-import { configService } from "@/services/supabase/configService";
+import { configService, DEFAULT_TECH_GOALS, type TechGoals } from "@/services/supabase/configService";
 import { getCoordinates, parseFullAddress } from "@/lib/geocode";
 import type { TravelCostParams, PartCostParams, RepairCenterInfo } from "@/lib/data";
 import { Settings, MapPin, Save, Loader2, Sparkles, Building2, Globe, LocateFixed, Calculator, FileText, Phone, Clock } from "lucide-react";
@@ -28,6 +28,8 @@ export default function SettingsPage() {
   // escolher uma no seletor, não tem unidade certa pra ler/gravar.
   const isMaster = appUser?.role === 'master';
   const unidadeParaConfig = isMaster ? activeUnidadeId : undefined;
+  const [goals, setGoals] = useState<TechGoals>({ ...DEFAULT_TECH_GOALS });
+  const [savingGoals, setSavingGoals] = useState(false);
   const [baseAddress, setBaseAddress] = useState("");
   const [baseCoords, setBaseCoords] = useState<[number, number] | null>(null);
   const [isLocating, setIsLocating] = useState(false);
@@ -65,7 +67,7 @@ export default function SettingsPage() {
     async function loadConfigs() {
       try {
         setLoading(true);
-        const [base, storedCoords, webhook, cost, partCost, repairCenterInfo, planning] = await Promise.all([
+        const [base, storedCoords, webhook, cost, partCost, repairCenterInfo, planning, techGoals] = await Promise.all([
           configService.getBaseAddress(unidadeParaConfig),
           configService.getBaseCoords(unidadeParaConfig),
           configService.getWebhookUrl(unidadeParaConfig),
@@ -73,7 +75,9 @@ export default function SettingsPage() {
           configService.getPartCostParams(unidadeParaConfig),
           configService.getRepairCenter(unidadeParaConfig),
           configService.getPlanningParams(unidadeParaConfig),
+          configService.getTechGoals(unidadeParaConfig),
         ]);
+        setGoals(techGoals);
         setPlanningParams(planning);
         setBaseAddress(base || "Aracaju");
         setWebhookUrl(webhook || "");
@@ -143,6 +147,22 @@ export default function SettingsPage() {
       return false;
     }
     return true;
+  };
+
+  const handleSaveGoals = async () => {
+    if (!requireUnidadeIfMaster()) return;
+    setSavingGoals(true);
+    try {
+      await configService.setTechGoals({
+        cleaningsPerMonth: Math.max(0, Math.round(goals.cleaningsPerMonth) || 0),
+        approvedBudgetsPerMonth: Math.max(0, Math.round(goals.approvedBudgetsPerMonth) || 0),
+      }, unidadeParaConfig);
+      toast({ title: "Metas salvas" });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erro ao salvar", description: err.message });
+    } finally {
+      setSavingGoals(false);
+    }
   };
 
   const handleSavePlanning = async () => {
@@ -473,6 +493,35 @@ export default function SettingsPage() {
             <Button onClick={handleSavePartCostParams} disabled={savingPartCost} variant="outline" className="gap-2">
               {savingPartCost ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Salvar Parâmetros de Peça
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Metas mensais dos técnicos */}
+        <Card className="border border-border/50 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              Metas Mensais dos Técnicos
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Aparecem como barra de progresso em <span className="font-medium text-foreground">Minha Produção</span> para cada técnico. Deixe 0 para não ter meta.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 max-w-md">
+              <div className="space-y-1.5">
+                <Label htmlFor="goal-cleanings" className="text-xs font-semibold">Limpezas por mês</Label>
+                <Input id="goal-cleanings" type="number" min={0} value={goals.cleaningsPerMonth} onChange={e => setGoals(g => ({ ...g, cleaningsPerMonth: Number(e.target.value) }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="goal-approved" className="text-xs font-semibold">Orçamentos aprovados por mês</Label>
+                <Input id="goal-approved" type="number" min={0} value={goals.approvedBudgetsPerMonth} onChange={e => setGoals(g => ({ ...g, approvedBudgetsPerMonth: Number(e.target.value) }))} />
+              </div>
+            </div>
+            <Button onClick={handleSaveGoals} disabled={savingGoals} variant="outline" className="gap-2">
+              {savingGoals ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Salvar Metas
             </Button>
           </CardContent>
         </Card>

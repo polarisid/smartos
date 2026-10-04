@@ -1,6 +1,6 @@
 import type { RouteStop, RoutePoint } from "./data";
 import { getCoordinates, parseFullAddress } from "./geocode";
-import { fetchOsrmDrivingMatrix, haversineDistanceKm, type PointCoord } from "./routingEngine";
+import { fetchOsrmDrivingMatrix, fetchOsrmNoFerryLeg, haversineDistanceKm, type PointCoord } from "./routingEngine";
 import { configService } from "@/services/supabase/configService";
 
 const DEFAULT_BASE: PointCoord = { lat: -10.9142, lng: -37.0545 }; // Base Aracaju
@@ -72,6 +72,29 @@ export async function fetchDurationMatrixMin(
 }
 
 /**
+ * Trechos que saem de uma parada marcada como "evitar balsa" (avoidFerryToNext) passam a usar o
+ * tempo/km do trajeto só por terra - assim o planejamento bate com o caminho escolhido no mapa.
+ * leg[i] sai do ponto i: i=0 é a saída; i>=1 é a parada i-1 (a última volta pra chegada).
+ */
+async function applyFerryPreferences(
+  stops: RouteStop[],
+  points: PointCoord[],
+  legs: LegDistancesAndDurations
+): Promise<LegDistancesAndDurations> {
+  const km = [...legs.km];
+  const durationMin = [...legs.durationMin];
+  await Promise.all(km.map(async (_, i) => {
+    if (i < 1 || !stops[i - 1]?.avoidFerryToNext) return;
+    const alt = await fetchOsrmNoFerryLeg(points[i], points[i + 1]);
+    if (alt) {
+      km[i] = alt.km;
+      durationMin[i] = alt.durationMin;
+    }
+  }));
+  return { km, durationMin };
+}
+
+/**
  * Km e minutos reais de deslocamento por trecho, para o circuito
  * Saída → parada 1 → ... → parada N → Chegada (saída e chegada = base da
  * unidade, a não ser que a rota tenha pontos próprios). Usa a mesma matriz
@@ -110,7 +133,7 @@ export async function fetchLegDistancesAndDurations(
       km.push(Math.round((meters / 1000) * 10) / 10);
       durationMin.push(Math.round(seconds / 60));
     }
-    if (km.some(v => v > 0)) return { km, durationMin };
+    if (km.some(v => v > 0)) return applyFerryPreferences(stops, points, { km, durationMin });
   }
 
   // Fallback Haversine (OSRM indisponível)
@@ -121,5 +144,5 @@ export async function fetchLegDistancesAndDurations(
     km.push(legKm);
     durationMin.push(Math.round((legKm / FALLBACK_KMH) * 60));
   }
-  return { km, durationMin };
+  return applyFerryPreferences(stops, points, { km, durationMin });
 }

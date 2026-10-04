@@ -2,9 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { addMonths, endOfMonth, format, startOfMonth } from "date-fns";
+import { addMonths, differenceInCalendarDays, endOfMonth, format, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { AlertCircle, BadgeCheck, ChevronLeft, ChevronRight, Sparkles, Wallet } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { AlertCircle, BadgeCheck, ChevronLeft, ChevronRight, Medal, Sparkles, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { configService } from "@/services/supabase/configService";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -59,7 +62,7 @@ function EmptyState({ text }: { text: string }) {
 }
 
 export default function ProducaoPage() {
-  const { appUser } = useAuth();
+  const { appUser, activeUnidadeId } = useAuth();
   const { data: technicians = [] } = useTechnicians();
   const isTechnician = appUser?.role === "technician" || appUser?.role === "counter_technician";
 
@@ -69,12 +72,24 @@ export default function ProducaoPage() {
   const [pickedTechId, setPickedTechId] = useState("");
   const technicianId = isTechnician ? appUser?.uid || "" : pickedTechId;
 
-  const { data: orders = [], isLoading, isError } = useQuery({
-    queryKey: ["producao", appUser?.uid, technicianId, month.toISOString()],
-    queryFn: () => serviceOrderService.getByTechnicianInRange(technicianId, startOfMonth(month), endOfMonth(month)),
+  // Produção da unidade inteira no mês (a RLS já limita à unidade): dela saem o ranking e a
+  // comparação com o mês anterior; as listas abaixo são só as OS do técnico escolhido.
+  const monthQuery = (m: Date) => ({
+    queryKey: ["producao-equipe", appUser?.uid, m.toISOString()],
+    queryFn: () => serviceOrderService.getByDateRange(startOfMonth(m), endOfMonth(m)),
     enabled: !!technicianId,
     staleTime: 60 * 1000,
   });
+  const { data: teamOrders = [], isLoading, isError } = useQuery(monthQuery(month));
+  const { data: prevTeamOrders = [] } = useQuery(monthQuery(addMonths(month, -1)));
+  const { data: goals } = useQuery({
+    queryKey: ["tech-goals", appUser?.uid, activeUnidadeId],
+    queryFn: () => configService.getTechGoals(activeUnidadeId),
+    enabled: !!appUser?.uid,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const orders = useMemo(() => teamOrders.filter(os => os.technicianId === technicianId), [teamOrders, technicianId]);
 
   const { cleanings, approved, budgetVisits } = useMemo(() => {
     const budgetVisits = orders.filter(os => os.serviceType === "visita_orcamento_samsung");
@@ -84,6 +99,29 @@ export default function ProducaoPage() {
       budgetVisits,
     };
   }, [orders]);
+
+  // Contagem por técnico (limpezas e orçamentos aprovados) -> posição no ranking da unidade.
+  const countsByTech = (list: ServiceOrder[]) => {
+    const map = new Map<string, { cleanings: number; approved: number }>();
+    list.forEach(os => {
+      if (!os.technicianId) return;
+      const c = map.get(os.technicianId) || { cleanings: 0, approved: 0 };
+      if (os.cleaningPerformed) c.cleanings++;
+      if (os.serviceType === "visita_orcamento_samsung" && os.samsungBudgetApproved) c.approved++;
+      map.set(os.technicianId, c);
+    });
+    return map;
+  };
+  const teamCounts = useMemo(() => countsByTech(teamOrders), [teamOrders]);
+  const prevCounts = useMemo(() => countsByTech(prevTeamOrders), [prevTeamOrders]);
+  const rankOf = (metric: "cleanings" | "approved") => {
+    const mine = teamCounts.get(technicianId)?.[metric] ?? 0;
+    const values = Array.from(teamCounts.values()).map(c => c[metric]);
+    return { position: values.filter(v => v > mine).length + 1, total: values.length, mine };
+  };
+  const rankCleanings = rankOf("cleanings");
+  const rankApproved = rankOf("approved");
+  const prevMine = prevCounts.get(technicianId) || { cleanings: 0, approved: 0 };
 
   const approvedTotal = approved.reduce((sum, os) => sum + (os.samsungBudgetValue || 0), 0);
   const conversion = budgetVisits.length > 0 ? (approved.length / budgetVisits.length) * 100 : 0;
@@ -148,6 +186,64 @@ export default function ProducaoPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Metas, ranking e evolução */}
+          {(() => {
+            const monthEnd = endOfMonth(month);
+            const daysLeft = isCurrentMonth ? Math.max(0, differenceInCalendarDays(monthEnd, new Date())) : 0;
+            const rows = [
+              { key: "cleanings", label: "Limpezas", value: cleanings.length, goal: goals?.cleaningsPerMonth || 0, prev: prevMine.cleanings, rank: rankCleanings },
+              { key: "approved", label: "Orçamentos aprovados", value: approved.length, goal: goals?.approvedBudgetsPerMonth || 0, prev: prevMine.approved, rank: rankApproved },
+            ];
+            return (
+              <div className="space-y-2">
+                {rows.map(r => {
+                  const diff = r.value - r.prev;
+                  const pct = r.goal > 0 ? Math.min(100, (r.value / r.goal) * 100) : 0;
+                  const missing = Math.max(0, r.goal - r.value);
+                  return (
+                    <Card key={r.key}>
+                      <CardContent className="p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold">{r.label}</p>
+                          <div className="flex items-center gap-3 text-xs">
+                            {r.rank.total > 0 && (
+                              <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-semibold" title="Posição entre os técnicos da unidade neste mês">
+                                <Medal className="h-3.5 w-3.5" /> {r.rank.position}º de {r.rank.total}
+                              </span>
+                            )}
+                            <span
+                              className={cn(
+                                "flex items-center gap-1 font-semibold",
+                                diff > 0 ? "text-emerald-600 dark:text-emerald-400" : diff < 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"
+                              )}
+                              title={`Mês anterior fechou com ${r.prev}`}
+                            >
+                              {diff > 0 ? <TrendingUp className="h-3.5 w-3.5" /> : diff < 0 ? <TrendingDown className="h-3.5 w-3.5" /> : null}
+                              {diff > 0 ? `+${diff}` : diff} vs mês anterior ({r.prev})
+                            </span>
+                          </div>
+                        </div>
+                        {r.goal > 0 && (
+                          <div className="space-y-1">
+                            <Progress value={pct} className="h-2" />
+                            <p className="text-[11px] text-muted-foreground">
+                              {r.value} de {r.goal} da meta ({pct.toFixed(0)}%)
+                              {missing === 0
+                                ? " — meta batida! 🎉"
+                                : isCurrentMonth && daysLeft > 0
+                                  ? ` — faltam ${missing}, cerca de ${(missing / daysLeft).toFixed(1).replace(".", ",")} por dia nos ${daysLeft} dia(s) que restam`
+                                  : ` — faltaram ${missing}`}
+                            </p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            );
+          })()}
 
           <Tabs defaultValue="limpezas">
             <TabsList className="grid w-full grid-cols-2">

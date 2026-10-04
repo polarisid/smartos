@@ -16,7 +16,7 @@ import {
 
 export type Attended = { at: Date; finalized: boolean };
 
-const stopsKey = (list: RouteStop[]) => list.map(s => `${s.serviceOrder}:${s.city}:${s.neighborhood}:${s.zipCode}`).join(";");
+const stopsKey = (list: RouteStop[]) => list.map(s => `${s.serviceOrder}:${s.city}:${s.neighborhood}:${s.zipCode}:${s.avoidFerryToNext ? "F" : ""}`).join(";");
 const dayDiff = (a: Date, b: Date) =>
     Math.round((new Date(a.getFullYear(), a.getMonth(), a.getDate()).getTime() - new Date(b.getFullYear(), b.getMonth(), b.getDate()).getTime()) / 86400000);
 

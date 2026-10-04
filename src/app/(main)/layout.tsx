@@ -13,6 +13,8 @@ import { useToast } from "@/hooks/use-toast";
 import { NotificationsProvider } from "@/context/NotificationsContext";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
+import { PushPrompt } from "@/components/PushPrompt";
+import { QueryCachePersistence } from "@/components/QueryCachePersistence";
 
 function AppLoadingScreen({ message }: { message: string }) {
   return (
@@ -171,7 +173,9 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             <Suspense fallback={null}>
                 <PermissionErrorDisplay />
             </Suspense>
+            <QueryCachePersistence />
             <OfflineQueueBanner />
+            <PushPrompt />
             <div className="flex-1 w-full p-4 md:p-8">
                {children}
             </div>

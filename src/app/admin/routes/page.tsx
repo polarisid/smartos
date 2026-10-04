@@ -344,7 +344,7 @@ function RouteForm({
     // "calculando...") toda vez que o usuário só muda turno/data de uma parada.
     const activeStops = useMemo(() => parsedStops.filter(s => !s.isReallocated), [parsedStops]);
     const stopsGeoKey = useMemo(
-        () => activeStops.map(s => [s.serviceOrder, s.city, s.neighborhood, s.zipCode, s.addressDetails].join('|')).join(';'),
+        () => activeStops.map(s => [s.serviceOrder, s.city, s.neighborhood, s.zipCode, s.addressDetails, s.avoidFerryToNext ? 'F' : ''].join('|')).join(';'),
         [activeStops]
     );
 
@@ -532,6 +532,8 @@ function RouteForm({
                 // Preserva confirmações manuais (não vêm da planilha).
                 estimatedMinutes: existingStop?.estimatedMinutes,
                 etaStart: existingStop?.etaStart,
+                // Escolha "evitar balsa" feita no mapa: colar a planilha de novo não pode zerar.
+                avoidFerryToNext: existingStop?.avoidFerryToNext,
                 confirmedByCall: existingStop?.confirmedByCall,
                 confirmedByMessage: existingStop?.confirmedByMessage,
                 messageStatus: existingStop?.messageStatus,
@@ -585,10 +587,10 @@ function RouteForm({
     };
 
     // Preferência de evitar balsa (ligada pelo mapa da pré-visualização) - grava
-    // direto na parada de onde o trecho sai, então já vai salva junto com a rota
-    // (o array de stops é salvo como veio, sem mapeamento campo a campo no banco).
+    // direto na parada de onde o trecho sai. Em rota já existente grava na hora (como as
+    // confirmações); em rota nova vai junto ao salvar. Os tempos do Planejamento também a respeitam.
     const handleFerryPreferenceChange = (serviceOrder: string, avoid: boolean) => {
-        setParsedStops(prev => prev.map(s => s.serviceOrder === serviceOrder ? { ...s, avoidFerryToNext: avoid } : s));
+        applyStopChange(stops => stops.map(s => s.serviceOrder === serviceOrder ? { ...s, avoidFerryToNext: avoid } : s));
     };
 
     // Inverte o sentido da rota (última vira primeira).
