@@ -159,6 +159,7 @@ export const routeService = {
       driverPhone: row.driver_phone,
       startPoint: row.start_point || null,
       endPoint: row.end_point || null,
+      departureTime: row.departure_time || undefined,
       createdAt: new Date(row.created_at)
     };
   },
@@ -183,6 +184,8 @@ export const routeService = {
     // null limpa o ponto (volta pra base da unidade); undefined não mexe.
     if (obj.startPoint !== undefined) row.start_point = obj.startPoint;
     if (obj.endPoint !== undefined) row.end_point = obj.endPoint;
+    // Hora de saída do 1º dia ("HH:mm"); null/"" volta ao início do expediente.
+    if (obj.departureTime !== undefined) row.departure_time = obj.departureTime || null;
     return row;
   }
 };

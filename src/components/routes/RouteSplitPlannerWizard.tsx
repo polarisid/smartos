@@ -22,7 +22,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { routeService } from "@/services/supabase/routeService";
 import { configService } from "@/services/supabase/configService";
-import type { Route, RouteStop } from "@/lib/data";
+import type { Route, RoutePoint, RouteStop } from "@/lib/data";
+import { RouteEndpointsFields } from "./RouteEndpointsFields";
 import { parseRouteText } from "@/lib/parseRouteText";
 import { tagStopsWithZipMismatch } from "@/lib/geocode";
 import { optimizeRouteStopsAsync } from "@/lib/routeOptimizer";
@@ -56,6 +57,9 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
   const [considerBase, setConsiderBase] = useState(true);
   const [baseAddress, setBaseAddress] = useState("Aracaju");
   const [baseCoords, setBaseCoords] = useState<[number, number] | null>(null);
+  // Saída/chegada próprias (opcionais) aplicadas a todas as rotas criadas aqui.
+  const [startPoint, setStartPoint] = useState<RoutePoint | null>(null);
+  const [endPoint, setEndPoint] = useState<RoutePoint | null>(null);
 
   const [groups, setGroups] = useState<RouteStop[][]>([]);
   const [labels, setLabels] = useState<string[]>([]);
@@ -318,7 +322,7 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
     if (groupStops.length <= 1) return;
     setOptimizingIndex(groupIndex);
     try {
-      const result = await optimizeRouteStopsAsync(groupStops, baseAddress, activeUnidadeId);
+      const result = await optimizeRouteStopsAsync(groupStops, baseAddress, activeUnidadeId, { start: startPoint, end: endPoint });
       setGroups(prev => prev.map((g, i) => (i === groupIndex ? result.stops : g)));
       toast({ title: `${labels[groupIndex]} otimizada`, description: result.summary });
     } catch (e) {
@@ -349,6 +353,8 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
         isActive: false,
         isDraft: true,
         createdAt: new Date(),
+        startPoint,
+        endPoint,
       } as Omit<Route, "id">, activeUnidadeId);
       setCreatedRouteIds(prev => ({ ...prev, [groupIndex]: newId }));
       await queryClient.invalidateQueries({ queryKey: ["routes", "draft"] });
@@ -442,6 +448,7 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
                     </p>
                   </div>
                 </div>
+                <RouteEndpointsFields start={startPoint} end={endPoint} onStartChange={setStartPoint} onEndChange={setEndPoint} />
                 <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground bg-muted/30">
                   A divisão é sugerida por proximidade geográfica das paradas. Na próxima tela dá pra arrastar paradas entre as rotas antes de criar os rascunhos.
                 </div>

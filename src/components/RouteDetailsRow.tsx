@@ -3,6 +3,7 @@
 import React from "react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { fillVisitTemplate } from "@/lib/routePlanning";
 import { TableRow, TableCell } from "@/components/ui/table";
 import { CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
@@ -46,11 +47,8 @@ export function RouteDetailsRow({
     const hasPreviousVisits = previousVisits.length > 0;
 
     const handleCopyVisitText = () => {
-        let textToCopy = visitTemplate
-            .replace(/{{consumerName}}/g, stop.consumerName.split(' ')[0])
-            .replace(/{{serviceOrder}}/g, stop.serviceOrder)
-            .replace(/{{city}}/g, stop.city);
-        
+        const textToCopy = fillVisitTemplate(visitTemplate, stop);
+
         navigator.clipboard.writeText(textToCopy);
         toast({ title: "Texto copiado!", description: "O anúncio de visita foi copiado." });
     };

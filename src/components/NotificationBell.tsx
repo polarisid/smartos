@@ -1,6 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { pushService, type PushSupport } from "@/services/supabase/pushService";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -22,6 +25,47 @@ export function NotificationBell({ className }: { className?: string }) {
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
   const [open, setOpen] = useState(false);
   const canAskPermission = typeof Notification !== "undefined" && Notification.permission === "default";
+  const { appUser } = useAuth();
+  const { toast } = useToast();
+  const [pushState, setPushState] = useState<"loading" | "on" | PushSupport>("loading");
+  const [pushBusy, setPushBusy] = useState(false);
+
+  const refreshPushState = async () => {
+    const support = pushService.support();
+    if (support !== "ready") { setPushState(support); return; }
+    try {
+      setPushState((await pushService.getCurrent()) ? "on" : "ready");
+    } catch {
+      setPushState("ready");
+    }
+  };
+  useEffect(() => { if (open) refreshPushState(); }, [open]);
+
+  const handleEnablePush = async () => {
+    if (!appUser?.uid) return;
+    setPushBusy(true);
+    try {
+      await pushService.subscribe(appUser.uid);
+      toast({ title: "Avisos no aparelho ativados", description: "Você receberá as mudanças nas suas rotas mesmo com o app fechado." });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Não foi possível ativar", description: e?.message || "Tente novamente." });
+    } finally {
+      setPushBusy(false);
+      refreshPushState();
+    }
+  };
+
+  const handleDisablePush = async () => {
+    setPushBusy(true);
+    try {
+      await pushService.unsubscribe();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Não foi possível desativar", description: e?.message });
+    } finally {
+      setPushBusy(false);
+      refreshPushState();
+    }
+  };
 
   const handleOpenItem = (id: string, read: boolean) => {
     if (!read) markAsRead([id]);
@@ -90,8 +134,24 @@ export function NotificationBell({ className }: { className?: string }) {
           )}
         </div>
 
-        {canAskPermission && (
-          <div className="border-t p-2">
+        <div className="border-t p-2 space-y-1.5">
+          {pushState === "on" && (
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                <BellRing className="h-3.5 w-3.5" /> Avisos no aparelho ativados
+              </span>
+              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" disabled={pushBusy} onClick={handleDisablePush}>Desativar</Button>
+            </div>
+          )}
+          {pushState === "ready" && (
+            <Button variant="outline" size="sm" className="w-full text-xs" disabled={pushBusy} onClick={handleEnablePush}>
+              <BellRing className="h-3.5 w-3.5 mr-1.5" /> {pushBusy ? "Ativando..." : "Receber avisos no aparelho (mesmo com o app fechado)"}
+            </Button>
+          )}
+          {pushState === "denied" && (
+            <p className="text-[11px] text-muted-foreground">Os avisos estão bloqueados neste navegador. Libere nas configurações do site para receber com o app fechado.</p>
+          )}
+          {pushState === "unconfigured" && canAskPermission && (
             <Button
               variant="outline"
               size="sm"
@@ -100,8 +160,8 @@ export function NotificationBell({ className }: { className?: string }) {
             >
               <BellRing className="h-3.5 w-3.5 mr-1.5" /> Ativar avisos do sistema (com o app em segundo plano)
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </PopoverContent>
     </Popover>
   );

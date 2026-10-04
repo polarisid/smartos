@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { fillVisitTemplate } from "@/lib/routePlanning";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -72,10 +73,7 @@ export function MobileRouteStopCard({
     const addressQuery = buildAddressQuery();
 
     const handleCopyVisitText = () => {
-        let textToCopy = visitTemplate
-            .replace(/{{consumerName}}/g, stop.consumerName.split(' ')[0])
-            .replace(/{{serviceOrder}}/g, stop.serviceOrder)
-            .replace(/{{city}}/g, stop.city);
+        const textToCopy = fillVisitTemplate(visitTemplate, stop);
         navigator.clipboard.writeText(textToCopy);
         toast({ title: "Texto copiado!", description: "O anúncio de visita foi copiado." });
     };

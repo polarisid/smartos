@@ -249,6 +249,9 @@ export type RouteStop = {
     // Tempo de atendimento (min) definido à mão para esta parada no modo
     // planejamento; sem ele vale o tempo configurado por tipo de produto.
     estimatedMinutes?: number;
+    // Início previsto do atendimento ("HH:mm"), gravado ao aplicar a previsão do
+    // modo planejamento; alimenta {{horario}} no anúncio de visita ao cliente.
+    etaStart?: string;
 }
 
 // Ponto de saída/chegada específico de UMA rota (opcional). Sem ele, a rota
@@ -282,6 +285,8 @@ export type Route = {
     startPoint?: RoutePoint | null;
     /** Ponto de chegada só desta rota. Ausente = base da unidade. */
     endPoint?: RoutePoint | null;
+    /** Hora ("HH:mm") em que o técnico sai no 1º dia, usada pelo modo Planejamento. Ausente = início do expediente. */
+    departureTime?: string | null;
 }
 
 export type ChecklistField = {

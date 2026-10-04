@@ -35,6 +35,43 @@ export type LegDistancesAndDurations = {
 export type RouteEndpoints = { start?: RoutePoint | null; end?: RoutePoint | null };
 
 /**
+ * Matriz de minutos de viagem entre todos os pontos: índice 0 = saída, 1..N = paradas
+ * (na ordem recebida), N+1 = chegada. Usada pra testar várias ordens sem refazer
+ * chamadas de rota a cada tentativa. Fallback Haversine se o OSRM estiver fora.
+ */
+export async function fetchDurationMatrixMin(
+  stops: RouteStop[],
+  baseAddress: string,
+  unidadeId?: string | null,
+  endpoints?: RouteEndpoints
+): Promise<number[][]> {
+  const [baseCoord, ...stopCoords] = await Promise.all([
+    geocodeBase(baseAddress, unidadeId),
+    ...stops.map(geocodeStop),
+  ]);
+  const base: PointCoord = baseCoord ? { lat: baseCoord[0], lng: baseCoord[1] } : DEFAULT_BASE;
+  const start: PointCoord = endpoints?.start ? { lat: endpoints.start.lat, lng: endpoints.start.lng } : base;
+  const end: PointCoord = endpoints?.end ? { lat: endpoints.end.lat, lng: endpoints.end.lng } : base;
+  const points: PointCoord[] = [start, ...stopCoords.map(c => (c ? { lat: c[0], lng: c[1] } : start)), end];
+
+  const matrix = await fetchOsrmDrivingMatrix(points);
+  const n = points.length;
+  const out: number[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row: number[] = [];
+    for (let j = 0; j < n; j++) {
+      if (i === j) { row.push(0); continue; }
+      const sec = matrix?.durationMatrix[i]?.[j];
+      row.push(typeof sec === "number" && sec >= 0
+        ? Math.round(sec / 60)
+        : Math.round((haversineDistanceKm(points[i], points[j]) / FALLBACK_KMH) * 60));
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+/**
  * Km e minutos reais de deslocamento por trecho, para o circuito
  * Saída → parada 1 → ... → parada N → Chegada (saída e chegada = base da
  * unidade, a não ser que a rota tenha pontos próprios). Usa a mesma matriz

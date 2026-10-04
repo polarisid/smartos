@@ -3,15 +3,17 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { AlertTriangle, CheckCircle2, Clock, Loader2, Moon, Package, Settings2, Sun, Truck } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, Loader2, Moon, Package, Settings2, Sun, Truck, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { PlanningParamsForm } from "@/components/routes/PlanningParamsForm";
 import { cn } from "@/lib/utils";
 import { geocodeAddressText } from "@/lib/geocode";
+import { suggestPlanOrder, type PlanMetrics } from "@/lib/routePlanOptimizer";
 import { formatLegTempo } from "@/lib/emailExport";
 import type { RoutePoint, RouteStop } from "@/lib/data";
 import {
@@ -39,9 +41,12 @@ type Props = {
     onSaveParams: (p: PlanningParams) => Promise<void>;
     onStopMinutesChange: (serviceOrder: string, minutes: number | undefined) => void;
     // Muda data da visita ("dd/mm/aaaa") e/ou turno ("M" | "T" | "C") de uma ou mais paradas.
-    onStopsScheduleChange: (updates: Array<{ serviceOrder: string; firstVisitDate?: string; turn?: string }>) => void;
+    onStopsScheduleChange: (updates: Array<{ serviceOrder: string; firstVisitDate?: string; turn?: string; etaStart?: string }>) => void;
     departureTime: string;              // hora de saída do 1º dia ("" = início do expediente)
     onDepartureTimeChange: (t: string) => void;
+    // Matriz de minutos entre saída, paradas e chegada (ver fetchDurationMatrixMin) e aplicação da ordem sugerida.
+    fetchMatrix: () => Promise<number[][]>;
+    onApplyOrder: (serviceOrders: string[]) => void;
 };
 
 const SOURCE_LABEL = { manual: "manual", product: "do produto", default: "padrão" } as const;
@@ -49,7 +54,7 @@ const SOURCE_LABEL = { manual: "manual", product: "do produto", default: "padrã
 export function RoutePlanningPanel({
     stops, legKm, legDurationMin, legsLoading, startDate, startPoint, endPoint,
     onStartPointChange, onEndPointChange, params, onSaveParams, onStopMinutesChange,
-    onStopsScheduleChange, departureTime, onDepartureTimeChange,
+    onStopsScheduleChange, departureTime, onDepartureTimeChange, fetchMatrix, onApplyOrder,
 }: Props) {
     const { toast } = useToast();
     const [startText, setStartText] = useState("");
@@ -65,14 +70,36 @@ export function RoutePlanningPanel({
     // Previsão de cada parada no formato que a rota guarda (data dd/mm/aaaa + turno M/T).
     const forecastOf = (si: number) => {
         const p = plan.stops[si];
-        return { firstVisitDate: format(p.date, "dd/MM/yyyy"), turn: p.turn === "Manhã" ? "M" : "T" };
+        return { firstVisitDate: format(p.date, "dd/MM/yyyy"), turn: p.turn === "Manhã" ? "M" : "T", etaStart: formatClock(p.startMin) };
     };
     const isAligned = (si: number) => {
         const f = forecastOf(si);
         const cur = parseVisitDate(stops[si].firstVisitDate);
-        return !!cur && sameDay(cur, plan.stops[si].date) && (stops[si].turn || "").trim().toUpperCase() === f.turn;
+        return !!cur && sameDay(cur, plan.stops[si].date) && (stops[si].turn || "").trim().toUpperCase() === f.turn && stops[si].etaStart === f.etaStart;
     };
     const misalignedCount = stops.reduce((n, _s, si) => (plan.stops[si] && !isAligned(si) ? n + 1 : n), 0);
+
+    const [suggesting, setSuggesting] = useState(false);
+    const [suggestion, setSuggestion] = useState<{ order: number[]; before: PlanMetrics; after: PlanMetrics } | null>(null);
+
+    // Qualquer mudança que altere a simulação invalida a sugestão mostrada.
+    const suggestionKey = `${stops.map(s => s.serviceOrder).join(",")}|${departureTime}|${startPoint?.lat}|${endPoint?.lat}|${JSON.stringify(params)}`;
+    useEffect(() => { setSuggestion(null); }, [suggestionKey]);
+
+    const handleSuggest = async () => {
+        setSuggesting(true);
+        try {
+            const matrix = await fetchMatrix();
+            // deixa o "calculando" aparecer antes do cálculo síncrono
+            await new Promise(r => setTimeout(r, 30));
+            setSuggestion(suggestPlanOrder(stops, matrix, params, startDate || new Date(), departureTime));
+        } catch (e) {
+            console.error("Falha ao sugerir ordem:", e);
+            toast({ variant: "destructive", title: "Não foi possível sugerir a ordem", description: "Tente de novo em instantes." });
+        } finally {
+            setSuggesting(false);
+        }
+    };
 
     const applyForecastToAll = () => {
         const updates = stops.flatMap((s, si) => (plan.stops[si] && !isAligned(si) ? [{ serviceOrder: s.serviceOrder, ...forecastOf(si) }] : []));
@@ -199,6 +226,63 @@ export function RoutePlanningPanel({
                 <Button type="button" size="sm" className="h-8 gap-1.5" onClick={applyForecastToAll} disabled={misalignedCount === 0 || legsLoading}>
                     <CheckCircle2 className="h-3.5 w-3.5" /> Aplicar previsão em todas
                 </Button>
+            </div>
+
+            {/* Sugestão de ordem */}
+            <div className="rounded-lg border px-3 py-2 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                        Testa várias ordens de atendimento e procura a que usa menos dias, respeita os turnos pedidos e gasta menos estrada.
+                    </p>
+                    <Button type="button" size="sm" variant="outline" className="h-8 gap-1.5" onClick={handleSuggest} disabled={suggesting || stops.length < 3}>
+                        {suggesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />} Sugerir melhor ordem
+                    </Button>
+                </div>
+                {suggestion && (() => {
+                    const { before, after } = suggestion;
+                    const better = after.score < before.score;
+                    const row = (label: string, a: string, b: string, good: boolean) => (
+                        <tr key={label}>
+                            <td className="pr-3 text-muted-foreground">{label}</td>
+                            <td className="pr-3 tabular-nums">{a}</td>
+                            <td className={cn("tabular-nums font-semibold", good && "text-emerald-600 dark:text-emerald-400")}>{b}</td>
+                        </tr>
+                    );
+                    return (
+                        <div className="rounded-md bg-muted/40 p-2.5 space-y-2">
+                            {better ? (
+                                <table className="text-xs">
+                                    <thead><tr className="text-[10px] uppercase tracking-wider text-muted-foreground"><th className="text-left pr-3 font-bold"></th><th className="text-left pr-3 font-bold">Atual</th><th className="text-left font-bold">Sugerida</th></tr></thead>
+                                    <tbody>
+                                        {row("Dias de rota", String(before.days), String(after.days), after.days < before.days)}
+                                        {row("OS fora do turno pedido", String(before.turnMismatches), String(after.turnMismatches), after.turnMismatches < before.turnMismatches)}
+                                        {row("Tempo de estrada", formatDuration(before.travelMin), formatDuration(after.travelMin), after.travelMin < before.travelMin)}
+                                        {row("Volta à base", formatClock(before.returnArriveMin), formatClock(after.returnArriveMin), after.returnLate === false && before.returnLate)}
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <p className="text-xs">A ordem atual já é a melhor que encontrei com esses parâmetros.</p>
+                            )}
+                            <div className="flex gap-2">
+                                {better && (
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        className="h-7 text-xs"
+                                        onClick={() => {
+                                            onApplyOrder(suggestion.order.map(i => stops[i].serviceOrder));
+                                            setSuggestion(null);
+                                            toast({ title: "Ordem aplicada", description: "A previsão foi recalculada com a nova ordem." });
+                                        }}
+                                    >
+                                        Aplicar esta ordem
+                                    </Button>
+                                )}
+                                <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSuggestion(null)}>Fechar</Button>
+                            </div>
+                        </div>
+                    );
+                })()}
             </div>
 
             {legsLoading && (
@@ -451,31 +535,9 @@ function PlanningConfigDialog({ open, onOpenChange, params, routeProducts, onSav
 }) {
     const { toast } = useToast();
     const [draft, setDraft] = useState<PlanningParams>(params);
-    const [extraProduct, setExtraProduct] = useState("");
     const [saving, setSaving] = useState(false);
 
     useEffect(() => { if (open) setDraft(params); }, [open, params]);
-
-    const products = useMemo(() => {
-        const set = new Set<string>([...routeProducts, ...Object.keys(draft.durationByProduct)]);
-        return Array.from(set).sort((a, b) => a.localeCompare(b));
-    }, [routeProducts, draft.durationByProduct]);
-
-    const setProductMinutes = (key: string, text: string) => {
-        const n = Math.round(Number(text.replace(/\D/g, "")));
-        setDraft(d => {
-            const next = { ...d.durationByProduct };
-            if (!text.trim() || !n) delete next[key]; else next[key] = Math.min(n, 600);
-            return { ...d, durationByProduct: next };
-        });
-    };
-
-    const addProduct = () => {
-        const key = normalizeProductKey(extraProduct);
-        if (!key) return;
-        setDraft(d => ({ ...d, durationByProduct: { ...d.durationByProduct, [key]: d.durationByProduct[key] ?? d.defaultMinutes } }));
-        setExtraProduct("");
-    };
 
     const handleSave = async () => {
         setSaving(true);
@@ -495,74 +557,11 @@ function PlanningConfigDialog({ open, onOpenChange, params, routeProducts, onSav
                 <DialogHeader>
                     <DialogTitle>Tempos de atendimento e expediente</DialogTitle>
                     <DialogDescription>
-                        Quanto tempo o técnico leva em cada tipo de produto (campo "Service Product Description" da planilha). Vale para todas as rotas da unidade; em cada OS você ainda pode digitar um tempo só dela.
+                        Quanto tempo o técnico leva em cada tipo de produto (campo "Service Product Description" da planilha). Vale para todas as rotas da unidade; em cada OS você ainda pode digitar um tempo só dela. Também fica em Configurações.
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                            <Label className="text-xs">Tempo padrão (min)</Label>
-                            <Input type="number" min={1} value={draft.defaultMinutes} onChange={e => setDraft(d => ({ ...d, defaultMinutes: Number(e.target.value) }))} />
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs">Almoço (min, 0 = sem)</Label>
-                            <Input type="number" min={0} value={draft.lunchMinutes} onChange={e => setDraft(d => ({ ...d, lunchMinutes: Number(e.target.value) }))} />
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs">Início do expediente</Label>
-                            <Input type="time" value={draft.dayStart} onChange={e => setDraft(d => ({ ...d, dayStart: e.target.value }))} />
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs">Fim do expediente</Label>
-                            <Input type="time" value={draft.dayEnd} onChange={e => setDraft(d => ({ ...d, dayEnd: e.target.value }))} />
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs" title="Se a próxima cidade for alcançada até esse horário, o técnico segue viagem e dorme lá">Pode dirigir até</Label>
-                            <Input type="time" value={draft.travelUntil} onChange={e => setDraft(d => ({ ...d, travelUntil: e.target.value }))} />
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs">Almoço a partir de</Label>
-                            <Input type="time" value={draft.lunchStart} onChange={e => setDraft(d => ({ ...d, lunchStart: e.target.value }))} />
-                        </div>
-                        <label className="flex items-center gap-2 text-sm pt-5 cursor-pointer">
-                            <input type="checkbox" checked={draft.workSaturday} onChange={e => setDraft(d => ({ ...d, workSaturday: e.target.checked }))} />
-                            Trabalha aos sábados
-                        </label>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label className="text-xs uppercase tracking-wider text-muted-foreground">Tempo por tipo de produto (min)</Label>
-                        <div className="rounded-lg border divide-y max-h-64 overflow-y-auto">
-                            {products.length === 0 && (
-                                <p className="text-xs text-muted-foreground p-3">Nenhum produto nesta rota ainda. Adicione abaixo.</p>
-                            )}
-                            {products.map(key => (
-                                <div key={key} className="flex items-center gap-3 px-3 py-1.5">
-                                    <span className="text-xs flex-1 min-w-0 truncate" title={key}>{key}</span>
-                                    <Input
-                                        inputMode="numeric"
-                                        className="h-7 w-20 text-xs text-center"
-                                        placeholder={String(draft.defaultMinutes)}
-                                        value={draft.durationByProduct[key] ? String(draft.durationByProduct[key]) : ""}
-                                        onChange={e => setProductMinutes(key, e.target.value)}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Input
-                                className="h-8 text-xs"
-                                placeholder="Adicionar produto (ex.: REFRIGERATOR)"
-                                value={extraProduct}
-                                onChange={e => setExtraProduct(e.target.value)}
-                                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addProduct(); } }}
-                            />
-                            <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" onClick={addProduct} disabled={!extraProduct.trim()}>Adicionar</Button>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground">Produto sem tempo definido usa o tempo padrão.</p>
-                    </div>
-                </div>
+                <PlanningParamsForm value={draft} onChange={setDraft} suggestedProducts={routeProducts} />
 
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>

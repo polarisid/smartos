@@ -1,6 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { PlanningParamsForm } from "@/components/routes/PlanningParamsForm";
+import { DEFAULT_PLANNING_PARAMS, normalizeProductKey, type PlanningParams } from "@/lib/routePlanning";
+import { useActiveRoutes } from "@/hooks/queries";
 import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { configService } from "@/services/supabase/configService";
 import { getCoordinates, parseFullAddress } from "@/lib/geocode";
 import type { TravelCostParams, PartCostParams, RepairCenterInfo } from "@/lib/data";
-import { Settings, MapPin, Save, Loader2, Sparkles, Building2, Globe, LocateFixed, Calculator, FileText, Phone } from "lucide-react";
+import { Settings, MapPin, Save, Loader2, Sparkles, Building2, Globe, LocateFixed, Calculator, FileText, Phone, Clock } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 const BaseLocationPicker = dynamic(() => import("@/components/BaseLocationPicker"), { ssr: false });
@@ -48,19 +51,30 @@ export default function SettingsPage() {
   const [savingPartCost, setSavingPartCost] = useState(false);
   const [repairCenter, setRepairCenter] = useState<RepairCenterInfo>({ name: "", address: "", phone: "" });
   const [savingRepairCenter, setSavingRepairCenter] = useState(false);
+  const [planningParams, setPlanningParams] = useState<PlanningParams>({ ...DEFAULT_PLANNING_PARAMS, durationByProduct: {} });
+  const [savingPlanning, setSavingPlanning] = useState(false);
+  // Produtos que aparecem nas rotas ativas, pra listar na tela sem digitar um por um.
+  const { data: activeRoutesForProducts = [] } = useActiveRoutes();
+  const productsSeen = useMemo(() => {
+    const set = new Set<string>();
+    activeRoutesForProducts.forEach(r => r.stops.forEach(s => { const k = normalizeProductKey(s.productType); if (k) set.add(k); }));
+    return Array.from(set);
+  }, [activeRoutesForProducts]);
 
   useEffect(() => {
     async function loadConfigs() {
       try {
         setLoading(true);
-        const [base, storedCoords, webhook, cost, partCost, repairCenterInfo] = await Promise.all([
+        const [base, storedCoords, webhook, cost, partCost, repairCenterInfo, planning] = await Promise.all([
           configService.getBaseAddress(unidadeParaConfig),
           configService.getBaseCoords(unidadeParaConfig),
           configService.getWebhookUrl(unidadeParaConfig),
           configService.getTravelCostParams(unidadeParaConfig),
           configService.getPartCostParams(unidadeParaConfig),
           configService.getRepairCenter(unidadeParaConfig),
+          configService.getPlanningParams(unidadeParaConfig),
         ]);
+        setPlanningParams(planning);
         setBaseAddress(base || "Aracaju");
         setWebhookUrl(webhook || "");
         setPartMarginText(numToStr(partCost.marginPct));
@@ -129,6 +143,23 @@ export default function SettingsPage() {
       return false;
     }
     return true;
+  };
+
+  const handleSavePlanning = async () => {
+    if (!requireUnidadeIfMaster()) return;
+    setSavingPlanning(true);
+    try {
+      await configService.setPlanningParams({
+        ...planningParams,
+        defaultMinutes: Math.max(1, Math.round(planningParams.defaultMinutes) || 45),
+        lunchMinutes: Math.max(0, Math.round(planningParams.lunchMinutes) || 0),
+      }, unidadeParaConfig);
+      toast({ title: "Tempos de atendimento salvos" });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erro ao salvar", description: err.message });
+    } finally {
+      setSavingPlanning(false);
+    }
   };
 
   const handleSaveBaseAddress = async () => {
@@ -442,6 +473,31 @@ export default function SettingsPage() {
             <Button onClick={handleSavePartCostParams} disabled={savingPartCost} variant="outline" className="gap-2">
               {savingPartCost ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Salvar Parâmetros de Peça
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Tempos de atendimento (modo Planejamento das rotas) */}
+        <Card className="border border-border/50 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Clock className="h-5 w-5 text-primary" />
+              Tempos de Atendimento (Planejamento)
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Minutos que o técnico leva em cada tipo de produto e o expediente usado na previsão de horários e dormidas do modo <span className="font-medium text-foreground">Planejamento</span> das rotas.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="max-w-xl">
+              <PlanningParamsForm value={planningParams} onChange={setPlanningParams} suggestedProducts={productsSeen} />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              A lista traz os produtos que aparecem nas rotas ativas ({productsSeen.length}); o campo vazio usa o tempo padrão.
+            </p>
+            <Button onClick={handleSavePlanning} disabled={savingPlanning} variant="outline" className="gap-2">
+              {savingPlanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Salvar Tempos de Atendimento
             </Button>
           </CardContent>
         </Card>

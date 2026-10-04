@@ -33,7 +33,7 @@ import { configService } from "@/services/supabase/configService";
 import { DEFAULT_PLANNING_PARAMS, type PlanningParams } from "@/lib/routePlanning";
 import { tagStopsWithZipMismatch } from "@/lib/geocode";
 import { optimizeRouteStopsAsync } from "@/lib/routeOptimizer";
-import { fetchLegDistancesAndDurations } from "@/lib/routeLegs";
+import { fetchLegDistancesAndDurations, fetchDurationMatrixMin } from "@/lib/routeLegs";
 import { formatLegTempo, copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -306,7 +306,7 @@ function RouteForm({
         try { localStorage.setItem("planningTabSeen", "1"); } catch { /* sem localStorage: o selo volta na próxima abertura */ }
     };
 
-    // Hora de saída do 1º dia no modo planejamento ("" = início do expediente). Só simulação, não é gravada na rota.
+    // Hora de saída do 1º dia no modo planejamento ("" = início do expediente). Grava junto com a rota ao salvar.
     const [planningDepartureTime, setPlanningDepartureTime] = useState("");
 
     // Tempos de atendimento por produto + expediente (modo planejamento).
@@ -474,6 +474,7 @@ function RouteForm({
                 setDriverId(initialData.driverId || "none");
                 setStartPoint(initialData.startPoint || null);
                 setEndPoint(initialData.endPoint || null);
+                setPlanningDepartureTime(initialData.departureTime || "");
                 const initialStops = initialData.stops.map(s => ({ ...s, stopType: s.stopType || 'padrao' }));
                 setParsedStops(initialStops);
                 tagStopsWithZipMismatch(initialStops).then(setParsedStops).catch(console.error);
@@ -490,6 +491,7 @@ function RouteForm({
                 setDriverId("none");
                 setStartPoint(null);
                 setEndPoint(null);
+                setPlanningDepartureTime("");
                 setParsedStops([]);
             }
             setExpandedStops(new Set());
@@ -519,6 +521,7 @@ function RouteForm({
                 turn: newStop.turn || existingStop?.turn || '',
                 // Preserva confirmações manuais (não vêm da planilha).
                 estimatedMinutes: existingStop?.estimatedMinutes,
+                etaStart: existingStop?.etaStart,
                 confirmedByCall: existingStop?.confirmedByCall,
                 confirmedByMessage: existingStop?.confirmedByMessage,
                 messageStatus: existingStop?.messageStatus,
@@ -958,6 +961,9 @@ function RouteForm({
                 // null limpa a saída/chegada própria (volta a valer a base).
                 startPoint: startPoint ?? null,
                 endPoint: endPoint ?? null,
+                // Só envia quando há hora (ou quando havia e foi limpa): rota sem hora de saída
+                // nunca depende da coluna departure_time (migração 19).
+                ...(planningDepartureTime || initialData?.departureTime ? { departureTime: planningDepartureTime || null } : {}),
             };
 
             if (mode === 'add' && newAsDraft) {
@@ -1044,6 +1050,17 @@ function RouteForm({
                 toast({ variant: "destructive", title: "Não salvou", description: "Falha ao salvar a confirmação. Clique novamente." });
             });
         }
+    };
+
+    // Ordem sugerida pelo modo planejamento: paradas ativas na nova ordem; realocadas ficam no fim.
+    const handleApplyPlanOrder = (order: string[]) => {
+        const bySo = new Map(parsedStops.map(s => [s.serviceOrder, s] as const));
+        const reordered = [
+            ...order.map(so => bySo.get(so)).filter((s): s is RouteStop => !!s),
+            ...parsedStops.filter(s => s.isReallocated),
+        ];
+        applyStopChange(() => reordered);
+        setRouteText(reconstructRouteText(reordered));
     };
 
     return (
@@ -1322,9 +1339,12 @@ function RouteForm({
                                         ...s,
                                         ...(u.firstVisitDate !== undefined ? { firstVisitDate: u.firstVisitDate } : {}),
                                         ...(u.turn !== undefined ? { turn: u.turn } : {}),
+                                        ...(u.etaStart !== undefined ? { etaStart: u.etaStart } : {}),
                                     };
                                 }))
                             }
+                            fetchMatrix={() => fetchDurationMatrixMin(activeStops, 'Aracaju', activeUnidadeId, routeEndpoints)}
+                            onApplyOrder={handleApplyPlanOrder}
                             departureTime={planningDepartureTime}
                             onDepartureTimeChange={setPlanningDepartureTime}
                             onStopMinutesChange={(so, minutes) =>

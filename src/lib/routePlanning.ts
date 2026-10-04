@@ -248,3 +248,38 @@ export function simulateRoutePlan(
         totalServiceMin: planned.reduce((a, p) => a + p.serviceMin, 0),
     };
 }
+
+// "15:59" → "entre 15h30 e 16h30" (janela de 1h começando na meia hora anterior).
+export function formatEtaWindow(etaStart?: string): string {
+    const m = /^(\d{1,2}):(\d{2})$/.exec((etaStart || "").trim());
+    if (!m) return "";
+    const total = Number(m[1]) * 60 + Number(m[2]);
+    const from = Math.floor(total / 30) * 30;
+    const fmt = (min: number) => {
+        const h = Math.floor(min / 60) % 24;
+        const mm = min % 60;
+        return mm === 0 ? `${h}h` : `${h}h${String(mm).padStart(2, "0")}`;
+    };
+    return `entre ${fmt(from)} e ${fmt(from + 60)}`;
+}
+
+function turnLabel(turn?: string): string {
+    const t = (turn || "").trim();
+    const u = t.toUpperCase();
+    if (u === "M" || u.startsWith("MANH")) return "manhã";
+    if (u === "T" || u.startsWith("TARD")) return "tarde";
+    if (u === "C" || u.startsWith("COMERC")) return "horário comercial";
+    return t.toLowerCase();
+}
+
+// Preenche o modelo do anúncio de visita. {{data}}, {{turno}} e {{horario}} vêm do
+// agendamento da parada (e da previsão do modo Planejamento, quando aplicada).
+export function fillVisitTemplate(template: string, stop: RouteStop): string {
+    return template
+        .replace(/{{consumerName}}/g, (stop.consumerName || "").split(" ")[0])
+        .replace(/{{serviceOrder}}/g, stop.serviceOrder)
+        .replace(/{{city}}/g, stop.city)
+        .replace(/{{data}}/g, (stop.firstVisitDate || "").trim())
+        .replace(/{{turno}}/g, turnLabel(stop.turn))
+        .replace(/{{horario}}/g, formatEtaWindow(stop.etaStart));
+}

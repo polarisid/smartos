@@ -3,6 +3,8 @@ const withPWA = require('next-pwa')({
   dest: 'public',
   register: true,
   skipWaiting: true,
+  // worker/index.js entra no service worker: recebe os avisos push (app fechado).
+  customWorkerDir: 'worker',
   disable: process.env.NODE_ENV === 'development',
 });
 

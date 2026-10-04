@@ -272,6 +272,9 @@ export default function PresetsPage() {
                             <code className="mx-1 font-mono bg-muted p-1 rounded-sm text-xs">{`{{consumerName}}`}</code>,
                             <code className="mx-1 font-mono bg-muted p-1 rounded-sm text-xs">{`{{serviceOrder}}`}</code> e
                             <code className="mx-1 font-mono bg-muted p-1 rounded-sm text-xs">{`{{city}}`}</code>.
+                            Do agendamento da OS: <code className="mx-1 font-mono bg-muted p-1 rounded-sm text-xs">{`{{data}}`}</code>,
+                            <code className="mx-1 font-mono bg-muted p-1 rounded-sm text-xs">{`{{turno}}`}</code> (manhã/tarde) e
+                            <code className="mx-1 font-mono bg-muted p-1 rounded-sm text-xs">{`{{horario}}`}</code> (ex.: "entre 14h e 15h" — vem da previsão do modo Planejamento, depois de aplicada).
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
