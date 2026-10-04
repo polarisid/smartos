@@ -55,6 +55,21 @@ export const serviceOrderService = {
     return data.map(this.mapFromDb);
   },
 
+  // OS de um técnico num período (tela "Minha Produção"). Filtra no banco em vez
+  // de baixar as últimas N OS da unidade e filtrar no aparelho.
+  async getByTechnicianInRange(technicianId: string, start: Date, end: Date): Promise<ServiceOrder[]> {
+    const { data, error } = await supabase
+        .from('service_orders')
+        .select('*')
+        .eq('technician_id', technicianId)
+        .gte('date', start.toISOString())
+        .lte('date', end.toISOString())
+        .order('date', { ascending: false });
+
+    if (error) throw error;
+    return data.map(this.mapFromDb);
+  },
+
   async getByDateRange(start: Date, end: Date): Promise<ServiceOrder[]> {
     const { data, error } = await supabase
         .from('service_orders')

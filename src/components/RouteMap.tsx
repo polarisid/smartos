@@ -52,6 +52,16 @@ const getStoreIcon = () => {
     });
 };
 
+// Marcador dos pontos de saída/chegada específicos de uma rota.
+const getRoutePointIcon = (kind: 'start' | 'end') => {
+    return L.divIcon({
+        className: 'custom-route-point-leaflet-icon',
+        html: `<div class="w-8 h-8 rounded-full border-2 border-white shadow-xl ${kind === 'start' ? 'bg-emerald-600 ring-emerald-500/30' : 'bg-rose-600 ring-rose-500/30'} flex items-center justify-center text-sm text-white font-bold ring-4">${kind === 'start' ? '🚩' : '🏁'}</div>`,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+    });
+};
+
 const getLegBadgeIcon = (legNumber: number, hasFerry: boolean = false) => {
     const borderColor = hasFerry ? 'border-cyan-400/90' : 'border-emerald-400/80';
     const dotColor = hasFerry ? 'bg-cyan-400' : 'bg-emerald-400';
@@ -184,11 +194,17 @@ async function fetchLegRoadPath(
 }
 
 function MapBounds({ stops, baseCoords }: { stops: MapStop[]; baseCoords?: [number, number] | null }) {
+    // Saída/chegada próprias das rotas também entram no enquadramento.
+    const routePoints = Array.from(new Map(stops.map(s => [s.route.id || s.route.name, s.route])).values())
+        .flatMap(r => [r.startPoint, r.endPoint])
+        .filter((p): p is NonNullable<typeof p> => !!p)
+        .map(p => [p.lat, p.lng] as [number, number]);
     const map = useMap();
     const lastSig = useRef<string>('');
     useEffect(() => {
         const allCoords = stops.map(s => s.coords);
         if (baseCoords) allCoords.push(baseCoords);
+        allCoords.push(...routePoints);
         if (allCoords.length === 0) return;
 
         // Só reenquadra quando o conjunto de coordenadas realmente muda —
@@ -204,7 +220,8 @@ function MapBounds({ stops, baseCoords }: { stops: MapStop[]; baseCoords?: [numb
         if (bounds.isValid()) {
             map.flyToBounds(bounds, { padding: [45, 45], maxZoom: 13, duration: 1.2 });
         }
-    }, [stops, baseCoords, map]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stops, baseCoords, map, JSON.stringify(routePoints)]);
     return null;
 }
 
@@ -338,8 +355,13 @@ export default function RouteMap({
 
             for (const [routeKey, stops] of groups) {
                 const points: PointWithStatus[] = [];
-                const baseOffset = baseCoords ? 1 : 0;
-                if (baseCoords) points.push({ label: 'Base (Loja)', coords: baseCoords, status: 'completed' });
+                // Saída/chegada próprias da rota (opcionais) - sem elas, base da unidade.
+                const routeStart = stops[0]?.route?.startPoint;
+                const routeEnd = stops[0]?.route?.endPoint;
+                const startCoords: [number, number] | null = routeStart ? [routeStart.lat, routeStart.lng] : baseCoords;
+                const endCoords: [number, number] | null = routeEnd ? [routeEnd.lat, routeEnd.lng] : baseCoords;
+                const baseOffset = startCoords ? 1 : 0;
+                if (startCoords) points.push({ label: routeStart ? 'Saída da rota' : 'Base (Loja)', coords: startCoords, status: 'completed' });
                 stops.forEach((s, idx) => {
                     points.push({
                         label: `#${idx + 1} (${s.stop.city} - ${s.stop.neighborhood})`,
@@ -349,7 +371,7 @@ export default function RouteMap({
                 });
                 // Retorno à base — concluído só se todas as paradas da rota foram concluídas.
                 const allDone = stops.length > 0 && stops.every(s => s.status === 'completed');
-                if (baseCoords) points.push({ label: 'Retorno Base', coords: baseCoords, status: allDone ? 'completed' : 'todo' });
+                if (endCoords) points.push({ label: routeEnd ? 'Chegada da rota' : 'Retorno Base', coords: endCoords, status: allDone ? 'completed' : 'todo' });
 
                 if (points.length < 2) continue;
 
@@ -474,6 +496,32 @@ export default function RouteMap({
                         </Popup>
                     </Marker>
                 )}
+
+                {/* Saída/chegada próprias de cada rota (quando definidas) */}
+                {Array.from(new Map(mapStops.map(s => [s.route.id || s.route.name, s.route])).values()).flatMap(route => [
+                    route.startPoint ? (
+                        <Marker key={`start-${route.id || route.name}`} position={[route.startPoint.lat, route.startPoint.lng]} icon={getRoutePointIcon('start')}>
+                            <Popup className="custom-popup">
+                                <div className="p-1">
+                                    <h4 className="font-bold text-emerald-900 text-sm mb-0.5">🚩 Saída da rota</h4>
+                                    <p className="text-xs text-slate-600 font-medium">{route.startPoint.address}</p>
+                                    <p className="text-[10px] text-slate-500 mt-1">{route.name}</p>
+                                </div>
+                            </Popup>
+                        </Marker>
+                    ) : null,
+                    route.endPoint ? (
+                        <Marker key={`end-${route.id || route.name}`} position={[route.endPoint.lat, route.endPoint.lng]} icon={getRoutePointIcon('end')}>
+                            <Popup className="custom-popup">
+                                <div className="p-1">
+                                    <h4 className="font-bold text-rose-900 text-sm mb-0.5">🏁 Chegada da rota</h4>
+                                    <p className="text-xs text-slate-600 font-medium">{route.endPoint.address}</p>
+                                    <p className="text-[10px] text-slate-500 mt-1">{route.name}</p>
+                                </div>
+                            </Popup>
+                        </Marker>
+                    ) : null,
+                ])}
 
                 {/* Road Polyline along actual highway network */}
                 {showPolyline && routeLegs.map((leg, idx) => {

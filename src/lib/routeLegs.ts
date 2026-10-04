@@ -1,4 +1,4 @@
-import type { RouteStop } from "./data";
+import type { RouteStop, RoutePoint } from "./data";
 import { getCoordinates, parseFullAddress } from "./geocode";
 import { fetchOsrmDrivingMatrix, haversineDistanceKm, type PointCoord } from "./routingEngine";
 import { configService } from "@/services/supabase/configService";
@@ -31,15 +31,20 @@ export type LegDistancesAndDurations = {
   durationMin: number[];
 };
 
+// Saída/chegada específicas da rota (opcionais): sem elas, base da unidade.
+export type RouteEndpoints = { start?: RoutePoint | null; end?: RoutePoint | null };
+
 /**
- * Km e minutos reais de deslocamento por trecho, para o circuito fechado
- * Base → parada 1 → ... → parada N → Base. Usa a mesma matriz OSRM
- * (distância + duração) já usada pela otimização, com fallback Haversine.
+ * Km e minutos reais de deslocamento por trecho, para o circuito
+ * Saída → parada 1 → ... → parada N → Chegada (saída e chegada = base da
+ * unidade, a não ser que a rota tenha pontos próprios). Usa a mesma matriz
+ * OSRM (distância + duração) já usada pela otimização, com fallback Haversine.
  */
 export async function fetchLegDistancesAndDurations(
   stops: RouteStop[],
   baseAddress: string,
-  unidadeId?: string | null
+  unidadeId?: string | null,
+  endpoints?: RouteEndpoints
 ): Promise<LegDistancesAndDurations> {
   const [baseCoord, ...stopCoords] = await Promise.all([
     geocodeBase(baseAddress, unidadeId),
@@ -47,10 +52,12 @@ export async function fetchLegDistancesAndDurations(
   ]);
 
   const base: PointCoord = baseCoord ? { lat: baseCoord[0], lng: baseCoord[1] } : DEFAULT_BASE;
+  const start: PointCoord = endpoints?.start ? { lat: endpoints.start.lat, lng: endpoints.start.lng } : base;
+  const end: PointCoord = endpoints?.end ? { lat: endpoints.end.lat, lng: endpoints.end.lng } : base;
   const points: PointCoord[] = [
-    base,
-    ...stopCoords.map(c => (c ? { lat: c[0], lng: c[1] } : base)),
-    base,
+    start,
+    ...stopCoords.map(c => (c ? { lat: c[0], lng: c[1] } : start)),
+    end,
   ];
 
   if (points.length < 2) return { km: [], durationMin: [] };

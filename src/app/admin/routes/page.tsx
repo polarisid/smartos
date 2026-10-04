@@ -26,8 +26,11 @@ import { driverService } from "@/services/supabase/driverService";
 import { useToast } from "@/hooks/use-toast";
 import { useTechnicians, useServiceOrders } from "@/hooks/queries";
 import { useAuth } from "@/context/AuthContext";
-import { useQueryClient } from "@tanstack/react-query";
-import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart, type Driver } from "@/lib/data";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart, type Driver, type RoutePoint } from "@/lib/data";
+import { RoutePlanningPanel } from "@/components/routes/RoutePlanningPanel";
+import { configService } from "@/services/supabase/configService";
+import { DEFAULT_PLANNING_PARAMS, type PlanningParams } from "@/lib/routePlanning";
 import { tagStopsWithZipMismatch } from "@/lib/geocode";
 import { optimizeRouteStopsAsync } from "@/lib/routeOptimizer";
 import { fetchLegDistancesAndDurations } from "@/lib/routeLegs";
@@ -50,7 +53,7 @@ import { RouteCreationWizard } from "@/components/routes/RouteCreationWizard";
 import { RouteSplitPlannerWizard } from "@/components/routes/RouteSplitPlannerWizard";
 import { Wand2 } from "lucide-react";
 import dynamic from "next/dynamic";
-import { Clock, Map as MapIcon, List, History } from "lucide-react";
+import { Clock, Map as MapIcon, List, History, HelpCircle } from "lucide-react";
 import { GripVertical } from "lucide-react";
 
 const DynamicalRouteMap = dynamic(() => import('@/components/RouteMap'), { ssr: false });
@@ -286,7 +289,43 @@ function RouteForm({
     const [technicianId, setTechnicianId] = useState<string | undefined>();
     const [driverId, setDriverId] = useState<string | undefined>("none");
     const [parsedStops, setParsedStops] = useState<RouteStop[]>([]);
-    const [previewViewTab, setPreviewViewTab] = useState<'list' | 'map' | 'split'>('list');
+    const [previewViewTab, setPreviewViewTab] = useState<'list' | 'map' | 'split' | 'plan'>('list');
+    // Saída/chegada próprias desta rota (opcionais; sem elas vale a base da unidade).
+    const [startPoint, setStartPoint] = useState<RoutePoint | null>(null);
+    const [endPoint, setEndPoint] = useState<RoutePoint | null>(null);
+    const routeEndpoints = useMemo(() => ({ start: startPoint, end: endPoint }), [startPoint, endPoint]);
+    const endpointsKey = `${startPoint?.lat},${startPoint?.lng}|${endPoint?.lat},${endPoint?.lng}`;
+
+    // Selo "Novo!" da aba Planejamento: some depois que a pessoa abre a aba pela 1ª vez (neste navegador).
+    const [planningSeen, setPlanningSeen] = useState(true);
+    useEffect(() => {
+        try { setPlanningSeen(localStorage.getItem("planningTabSeen") === "1"); } catch { setPlanningSeen(false); }
+    }, []);
+    const markPlanningSeen = () => {
+        setPlanningSeen(true);
+        try { localStorage.setItem("planningTabSeen", "1"); } catch { /* sem localStorage: o selo volta na próxima abertura */ }
+    };
+
+    // Hora de saída do 1º dia no modo planejamento ("" = início do expediente). Só simulação, não é gravada na rota.
+    const [planningDepartureTime, setPlanningDepartureTime] = useState("");
+
+    // Tempos de atendimento por produto + expediente (modo planejamento).
+    const queryClientForPlanning = useQueryClient();
+    const planningQueryKey = useMemo(() => ["planning-params", appUser?.uid, activeUnidadeId], [appUser?.uid, activeUnidadeId]);
+    const { data: planningParams = DEFAULT_PLANNING_PARAMS } = useQuery({
+        queryKey: planningQueryKey,
+        queryFn: () => configService.getPlanningParams(activeUnidadeId),
+        enabled: !!appUser?.uid,
+        staleTime: 5 * 60 * 1000,
+    });
+    const handleSavePlanningParams = async (p: PlanningParams) => {
+        if (isMaster && !activeUnidadeId) {
+            throw new Error("Escolha uma unidade no seletor no topo antes de salvar os tempos.");
+        }
+        await configService.setPlanningParams(p, activeUnidadeId);
+        queryClientForPlanning.setQueryData(planningQueryKey, p);
+        toast({ title: "Tempos salvos" });
+    };
     const [legKm, setLegKm] = useState<number[]>([]);
     const [legDurationMin, setLegDurationMin] = useState<number[]>([]);
     const [legsLoading, setLegsLoading] = useState(false);
@@ -313,7 +352,7 @@ function RouteForm({
         }
         let cancelled = false;
         setLegsLoading(true);
-        fetchLegDistancesAndDurations(activeStops, 'Aracaju', activeUnidadeId)
+        fetchLegDistancesAndDurations(activeStops, 'Aracaju', activeUnidadeId, routeEndpoints)
             .then(r => {
                 if (cancelled) return;
                 setLegKm(r.km);
@@ -323,7 +362,7 @@ function RouteForm({
             .finally(() => { if (!cancelled) setLegsLoading(false); });
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [stopsGeoKey, previewViewTab]);
+    }, [stopsGeoKey, previewViewTab, endpointsKey]);
 
     // Índice de cada parada dentro de legKm/legDurationMin, ignorando as
     // realocadas (que não fazem parte do trajeto calculado acima).
@@ -387,9 +426,11 @@ function RouteForm({
             stops: parsedStops,
             createdAt: initialData?.createdAt || new Date(),
             isActive: true,
+            startPoint,
+            endPoint,
         } as Route;
         return parsedStops.map(stop => ({ stop, route: previewRoute, status: 'todo' as const }));
-    }, [parsedStops, routeName, technicianId, technicians, initialData]);
+    }, [parsedStops, routeName, technicianId, technicians, initialData, startPoint, endPoint]);
 
     const [manualStopData, setManualStopData] = useState({
         serviceOrder: '',
@@ -424,12 +465,15 @@ function RouteForm({
         if (isActive) {
             if (mode === 'edit' && initialData) {
                 setRouteName(initialData.name);
-                setDepartureDate(initialData.departureDate ? new Date(initialData.departureDate) : undefined);
+                const initialDeparture = initialData.departureDate || (initialData.isDraft ? initialData.plannedDate : undefined);
+                setDepartureDate(initialDeparture ? new Date(initialDeparture) : undefined);
                 setArrivalDate(initialData.arrivalDate ? new Date(initialData.arrivalDate) : undefined);
                 setRouteType(initialData.routeType);
                 setLicensePlate(initialData.licensePlate || "");
                 setTechnicianId(initialData.technicianId || "");
                 setDriverId(initialData.driverId || "none");
+                setStartPoint(initialData.startPoint || null);
+                setEndPoint(initialData.endPoint || null);
                 const initialStops = initialData.stops.map(s => ({ ...s, stopType: s.stopType || 'padrao' }));
                 setParsedStops(initialStops);
                 tagStopsWithZipMismatch(initialStops).then(setParsedStops).catch(console.error);
@@ -444,6 +488,8 @@ function RouteForm({
                 setLicensePlate("");
                 setTechnicianId(undefined);
                 setDriverId("none");
+                setStartPoint(null);
+                setEndPoint(null);
                 setParsedStops([]);
             }
             setExpandedStops(new Set());
@@ -472,6 +518,7 @@ function RouteForm({
                 collectionType: existingStop?.collectionType ?? newStop.collectionType,
                 turn: newStop.turn || existingStop?.turn || '',
                 // Preserva confirmações manuais (não vêm da planilha).
+                estimatedMinutes: existingStop?.estimatedMinutes,
                 confirmedByCall: existingStop?.confirmedByCall,
                 confirmedByMessage: existingStop?.confirmedByMessage,
                 messageStatus: existingStop?.messageStatus,
@@ -512,7 +559,7 @@ function RouteForm({
         setIsOptimizing(true);
         try {
             // Origem = base (Aracaju), de onde o técnico sai.
-            const result = await optimizeRouteStopsAsync(parsedStops, 'Aracaju', activeUnidadeId);
+            const result = await optimizeRouteStopsAsync(parsedStops, 'Aracaju', activeUnidadeId, routeEndpoints);
             setParsedStops(result.stops);
             setRouteText(reconstructRouteText(result.stops));
             toast({ title: "Rota otimizada", description: result.summary });
@@ -824,12 +871,22 @@ function RouteForm({
         }
     };
 
-    const handleSave = async () => {
-        if (!routeName || parsedStops.length === 0 || !departureDate || !arrivalDate || !routeType || !technicianId) {
+    // Rascunho aberto neste formulário: "Salvar Rascunho" só exige nome e paradas
+    // (continua rascunho); "Publicar Rota" exige tudo e posta pros técnicos.
+    const isDraftEdit = mode === 'edit' && !!initialData?.isDraft;
+
+    // `newAsDraft`: na Postagem Rápida (mode 'add'), guarda como rascunho em vez de postar.
+    const handleSave = async (publish: boolean = false, newAsDraft: boolean = false) => {
+        const saveAsDraft = (isDraftEdit && !publish) || (mode === 'add' && newAsDraft);
+        const missingForDraft = !routeName || parsedStops.length === 0;
+        const missingForFull = missingForDraft || !departureDate || !arrivalDate || !routeType || !technicianId;
+        if (saveAsDraft ? missingForDraft : missingForFull) {
             toast({
                 variant: "destructive",
                 title: "Dados Incompletos",
-                description: "Todos os campos da rota (nome, técnico, datas, tipo e dados) são obrigatórios."
+                description: saveAsDraft
+                    ? "Para salvar o rascunho, informe pelo menos o nome da rota e as paradas."
+                    : "Todos os campos da rota (nome, técnico, datas, tipo e dados) são obrigatórios."
             });
             return;
         }
@@ -889,18 +946,30 @@ function RouteForm({
             const dataToSave = {
                 name: routeName,
                 stops: stopsToSave.map(sanitizeStop),
-                departureDate: departureDate.toISOString(),
-                arrivalDate: arrivalDate.toISOString(),
+                departureDate: departureDate?.toISOString(),
+                arrivalDate: arrivalDate?.toISOString(),
                 routeType: routeType,
                 licensePlate: licensePlate || '',
-                technicianId: technicianId,
+                technicianId: technicianId || undefined,
                 technicianName: technician?.name || '',
                 driverId: driverId || 'none',
                 driverName: driver?.name || '',
                 driverPhone: driver?.phone || '',
+                // null limpa a saída/chegada própria (volta a valer a base).
+                startPoint: startPoint ?? null,
+                endPoint: endPoint ?? null,
             };
 
-            if (mode === 'add') {
+            if (mode === 'add' && newAsDraft) {
+                await routeService.create({
+                    ...dataToSave,
+                    plannedDate: departureDate?.toISOString() ?? new Date().toISOString(),
+                    createdAt: new Date().toISOString(),
+                    isActive: false,
+                    isDraft: true,
+                } as unknown as Omit<Route, 'id'>, activeUnidadeId);
+                toast({ title: "Rascunho salvo", description: "Continue depois pela lista de rascunhos; os técnicos só veem a rota quando for publicada." });
+            } else if (mode === 'add') {
                 const newRouteData = {
                     ...dataToSave,
                     createdAt: new Date().toISOString(),
@@ -917,8 +986,8 @@ function RouteForm({
                     driverPhone: driver?.phone,
                     routeName: routeName,
                     licensePlate: licensePlate,
-                    departureDate: format(departureDate, 'dd/MM/yyyy'),
-                    arrivalDate: format(arrivalDate, 'dd/MM/yyyy'),
+                    departureDate: departureDate ? format(departureDate, 'dd/MM/yyyy') : undefined,
+                    arrivalDate: arrivalDate ? format(arrivalDate, 'dd/MM/yyyy') : undefined,
                     stops: stopsToSave.map(stop => ({
                         so_nro: stop.serviceOrder,
                         cidade: stop.city,
@@ -928,7 +997,30 @@ function RouteForm({
 
             } else if (initialData) {
                 await routeService.update(initialData.id, dataToSave as unknown as Partial<Route>);
-                toast({ title: "Rota atualizada com sucesso!" });
+                if (isDraftEdit && publish) {
+                    await routeService.publishRoute(initialData.id, departureDate);
+                    await triggerWebhook({
+                        event: 'new_route',
+                        technicianName: technician?.name,
+                        technicianPhone: technician?.phone,
+                        driverName: driver?.name,
+                        driverPhone: driver?.phone,
+                        routeName: routeName,
+                        licensePlate: licensePlate,
+                        departureDate: departureDate ? format(departureDate, 'dd/MM/yyyy') : undefined,
+                        arrivalDate: arrivalDate ? format(arrivalDate, 'dd/MM/yyyy') : undefined,
+                        stops: stopsToSave.map(stop => ({
+                            so_nro: stop.serviceOrder,
+                            cidade: stop.city,
+                            spd: stop.productType
+                        }))
+                    }, activeUnidadeId);
+                    toast({ title: "✅ Rota publicada!", description: `"${routeName}" está agora ativa para os técnicos.` });
+                } else if (isDraftEdit) {
+                    toast({ title: "Rascunho salvo", description: "A rota continua como rascunho, sem aparecer para os técnicos." });
+                } else {
+                    toast({ title: "Rota atualizada com sucesso!" });
+                }
             }
 
             onCancel();
@@ -958,9 +1050,11 @@ function RouteForm({
         <>
         <Card>
             <CardHeader>
-                <CardTitle>{mode === 'add' ? 'Adicionar Nova Rota' : 'Editar Rota'}</CardTitle>
+                <CardTitle>{mode === 'add' ? 'Adicionar Nova Rota' : isDraftEdit ? 'Editar Rascunho' : 'Editar Rota'}</CardTitle>
                 <CardDescription>
-                    Preencha o nome da rota, atribua a um técnico e cole os dados da sua planilha.
+                    {isDraftEdit
+                        ? 'Esta rota ainda é um rascunho: os técnicos só a veem depois de clicar em "Publicar Rota".'
+                        : 'Preencha o nome da rota, atribua a um técnico e cole os dados da sua planilha.'}
                 </CardDescription>
             </CardHeader>
 
@@ -1166,13 +1260,81 @@ function RouteForm({
                                 >
                                     <Columns2 className="h-3.5 w-3.5" /> Lista + Mapa
                                 </button>
+                                <button
+                                    type="button"
+                                    onClick={() => { setPreviewViewTab('plan'); markPlanningSeen(); }}
+                                    className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors", previewViewTab === 'plan' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
+                                    title="Previsão de horários, deslocamento e onde o técnico dorme"
+                                >
+                                    <Clock className="h-3.5 w-3.5" /> Planejamento
+                                    {!planningSeen && (
+                                        <span className="rounded-full bg-emerald-500 text-white text-[9px] font-bold uppercase px-1.5 py-px leading-none">Novo!</span>
+                                    )}
+                                </button>
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <button
+                                            type="button"
+                                            className="flex items-center justify-center h-6 w-6 rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                                            aria-label="Como funciona o Planejamento"
+                                            title="Como funciona o Planejamento"
+                                        >
+                                            <HelpCircle className="h-4 w-4" />
+                                        </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent align="end" className="w-[min(92vw,380px)] text-sm space-y-2.5">
+                                        <p className="font-semibold flex items-center gap-1.5"><Clock className="h-4 w-4" /> Modo Planejamento</p>
+                                        <p className="text-xs text-muted-foreground">Simula a rota dia a dia: horário previsto de cada OS, deslocamento e onde o técnico dorme.</p>
+                                        <ol className="text-xs space-y-1.5 list-decimal pl-4">
+                                            <li><strong>Saída e chegada:</strong> por padrão saem e voltam da base. Digite um CEP/endereço para mudar de onde a rota começa ou termina.</li>
+                                            <li><strong>Hora de saída:</strong> informe a hora em que o técnico sai da base no 1º dia. Vazio = início do expediente.</li>
+                                            <li><strong>Tempos de atendimento:</strong> em "Tempos de atendimento" defina os minutos por tipo de produto (Service Product Description), o expediente, o almoço e até que horas ele pode dirigir.</li>
+                                            <li><strong>Tempo de uma OS:</strong> digite os minutos no campo da própria OS para ignorar o tempo do produto só nela.</li>
+                                            <li><strong>Previsão:</strong> cada OS mostra início–fim e turno estimado (Manhã/Tarde). Quando não cabe no dia, a rota segue para o dia seguinte e aparece "Dorme em CIDADE".</li>
+                                            <li><strong>Agendamento:</strong> use "Usar previsão" na OS, ou "Aplicar previsão em todas", para gravar a data e o turno previstos.</li>
+                                        </ol>
+                                        <p className="text-[11px] text-muted-foreground">A ordem das paradas vem da aba Lista (arraste ou use Otimizar). Os horários são estimativas.</p>
+                                    </PopoverContent>
+                                </Popover>
                             </div>
                             <span className="text-xs text-muted-foreground">{parsedStops.length} parada(s)</span>
                         </div>
                     </div>
 
+                    {previewViewTab === 'plan' && (
+                        <RoutePlanningPanel
+                            stops={activeStops}
+                            legKm={legKm}
+                            legDurationMin={legDurationMin}
+                            legsLoading={legsLoading}
+                            startDate={departureDate}
+                            startPoint={startPoint}
+                            endPoint={endPoint}
+                            onStartPointChange={setStartPoint}
+                            onEndPointChange={setEndPoint}
+                            params={planningParams}
+                            onSaveParams={handleSavePlanningParams}
+                            onStopsScheduleChange={(updates) =>
+                                applyStopChange(stops => stops.map(s => {
+                                    const u = updates.find(x => x.serviceOrder === s.serviceOrder);
+                                    if (!u) return s;
+                                    return {
+                                        ...s,
+                                        ...(u.firstVisitDate !== undefined ? { firstVisitDate: u.firstVisitDate } : {}),
+                                        ...(u.turn !== undefined ? { turn: u.turn } : {}),
+                                    };
+                                }))
+                            }
+                            departureTime={planningDepartureTime}
+                            onDepartureTimeChange={setPlanningDepartureTime}
+                            onStopMinutesChange={(so, minutes) =>
+                                applyStopChange(stops => stops.map(s => (s.serviceOrder === so ? { ...s, estimatedMinutes: minutes } : s)))
+                            }
+                        />
+                    )}
+
                     <div className={cn(previewViewTab === 'split' && "grid grid-cols-1 lg:grid-cols-2 gap-3 items-start")}>
-                    {previewViewTab !== 'map' && (
+                    {(previewViewTab === 'list' || previewViewTab === 'split') && (
                     <div className="border rounded-lg p-1.5 space-y-1.5">
                         {parsedStops.length > 0 ? parsedStops.map((stop, index) => {
                             const matchingOs = serviceOrders
@@ -1246,7 +1408,7 @@ function RouteForm({
                                         dragOverIndex === index && dragIndex !== index && "ring-2 ring-blue-400 ring-offset-1"
                                     )}
                                 >
-                                    <div className="px-2 py-2 flex items-center gap-2.5 flex-wrap lg:flex-nowrap">
+                                    <div className={cn("px-2 py-2 flex items-center gap-2.5 flex-wrap", previewViewTab !== 'split' && "lg:flex-nowrap")}>
                                         <div
                                             draggable
                                             onDragStart={() => setDragIndex(index)}
@@ -1295,7 +1457,7 @@ function RouteForm({
                                                         className="shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
                                                     >
                                                         <Badge variant="secondary" className="cursor-pointer bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 hover:bg-violet-200 dark:hover:bg-violet-900/50 text-[10px] px-1.5 py-0 flex items-center gap-0.5 whitespace-nowrap transition-colors">
-                                                            <History className="w-3 h-3" /> Visitada
+                                                            <History className="w-3 h-3" /> {previewViewTab !== 'split' && "Visitada"}
                                                         </Badge>
                                                     </button>
                                                 </PopoverTrigger>
@@ -1617,7 +1779,7 @@ function RouteForm({
                         )}
                     </div>
                     )}
-                    {previewViewTab !== 'list' && (
+                    {(previewViewTab === 'map' || previewViewTab === 'split') && (
                         <div className={cn("rounded-lg border overflow-hidden h-[500px]", previewViewTab === 'split' && "lg:sticky lg:top-4")}>
                             {parsedStops.length > 0 ? (
                                 <DynamicalRouteMap
@@ -1784,9 +1946,27 @@ function RouteForm({
 
             <CardFooter className="flex justify-end gap-2">
                 <Button variant="outline" onClick={onCancel}>Cancelar</Button>
-                <Button onClick={handleSave} disabled={isSubmitting}>
-                    <Save className="mr-2 h-4 w-4" /> {isSubmitting ? "Salvando..." : "Salvar Rota"}
-                </Button>
+                {isDraftEdit ? (
+                    <>
+                        <Button variant="outline" onClick={() => handleSave(false)} disabled={isSubmitting}>
+                            <Save className="mr-2 h-4 w-4" /> {isSubmitting ? "Salvando..." : "Salvar Rascunho"}
+                        </Button>
+                        <Button onClick={() => handleSave(true)} disabled={isSubmitting} className="bg-emerald-600 hover:bg-emerald-700">
+                            <Rocket className="mr-2 h-4 w-4" /> Publicar Rota
+                        </Button>
+                    </>
+                ) : (
+                    <>
+                        {mode === 'add' && (
+                            <Button variant="outline" onClick={() => handleSave(false, true)} disabled={isSubmitting}>
+                                <Save className="mr-2 h-4 w-4" /> Salvar como Rascunho
+                            </Button>
+                        )}
+                        <Button onClick={() => handleSave()} disabled={isSubmitting}>
+                            <Save className="mr-2 h-4 w-4" /> {isSubmitting ? "Salvando..." : mode === 'add' ? "Postar Rota" : "Salvar Rota"}
+                        </Button>
+                    </>
+                )}
             </CardFooter>
         </Card>
 
@@ -2472,7 +2652,7 @@ ${rowsXml}  </Table>
         if (route.isDraft) {
             return (
                 <div className="flex items-center gap-1.5 justify-end">
-                    <Button size="sm" className="gap-1.5" onClick={() => { setWizardInitialRoute(route); setIsWizardOpen(true); }}>
+                    <Button size="sm" className="gap-1.5" onClick={() => handleOpenForm('edit', route)}>
                         <Rocket className="h-3.5 w-3.5" /> Continuar Rascunho
                     </Button>
                     <Button

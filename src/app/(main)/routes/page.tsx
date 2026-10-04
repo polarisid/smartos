@@ -19,9 +19,12 @@ import { MobileRouteStopCard } from "@/components/MobileRouteStopCard";
 import { RouteDetailsRow } from "@/components/RouteDetailsRow";
 import { RoutePartTracking } from "@/components/RoutePartTracking";
 import { cn } from "@/lib/utils";
+import dynamic from "next/dynamic";
 
 import { Map as RouteIcon, Calendar, Sun, MapPin, Car, Eye, Filter, CheckCircle2, Clock, LayoutList, Pin, PinOff, History } from "lucide-react";
 import type { Route, RouteStop } from "@/lib/data";
+
+const RouteMap = dynamic(() => import("@/components/RouteMap"), { ssr: false });
 export default function RoutesPage() {
     const { data: activeRoutes = [], isError: errRoutes, isLoading: loadingRoutes } = useActiveRoutes();
     const { data: serviceOrders = [], isError: errSo, isLoading: loadingSo } = useServiceOrders(2000);
@@ -70,6 +73,15 @@ export default function RoutesPage() {
             return next;
         });
         toast({ title: "Ordem desbloqueada", description: `A OS ${serviceOrder} foi removida da lista de bloqueios.` });
+    };
+
+    // Cor da parada no mapa: sem OS lançada depois da criação da rota = a fazer;
+    // última OS finalizada = concluída; última com pendência = pendente.
+    const stopMapStatus = (stop: RouteStop, routeCreatedAt: Date): "completed" | "pending" | "todo" => {
+        const related = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && os.date.getTime() >= routeCreatedAt.getTime());
+        if (related.length === 0) return "todo";
+        const last = related.reduce((a, b) => (b.date.getTime() > a.date.getTime() ? b : a));
+        return last.isFinalized === false ? "pending" : "completed";
     };
 
     // "Concluída" nos contadores/progresso da rota = a parada já foi atendida
@@ -320,6 +332,38 @@ export default function RoutesPage() {
                                     </div>
                                 </DialogContent>
                             </Dialog>
+
+                            {filteredStops.length > 0 && (
+                                <Dialog>
+                                    <DialogTrigger asChild>
+                                        <Button variant="outline" className="w-full md:w-auto mt-2 md:ml-2">
+                                            <MapPin className="mr-2 h-4 w-4" />
+                                            Ver Mapa
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent className="max-w-6xl w-[95vw] md:w-full p-2 md:p-6 bg-muted md:bg-background">
+                                        <DialogHeader>
+                                            <DialogTitle>Mapa da Rota: {route.name}</DialogTitle>
+                                            <DialogDescription>
+                                                Paradas numeradas na ordem da rota. Toque num ponto para ver a OS.
+                                            </DialogDescription>
+                                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs pt-1">
+                                                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-emerald-500"></div><span>Concluída</span></div>
+                                                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-amber-500"></div><span>Pendência</span></div>
+                                                <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div><span>A fazer</span></div>
+                                            </div>
+                                        </DialogHeader>
+                                        <div className="h-[65vh] rounded-lg overflow-hidden">
+                                            <RouteMap
+                                                routes={[route]}
+                                                activeStops={filteredStops.map(stop => ({ stop, route, status: stopMapStatus(stop, routeCreated) }))}
+                                                showPolyline
+                                                height="100%"
+                                            />
+                                        </div>
+                                    </DialogContent>
+                                </Dialog>
+                            )}
 
                             {isOwnRoute && hasPartsToTrack && (
                                 <Dialog>

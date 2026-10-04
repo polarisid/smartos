@@ -1299,3 +1299,53 @@ function delayQueue(): Promise<void> {
         });
     });
 }
+
+/**
+ * Converte o que o operador digitou num ponto no mapa: CEP (00000-000) ou
+ * endereço em texto livre ("Av. Beira Mar, Recife, PE"). Usado nos pontos de
+ * saída/chegada específicos de uma rota. Devolve também um rótulo legível
+ * pra mostrar de volta e gravar na rota.
+ */
+export async function geocodeAddressText(raw: string): Promise<{ coords: [number, number]; label: string } | null> {
+    const text = (raw || '').trim();
+    if (!text) return null;
+
+    const cep = text.replace(/\D/g, '');
+    if (/^\d{5}-?\d{3}$/.test(text) && cep.length === 8) {
+        try {
+            const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+            const data = res.ok ? await res.json() : null;
+            if (data && !data.erro) {
+                const coords = await getCoordinates(data.localidade || '', data.bairro || '', data.uf || '', data.logradouro || '', cep);
+                if (coords) {
+                    const label = [data.logradouro, data.bairro, `${data.localidade} - ${data.uf}`].filter(Boolean).join(', ');
+                    return { coords, label };
+                }
+            }
+        } catch { /* cai pro texto livre */ }
+    }
+
+    const query = /brasil|brazil/i.test(text) ? text : `${text}, Brasil`;
+    try {
+        const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=1&lang=default`);
+        if (r.ok) {
+            const f = (await r.json())?.features?.[0];
+            if (f?.geometry?.coordinates?.length === 2) {
+                const [lng, lat] = f.geometry.coordinates;
+                const coords: [number, number] = [lat, lng];
+                if (isValidBrazilCoords(coords)) return { coords, label: text };
+            }
+        }
+    } catch { /* tenta o Nominatim */ }
+    try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&limit=1&q=${encodeURIComponent(query)}`);
+        if (r.ok) {
+            const d = await r.json();
+            if (d?.[0]) {
+                const coords: [number, number] = [parseFloat(d[0].lat), parseFloat(d[0].lon)];
+                if (isValidBrazilCoords(coords)) return { coords, label: text };
+            }
+        }
+    } catch { /* sem resultado */ }
+    return null;
+}

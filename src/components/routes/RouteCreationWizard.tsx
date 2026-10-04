@@ -29,9 +29,9 @@ import { useTechnicians, useDrivers, useServiceOrders } from "@/hooks/queries";
 import { routeService } from "@/services/supabase/routeService";
 import { configService } from "@/services/supabase/configService";
 import { triggerWebhook } from "@/lib/webhook";
-import { type Route, type RouteStop, type ServiceOrder } from "@/lib/data";
+import { type Route, type RouteStop, type RoutePoint, type ServiceOrder } from "@/lib/data";
 import { parseRouteText } from "@/lib/parseRouteText";
-import { tagStopsWithZipMismatch } from "@/lib/geocode";
+import { tagStopsWithZipMismatch, geocodeAddressText } from "@/lib/geocode";
 import { optimizeRouteStopsAsync } from "@/lib/routeOptimizer";
 import { buildGoogleSummary } from "@/services/googleRouteOptimizer";
 import { fetchLegDistancesAndDurations } from "@/lib/routeLegs";
@@ -99,6 +99,9 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
   const [fuelAvgKml, setFuelAvgKml] = useState(10);
   const [pasteText, setPasteText] = useState("");
   const [stops, setStops] = useState<RouteStop[]>([]);
+  // Saída/chegada específicas desta rota (opcionais) - null = base da unidade.
+  const [startPoint, setStartPoint] = useState<RoutePoint | null>(null);
+  const [endPoint, setEndPoint] = useState<RoutePoint | null>(null);
 
   // ── Passo 2: otimização ──
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -140,6 +143,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     setName(""); setRouteType("capital"); setPlannedDate(undefined);
     setTechnicianId(""); setDriverId(""); setLicensePlate("TEM8E13"); setFuelAvgKml(10);
     setPasteText(""); setStops([]);
+    setStartPoint(null); setEndPoint(null);
     setOptimizationSummary(""); setOrigKm([]); setPropKm([]);
     setLegKm([]); setLegDurationMin([]); setOrigDurationMin([]);
     setDepartureDate(undefined); setArrivalDate(undefined);
@@ -161,6 +165,8 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
       setLicensePlate(initialRoute.licensePlate || "TEM8E13");
       setFuelAvgKml(initialRoute.fuelAvgKml || 10);
       setStops(initialRoute.stops || []);
+      setStartPoint(initialRoute.startPoint ?? null);
+      setEndPoint(initialRoute.endPoint ?? null);
       rawOrderRef.current = (initialRoute.stops || []).map(s => s.serviceOrder);
       if (initialRoute.stops && initialRoute.stops.length > 0) {
         tagStopsWithZipMismatch(initialRoute.stops).then(setStops).catch(console.error);
@@ -213,7 +219,9 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     driverName: selectedDriver?.name,
     driverPhone: selectedDriver?.phone,
     fuelAvgKml,
-  }), [routeId, name, stops, plannedDate, departureDate, arrivalDate, routeType, licensePlate, selectedTechnician, selectedDriver, fuelAvgKml]);
+    startPoint,
+    endPoint,
+  }), [routeId, name, stops, plannedDate, departureDate, arrivalDate, routeType, licensePlate, selectedTechnician, selectedDriver, fuelAvgKml, startPoint, endPoint]);
 
   // ── Salvar rascunho a qualquer momento (sem avançar de passo) ──
   const handleSaveDraft = async () => {
@@ -241,6 +249,8 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
         driverPhone: selectedDriver?.phone,
         licensePlate: licensePlate.trim() || "TEM8E13",
         fuelAvgKml: fuelAvgKml || 10,
+        startPoint,
+        endPoint,
       };
       if (routeId) {
         await routeService.update(routeId, payload);
@@ -287,6 +297,8 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
         driverPhone: selectedDriver?.phone,
         licensePlate: licensePlate.trim() || "TEM8E13",
         fuelAvgKml: fuelAvgKml || 10,
+        startPoint,
+        endPoint,
       };
       if (routeId) {
         await routeService.update(routeId, payload);
@@ -318,7 +330,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     if (order.length === 0) return;
     setIsLoadingLegs(true);
     try {
-      const r = await fetchLegDistancesAndDurations(order, baseAddress, activeUnidadeId);
+      const r = await fetchLegDistancesAndDurations(order, baseAddress, activeUnidadeId, { start: startPoint, end: endPoint });
       setOrigKm(r.km);
       setPropKm(r.km);
       setLegKm(r.km);
@@ -328,7 +340,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     } finally {
       setIsLoadingLegs(false);
     }
-  }, [baseAddress, activeUnidadeId]);
+  }, [baseAddress, activeUnidadeId, startPoint, endPoint]);
 
   // ── Otimização por IA (opcional, sob demanda) ──
   const runOptimization = useCallback(async () => {
@@ -336,11 +348,11 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     setIsOptimizing(true);
     setOptimizationSummary("Calculando circuito rodoviário ideal via OSRM...");
     try {
-      const osrmResult = await optimizeRouteStopsAsync(stops, baseAddress, activeUnidadeId);
+      const osrmResult = await optimizeRouteStopsAsync(stops, baseAddress, activeUnidadeId, { start: startPoint, end: endPoint });
       const finalStops = osrmResult.stops;
       const [orig, prop] = await Promise.all([
-        fetchLegDistancesAndDurations(stops, baseAddress, activeUnidadeId),
-        fetchLegDistancesAndDurations(finalStops, baseAddress, activeUnidadeId),
+        fetchLegDistancesAndDurations(stops, baseAddress, activeUnidadeId, { start: startPoint, end: endPoint }),
+        fetchLegDistancesAndDurations(finalStops, baseAddress, activeUnidadeId, { start: startPoint, end: endPoint }),
       ]);
       const movedCount = finalStops.filter((s, i) => stops.findIndex(o => o.serviceOrder === s.serviceOrder) !== i).length;
       const origTotal = orig.km.reduce((a, b) => a + b, 0);
@@ -361,7 +373,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
       setIsOptimizing(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stops, baseAddress, activeUnidadeId]);
+  }, [stops, baseAddress, activeUnidadeId, startPoint, endPoint]);
 
   useEffect(() => {
     if (step === 2 && routeId && legsComputedForRouteId.current !== routeId) {
@@ -380,7 +392,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
       if (oldIndex === -1 || newIndex === -1) return prev;
       const next = arrayMove(prev, oldIndex, newIndex);
       setPropKm([]);
-      fetchLegDistancesAndDurations(next, baseAddress, activeUnidadeId).then(r => {
+      fetchLegDistancesAndDurations(next, baseAddress, activeUnidadeId, { start: startPoint, end: endPoint }).then(r => {
         setPropKm(r.km);
         setLegKm(r.km);
         setLegDurationMin(r.durationMin);
@@ -394,7 +406,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     setStops(prev => {
       const next = [...prev].reverse();
       setPropKm([]);
-      fetchLegDistancesAndDurations(next, baseAddress, activeUnidadeId).then(r => {
+      fetchLegDistancesAndDurations(next, baseAddress, activeUnidadeId, { start: startPoint, end: endPoint }).then(r => {
         setPropKm(r.km);
         setLegKm(r.km);
         setLegDurationMin(r.durationMin);
@@ -402,6 +414,42 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
       return next;
     });
   };
+
+  // ── Saída/chegada próprias desta rota (opcionais; vazio = base da unidade) ──
+  const [startText, setStartText] = useState("");
+  const [endText, setEndText] = useState("");
+  const [resolvingPoint, setResolvingPoint] = useState<"start" | "end" | null>(null);
+
+  const handleSetPoint = async (kind: "start" | "end") => {
+    const text = (kind === "start" ? startText : endText).trim();
+    if (!text) return;
+    setResolvingPoint(kind);
+    try {
+      const found = await geocodeAddressText(text);
+      if (!found) {
+        toast({ variant: "destructive", title: "Endereço não encontrado", description: "Tente o CEP, ou cidade, bairro e UF (ex.: Recife, Boa Viagem, PE)." });
+        return;
+      }
+      const point: RoutePoint = { address: found.label, lat: found.coords[0], lng: found.coords[1] };
+      if (kind === "start") { setStartPoint(point); setStartText(""); } else { setEndPoint(point); setEndText(""); }
+      setHasOptimized(false);
+    } finally {
+      setResolvingPoint(null);
+    }
+  };
+
+  const handleClearPoint = (kind: "start" | "end") => {
+    if (kind === "start") setStartPoint(null); else setEndPoint(null);
+    setHasOptimized(false);
+  };
+
+  // Mudou saída/chegada: refaz km/tempos do circuito com os novos pontos.
+  useEffect(() => {
+    if (step === 2 && routeId && stops.length > 0 && legsComputedForRouteId.current === routeId) {
+      computeLegs(stops);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startPoint, endPoint]);
 
   const totalOrigKm = origKm.reduce((a, b) => a + b, 0);
   const totalPropKm = propKm.reduce((a, b) => a + b, 0);
@@ -420,7 +468,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
     if (!routeId) return;
     setIsSaving(true);
     try {
-      await routeService.update(routeId, { stops });
+      await routeService.update(routeId, { stops, startPoint, endPoint });
       await queryClient.invalidateQueries({ queryKey: ["routes", "draft"] });
       setStep(3);
     } catch (e: any) {
@@ -434,7 +482,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
   useEffect(() => {
     if (step !== 3 || stops.length === 0) return;
     setLegsLoading(true);
-    fetchLegDistancesAndDurations(stops, baseAddress, activeUnidadeId)
+    fetchLegDistancesAndDurations(stops, baseAddress, activeUnidadeId, { start: startPoint, end: endPoint })
       .then(r => { setLegKm(r.km); setLegDurationMin(r.durationMin); })
       .finally(() => setLegsLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -832,6 +880,46 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
                           {totalPropMin > 0 && <p className="text-[11px] text-muted-foreground">≈ {fmtMin(totalPropMin)} de percurso</p>}
                         </div>
                       ) : null}
+                    </div>
+
+                    <div className="rounded-lg border p-3 space-y-2">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Saída e chegada desta rota (opcional)</p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {([
+                          { kind: "start" as const, label: "Saída", point: startPoint, text: startText, setText: setStartText, icon: "🚩" },
+                          { kind: "end" as const, label: "Chegada", point: endPoint, text: endText, setText: setEndText, icon: "🏁" },
+                        ]).map(({ kind, label, point, text, setText, icon }) => (
+                          <div key={kind} className="space-y-1">
+                            <Label className="text-xs">{icon} {label}</Label>
+                            {point ? (
+                              <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-2.5 py-1.5">
+                                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                                <span className="text-xs flex-1 min-w-0 truncate" title={point.address}>{point.address}</span>
+                                <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => handleClearPoint(kind)} disabled={isOptimizing}>
+                                  Usar base
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={text}
+                                  onChange={e => setText(e.target.value)}
+                                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleSetPoint(kind); } }}
+                                  placeholder={`Padrão: base da unidade — CEP ou endereço`}
+                                  className="h-8 text-xs"
+                                  disabled={resolvingPoint !== null}
+                                />
+                                <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" onClick={() => handleSetPoint(kind)} disabled={!text.trim() || resolvingPoint !== null}>
+                                  {resolvingPoint === kind ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Definir"}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Quem não for preenchido usa a base da unidade. Depois de definir, use "Otimizar com IA" pra refazer a ordem a partir desses pontos.
+                      </p>
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between gap-2">

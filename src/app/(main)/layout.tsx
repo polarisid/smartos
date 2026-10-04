@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { Suspense } from "react";
 import { PermissionErrorDisplay } from "@/components/PermissionErrorDisplay";
 import { useAuth } from "@/context/AuthContext";
-import { Loader2, CloudUpload } from "lucide-react";
+import { Loader2, CloudUpload, AlertCircle } from "lucide-react";
 import { Logo } from "@/components/Logo";
-import { subscribe, flushQueue, type PendingReport } from "@/lib/offlineReportQueue";
+import { subscribe, subscribeSync, flushQueue, type PendingReport, type SyncState } from "@/lib/offlineReportQueue";
+import { useToast } from "@/hooks/use-toast";
+import { NotificationsProvider } from "@/context/NotificationsContext";
+import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 
 function AppLoadingScreen({ message }: { message: string }) {
@@ -35,48 +38,112 @@ function AppLoadingScreen({ message }: { message: string }) {
   );
 }
 
-// Indicador de relatórios salvos no aparelho aguardando internet pra sincronizar
-// - fica visível em qualquer tela do técnico, já que esse layout é compartilhado.
+// Aviso de relatórios guardados no aparelho aguardando envio - fica visível em
+// qualquer tela do técnico, já que esse layout é compartilhado. Mostra o que
+// está acontecendo de verdade: enviando (com foto x de y e %), erro da última
+// tentativa, ou aguardando conexão - e responde ao "Tentar agora".
 function OfflineQueueBanner() {
+  const { toast } = useToast();
   const [pending, setPending] = useState<PendingReport[]>([]);
-  const [isRetrying, setIsRetrying] = useState(false);
+  const [sync, setSync] = useState<SyncState>({ isFlushing: false });
+  const [online, setOnline] = useState(true);
+  const lastToastAt = useRef(0);
 
   useEffect(() => {
     const unsubscribe = subscribe(setPending);
+    const unsubscribeSync = subscribeSync(setSync);
+    const updateOnline = () => setOnline(navigator.onLine);
+    updateOnline();
 
     flushQueue();
     window.addEventListener('online', flushQueue);
+    window.addEventListener('online', updateOnline);
+    window.addEventListener('offline', updateOnline);
     const interval = setInterval(flushQueue, 60000);
 
     return () => {
       unsubscribe();
+      unsubscribeSync();
       window.removeEventListener('online', flushQueue);
+      window.removeEventListener('online', updateOnline);
+      window.removeEventListener('offline', updateOnline);
       clearInterval(interval);
     };
   }, []);
 
-  if (pending.length === 0) return null;
+  // Aviso de sucesso quando um envio em segundo plano (ou o "Tentar agora")
+  // conclui - o aviso do topo some junto com a fila, então sem isso o técnico
+  // não saberia que deu certo.
+  useEffect(() => {
+    const result = sync.lastResult;
+    if (!result || result.at === lastToastAt.current) return;
+    lastToastAt.current = result.at;
+    if (result.sent > 0) {
+      toast({ title: result.sent > 1 ? `${result.sent} relatórios enviados!` : "Relatório enviado com sucesso!", description: result.failed > 0 ? "Ainda há relatórios pendentes." : undefined });
+    }
+  }, [sync.lastResult, toast]);
+
+  const [isRetrying, setIsRetrying] = useState(false);
 
   const handleRetry = async () => {
     setIsRetrying(true);
     try {
-      await flushQueue();
+      const result = await flushQueue();
+      if (result.status === "skipped-running") {
+        toast({ title: "Já está enviando", description: "Acompanhe o andamento aqui no topo." });
+      } else if (result.status === "skipped-offline") {
+        toast({ variant: "destructive", title: "Sem internet no momento", description: "Assim que a conexão voltar o envio é feito sozinho." });
+      } else if (result.status === "done" && result.failed > 0) {
+        toast({ variant: "destructive", title: "Não foi possível enviar", description: result.error });
+      }
+      // Sucesso: o toast sai pelo efeito acima (único ponto, evita duplicar).
     } finally {
       setIsRetrying(false);
     }
   };
 
+  if (pending.length === 0 && !sync.isFlushing) return null;
+
+  const failedItem = pending.find(p => p.lastError);
+  const prog = sync.progress;
+
+  let tone = "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400";
+  let icon = <CloudUpload className="h-4 w-4 shrink-0" />;
+  let message: React.ReactNode;
+
+  if (sync.isFlushing) {
+    tone = "bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-400";
+    icon = <Loader2 className="h-4 w-4 shrink-0 animate-spin" />;
+    const pos = sync.position && sync.position.total > 1 ? ` (${sync.position.index} de ${sync.position.total})` : "";
+    message = sync.step === "saving"
+      ? <>Enviando relatório{pos} — salvando...</>
+      : prog
+        ? <>Enviando relatório{pos} — foto {Math.min(prog.doneCount + 1, prog.totalCount)} de {prog.totalCount} · {Math.round(prog.fraction * 100)}%{prog.retrying > 0 ? " · sinal instável, tentando de novo" : ""}</>
+        : <>Enviando relatório{pos}...</>;
+  } else if (!online) {
+    message = <>{pending.length} relatório{pending.length > 1 ? "s" : ""} guardado{pending.length > 1 ? "s" : ""} no aparelho — sem internet no momento. Será enviado sozinho quando a conexão voltar.</>;
+  } else if (failedItem) {
+    tone = "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400";
+    icon = <AlertCircle className="h-4 w-4 shrink-0" />;
+    message = <>Não foi possível enviar {pending.length > 1 ? `os ${pending.length} relatórios` : "o relatório"} ({failedItem.lastError}). Nova tentativa automática em até 1 minuto, ou toque em "Tentar agora".</>;
+  } else {
+    message = <>{pending.length} relatório{pending.length > 1 ? "s" : ""} aguardando envio — será{pending.length > 1 ? "m" : ""} enviado{pending.length > 1 ? "s" : ""} em instantes.</>;
+  }
+
   return (
-    <div className="flex items-center justify-between gap-3 px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-700 dark:text-amber-400 text-sm">
-      <div className="flex items-center gap-2">
-        <CloudUpload className="h-4 w-4 shrink-0" />
-        <span>
-          {pending.length} relatório{pending.length > 1 ? "s" : ""} aguardando envio - será{pending.length > 1 ? "m" : ""} enviado{pending.length > 1 ? "s" : ""} sozinho{pending.length > 1 ? "s" : ""} quando a internet voltar.
-        </span>
+    <div className={`border-b ${tone} text-sm`}>
+      <div className="flex items-center justify-between gap-3 px-4 py-2">
+        <div className="flex items-center gap-2 min-w-0">
+          {icon}
+          <span>{message}</span>
+        </div>
+        {!sync.isFlushing && (
+          <Button variant="ghost" size="sm" className="h-7 shrink-0 hover:bg-black/5 dark:hover:bg-white/10" onClick={handleRetry} disabled={isRetrying}>
+            {isRetrying ? "Tentando..." : "Tentar agora"}
+          </Button>
+        )}
       </div>
-      <Button variant="ghost" size="sm" className="h-7 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20" onClick={handleRetry} disabled={isRetrying}>
-        {isRetrying ? "Tentando..." : "Tentar agora"}
-      </Button>
+      {sync.isFlushing && prog && <Progress value={prog.fraction * 100} className="h-1 rounded-none" />}
     </div>
   );
 }
@@ -97,6 +164,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   }
 
   return (
+    <NotificationsProvider>
       <div className="min-h-screen flex flex-col md:flex-row bg-background">
         <Sidebar />
         <main className="flex-1 flex flex-col w-full min-h-screen pt-[64px] md:pt-0 overflow-x-hidden relative">
@@ -112,5 +180,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             </footer>
         </main>
       </div>
+    </NotificationsProvider>
   );
 }

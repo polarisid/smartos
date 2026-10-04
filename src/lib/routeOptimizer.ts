@@ -1,4 +1,4 @@
-import { type RouteStop } from "@/lib/data";
+import { type RouteStop, type RoutePoint } from "@/lib/data";
 import { getCoordinates, parseFullAddress } from "@/lib/geocode";
 import { configService } from "@/services/supabase/configService";
 import {
@@ -2180,7 +2180,11 @@ async function resolveBaseCoordAsync(baseAddress: string, unidadeId?: string | n
 export async function optimizeRouteStopsAsync(
   stops: RouteStop[],
   originCity: string = "Aracaju",
-  unidadeId?: string | null
+  unidadeId?: string | null,
+  // Saída/chegada específicas desta rota (opcionais, independentes). O que não
+  // for informado usa a base da unidade: sem nenhum dos dois, sai e volta pela
+  // base; só com a saída, termina na base; só com a chegada, sai da base.
+  endpoints?: { start?: RoutePoint | null; end?: RoutePoint | null }
 ): Promise<{ stops: RouteStop[]; summary: string; totalDrivingMinutes: number }> {
   if (!stops || stops.length <= 1) {
     return { stops, summary: "Poucas paradas para otimização.", totalDrivingMinutes: 0 };
@@ -2192,26 +2196,48 @@ export async function optimizeRouteStopsAsync(
     ...stops.map(stop => resolveStopCoordAsync(stop, baseState || 'Sergipe'))
   ]);
 
-  const allPoints: PointCoord[] = [baseCoord, ...resolvedStopCoords];
-  const N = allPoints.length;
+  const startCoord: PointCoord = endpoints?.start ? { lat: endpoints.start.lat, lng: endpoints.start.lng } : baseCoord;
+  // null = circuito fechado normal (chegada = o próprio nó de saída). Só vira nó
+  // separado quando a chegada difere da saída: chegada própria, ou saída própria
+  // com chegada padrão (a base).
+  const endCoord: PointCoord | null = endpoints?.end
+    ? { lat: endpoints.end.lat, lng: endpoints.end.lng }
+    : endpoints?.start ? baseCoord : null;
+
+  // Nó 0 = saída; nós 1..n = paradas; (opcional) último nó = chegada distinta.
+  const allPoints: PointCoord[] = [startCoord, ...resolvedStopCoords, ...(endCoord ? [endCoord] : [])];
+  const P = allPoints.length;
+  const N = stops.length + 1; // nós do circuito (saída + paradas)
 
   // Try fetching exact OSRM Driving Matrix (by highway distances and travel times)
   const osrmData = await fetchOsrmDrivingMatrix(allPoints);
-  let matrix: number[][];
+  let fullMatrix: number[][];
 
   if (osrmData && osrmData.distanceMatrix && osrmData.distanceMatrix.some(row => row.some(d => d > 0))) {
-    matrix = osrmData.distanceMatrix; // meters
+    fullMatrix = osrmData.distanceMatrix; // meters
   } else if (osrmData && osrmData.durationMatrix) {
-    matrix = osrmData.durationMatrix; // seconds
+    fullMatrix = osrmData.durationMatrix; // seconds
   } else {
     // Fallback: Haversine distance in meters
-    matrix = Array.from({ length: N }, () => Array(N).fill(0));
-    for (let i = 0; i < N; i++) {
-      for (let j = 0; j < N; j++) {
+    fullMatrix = Array.from({ length: P }, () => Array(P).fill(0));
+    for (let i = 0; i < P; i++) {
+      for (let j = 0; j < P; j++) {
         if (i !== j) {
-          matrix[i][j] = haversineDistanceKm(allPoints[i], allPoints[j]) * 1000;
+          fullMatrix[i][j] = haversineDistanceKm(allPoints[i], allPoints[j]) * 1000;
         }
       }
+    }
+  }
+
+  // Os solucionadores trabalham num circuito fechado que volta ao nó 0. Com uma
+  // chegada diferente da saída, o "retorno ao nó 0" de cada parada passa a
+  // custar a distância até a CHEGADA - assim o mesmo circuito fechado passa a
+  // representar saída -> paradas -> chegada, sem mexer nos solucionadores.
+  let matrix: number[][] = fullMatrix;
+  if (endCoord) {
+    matrix = Array.from({ length: N }, (_, i) => fullMatrix[i].slice(0, N));
+    for (let i = 1; i < N; i++) {
+      matrix[i][0] = fullMatrix[i][N];
     }
   }
 
@@ -2257,7 +2283,10 @@ export async function optimizeRouteStopsAsync(
   const totalDrivingMinutes = Math.round(totalSeconds / 60);
 
   const reorderedStops = tourIndices.slice(1).map(idx => stops[idx - 1]);
-  const summary = `Circuito rodoviário otimizado (${algorithmUsed}): ${reorderedStops.length} paradas com tempo total estimado de ~${totalDrivingMinutes} min de deslocamento (retorno à base incluído).`;
+  const trajeto = endpoints?.end
+    ? `chegada em ${endpoints.end.address || "ponto de chegada da rota"} incluída`
+    : "retorno à base incluído";
+  const summary = `Circuito rodoviário otimizado (${algorithmUsed}): ${reorderedStops.length} paradas com tempo total estimado de ~${totalDrivingMinutes} min de deslocamento (${trajeto}).`;
 
   return {
     stops: reorderedStops,

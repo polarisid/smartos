@@ -11,12 +11,15 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useTechnicians, useActiveRoutes, useChecklists } from "@/hooks/queries";
+import { useTechnicians, useActiveRoutes, useChecklists, useCodes } from "@/hooks/queries";
+import { serviceOrderService } from "@/services/supabase/serviceOrderService";
+import { useAuth } from "@/context/AuthContext";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
 import type { ChecklistTemplate, TechnicalReport, TechnicalReportPhotoCategory, TechnicalReportType } from "@/lib/data";
 import { buildAndDownloadPdf } from "@/lib/technicalReportPdf";
 import { compressImageIfNeeded } from "@/lib/imageCompression";
-import { queueReport, type PendingReportPhoto } from "@/lib/offlineReportQueue";
+import { queueReport, flushQueue, type PendingReportPhoto } from "@/lib/offlineReportQueue";
+import { isNetworkLikeError } from "@/lib/reportUploader";
 import { Camera, Loader2, Plus, Trash2, Download, Search, ScanLine, ClipboardList, Wrench, ClipboardCheck } from "lucide-react";
 
 type LocalPhoto = {
@@ -62,6 +65,7 @@ function ReportsPageInner() {
   const { data: technicians = [] } = useTechnicians();
   const { data: activeRoutes = [] } = useActiveRoutes();
   const { data: checklistTemplates = [] } = useChecklists();
+  const { data: codes } = useCodes();
   const searchParams = useSearchParams();
 
   const [serviceOrderNumber, setServiceOrderNumber] = useState(() => searchParams.get("os") || "");
@@ -77,11 +81,65 @@ function ReportsPageInner() {
   const [savedReportId, setSavedReportId] = useState<string | null>(null);
   const [savedReportCreatedAt, setSavedReportCreatedAt] = useState<Date | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [preparingCount, setPreparingCount] = useState(0);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isReadingLabel, setIsReadingLabel] = useState(false);
   const [isLoadingExisting, setIsLoadingExisting] = useState(false);
   const [storedClientSignature, setStoredClientSignature] = useState<string | null>(null);
   const clientSignatureRef = useRef<InstanceType<typeof SignatureCanvas> | null>(null);
+
+  // O técnico logado já vem selecionado em "Técnico Responsável" (o id do técnico
+  // é o mesmo do login) - antes começava vazio e o relatório ficava sem técnico
+  // se ele esquecesse de escolher. Continua dando pra trocar (ex.: parceiro de rota).
+  const { appUser } = useAuth();
+  useEffect(() => {
+    if (technicianId || !appUser) return;
+    if (technicians.some(t => t.id === appUser.uid)) setTechnicianId(appUser.uid);
+  }, [technicianId, appUser, technicians]);
+
+  // Ao informar a OS, se o técnico já a lançou em "Lançar OS": preenche a
+  // Descrição do Reparo com o código de reparo lançado (com a descrição do código)
+  // e as Observações com as que ele escreveu. Só preenche campo vazio - nunca
+  // sobrescreve o que ele já digitou - e uma vez por número de OS.
+  const autofilledOs = useRef("");
+  // Valores atuais dos campos, lidos dentro do timer (que fecha sobre o render antigo).
+  const currentFields = useRef({ repairDescription: "", observations: "" });
+  currentFields.current = { repairDescription, observations };
+  useEffect(() => {
+    const os = serviceOrderNumber.trim();
+    if (os.length < 6 || autofilledOs.current === os) return;
+    const timer = setTimeout(async () => {
+      try {
+        const orders = await serviceOrderService.getByNumbers([os]);
+        if (orders.length === 0) return;
+        // OS pode ter várias visitas e ser de mais de um técnico: prefere a lançada
+        // por quem está logado; entre elas, a mais recente.
+        const mine = orders.filter(o => o.technicianId === appUser?.uid);
+        const latest = [...(mine.length > 0 ? mine : orders)].sort((a, b) => b.date.getTime() - a.date.getTime())[0];
+
+        let repairText = "";
+        if (latest.repairCode) {
+          const known = codes?.repairCodes?.[latest.equipmentType]?.find(c => c.code === latest.repairCode);
+          repairText = known?.description ? `${latest.repairCode} - ${known.description}` : latest.repairCode;
+        }
+        // Remove a etiqueta que o sistema anexa às observações da OS (pesquisa LP).
+        const obsText = (latest.observations || "").replace(/\n?\[Pesquisa LP realizada:[^\]]*\]/g, "").trim();
+
+        autofilledOs.current = os;
+        const fillRepair = !!repairText && !currentFields.current.repairDescription.trim();
+        const fillObs = !!obsText && !currentFields.current.observations.trim();
+        if (fillRepair) setRepairDescription(repairText);
+        if (fillObs) setObservations(obsText);
+        if (fillRepair || fillObs) {
+          toast({ title: "Preenchido com os dados da OS lançada", description: "Confira e ajuste se precisar." });
+        }
+      } catch (e) {
+        console.warn("Não foi possível buscar a OS lançada para preencher o relatório", e);
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceOrderNumber, codes]);
 
   // Ao digitar/colar a OS, puxa o modelo do produto e o nome do cliente da rota
   // ativa correspondente (mesma convenção usada no autofill do checklist em
@@ -101,6 +159,7 @@ function ReportsPageInner() {
   }, [serviceOrderNumber, activeRoutes]);
 
   const resetForm = () => {
+    autofilledOs.current = "";
     photos.forEach(p => { if (!p.url) URL.revokeObjectURL(p.previewUrl); });
     setServiceOrderNumber("");
     setReportType("reparo");
@@ -121,20 +180,22 @@ function ReportsPageInner() {
   // Fotos de celular às vezes passam de 10MB - comprime (mantendo a
   // resolução, só reduzindo a qualidade JPEG) antes de guardar no formulário,
   // pra não travar o upload em campo com internet ruim.
-  const compressPhotoWithFeedback = async (file: File): Promise<File> => {
-    const { file: compressed, wasCompressed } = await compressImageIfNeeded(file);
-    if (wasCompressed) {
-      const beforeMb = (file.size / (1024 * 1024)).toFixed(1);
-      const afterMb = (compressed.size / (1024 * 1024)).toFixed(1);
-      toast({ title: "Foto compactada automaticamente", description: `${beforeMb}MB → ${afterMb}MB` });
+  // Agora TODA foto é otimizada (≤2048px, ~1,5MB) ao ser escolhida - o que mais
+  // pesava no envio era subir fotos de 3-10MB cada. Fica sem aviso por foto (eram
+  // dezenas de toasts); o formulário só mostra "Otimizando fotos..." enquanto roda.
+  const compressPhoto = async (file: File): Promise<File> => {
+    setPreparingCount(c => c + 1);
+    try {
+      return (await compressImageIfNeeded(file)).file;
+    } finally {
+      setPreparingCount(c => c - 1);
     }
-    return compressed;
   };
 
   const handleSlotFile = async (category: TechnicalReportPhotoCategory, fileList: FileList | null) => {
     const rawFile = fileList?.[0];
     if (!rawFile) return;
-    const file = await compressPhotoWithFeedback(rawFile);
+    const file = await compressPhoto(rawFile);
     setPhotos(prev => {
       const existing = prev.find(p => p.category === category);
       if (existing && !existing.url) URL.revokeObjectURL(existing.previewUrl);
@@ -143,7 +204,9 @@ function ReportsPageInner() {
     });
 
     if (category === "produto_serial") {
-      processSerialPhoto(file);
+      // Código de barras lido da foto ORIGINAL (mais nítida pra decodificar);
+      // o OCR por IA recebe a versão otimizada (menor, sobe mais rápido).
+      processSerialPhoto(rawFile, file);
     }
   };
 
@@ -173,9 +236,9 @@ function ReportsPageInner() {
     }
   };
 
-  const processSerialPhoto = async (file: File) => {
+  const processSerialPhoto = async (rawFile: File, file: File) => {
     setIsReadingLabel(true);
-    const barcode = await scanBarcodeFromFile(file);
+    const barcode = await scanBarcodeFromFile(rawFile);
     if (barcode) {
       setSerialNumber(barcode);
       setIsReadingLabel(false);
@@ -233,7 +296,7 @@ function ReportsPageInner() {
 
   const handleMultiFiles = async (category: TechnicalReportPhotoCategory, fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
-    const files = await Promise.all(Array.from(fileList).map(f => compressPhotoWithFeedback(f)));
+    const files = await Promise.all(Array.from(fileList).map(f => compressPhoto(f)));
     setPhotos(prev => {
       const currentCount = prev.filter(p => p.category === category).length;
       const added = files.map((file, i) => ({
@@ -316,14 +379,26 @@ function ReportsPageInner() {
       .catch(e => console.error("Falha ao pontuar relatório com IA", e));
   };
 
-  // Falha de rede de verdade (sem sinal) x erro de validação/permissão - só a
-  // primeira deve virar "guarda pra sincronizar depois" em vez de erro na cara.
-  const isNetworkError = (e: any): boolean => {
-    if (!navigator.onLine) return true;
-    return e instanceof TypeError || /fetch|network/i.test(e?.message || "");
-  };
+  // Falha de rede de verdade (sem sinal/travado) x erro de validação/permissão -
+  // só a primeira vira "guarda no aparelho e sincroniza depois".
+  const isNetworkError = (e: any): boolean => isNetworkLikeError(e);
 
+  // As fotos já têm cópia local (blob): o PDF usa essa cópia em vez de baixar de
+  // novo do servidor as fotos que acabaram de subir - era a maior parte da demora
+  // pra gerar/baixar o PDF.
+  const localPhotoUrls = (list: LocalPhoto[]): Record<string, string> =>
+    Object.fromEntries(list.filter(p => p.path && p.previewUrl).map(p => [p.path as string, p.previewUrl]));
+
+  // Salvar = (1) guarda o relatório completo no aparelho, (2) baixa o PDF na hora
+  // com as fotos locais (sem rede, instantâneo) e (3) libera o técnico: o envio
+  // pro servidor roda em segundo plano (fila + aviso de andamento no topo), então
+  // ele não fica esperando upload nem perde nada se o sinal cair no meio.
   const handleSave = async () => {
+    if (isSaving) return;
+    if (preparingCount > 0) {
+      toast({ title: "Aguarde...", description: "Ainda otimizando as fotos." });
+      return;
+    }
     if (!serviceOrderNumber.trim()) {
       toast({ variant: "destructive", title: "Informe o número da OS." });
       return;
@@ -349,105 +424,52 @@ function ReportsPageInner() {
       repairDescription: reportType === "visita" ? undefined : repairDescription.trim(),
       observations: observations || undefined,
       checklistTemplateId: checklistTemplateId || undefined,
-      ...(drawnSignature ? { clientSignature: drawnSignature } : {}),
+      ...(clientSignature ? { clientSignature } : {}),
     };
 
-    // Sem internet (ou perdeu no meio do envio): guarda tudo no aparelho pra
-    // sincronizar sozinho depois, em vez de só mostrar erro e o técnico ter
-    // que lembrar de refazer tudo na volta do sinal.
-    const saveOffline = async () => {
+    setIsSaving(true);
+    try {
       const pendingPhotos: PendingReportPhoto[] = photos.map(p =>
         p.url && p.path
           ? { category: p.category, order: p.order, url: p.url, path: p.path }
           : { category: p.category, order: p.order, file: p.file! }
       );
+      // Primeiro garante que nada se perde: fica gravado no aparelho até o servidor confirmar.
       await queueReport(basePayload, pendingPhotos, savedReportId || undefined);
-      toast({ title: "Sem conexão — relatório salvo no aparelho", description: "Vai ser enviado sozinho assim que a internet voltar." });
 
-      // PDF sai na hora mesmo offline - usa a preview local da foto (blob),
-      // não depende de rede nenhuma.
+      // PDF na hora, com as fotos locais (blob) - não depende de rede.
       const localReport: TechnicalReport = {
         id: savedReportId || "pendente",
         createdAt: savedReportCreatedAt || new Date(),
         updatedAt: new Date(),
         ...basePayload,
-        photos: photos.map(p => ({ category: p.category, order: p.order, url: p.url || p.previewUrl, path: p.path || "" })),
-        clientSignature,
+        photos: photos.map(p => ({ category: p.category, order: p.order, url: p.url || p.previewUrl, path: p.path || `local-${p.id}` })),
       };
+      let pdfFailed = false;
       setIsDownloadingPdf(true);
       try {
-        await buildAndDownloadPdf(localReport);
-      } catch (pdfError) {
-        console.error("Falha ao gerar PDF (offline)", pdfError);
-      } finally {
-        setIsDownloadingPdf(false);
-      }
-
-      resetForm();
-    };
-
-    setIsSaving(true);
-    try {
-      if (!navigator.onLine) {
-        await saveOffline();
-        return;
-      }
-
-      const uploaded = await Promise.all(
-        photos.map(async (p) => {
-          if (p.url && p.path) return p;
-          const { url, path } = await technicalReportService.uploadReportPhoto(p.file!, serviceOrderNumber.trim(), p.category);
-          return { ...p, url, path };
-        })
-      );
-      setPhotos(uploaded);
-
-      const payload = {
-        ...basePayload,
-        photos: uploaded.map(p => ({ category: p.category, url: p.url!, path: p.path!, order: p.order })),
-      };
-
-      let id = savedReportId;
-      let createdAt = savedReportCreatedAt;
-      if (id) {
-        await technicalReportService.update(id, payload);
-      } else {
-        id = await technicalReportService.create(payload as any);
-        setSavedReportId(id);
-        createdAt = new Date();
-        setSavedReportCreatedAt(createdAt);
-      }
-      if (drawnSignature) setStoredClientSignature(drawnSignature);
-      toast({ title: "Relatório salvo com sucesso!" });
-
-      if (uploaded.length > 0) {
-        scoreReportInBackground(id, uploaded);
-      }
-
-      // Baixa direto aqui, com os dados que acabaram de ser salvos — sem re-buscar
-      // do banco e sem precisar abrir a página de visualização em outra aba.
-      const savedReport: TechnicalReport = {
-        id,
-        createdAt: createdAt || new Date(),
-        updatedAt: new Date(),
-        ...payload,
-        clientSignature,
-      };
-      setIsDownloadingPdf(true);
-      try {
-        await buildAndDownloadPdf(savedReport);
+        await buildAndDownloadPdf(localReport, {
+          localPhotoUrls: Object.fromEntries(photos.map(p => [p.path || `local-${p.id}`, p.previewUrl])),
+        });
       } catch (pdfError) {
         console.error("Falha ao gerar PDF", pdfError);
-        toast({ variant: "destructive", title: "Relatório salvo, mas houve um erro ao gerar o PDF.", description: "Tente baixar novamente." });
+        pdfFailed = true;
       } finally {
         setIsDownloadingPdf(false);
       }
+
+      // Libera o formulário e manda pro servidor em segundo plano.
+      resetForm();
+      void flushQueue();
+      toast({
+        title: pdfFailed ? "Relatório guardado (PDF não gerado)" : "Relatório salvo e PDF baixado",
+        description: pdfFailed
+          ? "O envio segue em segundo plano - o PDF pode ser baixado depois em Meus Relatórios."
+          : "O envio segue em segundo plano - acompanhe no aviso no topo da tela. Depois ele aparece em Meus Relatórios.",
+      });
     } catch (e: any) {
-      if (isNetworkError(e)) {
-        await saveOffline();
-        return;
-      }
-      toast({ variant: "destructive", title: "Erro ao salvar relatório", description: e?.message });
+      console.error("Falha ao guardar o relatório", e);
+      toast({ variant: "destructive", title: "Não foi possível guardar o relatório", description: e?.message || "Tente de novo. Se persistir, libere espaço no aparelho." });
     } finally {
       setIsSaving(false);
     }
@@ -475,7 +497,7 @@ function ReportsPageInner() {
         checklistTemplateId: checklistTemplateId || undefined,
         clientSignature: storedClientSignature || undefined,
       };
-      await buildAndDownloadPdf(report);
+      await buildAndDownloadPdf(report, { localPhotoUrls: localPhotoUrls(photos) });
     } catch (e) {
       console.error("Falha ao gerar PDF", e);
       toast({ variant: "destructive", title: "Erro ao gerar PDF" });
@@ -717,13 +739,18 @@ function ReportsPageInner() {
                 Baixar PDF
               </Button>
             )}
-            <Button type="button" onClick={handleSave} disabled={isSaving}>
-              {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {isSaving ? (isDownloadingPdf ? "Gerando PDF..." : "Salvando...") : "Salvar Relatório"}
+            <Button type="button" onClick={handleSave} disabled={isSaving || preparingCount > 0}>
+              {isSaving || preparingCount > 0 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {preparingCount > 0
+                ? "Otimizando fotos..."
+                : isSaving
+                  ? "Gerando PDF..."
+                  : savedReportId ? "Atualizar Relatório" : "Salvar Relatório"}
             </Button>
           </div>
         </CardFooter>
       </Card>
+
     </div>
   );
 }

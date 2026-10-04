@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import type { TravelCostParams, PartCostParams, RepairCenterInfo } from "@/lib/data";
 import { DEFAULT_TRAVEL_COST_PARAMS } from "@/lib/travelCost";
 import { DEFAULT_PART_COST_PARAMS } from "@/lib/partCost";
+import { DEFAULT_PLANNING_PARAMS, type PlanningParams } from "@/lib/routePlanning";
 
 const DEFAULT_REPAIR_CENTER: RepairCenterInfo = { name: "", address: "", phone: "" };
 
@@ -158,6 +159,36 @@ export const configService = {
     const { error } = await supabase
       .from('configs')
       .upsert({ id: 'part_cost', value: params, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
+
+    if (error) throw error;
+  },
+
+  // Tempos de atendimento por tipo de produto + expediente, usados pelo modo
+  // planejamento das rotas. Sempre devolve objeto completo.
+  async getPlanningParams(unidadeId?: string | null): Promise<PlanningParams> {
+    try {
+      const { data, error } = await withUnidade(
+        supabase.from('configs').select('value').eq('id', 'planning'),
+        unidadeId
+      ).maybeSingle();
+
+      if (!error && data?.value) {
+        return {
+          ...DEFAULT_PLANNING_PARAMS,
+          ...data.value,
+          durationByProduct: { ...(data.value.durationByProduct || {}) },
+        };
+      }
+    } catch (e) {
+      console.warn("Could not fetch planning params from Supabase", e);
+    }
+    return { ...DEFAULT_PLANNING_PARAMS, durationByProduct: {} };
+  },
+
+  async setPlanningParams(params: PlanningParams, unidadeId?: string | null): Promise<void> {
+    const { error } = await supabase
+      .from('configs')
+      .upsert({ id: 'planning', value: params, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
 
     if (error) throw error;
   },

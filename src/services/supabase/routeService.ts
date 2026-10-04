@@ -157,6 +157,8 @@ export const routeService = {
       driverId: row.driver_id,
       driverName: row.driver_name,
       driverPhone: row.driver_phone,
+      startPoint: row.start_point || null,
+      endPoint: row.end_point || null,
       createdAt: new Date(row.created_at)
     };
   },
@@ -178,6 +180,9 @@ export const routeService = {
     if (obj.driverId !== undefined) row.driver_id = obj.driverId;
     if (obj.driverName !== undefined) row.driver_name = obj.driverName;
     if (obj.driverPhone !== undefined) row.driver_phone = obj.driverPhone;
+    // null limpa o ponto (volta pra base da unidade); undefined não mexe.
+    if (obj.startPoint !== undefined) row.start_point = obj.startPoint;
+    if (obj.endPoint !== undefined) row.end_point = obj.endPoint;
     return row;
   }
 };

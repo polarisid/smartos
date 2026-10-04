@@ -246,6 +246,17 @@ export type RouteStop = {
     // Preferência salva no mapa: evitar balsa no trecho que SAI desta parada rumo à
     // próxima (ou de volta à base, se for a última) - ver RouteMap.tsx.
     avoidFerryToNext?: boolean;
+    // Tempo de atendimento (min) definido à mão para esta parada no modo
+    // planejamento; sem ele vale o tempo configurado por tipo de produto.
+    estimatedMinutes?: number;
+}
+
+// Ponto de saída/chegada específico de UMA rota (opcional). Sem ele, a rota
+// sai e volta pra base da unidade.
+export type RoutePoint = {
+    address: string;
+    lat: number;
+    lng: number;
 }
 
 export type Route = {
@@ -267,6 +278,10 @@ export type Route = {
     driverName?: string;
     driverPhone?: string;
     fuelAvgKml?: number;
+    /** Ponto de saída só desta rota. Ausente = base da unidade. */
+    startPoint?: RoutePoint | null;
+    /** Ponto de chegada só desta rota. Ausente = base da unidade. */
+    endPoint?: RoutePoint | null;
 }
 
 export type ChecklistField = {

@@ -3,6 +3,19 @@ import { type TechnicalReport, type TechnicalReportPhotoCategory } from "@/lib/d
 
 const BUCKET = "report-photos";
 
+// `network` = vale a pena tentar de novo (conexão caiu/travou/servidor instável);
+// false = erro definitivo (permissão, arquivo inválido) que retentar não resolve.
+export class PhotoUploadError extends Error {
+  network: boolean;
+  status?: number;
+  constructor(message: string, info: { network: boolean; status?: number }) {
+    super(message);
+    this.name = "PhotoUploadError";
+    this.network = info.network;
+    this.status = info.status;
+  }
+}
+
 export const technicalReportService = {
   async getAll(): Promise<TechnicalReport[]> {
     const { data, error } = await supabase
@@ -42,6 +55,21 @@ export const technicalReportService = {
   // Listagem paginada/filtrada para o admin (não traz `photos`, que só é
   // necessário ao abrir o diálogo de um relatório específico — economiza
   // banda conforme o volume de relatórios cresce).
+  // Relatórios de um técnico (tela "Meus Relatórios"), do mais novo pro mais antigo:
+  // os que ele criou OU em que consta como técnico responsável (o campo do
+  // formulário é escolhido à mão e pode ter ficado vazio ou ser o parceiro de rota).
+  async getByTechnician(technicianId: string, limit: number = 100): Promise<TechnicalReport[]> {
+    const { data, error } = await supabase
+      .from('technical_reports')
+      .select('*')
+      .or(`technician_id.eq.${technicianId},created_by.eq.${technicianId}`)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+    return (data || []).map(this.mapFromDb);
+  },
+
   async getPaginated(params: {
     page: number;
     pageSize: number;
@@ -136,16 +164,74 @@ export const technicalReportService = {
     if (error) throw error;
   },
 
-  async uploadReportPhoto(file: File, serviceOrderNumber: string, category: TechnicalReportPhotoCategory): Promise<{ url: string; path: string }> {
+  buildPhotoPath(file: File, serviceOrderNumber: string, category: TechnicalReportPhotoCategory): string {
     const ext = file.name.split('.').pop() || 'jpg';
-    const path = `${serviceOrderNumber}/${category}_${crypto.randomUUID()}.${ext}`;
+    return `${serviceOrderNumber}/${category}_${crypto.randomUUID()}.${ext}`;
+  },
 
-    const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
-      cacheControl: '3600',
-      upsert: false,
+  // Upload direto na API REST do Storage via XHR (em vez do supabase-js) pra ter
+  // o que o supabase-js não dá: progresso real do envio e detecção de conexão
+  // travada. Sem isso, num sinal ruim o fetch simplesmente ficava pendurado e o
+  // técnico via "Salvando..." pra sempre, sem erro nem sucesso.
+  // `path` fixo permite retentar a mesma foto: se uma tentativa anterior chegou
+  // ao servidor mas a resposta se perdeu, o "já existe" (409) conta como sucesso.
+  async uploadReportPhoto(
+    file: File,
+    serviceOrderNumber: string,
+    category: TechnicalReportPhotoCategory,
+    opts?: { path?: string; onProgress?: (loaded: number, total: number) => void; stallTimeoutMs?: number }
+  ): Promise<{ url: string; path: string }> {
+    const path = opts?.path || this.buildPhotoPath(file, serviceOrderNumber, category);
+    const stallTimeoutMs = opts?.stallTimeoutMs ?? 30000;
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+    const token = sessionData.session?.access_token || anonKey;
+    const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${baseUrl}/storage/v1/object/${BUCKET}/${encodedPath}`);
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      xhr.setRequestHeader('apikey', anonKey);
+      xhr.setRequestHeader('Content-Type', file.type || 'image/jpeg');
+      xhr.setRequestHeader('cache-control', 'max-age=3600');
+      xhr.setRequestHeader('x-upsert', 'false');
+
+      let lastProgressAt = Date.now();
+      const stallTimer = setInterval(() => {
+        if (Date.now() - lastProgressAt > stallTimeoutMs) {
+          clearInterval(stallTimer);
+          xhr.abort();
+          reject(new PhotoUploadError('Envio travado (sem progresso). Verifique o sinal.', { network: true }));
+        }
+      }, 3000);
+      const done = () => clearInterval(stallTimer);
+
+      xhr.upload.onprogress = (e) => {
+        lastProgressAt = Date.now();
+        if (e.lengthComputable) opts?.onProgress?.(e.loaded, e.total);
+      };
+      xhr.onload = () => {
+        done();
+        if (xhr.status >= 200 && xhr.status < 300) return resolve();
+        let message = '';
+        try { message = JSON.parse(xhr.responseText)?.message || ''; } catch { /* corpo não é JSON */ }
+        // Tentativa anterior já tinha gravado o arquivo: conta como enviado.
+        if (xhr.status === 409 || /already exists|duplicate/i.test(`${message} ${xhr.responseText}`)) return resolve();
+        const retryable = xhr.status >= 500 || xhr.status === 408 || xhr.status === 429;
+        reject(new PhotoUploadError(message || `Falha ao enviar a foto (HTTP ${xhr.status}).`, { network: retryable, status: xhr.status }));
+      };
+      xhr.onerror = () => { done(); reject(new PhotoUploadError('Sem conexão com o servidor ao enviar a foto.', { network: true })); };
+      xhr.ontimeout = () => { done(); reject(new PhotoUploadError('Tempo esgotado ao enviar a foto.', { network: true })); };
+      xhr.onabort = () => { done(); };
+      xhr.timeout = 180000;
+      lastProgressAt = Date.now();
+      xhr.send(file);
     });
-    if (error) throw error;
 
+    opts?.onProgress?.(file.size, file.size);
     const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
     return { url: data.publicUrl, path };
   },

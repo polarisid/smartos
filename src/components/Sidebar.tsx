@@ -3,13 +3,14 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Wrench, TrendingUp, Trophy, Map, QrCode, LogIn, Menu, Download, Shield, Camera, LogOut } from "lucide-react";
+import { Wrench, TrendingUp, Trophy, Map, QrCode, LogIn, Menu, Download, Shield, Camera, LogOut, ClipboardCheck, FolderOpen } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Logo } from "@/components/Logo";
 import { useAuth } from "@/context/AuthContext";
+import { NotificationBell } from "@/components/NotificationBell";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -45,49 +46,70 @@ export function Sidebar() {
     });
   };
 
-  const routes = [
-    { href: "/", label: "Lançar OS", icon: Wrench },
-    { href: "/dashboard", label: "Desempenho", icon: TrendingUp },
-    { href: "/ranking", label: "Ranking", icon: Trophy },
-    { href: "/routes", label: "Rotas", icon: Map },
-    { href: "/scanner", label: "Scanner", icon: QrCode },
-    { href: "/reports", label: "Relatório", icon: Camera },
+  // Agrupado pelo que o técnico faz no dia a dia (atender) x acompanha (resultado).
+  const groups = [
+    {
+      label: "Atendimento",
+      items: [
+        { href: "/", label: "Lançar OS", icon: Wrench },
+        { href: "/routes", label: "Rotas", icon: Map },
+        { href: "/reports", label: "Relatório", icon: Camera },
+        { href: "/meus-relatorios", label: "Meus Relatórios", icon: FolderOpen },
+        { href: "/scanner", label: "Scanner", icon: QrCode },
+      ],
+    },
+    {
+      label: "Meu desempenho",
+      items: [
+        { href: "/producao", label: "Minha Produção", icon: ClipboardCheck },
+        { href: "/dashboard", label: "Desempenho da Equipe", icon: TrendingUp },
+        { href: "/ranking", label: "Ranking", icon: Trophy },
+      ],
+    },
   ];
+  const routes = groups.flatMap(g => g.items);
 
-  const SidebarContent = () => (
+  const SidebarContent = ({ withBell = false }: { withBell?: boolean }) => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground border-r border-sidebar-border w-64 p-4 md:p-6">
-      <div className="mb-8">
+      <div className="mb-8 flex items-center justify-between gap-2">
         <Logo size={32} withWordmark wordmarkClassName="text-xl text-sidebar-foreground" />
+        {withBell && <NotificationBell />}
       </div>
 
-      <nav className="flex-1 space-y-1">
-        {routes.map((route, i) => {
-          const isActive = pathname === route.href;
-          return (
-            <motion.div
-              key={route.href}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.05 }}
-            >
-              <Link
-                href={route.href}
-                onClick={() => setOpen(false)}
-                className={`relative flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 ${
-                  isActive
-                    ? 'bg-sidebar-accent text-sidebar-foreground font-semibold'
-                    : 'text-sidebar-foreground/60 font-medium hover:bg-sidebar-accent/60 hover:text-sidebar-foreground'
-                }`}
-              >
-                {isActive && (
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-full bg-sidebar-primary" />
-                )}
-                <route.icon className={`w-5 h-5 ${isActive ? 'text-sidebar-primary' : ''}`} />
-                {route.label}
-              </Link>
-            </motion.div>
-          );
-        })}
+      <nav className="flex-1 space-y-5">
+        {groups.map((group) => (
+          <div key={group.label} className="space-y-1">
+            <p className="px-4 pb-1 text-[10px] font-bold uppercase tracking-widest text-sidebar-foreground/40">{group.label}</p>
+            {group.items.map((route) => {
+              const isActive = pathname === route.href;
+              const i = routes.indexOf(route);
+              return (
+                <motion.div
+                  key={route.href}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                >
+                  <Link
+                    href={route.href}
+                    onClick={() => setOpen(false)}
+                    className={`relative flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 ${
+                      isActive
+                        ? 'bg-sidebar-accent text-sidebar-foreground font-semibold'
+                        : 'text-sidebar-foreground/60 font-medium hover:bg-sidebar-accent/60 hover:text-sidebar-foreground'
+                    }`}
+                  >
+                    {isActive && (
+                      <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-full bg-sidebar-primary" />
+                    )}
+                    <route.icon className={`w-5 h-5 ${isActive ? 'text-sidebar-primary' : ''}`} />
+                    {route.label}
+                  </Link>
+                </motion.div>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       <div className="mt-auto space-y-2 pt-6 border-t border-sidebar-border">
@@ -129,11 +151,13 @@ export function Sidebar() {
   return (
     <>
       <aside className="hidden md:block h-screen sticky top-0 z-40">
-        <SidebarContent />
+        <SidebarContent withBell />
       </aside>
 
       <div className="md:hidden fixed top-0 w-full z-50 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 py-3 flex justify-between items-center shadow-sm">
          <Logo size={26} withWordmark wordmarkClassName="text-lg text-sidebar-foreground" />
+         <div className="flex items-center gap-1">
+         <NotificationBell />
          <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
                <Button variant="ghost" size="icon" className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"><Menu className="w-6 h-6"/></Button>
@@ -142,6 +166,7 @@ export function Sidebar() {
                <SidebarContent />
             </SheetContent>
          </Sheet>
+         </div>
       </div>
     </>
   );
