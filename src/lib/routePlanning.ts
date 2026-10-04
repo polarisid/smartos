@@ -14,6 +14,8 @@ export type PlanningParams = {
     lunchStart: string;    // "12:00"
     lunchMinutes: number;  // 0 = sem almoço
     workSaturday: boolean;
+    // Atraso (min) a partir do qual a rota é sinalizada como atrasada no painel.
+    delayAlertMin: number;
 };
 
 export const DEFAULT_PLANNING_PARAMS: PlanningParams = {
@@ -25,6 +27,7 @@ export const DEFAULT_PLANNING_PARAMS: PlanningParams = {
     lunchStart: "12:00",
     lunchMinutes: 60,
     workSaturday: false,
+    delayAlertMin: 40,
 };
 
 export function normalizeProductKey(product?: string): string {
@@ -158,9 +161,18 @@ export function simulateRoutePlan(
 
     let date = nextWorkDate(startDate, params.workSaturday, true);
     let dayIndex = 0;
-    const firstDeparture = timeToMinutes(firstDayDeparture || "", dayStart);
+    let firstDeparture = timeToMinutes(firstDayDeparture || "", dayStart);
+    // Saída depois do fim do expediente: o 1º dia de trabalho passa a ser o próximo dia útil.
+    if (firstDeparture >= dayEnd) {
+        date = nextWorkDate(date, params.workSaturday, false);
+        firstDeparture = dayStart;
+    } else if (!sameDay(date, startDate)) {
+        // Data de partida caiu em dia sem trabalho (domingo/sábado): começa no início do expediente.
+        firstDeparture = dayStart;
+    }
     let t = firstDeparture;
-    let lunchTaken = lunchMin === 0;
+    // Saindo depois do início do almoço, considera que ele já foi feito.
+    let lunchTaken = lunchMin === 0 || firstDeparture >= lunchStart;
     let currentDay: PlannedDay = { dayIndex, date, stopIndexes: [], startMin: firstDeparture, endMin: firstDeparture, travelMin: 0, serviceMin: 0 };
     days.push(currentDay);
 

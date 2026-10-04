@@ -1,6 +1,14 @@
 import { supabase } from "@/lib/supabase";
 import { type Route } from "@/lib/data";
 
+// A rota foi alterada por outra pessoa entre abrir e salvar.
+export class RouteConflictError extends Error {
+  constructor() {
+    super('Esta rota foi alterada por outra pessoa desde que você a abriu.');
+    this.name = 'RouteConflictError';
+  }
+}
+
 export const routeService = {
   async getAll(unidadeId?: string | null): Promise<Route[]> {
     let query = supabase.from('routes').select('*').order('created_at', { ascending: false });
@@ -43,14 +51,19 @@ export const routeService = {
     return newDoc.id;
   },
 
-  async update(id: string, data: Partial<Route>): Promise<void> {
+  // expectedUpdatedAt: só grava se a rota ainda estiver como a pessoa abriu (controle de
+  // edição simultânea, exige a coluna updated_at - migração 21). Recusa com RouteConflictError.
+  // Devolve o novo updated_at (só quando o controle está ativo).
+  async update(id: string, data: Partial<Route>, opts?: { expectedUpdatedAt?: string | null }): Promise<string | null> {
     const dbData = this.mapToDb(data as Route);
-    const { error } = await supabase
-      .from('routes')
-      .update(dbData)
-      .eq('id', id);
+    const guarded = !!opts?.expectedUpdatedAt;
+    let query = supabase.from('routes').update(dbData).eq('id', id);
+    if (guarded) query = query.eq('updated_at', opts!.expectedUpdatedAt as string);
+    const { data: rows, error } = guarded ? await query.select('updated_at') : await query;
 
     if (error) throw error;
+    if (guarded && (!rows || (rows as any[]).length === 0)) throw new RouteConflictError();
+    return guarded ? ((rows as any[])[0]?.updated_at ?? null) : null;
   },
 
   async remove(id: string): Promise<void> {
@@ -160,6 +173,7 @@ export const routeService = {
       startPoint: row.start_point || null,
       endPoint: row.end_point || null,
       departureTime: row.departure_time || undefined,
+      updatedAt: row.updated_at || undefined,
       createdAt: new Date(row.created_at)
     };
   },

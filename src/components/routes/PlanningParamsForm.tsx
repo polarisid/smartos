@@ -62,7 +62,11 @@ export function PlanningParamsForm({ value, onChange, suggestedProducts = [] }: 
                     <Label className="text-xs">Almoço a partir de</Label>
                     <Input type="time" value={value.lunchStart} onChange={e => onChange({ ...value, lunchStart: e.target.value })} />
                 </div>
-                <label className="flex items-center gap-2 text-sm cursor-pointer col-span-2">
+                <div className="space-y-1">
+                    <Label className="text-xs" title="Rota em andamento com atraso maior que isso aparece como atrasada no painel de rotas">Avisar atraso a partir de (min)</Label>
+                    <Input type="number" min={5} value={value.delayAlertMin} onChange={e => onChange({ ...value, delayAlertMin: Number(e.target.value) })} />
+                </div>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
                     <input type="checkbox" checked={value.workSaturday} onChange={e => onChange({ ...value, workSaturday: e.target.checked })} />
                     Trabalha aos sábados
                 </label>

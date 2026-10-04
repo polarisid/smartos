@@ -287,6 +287,8 @@ export type Route = {
     endPoint?: RoutePoint | null;
     /** Hora ("HH:mm") em que o técnico sai no 1º dia, usada pelo modo Planejamento. Ausente = início do expediente. */
     departureTime?: string | null;
+    /** Carimbo da última alteração (ISO, como veio do banco) - usado pra detectar edição simultânea. */
+    updatedAt?: string;
 }
 
 export type ChecklistField = {

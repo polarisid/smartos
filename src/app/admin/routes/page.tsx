@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
@@ -21,7 +21,8 @@ import { Label } from "@/components/ui/label";
 import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen, Copy, ArrowUp, ArrowDown, ArrowUpDown, FileDown, Loader2, ArrowRightLeft, MapPin, Zap, Rocket, Columns2, Search, X, Plus } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { routeService } from "@/services/supabase/routeService";
+import { routeService, RouteConflictError } from "@/services/supabase/routeService";
+import { useRoutePresence } from "@/hooks/useRoutePresence";
 import { driverService } from "@/services/supabase/driverService";
 import { useToast } from "@/hooks/use-toast";
 import { useTechnicians, useServiceOrders } from "@/hooks/queries";
@@ -29,6 +30,9 @@ import { useAuth } from "@/context/AuthContext";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart, type Driver, type RoutePoint } from "@/lib/data";
 import { RoutePlanningPanel } from "@/components/routes/RoutePlanningPanel";
+import { RouteLivePlan } from "@/components/routes/RouteLivePlan";
+import { RouteDelayBadge } from "@/components/routes/RouteDelayBadge";
+import { formatDuration as formatPlanDuration } from "@/lib/routePlanning";
 import { configService } from "@/services/supabase/configService";
 import { DEFAULT_PLANNING_PARAMS, type PlanningParams } from "@/lib/routePlanning";
 import { tagStopsWithZipMismatch } from "@/lib/geocode";
@@ -53,7 +57,7 @@ import { RouteCreationWizard } from "@/components/routes/RouteCreationWizard";
 import { RouteSplitPlannerWizard } from "@/components/routes/RouteSplitPlannerWizard";
 import { Wand2 } from "lucide-react";
 import dynamic from "next/dynamic";
-import { Clock, Map as MapIcon, List, History, HelpCircle } from "lucide-react";
+import { Clock, Map as MapIcon, List, History, HelpCircle, AlarmClock } from "lucide-react";
 import { GripVertical } from "lucide-react";
 
 const DynamicalRouteMap = dynamic(() => import('@/components/RouteMap'), { ssr: false });
@@ -291,6 +295,11 @@ function RouteForm({
     const [parsedStops, setParsedStops] = useState<RouteStop[]>([]);
     const [previewViewTab, setPreviewViewTab] = useState<'list' | 'map' | 'split' | 'plan'>('list');
     // Saída/chegada próprias desta rota (opcionais; sem elas vale a base da unidade).
+    // Edição simultânea: carimbo da rota como foi aberta + quem mais está com ela aberta.
+    const knownUpdatedAtRef = useRef<string | null>(null);
+    const autosaveChainRef = useRef<Promise<unknown>>(Promise.resolve());
+    const [conflict, setConflict] = useState<{ retry: () => Promise<void> } | null>(null);
+    const otherEditors = useRoutePresence(mode === 'edit' && isActive && initialData?.id && initialData.id !== 'draft' ? initialData.id : null, appUser ? { uid: appUser.uid, name: appUser.name } : null);
     const [startPoint, setStartPoint] = useState<RoutePoint | null>(null);
     const [endPoint, setEndPoint] = useState<RoutePoint | null>(null);
     const routeEndpoints = useMemo(() => ({ start: startPoint, end: endPoint }), [startPoint, endPoint]);
@@ -472,6 +481,7 @@ function RouteForm({
                 setLicensePlate(initialData.licensePlate || "");
                 setTechnicianId(initialData.technicianId || "");
                 setDriverId(initialData.driverId || "none");
+                knownUpdatedAtRef.current = initialData.updatedAt || null;
                 setStartPoint(initialData.startPoint || null);
                 setEndPoint(initialData.endPoint || null);
                 setPlanningDepartureTime(initialData.departureTime || "");
@@ -879,7 +889,7 @@ function RouteForm({
     const isDraftEdit = mode === 'edit' && !!initialData?.isDraft;
 
     // `newAsDraft`: na Postagem Rápida (mode 'add'), guarda como rascunho em vez de postar.
-    const handleSave = async (publish: boolean = false, newAsDraft: boolean = false) => {
+    const handleSave = async (publish: boolean = false, newAsDraft: boolean = false, force: boolean = false) => {
         const saveAsDraft = (isDraftEdit && !publish) || (mode === 'add' && newAsDraft);
         const missingForDraft = !routeName || parsedStops.length === 0;
         const missingForFull = missingForDraft || !departureDate || !arrivalDate || !routeType || !technicianId;
@@ -1002,7 +1012,7 @@ function RouteForm({
                 }, activeUnidadeId);
 
             } else if (initialData) {
-                await routeService.update(initialData.id, dataToSave as unknown as Partial<Route>);
+                await routeService.update(initialData.id, dataToSave as unknown as Partial<Route>, { expectedUpdatedAt: force ? null : knownUpdatedAtRef.current });
                 if (isDraftEdit && publish) {
                     await routeService.publishRoute(initialData.id, departureDate);
                     await triggerWebhook({
@@ -1032,11 +1042,36 @@ function RouteForm({
             onCancel();
             onRouteSaved();
         } catch (error) {
+            if (error instanceof RouteConflictError) {
+                setConflict({ retry: () => handleSave(publish, newAsDraft, true) });
+                return;
+            }
             console.error("Error saving route: ", error);
             toast({ variant: "destructive", title: "Erro ao Salvar", description: `Não foi possível ${mode === 'add' ? 'salvar' : 'atualizar'} a rota.` });
         } finally {
             setIsSubmitting(false);
         }
+    };
+
+    // Grava as paradas já na hora (edição de rota existente). Em série, pra o carimbo de
+    // updated_at de uma gravação valer na seguinte; se outra pessoa alterou a rota, pergunta.
+    const persistStops = (next: RouteStop[], force: boolean): Promise<unknown> => {
+        const id = initialData!.id;
+        autosaveChainRef.current = autosaveChainRef.current.then(async () => {
+            try {
+                const ts = await routeService.update(id, { stops: next }, { expectedUpdatedAt: force ? null : knownUpdatedAtRef.current });
+                if (ts) knownUpdatedAtRef.current = ts;
+                else if (force) knownUpdatedAtRef.current = (await routeService.getById(id))?.updatedAt || null;
+            } catch (e) {
+                if (e instanceof RouteConflictError) {
+                    setConflict({ retry: async () => { await persistStops(next, true); } });
+                    return;
+                }
+                console.error("Auto-save de confirmação falhou:", e);
+                toast({ variant: "destructive", title: "Não salvou", description: "Falha ao salvar a confirmação. Clique novamente." });
+            }
+        });
+        return autosaveChainRef.current;
     };
 
     // Aplica uma alteração nas paradas e, em rota já existente (edição),
@@ -1045,10 +1080,7 @@ function RouteForm({
         const next = updater(parsedStops);
         setParsedStops(next);
         if (mode === 'edit' && initialData?.id && initialData.id !== 'draft') {
-            routeService.update(initialData.id, { stops: next }).catch((e) => {
-                console.error("Auto-save de confirmação falhou:", e);
-                toast({ variant: "destructive", title: "Não salvou", description: "Falha ao salvar a confirmação. Clique novamente." });
-            });
+            void persistStops(next, false);
         }
     };
 
@@ -1066,6 +1098,15 @@ function RouteForm({
     return (
         <>
         <Card>
+            {otherEditors.length > 0 && (
+                <div className="mx-6 mt-6 -mb-2 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-4 py-2.5 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                    <Users className="h-4 w-4 mt-0.5 shrink-0" />
+                    <span>
+                        <strong>{otherEditors.map(e => e.name).join(", ")}</strong> {otherEditors.length === 1 ? "também está" : "também estão"} com esta rota aberta para edição.
+                        Combinem antes de salvar: se alguém salvar primeiro, o sistema avisa quem salvar depois.
+                    </span>
+                </div>
+            )}
             <CardHeader>
                 <CardTitle>{mode === 'add' ? 'Adicionar Nova Rota' : isDraftEdit ? 'Editar Rascunho' : 'Editar Rota'}</CardTitle>
                 <CardDescription>
@@ -1990,6 +2031,31 @@ function RouteForm({
             </CardFooter>
         </Card>
 
+        <AlertDialog open={!!conflict} onOpenChange={(o) => { if (!o) setConflict(null); }}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Esta rota foi alterada por outra pessoa</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Desde que você abriu, alguém (outro admin ou o técnico, pelo celular) mexeu nesta rota. Se salvar agora, a sua versão
+                        substitui a dele e o que ele fez pode ser perdido. O mais seguro é fechar, reabrir a rota e refazer a sua alteração.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setConflict(null)}>Voltar sem salvar</AlertDialogCancel>
+                    <AlertDialogAction
+                        className="bg-destructive hover:bg-destructive/90"
+                        onClick={async () => {
+                            const retry = conflict?.retry;
+                            setConflict(null);
+                            if (retry) await retry();
+                        }}
+                    >
+                        Salvar mesmo assim
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+
         <Dialog open={isReallocateOpen} onOpenChange={(open) => { if (!isReallocating) setIsReallocateOpen(open); }}>
             <DialogContent className="max-w-md">
                 <DialogHeader>
@@ -2276,6 +2342,19 @@ export default function RoutesPage() {
     const [isSplitPlannerOpen, setIsSplitPlannerOpen] = useState(false);
     const [isRouteSearchOpen, setIsRouteSearchOpen] = useState(false);
     const [routeSearchTerm, setRouteSearchTerm] = useState("");
+
+    // Atrasos reportados por cada selo de rota (RouteDelayBadge) - alimentam o alerta geral no topo.
+    const [routeDelays, setRouteDelays] = useState<Record<string, number>>({});
+    const reportDelay = useCallback((routeId: string, delayMin: number | null) => {
+        setRouteDelays(prev => {
+            if (delayMin === null) {
+                if (!(routeId in prev)) return prev;
+                const { [routeId]: _removed, ...rest } = prev;
+                return rest;
+            }
+            return prev[routeId] === delayMin ? prev : { ...prev, [routeId]: delayMin };
+        });
+    }, []);
 
     const activeStopsForMap = useMemo(() => {
         if (!selectedRoute) return [];
@@ -2746,6 +2825,23 @@ ${rowsXml}  </Table>
                     </div>
                 </div>
 
+                {activeTab === 'list' && Object.keys(routeDelays).length > 0 && (
+                    <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 space-y-1.5">
+                        <p className="text-sm font-semibold text-red-800 dark:text-red-300 flex items-center gap-2">
+                            <AlarmClock className="h-4 w-4" />
+                            {Object.keys(routeDelays).length === 1 ? "1 rota atrasada" : `${Object.keys(routeDelays).length} rotas atrasadas`} em relação à previsão
+                        </p>
+                        <ul className="text-xs text-red-800/90 dark:text-red-300/90 space-y-0.5">
+                            {activeRoutes.filter(r => routeDelays[r.id] !== undefined).sort((a, b) => routeDelays[b.id] - routeDelays[a.id]).map(r => (
+                                <li key={r.id} className="flex flex-wrap items-center gap-x-2">
+                                    <button type="button" className="font-semibold underline-offset-2 hover:underline" onClick={() => handleOpenViewDialog(r)}>{r.name}</button>
+                                    <span>— {r.technicianName || "sem técnico"}: +{formatPlanDuration(routeDelays[r.id])}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
                     <TabsContent value="list" className="mt-0 focus-visible:outline-none focus-visible:ring-0">
                         <Card>
@@ -2820,6 +2916,9 @@ ${rowsXml}  </Table>
                                                     <div className="flex flex-col gap-1">
                                                         <Progress value={progress} />
                                                         <span className="text-xs text-muted-foreground">{completedStopsCount} de {totalStops} concluídas</span>
+                                                        {route.isActive && !route.isDraft && completedStopsCount < totalStops && (
+                                                            <RouteDelayBadge route={route} serviceOrders={serviceOrders} onReport={reportDelay} />
+                                                        )}
                                                     </div>
                                             </TableCell>
                                             <TableCell>
@@ -2896,7 +2995,10 @@ ${rowsXml}  </Table>
                                                 </div>
                                                 <div className="space-y-2">
                                                      <Progress value={progress} />
-                                                    <span className="text-xs text-muted-foreground">{completedStopsCount} de {totalStops} concluídas</span>
+                                                    <span className="text-xs text-muted-foreground block">{completedStopsCount} de {totalStops} concluídas</span>
+                                                    {route.isActive && !route.isDraft && completedStopsCount < totalStops && (
+                                                        <RouteDelayBadge route={route} serviceOrders={serviceOrders} onReport={reportDelay} />
+                                                    )}
                                                 </div>
                                             </CardContent>
                                             <CardFooter>
@@ -3023,12 +3125,16 @@ ${rowsXml}  </Table>
 
                     {/* Tab Navigation between List and Map */}
                     <Tabs defaultValue="list" className="w-full">
-                        <TabsList className="grid w-full max-w-[400px] grid-cols-2">
+                        <TabsList className="grid w-full max-w-[600px] grid-cols-3">
                             <TabsTrigger value="list" className="flex items-center gap-2">
                                 <List className="w-4 h-4" /> Lista de Paradas
                             </TabsTrigger>
                             <TabsTrigger value="map" className="flex items-center gap-2">
                                 <MapIcon className="w-4 h-4" /> Mapa da Rota
+                            </TabsTrigger>
+                            <TabsTrigger value="plan" className="flex items-center gap-2">
+                                <Clock className="w-4 h-4" /> Planejamento
+                                <span className="rounded-full bg-emerald-500 text-white text-[9px] font-bold uppercase px-1.5 py-px leading-none">Novo!</span>
                             </TabsTrigger>
                         </TabsList>
                         
@@ -3060,10 +3166,16 @@ ${rowsXml}  </Table>
                         
                         <TabsContent value="map" className="h-[50vh] min-h-[400px] overflow-hidden rounded-xl border relative mt-2">
                             {selectedRoute && (
-                                <DynamicalRouteMap 
-                                    routes={[selectedRoute]} 
-                                    activeStops={activeStopsForMap} 
+                                <DynamicalRouteMap
+                                    routes={[selectedRoute]}
+                                    activeStops={activeStopsForMap}
                                 />
+                            )}
+                        </TabsContent>
+
+                        <TabsContent value="plan" className="max-h-[55vh] overflow-y-auto rounded-xl border mt-2 p-2">
+                            {selectedRoute && isViewDialogOpen && (
+                                <RouteLivePlan route={selectedRoute} serviceOrders={serviceOrders} />
                             )}
                         </TabsContent>
                     </Tabs>

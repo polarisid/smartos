@@ -17,6 +17,7 @@ import { Progress } from "@/components/ui/progress";
 import { Table, TableHeader, TableRow, TableHead, TableBody } from "@/components/ui/table";
 import { MobileRouteStopCard } from "@/components/MobileRouteStopCard";
 import { RouteDetailsRow } from "@/components/RouteDetailsRow";
+import { RouteLivePlan } from "@/components/routes/RouteLivePlan";
 import { RoutePartTracking } from "@/components/RoutePartTracking";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
@@ -360,6 +361,28 @@ export default function RoutesPage() {
                                                 showPolyline
                                                 height="100%"
                                             />
+                                        </div>
+                                    </DialogContent>
+                                </Dialog>
+                            )}
+
+                            {filteredStops.length > 0 && (
+                                <Dialog>
+                                    <DialogTrigger asChild>
+                                        <Button variant="outline" className="w-full md:w-auto mt-2 md:ml-2">
+                                            <Clock className="mr-2 h-4 w-4" />
+                                            Previsão
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent className="max-w-3xl w-[95vw] md:w-full p-2 md:p-6 bg-muted md:bg-background">
+                                        <DialogHeader>
+                                            <DialogTitle>Previsão da Rota: {route.name}</DialogTitle>
+                                            <DialogDescription>
+                                                Horário estimado de cada atendimento, atualizado conforme você lança as OS.
+                                            </DialogDescription>
+                                        </DialogHeader>
+                                        <div className="max-h-[70vh] overflow-y-auto">
+                                            <RouteLivePlan route={route} serviceOrders={serviceOrders} />
                                         </div>
                                     </DialogContent>
                                 </Dialog>
