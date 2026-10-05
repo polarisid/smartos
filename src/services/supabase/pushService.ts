@@ -11,6 +11,31 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
   return Uint8Array.from(raw, c => c.charCodeAt(0));
 }
 
+// O service worker só existe no app publicado (o modo dev do Next desliga o PWA). Em vez de
+// esperar `ready` às cegas, acompanha a instalação e diz o que de fato aconteceu.
+async function getActiveRegistration(): Promise<ServiceWorkerRegistration> {
+  let reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) {
+    try {
+      reg = await navigator.serviceWorker.register("/sw.js");
+    } catch {
+      throw new Error("O modo offline do app não está disponível neste ambiente (versão de desenvolvimento ou navegador sem suporte).");
+    }
+  }
+  if (reg.active) return reg;
+
+  const worker = reg.installing || reg.waiting;
+  if (!worker) throw new Error("O app ainda está preparando o modo offline. Recarregue a página e tente de novo.");
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("O app demorou para preparar o modo offline. Verifique a conexão, recarregue a página e tente de novo.")), 20000);
+    worker.addEventListener("statechange", () => {
+      if (worker.state === "activated") { clearTimeout(timer); resolve(); }
+      else if (worker.state === "redundant") { clearTimeout(timer); reject(new Error("Não foi possível instalar o modo offline do app. Atualize a página (Ctrl+F5) e tente de novo.")); }
+    });
+  });
+  return reg;
+}
+
 export type PushSupport = "unsupported" | "unconfigured" | "denied" | "ready";
 
 export const pushService = {
@@ -33,11 +58,7 @@ export const pushService = {
     const permission = await Notification.requestPermission();
     if (permission !== "granted") throw new Error("Permissão de avisos negada no navegador.");
 
-    // O service worker só existe no app publicado (o modo dev do Next desliga o PWA).
-    const reg = await Promise.race([
-      navigator.serviceWorker.ready,
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("O app ainda não está pronto para avisos neste ambiente.")), 8000)),
-    ]);
+    const reg = await getActiveRegistration();
     const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as unknown as BufferSource,

@@ -5,6 +5,12 @@ const withPWA = require('next-pwa')({
   skipWaiting: true,
   // worker/index.js entra no service worker: recebe os avisos push (app fechado).
   customWorkerDir: 'worker',
+  // O service worker só "ativa" se TODOS os arquivos do pré-cache baixarem. O Next 14 lista o
+  // app-build-manifest.json, que em produção responde 404 - isso derrubava a instalação do
+  // service worker (sem SW não há push nem cache offline). Também não pré-carrega os PDFs
+  // de checklist (pesados; baixam quando usados).
+  buildExcludes: [/app-build-manifest\.json$/],
+  publicExcludes: ['!checklists/**/*', '!noprecache/**/*'],
   disable: process.env.NODE_ENV === 'development',
 });
 
