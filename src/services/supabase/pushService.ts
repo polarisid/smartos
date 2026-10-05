@@ -11,26 +11,28 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
   return Uint8Array.from(raw, c => c.charCodeAt(0));
 }
 
-// O service worker só existe no app publicado (o modo dev do Next desliga o PWA). Em vez de
-// esperar `ready` às cegas, acompanha a instalação e diz o que de fato aconteceu.
+// Os avisos usam um service worker PRÓPRIO e leve (/push-sw.js, escopo /push-sw/), separado do
+// service worker do PWA: aquele só ativa depois de baixar todo o pré-cache (pode demorar muito no
+// celular), este instala em milissegundos. Escopo sem nenhuma página: só serve pra receber push.
+const PUSH_SW_URL = "/push-sw.js";
+const PUSH_SW_SCOPE = "/push-sw/";
+
 async function getActiveRegistration(): Promise<ServiceWorkerRegistration> {
-  let reg = await navigator.serviceWorker.getRegistration();
-  if (!reg) {
-    try {
-      reg = await navigator.serviceWorker.register("/sw.js");
-    } catch {
-      throw new Error("O modo offline do app não está disponível neste ambiente (versão de desenvolvimento ou navegador sem suporte).");
-    }
+  let reg: ServiceWorkerRegistration;
+  try {
+    reg = await navigator.serviceWorker.register(PUSH_SW_URL, { scope: PUSH_SW_SCOPE });
+  } catch {
+    throw new Error("Não foi possível preparar os avisos neste navegador. Atualize a página e tente de novo.");
   }
   if (reg.active) return reg;
 
   const worker = reg.installing || reg.waiting;
-  if (!worker) throw new Error("O app ainda está preparando o modo offline. Recarregue a página e tente de novo.");
+  if (!worker) throw new Error("Os avisos ainda estão sendo preparados. Tente de novo em instantes.");
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("O app demorou para preparar o modo offline. Verifique a conexão, recarregue a página e tente de novo.")), 20000);
+    const timer = setTimeout(() => reject(new Error("Os avisos demoraram para ficar prontos. Verifique a conexão e tente de novo.")), 15000);
     worker.addEventListener("statechange", () => {
       if (worker.state === "activated") { clearTimeout(timer); resolve(); }
-      else if (worker.state === "redundant") { clearTimeout(timer); reject(new Error("Não foi possível instalar o modo offline do app. Atualize a página (Ctrl+F5) e tente de novo.")); }
+      else if (worker.state === "redundant") { clearTimeout(timer); reject(new Error("Não foi possível instalar os avisos. Atualize a página (Ctrl+F5) e tente de novo.")); }
     });
   });
   return reg;
@@ -50,7 +52,7 @@ export const pushService = {
 
   async getCurrent(): Promise<PushSubscription | null> {
     if (this.support() === "unsupported") return null;
-    const reg = await navigator.serviceWorker.getRegistration();
+    const reg = await navigator.serviceWorker.getRegistration(PUSH_SW_SCOPE);
     return reg ? reg.pushManager.getSubscription() : null;
   },
 

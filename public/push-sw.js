@@ -1,4 +1,5 @@
-// Código extra do service worker (next-pwa `customWorkerDir`): avisos push com o app fechado.
+// Service worker leve SÓ para avisos push (registrado à parte do PWA, em /push-sw/): instala em milissegundos,
+// sem depender do pré-cache pesado do service worker principal.
 
 self.addEventListener("push", (event) => {
   let data = {};
