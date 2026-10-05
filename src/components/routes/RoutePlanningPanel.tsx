@@ -24,6 +24,7 @@ import {
     sameDay,
     requestedTurnKind,
     simulateRoutePlan,
+    withWeekendWork,
     type PlanningParams,
 } from "@/lib/routePlanning";
 
@@ -38,6 +39,8 @@ type Props = {
     onStartPointChange: (p: RoutePoint | null) => void;
     onEndPointChange: (p: RoutePoint | null) => void;
     params: PlanningParams;
+    // Rota em andamento: a simulação conta sábado e domingo (a configuração salva não muda).
+    weekendWork?: boolean;
     onSaveParams: (p: PlanningParams) => Promise<void>;
     onStopMinutesChange: (serviceOrder: string, minutes: number | undefined) => void;
     // Muda data da visita ("dd/mm/aaaa") e/ou turno ("M" | "T" | "C") de uma ou mais paradas.
@@ -53,7 +56,7 @@ const SOURCE_LABEL = { manual: "manual", product: "do produto", default: "padrã
 
 export function RoutePlanningPanel({
     stops, legKm, legDurationMin, legsLoading, startDate, startPoint, endPoint,
-    onStartPointChange, onEndPointChange, params, onSaveParams, onStopMinutesChange,
+    onStartPointChange, onEndPointChange, params: rawParams, weekendWork, onSaveParams, onStopMinutesChange,
     onStopsScheduleChange, departureTime, onDepartureTimeChange, fetchMatrix, onApplyOrder,
 }: Props) {
     const { toast } = useToast();
@@ -61,6 +64,8 @@ export function RoutePlanningPanel({
     const [endText, setEndText] = useState("");
     const [resolving, setResolving] = useState<"start" | "end" | null>(null);
     const [configOpen, setConfigOpen] = useState(false);
+
+    const params = useMemo(() => (weekendWork ? withWeekendWork(rawParams) : rawParams), [weekendWork, rawParams]);
 
     const plan = useMemo(
         () => simulateRoutePlan(stops, legDurationMin, params, startDate || new Date(), departureTime),
@@ -197,7 +202,7 @@ export function RoutePlanningPanel({
                         Os horários do 1º dia contam a partir daqui; vazio usa o início do expediente ({params.dayStart}).
                         Expediente {params.dayStart}–{params.dayEnd}
                         {params.lunchMinutes > 0 ? `, almoço ${formatDuration(params.lunchMinutes)} a partir das ${params.lunchStart}` : ""}
-                        {params.workSaturday ? ", trabalha sábado" : ", sem sábado/domingo"}.
+                        {params.workSaturday && params.workSunday ? ", trabalha sábado e domingo" : params.workSaturday ? ", trabalha sábado" : params.workSunday ? ", trabalha domingo" : ", sem sábado/domingo"}{weekendWork ? " (rota em andamento)" : ""}.
                     </p>
                 </div>
             </div>
@@ -472,7 +477,7 @@ export function RoutePlanningPanel({
             <PlanningConfigDialog
                 open={configOpen}
                 onOpenChange={setConfigOpen}
-                params={params}
+                params={rawParams}
                 routeProducts={Array.from(new Set(stops.map(s => normalizeProductKey(s.productType)).filter(Boolean)))}
                 onSave={onSaveParams}
             />

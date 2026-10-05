@@ -70,6 +70,10 @@ export function PlanningParamsForm({ value, onChange, suggestedProducts = [] }: 
                     <input type="checkbox" checked={value.workSaturday} onChange={e => onChange({ ...value, workSaturday: e.target.checked })} />
                     Trabalha aos sábados
                 </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer" title="Rotas em andamento já consideram sábado e domingo, mesmo sem marcar aqui">
+                    <input type="checkbox" checked={value.workSunday} onChange={e => onChange({ ...value, workSunday: e.target.checked })} />
+                    Trabalha aos domingos
+                </label>
             </div>
 
             <div className="space-y-2">

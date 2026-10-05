@@ -14,6 +14,7 @@ export type PlanningParams = {
     lunchStart: string;    // "12:00"
     lunchMinutes: number;  // 0 = sem almoço
     workSaturday: boolean;
+    workSunday: boolean;
     // Atraso (min) a partir do qual a rota é sinalizada como atrasada no painel.
     delayAlertMin: number;
 };
@@ -27,6 +28,7 @@ export const DEFAULT_PLANNING_PARAMS: PlanningParams = {
     lunchStart: "12:00",
     lunchMinutes: 60,
     workSaturday: false,
+    workSunday: false,
     delayAlertMin: 40,
 };
 
@@ -125,11 +127,11 @@ export type RoutePlan = {
 const cityLabel = (s: RouteStop) => [s.city, s.state].filter(Boolean).join("/") || "cidade da parada";
 const cityKey = (s?: RouteStop) => (s?.city || "").trim().toUpperCase();
 
-function nextWorkDate(from: Date, workSaturday: boolean, includeFrom: boolean): Date {
+function nextWorkDate(from: Date, params: Pick<PlanningParams, "workSaturday" | "workSunday">, includeFrom: boolean): Date {
     const d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
     if (!includeFrom) d.setDate(d.getDate() + 1);
     // 0 = domingo, 6 = sábado
-    while (d.getDay() === 0 || (d.getDay() === 6 && !workSaturday)) d.setDate(d.getDate() + 1);
+    while ((d.getDay() === 0 && !params.workSunday) || (d.getDay() === 6 && !params.workSaturday)) d.setDate(d.getDate() + 1);
     return d;
 }
 
@@ -159,12 +161,12 @@ export function simulateRoutePlan(
     const planned: PlannedStop[] = [];
     const days: PlannedDay[] = [];
 
-    let date = nextWorkDate(startDate, params.workSaturday, true);
+    let date = nextWorkDate(startDate, params, true);
     let dayIndex = 0;
     let firstDeparture = timeToMinutes(firstDayDeparture || "", dayStart);
     // Saída depois do fim do expediente: o 1º dia de trabalho passa a ser o próximo dia útil.
     if (firstDeparture >= dayEnd) {
-        date = nextWorkDate(date, params.workSaturday, false);
+        date = nextWorkDate(date, params, false);
         firstDeparture = dayStart;
     } else if (!sameDay(date, startDate)) {
         // Data de partida caiu em dia sem trabalho (domingo/sábado): começa no início do expediente.
@@ -178,7 +180,7 @@ export function simulateRoutePlan(
 
     const startNextDay = () => {
         dayIndex += 1;
-        date = nextWorkDate(date, params.workSaturday, false);
+        date = nextWorkDate(date, params, false);
         t = dayStart;
         lunchTaken = lunchMin === 0;
         currentDay = { dayIndex, date, stopIndexes: [], startMin: dayStart, endMin: dayStart, travelMin: 0, serviceMin: 0 };
@@ -294,4 +296,28 @@ export function fillVisitTemplate(template: string, stop: RouteStop): string {
         .replace(/{{data}}/g, (stop.firstVisitDate || "").trim())
         .replace(/{{turno}}/g, turnLabel(stop.turn))
         .replace(/{{horario}}/g, formatEtaWindow(stop.etaStart));
+}
+
+// Rota já em curso: o técnico está em campo e passa a poder trabalhar sábado e domingo
+// (no mesmo horário de expediente), em vez de só dias úteis.
+export function withWeekendWork(params: PlanningParams): PlanningParams {
+    return { ...params, workSaturday: true, workSunday: true };
+}
+
+// Em curso = rota publicada e ativa que já começou: tem alguma parada atendida (OS lançada
+// depois da criação da rota) ou a data de saída já chegou.
+export function isRouteInProgress(
+    route: { isActive?: boolean; isDraft?: boolean; isCanceled?: boolean; createdAt: Date | string; departureDate?: Date | string; stops: RouteStop[] },
+    serviceOrders: Array<{ serviceOrderNumber: string; date: Date }>,
+    now: Date = new Date()
+): boolean {
+    if (!route.isActive || route.isDraft || route.isCanceled) return false;
+    const createdAt = route.createdAt instanceof Date ? route.createdAt : new Date(route.createdAt);
+    const stopNumbers = new Set((route.stops || []).filter(s => !s.isReallocated).map(s => s.serviceOrder));
+    const anyAttended = serviceOrders.some(os => stopNumbers.has(os.serviceOrderNumber) && os.date.getTime() >= createdAt.getTime());
+    if (anyAttended) return true;
+    if (!route.departureDate) return false;
+    const dep = route.departureDate instanceof Date ? route.departureDate : new Date(route.departureDate);
+    const depDay = new Date(dep.getFullYear(), dep.getMonth(), dep.getDate()).getTime();
+    return depDay <= new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 }

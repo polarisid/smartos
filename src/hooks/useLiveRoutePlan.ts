@@ -9,6 +9,8 @@ import type { Route, RoutePoint, RouteStop, ServiceOrder } from "@/lib/data";
 import {
     DEFAULT_PLANNING_PARAMS,
     formatClock,
+    isRouteInProgress,
+    withWeekendWork,
     simulateRoutePlan,
     timeToMinutes,
     type RoutePlan,
@@ -33,12 +35,16 @@ export function useLiveRoutePlan(
     const { appUser, activeUnidadeId } = useAuth();
     const queryClient = useQueryClient();
 
-    const { data: params = DEFAULT_PLANNING_PARAMS } = useQuery({
+    const { data: baseParams = DEFAULT_PLANNING_PARAMS } = useQuery({
         queryKey: ["planning-params", appUser?.uid, activeUnidadeId],
         queryFn: () => configService.getPlanningParams(activeUnidadeId),
         enabled: !!appUser?.uid,
         staleTime: 5 * 60 * 1000,
     });
+
+    // Rota em curso: o técnico pode trabalhar sábado e domingo - vale pra previsão original e a atual.
+    const inProgress = useMemo(() => isRouteInProgress(route, serviceOrders), [route, serviceOrders]);
+    const params = useMemo(() => (inProgress ? withWeekendWork(baseParams) : baseParams), [inProgress, baseParams]);
 
     // Relógio a cada minuto (e, se pedido, recarrega as OS) - a previsão acompanha o técnico sozinha.
     const [now, setNow] = useState(() => new Date());

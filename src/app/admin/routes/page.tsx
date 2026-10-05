@@ -34,7 +34,7 @@ import { RouteLivePlan } from "@/components/routes/RouteLivePlan";
 import { RouteDelayBadge } from "@/components/routes/RouteDelayBadge";
 import { formatDuration as formatPlanDuration } from "@/lib/routePlanning";
 import { configService } from "@/services/supabase/configService";
-import { DEFAULT_PLANNING_PARAMS, type PlanningParams } from "@/lib/routePlanning";
+import { DEFAULT_PLANNING_PARAMS, isRouteInProgress, type PlanningParams } from "@/lib/routePlanning";
 import { tagStopsWithZipMismatch } from "@/lib/geocode";
 import { optimizeRouteStopsAsync } from "@/lib/routeOptimizer";
 import { fetchLegDistancesAndDurations, fetchDurationMatrixMin } from "@/lib/routeLegs";
@@ -1373,6 +1373,7 @@ function RouteForm({
                             onStartPointChange={setStartPoint}
                             onEndPointChange={setEndPoint}
                             params={planningParams}
+                            weekendWork={mode === 'edit' && !!initialData && isRouteInProgress(initialData, serviceOrders)}
                             onSaveParams={handleSavePlanningParams}
                             onStopsScheduleChange={(updates) =>
                                 applyStopChange(stops => stops.map(s => {
