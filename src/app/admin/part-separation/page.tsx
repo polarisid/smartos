@@ -16,6 +16,7 @@ import { type Route, type RouteStop, type RoutePart, type Technician, type Servi
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { Printer, Smartphone, Table as TableIcon, Activity, CheckCircle2, AlertCircle, FileBarChart2, Search, ChevronDown, PackageSearch, Save, FileDown, CheckCircle, ScanLine, Copy, Loader2, Route as RouteIcon, XCircle, Share2 } from "lucide-react";
 import { useServiceOrders } from "@/hooks/queries";
+import { buildPriorDispatchLookup, describePriorDispatches, type PriorDispatch } from "@/lib/partDispatchHistory";
 import { useAuth } from "@/context/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
@@ -36,7 +37,7 @@ const ScannerDialog = dynamic(
 );
 
 
-function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCodes, onTrackingCodeChange, onGeneratePdf, onOpenScanner, onShareLink, externalFilter, isHistory = false }: {
+function RouteList({ getPriorDispatches, routes, onSaveChanges, onSavePart, isSubmitting, trackingCodes, onTrackingCodeChange, onGeneratePdf, onOpenScanner, onShareLink, externalFilter, isHistory = false }: {
     routes: Route[],
     onSaveChanges?: (routeId: string) => void,
     onSavePart: (routeId: string, stopServiceOrder: string, part: RoutePart) => Promise<void>,
@@ -44,6 +45,7 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
     trackingCodes: Record<string, Record<string, Record<string, string>>>,
     onTrackingCodeChange: (routeId: string, stopServiceOrder: string, partCode: string, value: string) => void,
     onGeneratePdf: (route: Route) => void,
+    getPriorDispatches: (route: Route, serviceOrder: string, partCode: string) => PriorDispatch[],
     onOpenScanner: (target: { routeId: string, stopServiceOrder: string, partCode: string }) => void,
     onShareLink: (routeId: string, routeName: string) => void,
     externalFilter: string;
@@ -146,6 +148,20 @@ function RouteList({ routes, onSaveChanges, onSavePart, isSubmitting, trackingCo
                                                                             <Label className="text-xs sm:hidden">Peça:</Label>
                                                                             <p className="font-mono">{part.code}</p>
                                                                             <p className="text-xs text-muted-foreground">{part.description}</p>
+                                                                            {(() => {
+                                                                                const prior = describePriorDispatches(getPriorDispatches(route, stop.serviceOrder, part.code));
+                                                                                if (!prior) return null;
+                                                                                return (
+                                                                                    <p className={cn(
+                                                                                        "mt-1 inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold",
+                                                                                        prior.allUsed
+                                                                                            ? "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                                                                                            : "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                                                                                    )}>
+                                                                                        {prior.text}
+                                                                                    </p>
+                                                                                );
+                                                                            })()}
                                                                         </div>
                                                                         <div className="text-right">
                                                                             <Label className="text-xs sm:hidden">Qtd:</Label>
@@ -1063,9 +1079,12 @@ export default function PartSeparationPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [allRoutes, setAllRoutes] = useState<Route[]>([]);
+    // Todas as rotas (não só as dos últimos 30 dias): a peça pode ter saído numa rota mais antiga.
+    const [historyRoutes, setHistoryRoutes] = useState<Route[]>([]);
     const { data: serviceOrders = [], isLoading: isContextLoading } = useServiceOrders(2000);
     const [trackingCodes, setTrackingCodes] = useState<Record<string, Record<string, Record<string, string>>>>({}); // { routeId: { stopServiceOrder: { partCode: trackingCode } } }
     const [filterText, setFilterText] = useState("");
+    const getPriorDispatches = useMemo(() => buildPriorDispatchLookup(historyRoutes, serviceOrders), [historyRoutes, serviceOrders]);
     
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [scanTarget, setScanTarget] = useState<{ routeId: string, stopServiceOrder: string, partCode: string } | null>(null);
@@ -1077,6 +1096,7 @@ export default function PartSeparationPage() {
             const cutoff30Days = subDays(new Date(), 30);
             const recentRoutes = routesData.filter(r => r.createdAt >= cutoff30Days);
             setAllRoutes(recentRoutes);
+            setHistoryRoutes(routesData);
             
 
             const initialTrackingCodes: typeof trackingCodes = {};
@@ -1269,21 +1289,35 @@ export default function PartSeparationPage() {
 
         type Row = any[];
         const tableBody: Row[] = [];
+        let priorCount = 0;
 
         route.stops.forEach(stop => {
             if (stop.parts && stop.parts.length > 0) {
                 stop.parts.forEach((part, partIndex) => {
                     const trackingCode = trackingCodes[route.id]?.[stop.serviceOrder]?.[part.code] || part.trackingCode || "";
+                    // Peça que já saiu para esta mesma OS em outra rota: avisa na própria célula da
+                    // peça (vermelho = pode já estar separada; âmbar = saiu mas já foi usada).
+                    const prior = describePriorDispatches(getPriorDispatches(route, stop.serviceOrder, part.code));
+                    if (prior) priorCount++;
+                    // O código fica normal; a segunda linha é só espaço reservado - o selo (etiqueta
+                    // colorida) é desenhado ali por didDrawCell, pra separar bem código e aviso.
+                    const partCell: any = prior
+                        ? {
+                            content: `${part.code}\n `,
+                            badge: { text: prior.short, used: prior.allUsed },
+                            styles: { fillColor: prior.allUsed ? [255, 251, 235] : [254, 242, 242], textColor: [ink.r, ink.g, ink.b], fontStyle: 'bold' },
+                        }
+                        : part.code;
                     if (partIndex === 0) {
                         tableBody.push([
                             { content: stop.serviceOrder, rowSpan: stop.parts.length, styles: { valign: 'middle', fontStyle: 'bold' } },
                             { content: stop.model || '—', rowSpan: stop.parts.length, styles: { valign: 'middle' } },
-                            part.code,
+                            partCell,
                             { content: String(part.quantity), styles: { halign: 'center' } },
                             trackingCode || '—',
                         ]);
                     } else {
-                        tableBody.push([part.code, { content: String(part.quantity), styles: { halign: 'center' } }, trackingCode || '—']);
+                        tableBody.push([partCell, { content: String(part.quantity), styles: { halign: 'center' } }, trackingCode || '—']);
                     }
                 });
             }
@@ -1304,8 +1338,49 @@ export default function PartSeparationPage() {
                     3: { cellWidth: 14, halign: 'center' },
                     4: { cellWidth: 44 },
                 },
+                // Selo "JÁ SAIU dd/mm" abaixo do código + barra lateral colorida na célula.
+                didDrawCell: (data: any) => {
+                    const badge = data.section === 'body' ? data.cell.raw?.badge : null;
+                    if (!badge) return;
+                    const [r, g, b] = badge.used ? [217, 119, 6] : [185, 28, 28];
+                    // barra lateral
+                    doc.setFillColor(r, g, b);
+                    doc.rect(data.cell.x, data.cell.y, 1.4, data.cell.height, 'F');
+                    // selo
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(7);
+                    const padX = 1.8;
+                    const w = doc.getTextWidth(badge.text) + padX * 2;
+                    const h = 4.2;
+                    const x = data.cell.x + data.cell.padding('left') + 0.6;
+                    const lineH = (9 * 1.15) / doc.internal.scaleFactor * 1.0;
+                    const y = data.cell.y + data.cell.padding('top') + lineH + 0.9;
+                    doc.setFillColor(r, g, b);
+                    doc.roundedRect(x, y, w, h, 1, 1, 'F');
+                    doc.setTextColor(255, 255, 255);
+                    doc.text(badge.text, x + padX, y + 3);
+                    // devolve o estilo padrão das próximas células
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(9);
+                    doc.setTextColor(ink.r, ink.g, ink.b);
+                },
                 margin: { left: marginX, right: marginX, bottom: 18 },
             });
+
+            // Legenda das peças que já saíram antes (só quando há alguma).
+            if (priorCount > 0) {
+                const finalY = ((doc as any).lastAutoTable?.finalY ?? cursorY) + 6;
+                if (finalY < pageHeight - 24) {
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(8);
+                    doc.setTextColor(185, 28, 28);
+                    doc.text(`${priorCount} peça(s) já saíram para a mesma OS em outra rota:`, marginX, finalY);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(ink.r, ink.g, ink.b);
+                    doc.text('Vermelho = sem uso registrado (confira se já está separada antes de separar de novo).', marginX, finalY + 4.5);
+                    doc.text('Âmbar = saiu antes, mas já foi usada na visita (verificar o status dessa peça).', marginX, finalY + 9);
+                }
+            }
         } else {
             doc.setFontSize(11);
             doc.setTextColor(muted.r, muted.g, muted.b);
@@ -1413,6 +1488,7 @@ export default function PartSeparationPage() {
                                 trackingCodes={trackingCodes}
                                 onTrackingCodeChange={handleTrackingCodeChange}
                                 onGeneratePdf={handleGeneratePdf}
+                                getPriorDispatches={getPriorDispatches}
                                 onOpenScanner={handleOpenScanner}
                                 onShareLink={handleShareLink}
                                 externalFilter={filterText}
@@ -1426,6 +1502,7 @@ export default function PartSeparationPage() {
                                 trackingCodes={trackingCodes}
                                 onTrackingCodeChange={handleTrackingCodeChange}
                                 onGeneratePdf={handleGeneratePdf}
+                                getPriorDispatches={getPriorDispatches}
                                 onOpenScanner={handleOpenScanner}
                                 onShareLink={handleShareLink}
                                 externalFilter={filterText}
