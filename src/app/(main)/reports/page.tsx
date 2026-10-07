@@ -18,7 +18,7 @@ import { technicalReportService } from "@/services/supabase/technicalReportServi
 import type { ChecklistTemplate, TechnicalReport, TechnicalReportPhotoCategory, TechnicalReportType } from "@/lib/data";
 import { buildAndDownloadPdf } from "@/lib/technicalReportPdf";
 import { compressImageIfNeeded } from "@/lib/imageCompression";
-import { queueReport, flushQueue, type PendingReportPhoto } from "@/lib/offlineReportQueue";
+import { queueReport, flushQueue, sendReportDirectly, type PendingReportPhoto } from "@/lib/offlineReportQueue";
 import { isNetworkLikeError } from "@/lib/reportUploader";
 import { Camera, Loader2, Plus, Trash2, Download, Search, ScanLine, ClipboardList, Wrench, ClipboardCheck } from "lucide-react";
 
@@ -435,7 +435,18 @@ function ReportsPageInner() {
           : { category: p.category, order: p.order, file: p.file! }
       );
       // Primeiro garante que nada se perde: fica gravado no aparelho até o servidor confirmar.
-      await queueReport(basePayload, pendingPhotos, savedReportId || undefined);
+      // Se o aparelho não conseguir guardar (ex.: falha do banco local no Android), com internet
+      // envia direto - o técnico não perde o relatório por causa disso.
+      let sentDirectly = false;
+      try {
+        await queueReport(basePayload, pendingPhotos, savedReportId || undefined);
+      } catch (queueError: any) {
+        console.error("Falha ao guardar no aparelho, tentando enviar direto", queueError);
+        if (!navigator.onLine) throw queueError;
+        toast({ title: "Enviando direto...", description: "Não deu para guardar no aparelho; enviando o relatório agora." });
+        await sendReportDirectly(basePayload, pendingPhotos, savedReportId || undefined);
+        sentDirectly = true;
+      }
 
       // PDF na hora, com as fotos locais (blob) - não depende de rede.
       const localReport: TechnicalReport = {
@@ -463,9 +474,11 @@ function ReportsPageInner() {
       void flushQueue();
       toast({
         title: pdfFailed ? "Relatório guardado (PDF não gerado)" : "Relatório salvo e PDF baixado",
-        description: pdfFailed
-          ? "O envio segue em segundo plano - o PDF pode ser baixado depois em Meus Relatórios."
-          : "O envio segue em segundo plano - acompanhe no aviso no topo da tela. Depois ele aparece em Meus Relatórios.",
+        description: sentDirectly
+          ? "O relatório já foi enviado ao servidor."
+          : pdfFailed
+            ? "O envio segue em segundo plano - o PDF pode ser baixado depois em Meus Relatórios."
+            : "O envio segue em segundo plano - acompanhe no aviso no topo da tela. Depois ele aparece em Meus Relatórios.",
       });
     } catch (e: any) {
       console.error("Falha ao guardar o relatório", e);
