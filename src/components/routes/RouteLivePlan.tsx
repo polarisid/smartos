@@ -113,7 +113,7 @@ export function RouteLivePlan({ route, serviceOrders }: { route: Route; serviceO
                             <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/50 px-3 py-2 border-b">
                                 <p className="text-sm font-semibold capitalize">{dayLabel(day.date)}</p>
                                 <p className="text-xs text-muted-foreground">
-                                    {day.stopIndexes.length} OS · {formatClock(livePlan.stops[day.stopIndexes[0]].startMin)}–{formatClock(day.endMin)}
+                                    {day.stopIndexes.length > 0 ? <>{day.stopIndexes.length} OS · {formatClock(livePlan.stops[day.stopIndexes[0]].startMin)}–{formatClock(day.endMin)}</> : <>só viagem · {formatDuration(day.travelMin)} na estrada</>}
                                 </p>
                             </div>
                             <div className="p-1.5 space-y-1">
@@ -158,7 +158,7 @@ export function RouteLivePlan({ route, serviceOrders }: { route: Route; serviceO
                                 <div className={cn("flex items-center gap-2 px-3 py-2 border-t text-xs", livePlan.returnAfterHours ? "bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300" : "bg-muted/30 text-muted-foreground")}>
                                     {livePlan.returnAfterHours ? <AlertTriangle className="h-4 w-4 shrink-0" /> : <Truck className="h-4 w-4 shrink-0" />}
                                     <span>
-                                        Retorno {route.endPoint ? "ao ponto de chegada" : "à base"}: {formatDuration(livePlan.returnTravelMin)} — chega por volta das <strong>{formatClock(livePlan.returnArriveMin)}</strong>
+                                        Retorno {route.endPoint ? "ao ponto de chegada" : "à base"}: {formatDuration(livePlan.returnTravelMin)} — chega {livePlan.returnNights > 0 ? <strong>{format(livePlan.returnDate, "dd/MM")} </strong> : null}por volta das <strong>{formatClock(livePlan.returnArriveMin)}</strong>{livePlan.returnNights > 0 ? " (dorme na estrada na volta)" : ""}
                                     </span>
                                 </div>
                             )}

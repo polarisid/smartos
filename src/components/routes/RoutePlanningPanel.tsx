@@ -45,6 +45,8 @@ type Props = {
     onStopMinutesChange: (serviceOrder: string, minutes: number | undefined) => void;
     // Muda data da visita ("dd/mm/aaaa") e/ou turno ("M" | "T" | "C") de uma ou mais paradas.
     onStopsScheduleChange: (updates: Array<{ serviceOrder: string; firstVisitDate?: string; turn?: string; etaStart?: string }>) => void;
+    arrivalDate?: Date;                 // data de chegada cadastrada na rota
+    onArrivalDateChange?: (d: Date) => void;
     departureTime: string;              // hora de saída do 1º dia ("" = início do expediente)
     onDepartureTimeChange: (t: string) => void;
     // Matriz de minutos entre saída, paradas e chegada (ver fetchDurationMatrixMin) e aplicação da ordem sugerida.
@@ -57,7 +59,7 @@ const SOURCE_LABEL = { manual: "manual", product: "do produto", default: "padrã
 export function RoutePlanningPanel({
     stops, legKm, legDurationMin, legsLoading, startDate, startPoint, endPoint,
     onStartPointChange, onEndPointChange, params: rawParams, weekendWork, onSaveParams, onStopMinutesChange,
-    onStopsScheduleChange, departureTime, onDepartureTimeChange, fetchMatrix, onApplyOrder,
+    onStopsScheduleChange, arrivalDate, onArrivalDateChange, departureTime, onDepartureTimeChange, fetchMatrix, onApplyOrder,
 }: Props) {
     const { toast } = useToast();
     const [startText, setStartText] = useState("");
@@ -222,6 +224,26 @@ export function RoutePlanningPanel({
                 ))}
             </div>
 
+            {/* Data de chegada da rota x fim previsto pelo planejamento */}
+            {onArrivalDateChange && (() => {
+                const endDay = new Date(plan.returnDate.getFullYear(), plan.returnDate.getMonth(), plan.returnDate.getDate());
+                const regDay = arrivalDate ? new Date(arrivalDate.getFullYear(), arrivalDate.getMonth(), arrivalDate.getDate()) : null;
+                if (regDay && regDay.getTime() >= endDay.getTime()) return null;
+                return (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-3 py-2">
+                        <p className="text-xs text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                            {regDay
+                                ? <>A data de chegada da rota (<strong>{format(regDay, "dd/MM")}</strong>) é anterior ao fim previsto pelo planejamento (<strong>{format(endDay, "dd/MM")}</strong>).</>
+                                : <>A rota está sem data de chegada; o planejamento termina em <strong>{format(endDay, "dd/MM")}</strong>.</>}
+                        </p>
+                        <Button type="button" size="sm" className="h-7 text-xs" onClick={() => { onArrivalDateChange(endDay); toast({ title: "Data de chegada ajustada", description: `Agora é ${format(endDay, "dd/MM/yyyy")}. Salve a rota para gravar.` }); }}>
+                            Ajustar para {format(endDay, "dd/MM")}
+                        </Button>
+                    </div>
+                );
+            })()}
+
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
                 <p className="text-xs text-muted-foreground">
                     {misalignedCount === 0
@@ -304,7 +326,9 @@ export function RoutePlanningPanel({
                             Dia {day.dayIndex + 1} · {dayLabel(day.date)}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                            {day.stopIndexes.length} OS · {formatClock(plan.stops[day.stopIndexes[0]].startMin)}–{formatClock(day.endMin)} · {formatDuration(day.travelMin)} na estrada · {formatDuration(day.serviceMin)} de atendimento
+                            {day.stopIndexes.length > 0
+                                ? <>{day.stopIndexes.length} OS · {formatClock(plan.stops[day.stopIndexes[0]].startMin)}–{formatClock(day.endMin)} · {formatDuration(day.travelMin)} na estrada · {formatDuration(day.serviceMin)} de atendimento</>
+                                : <>só viagem · {formatDuration(day.travelMin)} na estrada</>}
                         </p>
                     </div>
 
@@ -330,6 +354,7 @@ export function RoutePlanningPanel({
                                             )}
                                             {k === 0 && si === 0 && <span className="text-muted-foreground">desde {startPoint ? "a saída" : "a base"}</span>}
                                             {p.droveTonight && <span className="text-indigo-600 dark:text-indigo-400">viaja na noite anterior</span>}
+                                {p.roadSleep && <span className="text-indigo-600 dark:text-indigo-400">dormiu na estrada, termina o trajeto de manhã</span>}
                                             {p.afterLunch && <span className="text-muted-foreground">· almoço antes</span>}
                                         </div>
                                     )}
@@ -462,8 +487,8 @@ export function RoutePlanningPanel({
                         )}>
                             <Truck className="h-4 w-4 shrink-0" />
                             <span>
-                                Retorno {endPoint ? "ao ponto de chegada" : "à base"}: {formatDuration(plan.returnTravelMin)} de viagem — chega por volta das <strong>{formatClock(plan.returnArriveMin)}</strong>
-                                {plan.returnAfterHours ? " (depois das " + params.travelUntil + ", o ideal é dormir na estrada/cidade e chegar no dia seguinte)" : ""}.
+                                Retorno {endPoint ? "ao ponto de chegada" : "à base"}: {formatDuration(plan.returnTravelMin)} de viagem — chega {plan.returnNights > 0 ? <strong>{format(plan.returnDate, "dd/MM")} </strong> : null}por volta das <strong>{formatClock(plan.returnArriveMin)}</strong>
+                                {plan.returnNights > 0 ? " (dorme na estrada na volta)" : plan.returnAfterHours ? " (depois do fim do expediente)" : ""}.
                             </span>
                         </div>
                     )}

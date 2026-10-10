@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { routeService, RouteConflictError } from "@/services/supabase/routeService";
 import { useRoutePresence } from "@/hooks/useRoutePresence";
+import { mergeStops, mergeRouteFields, sameValue } from "@/lib/routeMerge";
 import { driverService } from "@/services/supabase/driverService";
 import { useToast } from "@/hooks/use-toast";
 import { useTechnicians, useServiceOrders } from "@/hooks/queries";
@@ -31,6 +32,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart, type Driver, type RoutePoint } from "@/lib/data";
 import { RoutePlanningPanel } from "@/components/routes/RoutePlanningPanel";
 import { RouteLivePlan } from "@/components/routes/RouteLivePlan";
+import { RouteHistory } from "@/components/routes/RouteHistory";
 import { RouteDelayBadge } from "@/components/routes/RouteDelayBadge";
 import { formatDuration as formatPlanDuration } from "@/lib/routePlanning";
 import { configService } from "@/services/supabase/configService";
@@ -259,6 +261,22 @@ function reconstructRouteText(stops: RouteStop[]): string {
 
 
 
+// Campos simples da rota num formato comparável (usado na mescla de edição simultânea).
+type RouteScalarFields = {
+    name: string; departureDate: string | null; arrivalDate: string | null;
+    routeType: string | null; licensePlate: string; technicianId: string | null; driverId: string;
+};
+const iso = (d?: Date | string | null) => (d ? new Date(d).toISOString() : null);
+const scalarFieldsFromRoute = (r: Route): RouteScalarFields => ({
+    name: r.name || "",
+    departureDate: iso(r.departureDate),
+    arrivalDate: iso(r.arrivalDate),
+    routeType: r.routeType ?? null,
+    licensePlate: r.licensePlate || "",
+    technicianId: r.technicianId || null,
+    driverId: r.driverId || "none",
+});
+
 function RouteForm({
     mode,
     isActive,
@@ -298,7 +316,14 @@ function RouteForm({
     // Edição simultânea: carimbo da rota como foi aberta + quem mais está com ela aberta.
     const knownUpdatedAtRef = useRef<string | null>(null);
     const autosaveChainRef = useRef<Promise<unknown>>(Promise.resolve());
+    const autosavePendingRef = useRef(0);
+    // Como a rota estava na última sincronização com o banco (base da mescla de 3 vias).
+    const baseStopsRef = useRef<RouteStop[]>([]);
+    const baseFieldsRef = useRef<RouteScalarFields | null>(null);
+    const parsedStopsRef = useRef<RouteStop[]>([]);
+    const mergeLatestRef = useRef<(latest: Route) => { changed: boolean; conflicts: number }>(() => ({ changed: false, conflicts: 0 }));
     const [conflict, setConflict] = useState<{ retry: () => Promise<void> } | null>(null);
+    const [historyOpen, setHistoryOpen] = useState(false);
     const otherEditors = useRoutePresence(mode === 'edit' && isActive && initialData?.id && initialData.id !== 'draft' ? initialData.id : null, appUser ? { uid: appUser.uid, name: appUser.name } : null);
     const [startPoint, setStartPoint] = useState<RoutePoint | null>(null);
     const [endPoint, setEndPoint] = useState<RoutePoint | null>(null);
@@ -482,6 +507,9 @@ function RouteForm({
                 setTechnicianId(initialData.technicianId || "");
                 setDriverId(initialData.driverId || "none");
                 knownUpdatedAtRef.current = initialData.updatedAt || null;
+                // Mesma normalização que a tela aplica às paradas (senão pareceria "alteração minha").
+                baseStopsRef.current = (initialData.stops || []).map(s => ({ ...s, stopType: s.stopType || "padrao" }));
+                baseFieldsRef.current = scalarFieldsFromRoute(initialData);
                 setStartPoint(initialData.startPoint || null);
                 setEndPoint(initialData.endPoint || null);
                 setPlanningDepartureTime(initialData.departureTime || "");
@@ -1045,6 +1073,23 @@ function RouteForm({
             onRouteSaved();
         } catch (error) {
             if (error instanceof RouteConflictError) {
+                // Alguém salvou a rota depois que você abriu: traz as mudanças dela pra tela, mescladas
+                // com as suas, e pede pra conferir e salvar de novo (nada é sobrescrito sem você ver).
+                try {
+                    const latest = initialData ? await routeService.getById(initialData.id) : null;
+                    if (latest) {
+                        const res = mergeLatestIntoForm(latest);
+                        toast({
+                            title: "Esta rota foi alterada por outra pessoa",
+                            description: res.conflicts > 0
+                                ? "Trouxe as mudanças dela para a tela, mescladas com as suas (em campos que vocês dois alteraram ficou o seu valor). Confira e clique em Salvar de novo."
+                                : "Trouxe as mudanças dela para a tela, junto com as suas. Confira e clique em Salvar de novo.",
+                        });
+                        return;
+                    }
+                } catch (mergeError) {
+                    console.error("Mescla falhou:", mergeError);
+                }
                 setConflict({ retry: () => handleSave(publish, newAsDraft, true) });
                 return;
             }
@@ -1059,22 +1104,121 @@ function RouteForm({
     // updated_at de uma gravação valer na seguinte; se outra pessoa alterou a rota, pergunta.
     const persistStops = (next: RouteStop[], force: boolean): Promise<unknown> => {
         const id = initialData!.id;
+        autosavePendingRef.current++;
         autosaveChainRef.current = autosaveChainRef.current.then(async () => {
             try {
                 const ts = await routeService.update(id, { stops: next }, { expectedUpdatedAt: force ? null : knownUpdatedAtRef.current });
                 if (ts) knownUpdatedAtRef.current = ts;
                 else if (force) knownUpdatedAtRef.current = (await routeService.getById(id))?.updatedAt || null;
+                baseStopsRef.current = next;
             } catch (e) {
                 if (e instanceof RouteConflictError) {
+                    // Outra pessoa (ou o técnico) alterou a rota: em vez de perguntar, traz as mudanças dela,
+                    // mescla com a minha alteração (campo a campo) e grava o resultado.
+                    try {
+                        const latest = await routeService.getById(id);
+                        if (latest) {
+                            const { stops: merged, conflicts } = mergeStops(baseStopsRef.current, next, latest.stops || []);
+                            const ts = await routeService.update(id, { stops: merged }, { expectedUpdatedAt: latest.updatedAt || null });
+                            if (ts) knownUpdatedAtRef.current = ts;
+                            baseStopsRef.current = merged;
+                            parsedStopsRef.current = merged;
+                            setParsedStops(merged);
+                            toast({
+                                title: "Rota atualizada com mudanças de outra pessoa",
+                                description: conflicts > 0
+                                    ? `Suas alterações foram salvas. ${conflicts} campo(s) foram alterados por vocês dois ao mesmo tempo e ficou o valor que você acabou de colocar.`
+                                    : "Suas alterações foram salvas junto com as dela. Nada foi perdido.",
+                            });
+                            return;
+                        }
+                    } catch (e2) {
+                        if (!(e2 instanceof RouteConflictError)) {
+                            console.error("Mescla automática falhou:", e2);
+                            toast({ variant: "destructive", title: "Não salvou", description: "Falha ao salvar a alteração. Tente de novo." });
+                            return;
+                        }
+                    }
+                    // Alguém salvou de novo no meio da mescla: aí pergunta.
                     setConflict({ retry: async () => { await persistStops(next, true); } });
                     return;
                 }
                 console.error("Auto-save de confirmação falhou:", e);
                 toast({ variant: "destructive", title: "Não salvou", description: "Falha ao salvar a confirmação. Clique novamente." });
+            } finally {
+                autosavePendingRef.current--;
             }
         });
         return autosaveChainRef.current;
     };
+
+    // Traz para a tela o que outra pessoa alterou (versão mais recente do banco), mesclando com o que
+    // eu já mexi e ainda não salvei: o que ela mudou e eu não, entra; o que eu mudei, fica.
+    const mergeLatestIntoForm = (latest: Route): { changed: boolean; conflicts: number } => {
+        const mineFields: RouteScalarFields = {
+            name: routeName,
+            departureDate: iso(departureDate),
+            arrivalDate: iso(arrivalDate),
+            routeType: routeType ?? null,
+            licensePlate,
+            technicianId: technicianId || null,
+            driverId: driverId || "none",
+        };
+        const theirsFields = scalarFieldsFromRoute(latest);
+        const fieldRes = mergeRouteFields(baseFieldsRef.current || theirsFields, mineFields, theirsFields);
+        const stopRes = mergeStops(baseStopsRef.current, parsedStopsRef.current, latest.stops || []);
+
+        let changed = false;
+        const f = fieldRes.fields;
+        if (f.name !== mineFields.name) { setRouteName(f.name); changed = true; }
+        if (f.departureDate !== mineFields.departureDate) { setDepartureDate(f.departureDate ? new Date(f.departureDate) : undefined); changed = true; }
+        if (f.arrivalDate !== mineFields.arrivalDate) { setArrivalDate(f.arrivalDate ? new Date(f.arrivalDate) : undefined); changed = true; }
+        if (f.routeType !== mineFields.routeType) { setRouteType((f.routeType as 'capital' | 'interior' | null) ?? undefined); changed = true; }
+        if (f.licensePlate !== mineFields.licensePlate) { setLicensePlate(f.licensePlate); changed = true; }
+        if (f.technicianId !== mineFields.technicianId) { setTechnicianId(f.technicianId || undefined); changed = true; }
+        if (f.driverId !== mineFields.driverId) { setDriverId(f.driverId); changed = true; }
+        if (!sameValue(stopRes.stops, parsedStopsRef.current)) {
+            parsedStopsRef.current = stopRes.stops;
+            setParsedStops(stopRes.stops);
+            setRouteText(reconstructRouteText(stopRes.stops));
+            changed = true;
+        }
+
+        baseStopsRef.current = latest.stops || [];
+        baseFieldsRef.current = theirsFields;
+        knownUpdatedAtRef.current = latest.updatedAt || null;
+        return { changed, conflicts: fieldRes.conflicts + stopRes.conflicts };
+    };
+    mergeLatestRef.current = mergeLatestIntoForm;
+    parsedStopsRef.current = parsedStops;
+
+    // Enquanto a rota está aberta para edição, confere a cada 20s se alguém mexeu e traz as
+    // mudanças pra tela (sem perder o que estou digitando) - não precisa fechar e reabrir.
+    useEffect(() => {
+        if (mode !== 'edit' || !isActive || !initialData?.id || initialData.id === 'draft') return;
+        const id = initialData.id;
+        let cancelled = false;
+        const tick = async () => {
+            if (cancelled || document.hidden || autosavePendingRef.current > 0) return;
+            try {
+                const latest = await routeService.getById(id);
+                if (cancelled || !latest?.updatedAt || autosavePendingRef.current > 0) return;
+                if (latest.updatedAt === knownUpdatedAtRef.current) return;
+                const res = mergeLatestRef.current(latest);
+                if (res.changed) {
+                    toast({
+                        title: "Esta rota foi atualizada por outra pessoa",
+                        description: res.conflicts > 0
+                            ? "As mudanças dela foram trazidas para a tela. Em alguns campos vocês dois mexeram: ficou o seu valor."
+                            : "As mudanças dela foram trazidas para a tela e as suas foram mantidas.",
+                    });
+                }
+            } catch { /* sem sinal: tenta de novo no próximo ciclo */ }
+        };
+        const timer = setInterval(tick, 20000);
+        return () => { cancelled = true; clearInterval(timer); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mode, isActive, initialData?.id]);
 
     // Aplica uma alteração nas paradas e, em rota já existente (edição),
     // persiste na hora — sem precisar clicar em "Salvar Rota".
@@ -1110,6 +1254,13 @@ function RouteForm({
                 </div>
             )}
             <CardHeader>
+                {mode === 'edit' && initialData?.id && initialData.id !== 'draft' && (
+                    <div className="flex justify-end -mb-6">
+                        <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setHistoryOpen(true)}>
+                            <History className="h-3.5 w-3.5" /> Histórico
+                        </Button>
+                    </div>
+                )}
                 <CardTitle>{mode === 'add' ? 'Adicionar Nova Rota' : isDraftEdit ? 'Editar Rascunho' : 'Editar Rota'}</CardTitle>
                 <CardDescription>
                     {isDraftEdit
@@ -1389,6 +1540,8 @@ function RouteForm({
                             }
                             fetchMatrix={() => fetchDurationMatrixMin(activeStops, 'Aracaju', activeUnidadeId, routeEndpoints)}
                             onApplyOrder={handleApplyPlanOrder}
+                            arrivalDate={arrivalDate}
+                            onArrivalDateChange={setArrivalDate}
                             departureTime={planningDepartureTime}
                             onDepartureTimeChange={setPlanningDepartureTime}
                             onStopMinutesChange={(so, minutes) =>
@@ -2033,6 +2186,16 @@ function RouteForm({
                 )}
             </CardFooter>
         </Card>
+
+        <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+            <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                    <DialogTitle>Histórico de alterações — {routeName || "rota"}</DialogTitle>
+                    <DialogDescription>Quem mudou o quê e quando (inclui o que o técnico faz pelo celular).</DialogDescription>
+                </DialogHeader>
+                {historyOpen && initialData?.id && <RouteHistory routeId={initialData.id} />}
+            </DialogContent>
+        </Dialog>
 
         <AlertDialog open={!!conflict} onOpenChange={(o) => { if (!o) setConflict(null); }}>
             <AlertDialogContent>
@@ -3128,7 +3291,7 @@ ${rowsXml}  </Table>
 
                     {/* Tab Navigation between List and Map */}
                     <Tabs defaultValue="list" className="w-full">
-                        <TabsList className="grid w-full max-w-[600px] grid-cols-3">
+                        <TabsList className="grid w-full max-w-[760px] grid-cols-4">
                             <TabsTrigger value="list" className="flex items-center gap-2">
                                 <List className="w-4 h-4" /> Lista de Paradas
                             </TabsTrigger>
@@ -3138,6 +3301,9 @@ ${rowsXml}  </Table>
                             <TabsTrigger value="plan" className="flex items-center gap-2">
                                 <Clock className="w-4 h-4" /> Planejamento
                                 <span className="rounded-full bg-emerald-500 text-white text-[9px] font-bold uppercase px-1.5 py-px leading-none">Novo!</span>
+                            </TabsTrigger>
+                            <TabsTrigger value="history" className="flex items-center gap-2">
+                                <History className="w-4 h-4" /> Histórico
                             </TabsTrigger>
                         </TabsList>
                         
@@ -3174,6 +3340,10 @@ ${rowsXml}  </Table>
                                     activeStops={activeStopsForMap}
                                 />
                             )}
+                        </TabsContent>
+
+                        <TabsContent value="history" className="max-h-[55vh] overflow-y-auto rounded-xl border mt-2 p-2">
+                            {selectedRoute && isViewDialogOpen && <RouteHistory routeId={selectedRoute.id} />}
                         </TabsContent>
 
                         <TabsContent value="plan" className="max-h-[55vh] overflow-y-auto rounded-xl border mt-2 p-2">

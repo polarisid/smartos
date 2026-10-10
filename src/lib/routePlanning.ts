@@ -100,6 +100,7 @@ export type PlannedStop = {
     turn: "Manhã" | "Tarde";
     afterLunch: boolean;      // almoço entrou antes deste atendimento
     droveTonight: boolean;    // o deslocamento até aqui foi feito na noite anterior
+    roadSleep: boolean;       // viagem longa: dormiu na estrada e terminou o trajeto de manhã
 };
 
 export type PlannedDay = {
@@ -118,7 +119,9 @@ export type RoutePlan = {
     stops: PlannedStop[];
     days: PlannedDay[];
     returnTravelMin: number;
-    returnArriveMin: number;  // chegada de volta ao ponto final (no último dia)
+    returnArriveMin: number;  // hora da chegada de volta ao ponto final
+    returnDate: Date;         // dia dessa chegada (depois do último atendimento se dormir na estrada)
+    returnNights: number;     // noites na estrada na volta
     returnAfterHours: boolean;
     totalTravelMin: number;
     totalServiceMin: number;
@@ -191,44 +194,71 @@ export function simulateRoutePlan(
         const travel = Math.max(0, legMin[i] ?? 0);
         const { minutes: serviceMin, source } = resolveServiceMinutes(stop, params);
 
-        let arrival = t + travel;
         let lunchBefore = false;
         let droveTonight = false;
+        let roadSleep = false;
+        let remainingTravel = travel;
         const withLunch = (a: number) => {
             if (!lunchTaken && a >= lunchStart) {
                 return { a: a + lunchMin, lunch: true };
             }
             return { a, lunch: false };
         };
+
+        // 1) Viagem longa que passaria do limite de direção: anda até o limite, dorme na estrada
+        //    e segue na manhã seguinte (repete se ainda faltar). Nunca marca atendimento fora do horário.
+        //    Só para trechos longos (> 3h): trecho curto que passa do limite cai na regra abaixo
+        //    (dorme onde terminou e faz o trajeto de manhã).
+        while (remainingTravel > 180 && t + remainingTravel > travelUntil) {
+            const room = travelUntil - t;
+            // Sobrando menos de 1h30 de direção, não vale começar: dorme onde está.
+            const drive = room >= 90 ? room : 0;
+            remainingTravel -= drive;
+            currentDay.travelMin += drive;
+            if (drive > 0) {
+                currentDay.sleepCity = `na estrada, a caminho de ${cityLabel(stop)}`;
+                currentDay.sleepNote = `a viagem (${formatDuration(travel)}) passa das ${formatClock(travelUntil)}: continua na manhã seguinte`;
+                roadSleep = true;
+            } else {
+                currentDay.sleepCity = i > 0 ? cityLabel(stops[i - 1]) : "a base";
+                currentDay.sleepNote = `a viagem (${formatDuration(travel)}) começaria tarde demais: sai de manhã`;
+            }
+            startNextDay();
+        }
+
+        let arrival = t + remainingTravel;
         let { a: start, lunch } = withLunch(arrival);
 
-        const isFirstOfDay = currentDay.stopIndexes.length === 0;
-        if (!isFirstOfDay && start + serviceMin > dayEnd) {
-            const prev = stops[i - 1];
-            const differentCity = cityKey(stop) !== cityKey(prev) && travel > 0;
+        // Manhã recém-iniciada: aceita mesmo que estoure o fim do expediente (evita laço infinito
+        // com atendimento maior que o dia). Nos demais casos, o que não cabe até o fim vai pro dia seguinte.
+        const freshMorning = currentDay.stopIndexes.length === 0 && t === dayStart;
+        if (!freshMorning && start + serviceMin > dayEnd) {
+            const prevLabel = i > 0 ? cityLabel(stops[i - 1]) : "a base";
+            const differentCity = (i === 0 || cityKey(stop) !== cityKey(stops[i - 1])) && remainingTravel > 0;
             const driveTonight = differentCity && arrival <= travelUntil;
             if (driveTonight) {
                 currentDay.sleepCity = cityLabel(stop);
-                currentDay.sleepNote = `segue viagem (${formatDuration(travel)}), chega por volta das ${formatClock(arrival)} e atende no dia seguinte`;
-                currentDay.travelMin += travel;
+                currentDay.sleepNote = `segue viagem (${formatDuration(remainingTravel)}), chega por volta das ${formatClock(arrival)} e atende no dia seguinte`;
+                currentDay.travelMin += remainingTravel;
                 droveTonight = true;
+                remainingTravel = 0;
                 startNextDay();
                 arrival = dayStart;
             } else {
-                currentDay.sleepCity = cityLabel(prev);
+                currentDay.sleepCity = prevLabel;
                 currentDay.sleepNote = differentCity
-                    ? `a viagem até a próxima parada (${formatDuration(travel)}) só terminaria às ${formatClock(arrival)}, depois das ${formatClock(travelUntil)}`
+                    ? `a viagem até a próxima parada (${formatDuration(remainingTravel)}) só terminaria às ${formatClock(arrival)}, depois das ${formatClock(travelUntil)}`
                     : "a próxima OS não cabe no fim do expediente";
                 startNextDay();
-                arrival = dayStart + travel;
+                arrival = dayStart + remainingTravel;
             }
             ({ a: start, lunch } = withLunch(arrival));
         }
         if (lunch) { lunchTaken = true; lunchBefore = true; }
 
         const end = start + serviceMin;
-        // Viajou à noite: o deslocamento já foi contado no dia anterior.
-        const countedTravel = droveTonight ? 0 : travel;
+        // Parte da viagem feita na noite anterior já foi contada naquele dia.
+        const countedTravel = remainingTravel;
         planned.push({
             index: i,
             dayIndex,
@@ -241,6 +271,7 @@ export function simulateRoutePlan(
             turn: start < lunchStart ? "Manhã" : "Tarde",
             afterLunch: lunchBefore,
             droveTonight,
+            roadSleep,
         });
         currentDay.stopIndexes.push(i);
         currentDay.endMin = end;
@@ -249,15 +280,35 @@ export function simulateRoutePlan(
         t = end;
     });
 
+    // Retorno: mesma regra da viagem longa - se passa do limite de direção, dorme na estrada e chega no dia seguinte.
     const returnTravelMin = stops.length > 0 ? Math.max(0, legMin[stops.length] ?? 0) : 0;
-    const returnArriveMin = t + returnTravelMin;
+    let returnRemaining = returnTravelMin;
+    let returnNights = 0;
+    while (stops.length > 0 && returnRemaining > 180 && t + returnRemaining > travelUntil) {
+        const room = travelUntil - t;
+        const drive = room >= 90 ? room : 0;
+        returnRemaining -= drive;
+        currentDay.travelMin += drive;
+        currentDay.sleepCity = drive > 0 ? "na estrada, voltando" : cityLabel(stops[stops.length - 1]);
+        currentDay.sleepNote = drive > 0
+            ? `a volta (${formatDuration(returnTravelMin)}) passa das ${formatClock(travelUntil)}: continua na manhã seguinte`
+            : `a volta (${formatDuration(returnTravelMin)}) começaria tarde demais: sai de manhã`;
+        returnNights++;
+        startNextDay();
+    }
+    const returnArriveMin = t + returnRemaining;
+    const returnDate = date;
+    if (stops.length > 0) currentDay.travelMin += returnRemaining;
 
     return {
         stops: planned,
-        days: days.filter(d => d.stopIndexes.length > 0),
+        // Dia só de viagem (dormiu na estrada, volta no dia seguinte) também aparece.
+        days: days.filter(d => d.stopIndexes.length > 0 || d.travelMin > 0),
         returnTravelMin,
         returnArriveMin,
-        returnAfterHours: stops.length > 0 && returnArriveMin > travelUntil,
+        returnDate,
+        returnNights,
+        returnAfterHours: stops.length > 0 && returnArriveMin > dayEnd,
         totalTravelMin: planned.reduce((a, p) => a + p.travelMin, 0) + returnTravelMin,
         totalServiceMin: planned.reduce((a, p) => a + p.serviceMin, 0),
     };
