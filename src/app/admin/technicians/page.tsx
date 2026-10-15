@@ -51,7 +51,8 @@ export default function TechniciansPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { toast } = useToast();
-  const { activeUnidadeId } = useAuth();
+  const { activeUnidadeId, appUser } = useAuth();
+  const isMaster = appUser?.role === 'master';
 
   const fetchData = async () => {
       setIsLoading(true);
@@ -152,6 +153,11 @@ export default function TechniciansPage() {
       return;
     }
     
+    if (formMode === 'add' && isMaster && !activeUnidadeId) {
+      toast({ variant: "destructive", title: "Selecione uma unidade", description: "Escolha uma unidade no seletor no topo antes de cadastrar o técnico." });
+      return;
+    }
+    
     setIsSubmitting(true);
     try {
       if (formMode === 'add') {
@@ -162,9 +168,9 @@ export default function TechniciansPage() {
         };
 
         if (formData.userId && formData.userId !== 'none') {
-          await technicianService.create(newTechData as Omit<Technician, 'id'>, formData.userId);
+          await technicianService.create(newTechData as Omit<Technician, 'id'>, formData.userId, activeUnidadeId);
         } else {
-          await technicianService.create(newTechData as Omit<Technician, 'id'>);
+          await technicianService.create(newTechData as Omit<Technician, 'id'>, undefined, activeUnidadeId);
         }
         toast({ title: "Técnico Cadastrado!", description: `O técnico ${newTechData.name} foi adicionado com sucesso.` });
 

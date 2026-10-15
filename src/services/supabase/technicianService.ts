@@ -25,8 +25,9 @@ export const technicianService = {
     return data as Technician;
   },
 
-  async create(data: Omit<Technician, 'id'>, id?: string): Promise<string> {
-    const payload = id ? { id, ...data } : data;
+  async create(data: Omit<Technician, 'id'>, id?: string, unidadeId?: string | null): Promise<string> {
+    const base = id ? { id, ...data } : data;
+    const payload = unidadeId ? { ...base, unidade_id: unidadeId } : base;
     const { data: newDoc, error } = await supabase
       .from('technicians')
       .insert(payload)

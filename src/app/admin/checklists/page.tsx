@@ -235,7 +235,7 @@ export default function ChecklistsPage() {
                             pdfUrl: "/checklists/carta_troca.pdf",
                             type: "field",
                             fields: []
-                        });
+                        }, activeUnidadeId);
                         data.unshift({
                             id: newDocId,
                             name: "Carta Troca",
@@ -299,7 +299,7 @@ export default function ChecklistsPage() {
                     category,
                     fields: []
                 };
-                const newDocId = await checklistService.create(docData as Omit<ChecklistTemplate, 'id'>);
+                const newDocId = await checklistService.create(docData as Omit<ChecklistTemplate, 'id'>, activeUnidadeId);
 
                 setTemplates(prev => [...prev, { id: newDocId, ...docData }]);
                 toast({ title: "Modelo salvo com sucesso!", description: "O novo modelo de checklist foi adicionado."});
@@ -347,7 +347,7 @@ export default function ChecklistsPage() {
                 type: template.type || 'field',
                 category: template.category,
             };
-            const newDocId = await checklistService.create(docData as Omit<ChecklistTemplate, 'id'>);
+            const newDocId = await checklistService.create(docData as Omit<ChecklistTemplate, 'id'>, activeUnidadeId);
             setTemplates(prev => [...prev, { id: newDocId, ...docData }]);
             toast({ title: "Modelo duplicado com sucesso!" });
         } catch (error) {

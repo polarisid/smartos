@@ -40,7 +40,8 @@ export default function DriversPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { toast } = useToast();
-  const { activeUnidadeId } = useAuth();
+  const { activeUnidadeId, appUser } = useAuth();
+  const isMaster = appUser?.role === 'master';
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -77,10 +78,15 @@ export default function DriversPage() {
       return;
     }
     
+    if (formMode === 'add' && isMaster && !activeUnidadeId) {
+      toast({ variant: "destructive", title: "Selecione uma unidade", description: "Escolha uma unidade no seletor no topo antes de cadastrar o motorista." });
+      return;
+    }
+    
     setIsSubmitting(true);
     try {
       if (formMode === 'add') {
-        await driverService.create(formData);
+        await driverService.create(formData, activeUnidadeId);
         toast({ title: "Motorista Cadastrado!" });
       } else if (selectedDriver) {
         await driverService.update(selectedDriver.id, formData);

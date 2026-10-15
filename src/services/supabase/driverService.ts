@@ -25,10 +25,12 @@ export const driverService = {
     return data as Driver;
   },
 
-  async create(data: Omit<Driver, 'id'>): Promise<string> {
+  // unidadeId: obrigatório na prática pro master (sem unidade própria, o gatilho do banco não preenche
+  // e o motorista ficaria sem unidade - sumindo da lista da unidade escolhida).
+  async create(data: Omit<Driver, 'id'>, unidadeId?: string | null): Promise<string> {
     const { data: newDoc, error } = await supabase
       .from('drivers')
-      .insert(data)
+      .insert((unidadeId ? { ...data, unidade_id: unidadeId } : data) as any)
       .select()
       .single();
 

@@ -13,8 +13,9 @@ export const checklistService = {
     if (error) { if (error.code === 'PGRST116') return null; throw error; }
     return this.mapFromDb(data);
   },
-  async create(data: any): Promise<string> {
-    const { data: newDoc, error } = await supabase.from('checklists').insert(this.mapToDb(data)).select().single();
+  async create(data: any, unidadeId?: string | null): Promise<string> {
+    const dbData = this.mapToDb(data);
+    const { data: newDoc, error } = await supabase.from('checklists').insert(unidadeId ? { ...dbData, unidade_id: unidadeId } : dbData).select().single();
     if (error) throw error;
     return newDoc.id;
   },
