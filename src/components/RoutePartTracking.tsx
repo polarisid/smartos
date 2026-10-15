@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { type Route } from "@/lib/data";
 import { routeService } from "@/services/supabase/routeService";
+import { entriesFromCodes, mergeServerCodes } from "@/lib/trackingCodes";
 import { Save, ScanLine, Search } from "lucide-react";
 
 const ScannerDialog = dynamic(
@@ -35,6 +36,18 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scanTarget, setScanTarget] = useState<{ stopServiceOrder: string; partCode: string } | null>(null);
 
+  // Mostra na hora o que as outras pessoas bipam (a cada 8s, sem mexer no que você está digitando).
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        const data = await routeService.getById(route.id);
+        if (data) setTrackingCodes(prev => mergeServerCodes(prev, data));
+      } catch { /* sem sinal: tenta no próximo ciclo */ }
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [route.id]);
+
   const handleTrackingCodeChange = (stopServiceOrder: string, partCode: string, value: string) => {
     setTrackingCodes(prev => ({
       ...prev,
@@ -45,24 +58,9 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
   const handleSavePart = async (stopServiceOrder: string, partCode: string) => {
     setIsSubmitting(true);
     try {
-      const routeData = await routeService.getById(route.id);
-      if (!routeData) throw new Error("Rota não encontrada");
-
-      const updatedStops = routeData.stops.map(stop => {
-        if (stop.serviceOrder === stopServiceOrder) {
-          return {
-            ...stop,
-            parts: (stop.parts || []).map(part =>
-              part.code === partCode
-                ? { ...part, trackingCode: trackingCodes[stopServiceOrder][partCode] }
-                : part
-            ),
-          };
-        }
-        return stop;
-      });
-
-      await routeService.update(route.id, { stops: updatedStops });
+      // Lê a rota na hora e grava só este código (outras pessoas podem estar bipando ao mesmo tempo).
+      const { route: fresh } = await routeService.patchPartTracking(route.id, entriesFromCodes(trackingCodes, stopServiceOrder, partCode));
+      setTrackingCodes(prev => mergeServerCodes(prev, fresh));
       toast({ title: "Código de rastreio salvo!", description: `Rastreio para a peça ${partCode} salvo.` });
       onSaved?.();
     } catch (error) {
@@ -76,19 +74,9 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
   const handleSaveAll = async () => {
     setIsSubmitting(true);
     try {
-      const routeData = await routeService.getById(route.id);
-      if (!routeData) throw new Error("Rota não encontrada");
-
-      const updatedStops = routeData.stops.map(stop => ({
-        ...stop,
-        parts: (stop.parts || []).map(part => ({
-          ...part,
-          trackingCode: trackingCodes[stop.serviceOrder]?.[part.code] ?? part.trackingCode ?? "",
-        })),
-      }));
-
-      await routeService.update(route.id, { stops: updatedStops });
-      toast({ title: "Códigos de rastreio salvos!", description: `Todas as peças da rota "${route.name}" foram atualizadas.` });
+      const { route: fresh, written } = await routeService.patchPartTracking(route.id, entriesFromCodes(trackingCodes));
+      setTrackingCodes(prev => mergeServerCodes(prev, fresh));
+      toast({ title: "Códigos de rastreio salvos!", description: written > 0 ? `${written} peça(s) da rota "${route.name}" atualizada(s).` : "Nada novo para salvar." });
       onSaved?.();
     } catch (error) {
       console.error("Error saving all tracking codes:", error);

@@ -14,6 +14,8 @@ import { subDays } from "date-fns";
 import { routeService } from "@/services/supabase/routeService";
 import { type Route, type RouteStop, type RoutePart, type Technician, type ServiceOrder } from "@/lib/data";
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
+import { entriesFromCodes, mergeServerCodes } from "@/lib/trackingCodes";
+import { partUsageInStop } from "@/lib/partUsage";
 import { Printer, Smartphone, Table as TableIcon, Activity, CheckCircle2, AlertCircle, FileBarChart2, Search, ChevronDown, PackageSearch, Save, FileDown, CheckCircle, ScanLine, Copy, Loader2, Route as RouteIcon, XCircle, Share2 } from "lucide-react";
 import { useServiceOrders } from "@/hooks/queries";
 import { buildPriorDispatchLookup, describePriorDispatches, type PriorDispatch } from "@/lib/partDispatchHistory";
@@ -555,14 +557,9 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
 
             routeStopsWithParts.forEach(stop => {
                 stop.parts.forEach(part => {
-                    const osRecord = serviceOrders.find(os =>
-                        os.serviceOrderNumber === stop.serviceOrder &&
-                        createdAtDate &&
-                        isAfter(os.date, createdAtDate)
-                    );
-
-                    const isDefective = !!(osRecord && osRecord.pendingReason?.includes('Peça nova com defeito') && osRecord.pendingReason.includes(part.code));
-                    const isUsed = !!(osRecord && osRecord.replacedPart?.includes(part.code));
+                    // Mesma leitura da tela de resumo: olha todas as OS lançadas para a parada depois da
+                    // criação da rota (a mais recente pode ser uma visita sem peça e escondia o uso).
+                    const { used: isUsed, defective: isDefective } = partUsageInStop(stop.serviceOrder, part.code, serviceOrders, createdAtDate);
                     const status = isDefective ? "Defeito" : isUsed ? "Usada" : "Nova";
                     if (isDefective) defectiveCount++;
                     else if (isUsed) usedCount++;
@@ -1158,32 +1155,16 @@ export default function PartSeparationPage() {
     const handleSavePartTrackingCode = async (routeId: string, stopServiceOrder: string, partToUpdate: RoutePart) => {
         setIsSubmitting(true);
         try {
-            const routeData = await routeService.getById(routeId);
-            if (!routeData) {
-                throw new Error("Rota não encontrada");
-            }
-            const currentStops = routeData.stops || [];
-            
-            const updatedStops = routeData.stops.map(stop => {
-                if (stop.serviceOrder === stopServiceOrder) {
-                    return {
-                        ...stop,
-                        parts: (stop.parts || []).map(part => 
-                            part.code === partToUpdate.code 
-                                ? { ...part, trackingCode: partToUpdate.trackingCode } 
-                                : part
-                        ),
-                    };
-                }
-                return stop;
-            });
+            // Lê a rota na hora e grava só este código: várias pessoas podem bipar a mesma rota ao mesmo tempo.
+            const { route: fresh } = await routeService.patchPartTracking(routeId, [
+                { serviceOrder: stopServiceOrder, partCode: partToUpdate.code, trackingCode: partToUpdate.trackingCode || "" },
+            ]);
 
-            await routeService.update(routeId, { stops: updatedStops });
-            
-            // Update state locally instead of refetching
-            setAllRoutes(prevRoutes => prevRoutes.map(route => 
-                route.id === routeId ? { ...route, stops: updatedStops } : route
+            // Atualiza a tela com a versão que ficou (inclui o que outras pessoas biparam)
+            setAllRoutes(prevRoutes => prevRoutes.map(route =>
+                route.id === routeId ? { ...route, stops: fresh.stops } : route
             ));
+            setTrackingCodes(prev => ({ ...prev, [routeId]: mergeServerCodes(prev[routeId] || {}, fresh) }));
 
             toast({ title: "Código de rastreio salvo!", description: `Rastreio para a peça ${partToUpdate.code} salvo.` });
 
@@ -1196,6 +1177,28 @@ export default function PartSeparationPage() {
     };
 
 
+    // Mostra na hora o que as outras pessoas bipam nas rotas ativas (a cada 10s), sem mexer no que
+    // esta pessoa está digitando: campo preenchido aqui vence, vazio recebe o valor do banco.
+    useEffect(() => {
+        const timer = setInterval(async () => {
+            if (document.hidden || isSubmitting) return;
+            try {
+                const active = await routeService.getActiveRoutes(activeUnidadeId);
+                const byId = new Map(active.map(r => [r.id, r]));
+                setAllRoutes(prev => prev.map(r => {
+                    const fresh = byId.get(r.id);
+                    return fresh ? { ...r, stops: fresh.stops } : r;
+                }));
+                setTrackingCodes(prev => {
+                    const next = { ...prev };
+                    active.forEach(r => { if (next[r.id]) next[r.id] = mergeServerCodes(next[r.id], r); });
+                    return next;
+                });
+            } catch { /* sem sinal: tenta no próximo ciclo */ }
+        }, 10000);
+        return () => clearInterval(timer);
+    }, [activeUnidadeId, isSubmitting]);
+
     const handleSaveChanges = async (routeId: string) => {
         setIsSubmitting(true);
         try {
@@ -1205,18 +1208,15 @@ export default function PartSeparationPage() {
                 return;
             }
 
-            const updatedStops = routeToUpdate.stops.map(stop => ({
-                ...stop,
-                parts: (stop.parts || []).map(part => ({
-                    ...part,
-                    trackingCode: trackingCodes[routeId]?.[stop.serviceOrder]?.[part.code] || part.trackingCode || "",
-                })),
-            }));
-            
-            await routeService.update(routeId, { stops: updatedStops });
+            // Só grava o que esta tela tem preenchido, sobre a versão atual do banco: não desfaz o que outras pessoas biparam.
+            const { route: fresh, written } = await routeService.patchPartTracking(routeId, entriesFromCodes(trackingCodes[routeId] || {}));
 
-            toast({ title: "Códigos de rastreio salvos!", description: `As informações para a rota ${routeToUpdate.name} foram atualizadas.` });
-            await fetchAllData(); // Refresh data from db
+            setAllRoutes(prev => prev.map(r => (r.id === routeId ? { ...r, stops: fresh.stops } : r)));
+            setTrackingCodes(prev => ({ ...prev, [routeId]: mergeServerCodes(prev[routeId] || {}, fresh) }));
+            toast({
+                title: "Códigos de rastreio salvos!",
+                description: written > 0 ? `${written} peça(s) da rota ${routeToUpdate.name} atualizada(s).` : "Nada novo para salvar.",
+            });
         } catch (error) {
             console.error("Error saving tracking codes:", error);
             toast({ variant: "destructive", title: "Erro ao salvar", description: "Não foi possível salvar os códigos de rastreio." });

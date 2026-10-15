@@ -66,6 +66,51 @@ export const routeService = {
     return guarded ? ((rows as any[])[0]?.updated_at ?? null) : null;
   },
 
+  /**
+   * Grava códigos de rastreio de peças sem apagar o que outras pessoas bipam ao mesmo tempo.
+   * Lê a rota NA HORA, aplica só as mudanças pedidas e grava com a trava de edição simultânea
+   * (updated_at); se alguém salvou no meio, lê de novo e refaz (até 6 vezes).
+   * Regra por entrada: só grava se há código novo (não vazio) diferente do que já está no banco -
+   * um "salvar tudo" com a tela desatualizada nunca limpa nem desfaz o que outro bipou.
+   * Devolve a rota como ficou e quantas peças foram realmente gravadas.
+   */
+  async patchPartTracking(
+    routeId: string,
+    entries: Array<{ serviceOrder: string; partCode: string; trackingCode: string }>
+  ): Promise<{ route: Route; written: number }> {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const latest = await this.getById(routeId);
+      if (!latest) throw new Error("Rota não encontrada");
+
+      let written = 0;
+      const stops = (latest.stops || []).map(stop => {
+        const mine = entries.filter(e => e.serviceOrder === stop.serviceOrder);
+        if (mine.length === 0) return stop;
+        return {
+          ...stop,
+          parts: (stop.parts || []).map(part => {
+            const entry = mine.find(e => e.partCode === part.code);
+            const code = entry?.trackingCode?.trim() || "";
+            if (!entry || !code || code === (part.trackingCode || "")) return part;
+            written++;
+            return { ...part, trackingCode: code };
+          }),
+        };
+      });
+
+      if (written === 0) return { route: latest, written: 0 };
+
+      try {
+        await this.update(routeId, { stops }, { expectedUpdatedAt: latest.updatedAt || null });
+        return { route: { ...latest, stops }, written };
+      } catch (e) {
+        if (e instanceof RouteConflictError) continue; // alguém salvou no meio: lê de novo e refaz
+        throw e;
+      }
+    }
+    throw new Error("Muitas pessoas salvando ao mesmo tempo. Tente de novo.");
+  },
+
   async remove(id: string): Promise<void> {
     const route = await this.getById(id);
     if (route && route.isActive) {

@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Label } from "@/components/ui/label";
 import { type Route } from "@/lib/data";
 import { routeService } from "@/services/supabase/routeService";
+import { entriesFromCodes, mergeServerCodes } from "@/lib/trackingCodes";
 import { PackageSearch, Save, ScanLine, Smartphone, Loader2, RefreshCw, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
@@ -67,28 +68,19 @@ export default function MobileConferenceRoutePage() {
     }));
   };
 
+  // Várias pessoas podem bipar a mesma rota ao mesmo tempo: o salvamento lê a rota na hora e grava
+  // só os códigos que ESTA tela tem preenchidos (nunca limpa/desfaz o que outra pessoa bipou).
+  const applyServerRoute = (data: Route) => {
+    setRoute(data);
+    setTrackingCodes(prev => mergeServerCodes(prev, data));
+  };
+
   const handleSavePartTrackingCode = async (stopServiceOrder: string, partCode: string) => {
     if (!route) return;
     setIsSubmitting(true);
     try {
-      const routeData = await routeService.getById(route.id);
-      if (!routeData) throw new Error("Rota não encontrada");
-
-      const updatedStops = routeData.stops.map(stop => {
-        if (stop.serviceOrder === stopServiceOrder) {
-          return {
-            ...stop,
-            parts: (stop.parts || []).map(part =>
-              part.code === partCode
-                ? { ...part, trackingCode: trackingCodes[stopServiceOrder][partCode] }
-                : part
-            ),
-          };
-        }
-        return stop;
-      });
-
-      await routeService.update(route.id, { stops: updatedStops });
+      const { route: fresh } = await routeService.patchPartTracking(route.id, entriesFromCodes(trackingCodes, stopServiceOrder, partCode));
+      applyServerRoute(fresh);
       toast({ title: "Código de rastreio salvo!", description: `Rastreio para a peça ${partCode} salvo.` });
     } catch (error) {
       console.error("Error saving part tracking code:", error);
@@ -102,20 +94,9 @@ export default function MobileConferenceRoutePage() {
     if (!route) return;
     setIsSubmitting(true);
     try {
-      const routeData = await routeService.getById(route.id);
-      if (!routeData) throw new Error("Rota não encontrada");
-
-      const updatedStops = routeData.stops.map(stop => ({
-        ...stop,
-        parts: (stop.parts || []).map(part => ({
-          ...part,
-          trackingCode: trackingCodes[stop.serviceOrder]?.[part.code] ?? part.trackingCode ?? "",
-        })),
-      }));
-
-      await routeService.update(route.id, { stops: updatedStops });
-      toast({ title: "Códigos de rastreio salvos!", description: `Todas as peças da rota "${route.name}" foram atualizadas.` });
-      await fetchData();
+      const { route: fresh, written } = await routeService.patchPartTracking(route.id, entriesFromCodes(trackingCodes));
+      applyServerRoute(fresh);
+      toast({ title: "Códigos de rastreio salvos!", description: written > 0 ? `${written} peça(s) da rota "${route.name}" atualizada(s).` : "Nada novo para salvar." });
     } catch (error) {
       console.error("Error saving all tracking codes:", error);
       toast({ variant: "destructive", title: "Erro ao salvar", description: "Não foi possível salvar os códigos de rastreio." });
@@ -123,6 +104,20 @@ export default function MobileConferenceRoutePage() {
       setIsSubmitting(false);
     }
   };
+
+  // Mostra na hora o que as outras pessoas bipam (a cada 8s, sem mexer no que você está digitando).
+  useEffect(() => {
+    if (!routeId) return;
+    const timer = setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        const data = await routeService.getById(routeId);
+        if (data) applyServerRoute(data);
+      } catch { /* sem sinal: tenta no próximo ciclo */ }
+    }, 8000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeId]);
 
   const handleOpenScanner = (target: { stopServiceOrder: string; partCode: string }) => {
     setScanTarget(target);

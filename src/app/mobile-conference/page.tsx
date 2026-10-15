@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { type Route, type RoutePart, type ServiceOrder } from "@/lib/data";
 import { routeService } from "@/services/supabase/routeService";
+import { entriesFromCodes, mergeServerCodes } from "@/lib/trackingCodes";
 import { PackageSearch, Save, ScanLine, Smartphone, Loader2, RefreshCw } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -88,26 +89,9 @@ export default function MobileConferencePage() {
     const handleSavePartTrackingCode = async (routeId: string, stopServiceOrder: string, partCode: string) => {
         setIsSubmitting(true);
         try {
-            const routeData = await routeService.getById(routeId);
-            if (!routeData) {
-                throw new Error("Rota não encontrada");
-            }
-            
-            const updatedStops = routeData.stops.map(stop => {
-                if (stop.serviceOrder === stopServiceOrder) {
-                    return {
-                        ...stop,
-                        parts: (stop.parts || []).map(part => 
-                            part.code === partCode 
-                                ? { ...part, trackingCode: trackingCodes[routeId][stopServiceOrder][partCode] } 
-                                : part
-                        ),
-                    };
-                }
-                return stop;
-            });
-
-            await routeService.update(routeId, { stops: updatedStops });
+            // Lê a rota na hora e grava só este código (outras pessoas podem estar bipando ao mesmo tempo).
+            const { route: fresh } = await routeService.patchPartTracking(routeId, entriesFromCodes(trackingCodes[routeId] || {}, stopServiceOrder, partCode));
+            setTrackingCodes(prev => ({ ...prev, [routeId]: mergeServerCodes(prev[routeId] || {}, fresh) }));
 
             toast({ title: "Código de rastreio salvo!", description: `Rastreio para a peça ${partCode} salvo.` });
         } catch (error) {
@@ -117,6 +101,22 @@ export default function MobileConferencePage() {
             setIsSubmitting(false);
         }
     };
+
+    // Mostra na hora o que as outras pessoas bipam (a cada 10s, sem mexer no que você está digitando).
+    useEffect(() => {
+        const timer = setInterval(async () => {
+            if (document.hidden) return;
+            try {
+                const active = await routeService.getActiveRoutes();
+                setTrackingCodes(prev => {
+                    const next = { ...prev };
+                    active.forEach(r => { if (next[r.id]) next[r.id] = mergeServerCodes(next[r.id], r); });
+                    return next;
+                });
+            } catch { /* sem sinal: tenta no próximo ciclo */ }
+        }, 10000);
+        return () => clearInterval(timer);
+    }, []);
 
     const handleOpenScanner = (target: { routeId: string, stopServiceOrder: string, partCode: string }) => {
         setScanTarget(target);
