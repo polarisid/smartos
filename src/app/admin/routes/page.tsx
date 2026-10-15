@@ -408,7 +408,7 @@ function RouteForm({
     // Traço de resumo (OS + km) exibido depois da última parada de cada dia -
     // agrupa por "Data da visita" (mesma lógica usada no assistente de Nova Rota).
     const daySummaryByServiceOrder = useMemo(() => {
-        const map = new Map<string, { label: string; osCount: number; km: number }>();
+        const map = new Map<string, { label: string; osCount: number; km: number; returnKm?: number; returnMin?: number }>();
         let dayStart = 0;
         activeStops.forEach((stop, i) => {
             const next = activeStops[i + 1];
@@ -419,12 +419,14 @@ function RouteForm({
                     label: stop.firstVisitDate?.trim() || "Sem data definida",
                     osCount: i - dayStart + 1,
                     km,
+                    // Último dia: inclui o retorno até a base (ou ponto de chegada).
+                    ...(!next && legKm[activeStops.length] !== undefined ? { returnKm: legKm[activeStops.length], returnMin: legDurationMin[activeStops.length] } : {}),
                 });
                 dayStart = i + 1;
             }
         });
         return map;
-    }, [activeStops, legKm]);
+    }, [activeStops, legKm, legDurationMin]);
 
     const [expandedStops, setExpandedStops] = useState<Set<string>>(new Set());
     const toggleExpand = (so: string) => {
@@ -1981,7 +1983,7 @@ function RouteForm({
                                             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide bg-muted px-2.5 py-1 rounded-full whitespace-nowrap">
                                                 {legsLoading
                                                     ? "calculando…"
-                                                    : `${daySummary.label} · ${daySummary.osCount} OS · ${daySummary.km.toFixed(1)} km`}
+                                                    : `${daySummary.label} · ${daySummary.osCount} OS · ${daySummary.km.toFixed(1)} km${daySummary.returnKm !== undefined ? ` · retorno ${endPoint ? "ao ponto de chegada" : "à base"}: ${daySummary.returnKm.toFixed(1)} km · ${formatPlanDuration(daySummary.returnMin ?? 0)}` : ""}`}
                                             </span>
                                             <div className="flex-1 h-px bg-border" />
                                         </div>
@@ -1994,6 +1996,41 @@ function RouteForm({
                                 A pré-visualização aparecerá aqui.
                             </div>
                         )}
+
+                        {/* Resumo final: km total da rota e retorno à base (último trecho do circuito) */}
+                        {activeStops.length > 0 && (() => {
+                            const totalKm = legKm.reduce((a, b) => a + (b ?? 0), 0);
+                            const totalMin = legDurationMin.reduce((a, b) => a + (b ?? 0), 0);
+                            const returnIdx = activeStops.length; // legs: saída→1ª, ..., última→chegada
+                            const returnKm = legKm[returnIdx];
+                            const returnMin = legDurationMin[returnIdx];
+                            return (
+                                <div className="mt-2 rounded-lg border bg-muted/40 px-3 py-2.5 flex flex-wrap items-center justify-between gap-x-6 gap-y-1.5">
+                                    {legsLoading || legKm.length === 0 ? (
+                                        <span className="text-xs text-muted-foreground animate-pulse">calculando resumo da rota…</span>
+                                    ) : (
+                                        <>
+                                            <div className="flex flex-col">
+                                                <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Total da rota (ida e volta)</span>
+                                                <span className="text-sm font-semibold">
+                                                    {totalKm.toFixed(1).replace(".", ",")} km · {formatPlanDuration(totalMin)} de viagem
+                                                </span>
+                                            </div>
+                                            {returnKm !== undefined && (
+                                                <div className="flex flex-col sm:text-right">
+                                                    <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                                                        Retorno {endPoint ? "ao ponto de chegada" : "à base"}
+                                                    </span>
+                                                    <span className="text-sm font-semibold">
+                                                        {returnKm.toFixed(1).replace(".", ",")} km · {formatPlanDuration(returnMin ?? 0)}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+                            );
+                        })()}
                     </div>
                     )}
                     {(previewViewTab === 'map' || previewViewTab === 'split') && (
