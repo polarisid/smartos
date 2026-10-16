@@ -1567,6 +1567,11 @@ function RouteForm({
                             // pendência (a mais recente é sempre a que vale, mesma regra usada no resto
                             // desta tela pra status de parada).
                             const alreadyCollected = lastVisitOs != null && lastVisitOs.isFinalized !== false;
+                            // Atendimento DESTA rota: OS lançada depois da criação dela (mesmo critério do progresso).
+                            const routeCreatedMs = mode === 'edit' && initialData?.createdAt ? new Date(initialData.createdAt).getTime() : null;
+                            const doneInThisRoute = routeCreatedMs !== null
+                                ? matchingOs.filter(os => os.date.getTime() >= routeCreatedMs).pop() ?? null
+                                : null;
                             const isExpanded = expandedStops.has(stop.serviceOrder);
                             const partsCount = stop.parts?.length || 0;
                             const location = [stop.city, stop.neighborhood].filter(Boolean).join(' · ');
@@ -1666,6 +1671,23 @@ function RouteForm({
                                                 {location || 'Sem localização'}
                                             </span>
                                         </div>
+
+                                        {doneInThisRoute && (
+                                            <span
+                                                className={cn(
+                                                    "shrink-0 inline-flex flex-col rounded-md border px-2 py-0.5 leading-tight",
+                                                    doneInThisRoute.isFinalized === false
+                                                        ? "border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+                                                        : "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                                )}
+                                                title={`OS lançada em ${format(doneInThisRoute.date, "dd/MM/yyyy 'às' HH:mm")}`}
+                                            >
+                                                <span className="text-[10px] font-bold uppercase tracking-wide">
+                                                    {doneInThisRoute.isFinalized === false ? "Pendência" : "✓ Finalizada"}
+                                                </span>
+                                                <span className="text-[11px] font-semibold tabular-nums">{format(doneInThisRoute.date, "dd/MM HH:mm")}</span>
+                                            </span>
+                                        )}
 
                                         {isAlreadyVisited && lastVisitOs && (
                                             <Popover>
