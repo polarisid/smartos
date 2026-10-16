@@ -18,7 +18,7 @@ import { technicalReportService } from "@/services/supabase/technicalReportServi
 import type { ChecklistTemplate, TechnicalReport, TechnicalReportPhotoCategory, TechnicalReportType } from "@/lib/data";
 import { buildAndDownloadPdf } from "@/lib/technicalReportPdf";
 import { compressImageIfNeeded } from "@/lib/imageCompression";
-import { queueReport, flushQueue, sendReportDirectly, type PendingReportPhoto } from "@/lib/offlineReportQueue";
+import { queueReport, flushQueue, type PendingReportPhoto } from "@/lib/offlineReportQueue";
 import { isNetworkLikeError } from "@/lib/reportUploader";
 import { Camera, Loader2, Plus, Trash2, Download, Search, ScanLine, ClipboardList, Wrench, ClipboardCheck } from "lucide-react";
 
@@ -437,16 +437,10 @@ function ReportsPageInner() {
       // Primeiro garante que nada se perde: fica gravado no aparelho até o servidor confirmar.
       // Se o aparelho não conseguir guardar (ex.: falha do banco local no Android), com internet
       // envia direto - o técnico não perde o relatório por causa disso.
-      let sentDirectly = false;
-      try {
-        await queueReport(basePayload, pendingPhotos, savedReportId || undefined);
-      } catch (queueError: any) {
-        console.error("Falha ao guardar no aparelho, tentando enviar direto", queueError);
-        if (!navigator.onLine) throw queueError;
-        toast({ title: "Enviando direto...", description: "Não deu para guardar no aparelho; enviando o relatório agora." });
-        await sendReportDirectly(basePayload, pendingPhotos, savedReportId || undefined);
-        sentDirectly = true;
-      }
+      // Salvar nunca falha por causa do aparelho: se não der pra gravar no banco local, o relatório
+      // fica na memória desta aba e o envio em segundo plano segue igual (aviso abaixo).
+      const queued = await queueReport(basePayload, pendingPhotos, savedReportId || undefined);
+      const memoryOnly = queued.where === "memory";
 
       // PDF na hora, com as fotos locais (blob) - não depende de rede.
       const localReport: TechnicalReport = {
@@ -474,8 +468,8 @@ function ReportsPageInner() {
       void flushQueue();
       toast({
         title: pdfFailed ? "Relatório guardado (PDF não gerado)" : "Relatório salvo e PDF baixado",
-        description: sentDirectly
-          ? "O relatório já foi enviado ao servidor."
+        description: memoryOnly
+          ? "ATENÇÃO: este aparelho não deixou guardar o relatório com segurança. Ele está só na memória desta aba: NÃO feche nem atualize a página até o aviso do topo dizer que foi enviado."
           : pdfFailed
             ? "O envio segue em segundo plano - o PDF pode ser baixado depois em Meus Relatórios."
             : "O envio segue em segundo plano - acompanhe no aviso no topo da tela. Depois ele aparece em Meus Relatórios.",

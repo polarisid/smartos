@@ -14,6 +14,7 @@ import { NotificationsProvider } from "@/context/NotificationsContext";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { PushPrompt } from "@/components/PushPrompt";
+import { ConnectionDiagnostics } from "@/components/ConnectionDiagnostics";
 import { QueryCachePersistence } from "@/components/QueryCachePersistence";
 
 function AppLoadingScreen({ message }: { message: string }) {
@@ -73,6 +74,15 @@ function OfflineQueueBanner() {
     };
   }, []);
 
+  // Relatório que só existe na memória desta aba (o aparelho não deixou gravar): avisa antes de fechar/atualizar.
+  const hasMemoryOnly = pending.some(p => p.memoryOnly);
+  useEffect(() => {
+    if (!hasMemoryOnly) return;
+    const guard = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [hasMemoryOnly]);
+
   // Aviso de sucesso quando um envio em segundo plano (ou o "Tentar agora")
   // conclui - o aviso do topo some junto com a fila, então sem isso o técnico
   // não saberia que deu certo.
@@ -122,6 +132,10 @@ function OfflineQueueBanner() {
       : prog
         ? <>Enviando relatório{pos} — foto {Math.min(prog.doneCount + 1, prog.totalCount)} de {prog.totalCount} · {Math.round(prog.fraction * 100)}%{prog.retrying > 0 ? " · sinal instável, tentando de novo" : ""}</>
         : <>Enviando relatório{pos}...</>;
+  } else if (hasMemoryOnly) {
+    tone = "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400";
+    icon = <AlertCircle className="h-4 w-4 shrink-0" />;
+    message = <>Relatório guardado só na memória desta aba (o aparelho não deixou gravar). <strong>Não feche nem atualize a página</strong> até ele ser enviado.{failedItem ? <> Último erro: {failedItem.lastError}</> : null}</>;
   } else if (!online) {
     message = <>{pending.length} relatório{pending.length > 1 ? "s" : ""} guardado{pending.length > 1 ? "s" : ""} no aparelho — sem internet no momento. Será enviado sozinho quando a conexão voltar.</>;
   } else if (failedItem) {
@@ -140,9 +154,14 @@ function OfflineQueueBanner() {
           <span>{message}</span>
         </div>
         {!sync.isFlushing && (
-          <Button variant="ghost" size="sm" className="h-7 shrink-0 hover:bg-black/5 dark:hover:bg-white/10" onClick={handleRetry} disabled={isRetrying}>
-            {isRetrying ? "Tentando..." : "Tentar agora"}
-          </Button>
+          <div className="flex items-center gap-1 shrink-0">
+            {(failedItem || !online) && (
+              <ConnectionDiagnostics trigger={<Button variant="ghost" size="sm" className="h-7 hover:bg-black/5 dark:hover:bg-white/10">Diagnosticar</Button>} />
+            )}
+            <Button variant="ghost" size="sm" className="h-7 hover:bg-black/5 dark:hover:bg-white/10" onClick={handleRetry} disabled={isRetrying}>
+              {isRetrying ? "Tentando..." : "Tentar agora"}
+            </Button>
+          </div>
         )}
       </div>
       {sync.isFlushing && prog && <Progress value={prog.fraction * 100} className="h-1 rounded-none" />}

@@ -1,7 +1,8 @@
 import { openDB, type IDBPDatabase } from "idb";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
 import type { TechnicalReport, TechnicalReportPhotoCategory } from "@/lib/data";
-import { uploadPhotoBatch, withTimeout, type UploadProgress } from "@/lib/reportUploader";
+import { uploadPhotoBatch, withTimeout, isNetworkLikeError, type UploadProgress } from "@/lib/reportUploader";
+import { explainNetworkFailure } from "@/lib/diagnostics";
 
 const DB_NAME = "smartos-offline";
 const STORE_NAME = "pending-reports";
@@ -20,6 +21,8 @@ export type PendingReport = {
   photos: PendingReportPhoto[];
   attempts: number;
   lastError?: string;
+  /** Só existe na memória desta aba (o aparelho não deixou gravar): some se a aba for fechada. */
+  memoryOnly?: boolean;
 };
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
@@ -90,45 +93,61 @@ function friendlyStorageError(e: any): Error {
   return e instanceof Error ? e : new Error(String(e));
 }
 
-export async function queueReport(payload: PendingReportPayload, photos: PendingReportPhoto[], existingReportId?: string): Promise<void> {
-  const storedPhotos = await serializePhotos(photos);
-  const record: StoredReport = {
+// Plano B: se o aparelho não deixa gravar no banco local (modo anônimo, armazenamento bloqueado ou
+// cheio...), o relatório fica na memória desta aba e é enviado em segundo plano do mesmo jeito -
+// só não sobrevive a fechar a aba. O técnico nunca fica impedido de salvar por causa disso.
+const memoryRecords = new Map<string, StoredReport>();
+
+export type QueueResult = { where: "device" | "memory"; reason?: string };
+
+export async function queueReport(payload: PendingReportPayload, photos: PendingReportPhoto[], existingReportId?: string): Promise<QueueResult> {
+  const base = {
     localId: crypto.randomUUID(),
     createdAt: Date.now(),
     existingReportId,
     payload,
-    photos: storedPhotos,
     attempts: 0,
   };
+  let result: QueueResult = { where: "device" };
   try {
+    const storedPhotos = await serializePhotos(photos);
     const db = await getDb();
-    await db.add(STORE_NAME, record);
+    await db.add(STORE_NAME, { ...base, photos: storedPhotos } satisfies StoredReport);
   } catch (e) {
-    throw friendlyStorageError(e);
+    console.error("Não foi possível gravar no banco local; guardando na memória da aba", e);
+    memoryRecords.set(base.localId, { ...base, photos });
+    result = { where: "memory", reason: friendlyStorageError(e).message };
   }
   await notifyListeners();
+  return result;
 }
 
 export async function getPendingReports(): Promise<PendingReport[]> {
-  const db = await getDb();
-  const all = (await db.getAll(STORE_NAME)) as StoredReport[];
-  return all
-    .map((r): PendingReport => ({ ...r, photos: deserializePhotos(r.photos) }))
-    .sort((a, b) => a.createdAt - b.createdAt);
+  let stored: StoredReport[] = [];
+  try {
+    const db = await getDb();
+    stored = (await db.getAll(STORE_NAME)) as StoredReport[];
+  } catch (e) {
+    console.warn("Banco local indisponível ao listar relatórios pendentes", e);
+  }
+  const fromDevice = stored.map((r): PendingReport => ({ ...r, photos: deserializePhotos(r.photos) }));
+  const fromMemory = Array.from(memoryRecords.values()).map((r): PendingReport => ({ ...r, photos: r.photos as PendingReportPhoto[], memoryOnly: true }));
+  return [...fromDevice, ...fromMemory].sort((a, b) => a.createdAt - b.createdAt);
 }
 
 async function removePending(localId: string): Promise<void> {
-  const db = await getDb();
-  await db.delete(STORE_NAME, localId);
+  memoryRecords.delete(localId);
+  try {
+    const db = await getDb();
+    await db.delete(STORE_NAME, localId);
+  } catch { /* se o banco local nem existe, não há o que apagar */ }
 }
 
 async function markAttemptFailed(localId: string, error: string): Promise<void> {
-  const db = await getDb();
-  const record = await db.get(STORE_NAME, localId);
-  if (!record) return;
-  record.attempts += 1;
-  record.lastError = error;
-  await db.put(STORE_NAME, record);
+  await updatePending(localId, (r) => {
+    r.attempts += 1;
+    r.lastError = error;
+  });
 }
 
 // Roda em segundo plano, sem travar o fluxo do técnico em campo - a nota fica
@@ -185,6 +204,8 @@ export type FlushResult =
   | { status: "done"; sent: number; failed: number; error?: string };
 
 async function updatePending(localId: string, mutate: (r: StoredReport) => void): Promise<void> {
+  const inMemory = memoryRecords.get(localId);
+  if (inMemory) { mutate(inMemory); return; }
   const db = await getDb();
   const record = await db.get(STORE_NAME, localId);
   if (!record) return;
@@ -310,6 +331,7 @@ export async function flushQueue(): Promise<FlushResult> {
       } catch (e: any) {
         failed++;
         error = e?.message || "Erro desconhecido";
+        if (isNetworkLikeError(e)) error = await explainNetworkFailure(error!);
         await markAttemptFailed(item.localId, error!);
         await notifyListeners();
         // Provável queda de conexão de novo - para por aqui, tenta o resto depois.

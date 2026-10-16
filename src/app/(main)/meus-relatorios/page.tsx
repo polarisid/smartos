@@ -1,5 +1,6 @@
 "use client";
 
+import { ConnectionDiagnostics } from "@/components/ConnectionDiagnostics";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -115,9 +116,12 @@ export default function MeusRelatoriosPage() {
     <div className="max-w-3xl mx-auto w-full space-y-4 animate-in fade-in ease-out duration-300">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-2xl font-bold tracking-tight">Meus Relatórios</h2>
-        <Button variant="ghost" size="icon" onClick={() => refetch()} disabled={isFetching || !technicianId} aria-label="Atualizar">
-          <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-        </Button>
+        <div className="flex items-center gap-1">
+          <ConnectionDiagnostics />
+          <Button variant="ghost" size="icon" onClick={() => refetch()} disabled={isFetching || !technicianId} aria-label="Atualizar">
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
       </div>
 
       {!isTechnician && (

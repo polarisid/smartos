@@ -190,7 +190,7 @@ export const technicalReportService = {
     const token = sessionData.session?.access_token || anonKey;
     const encodedPath = path.split('/').map(encodeURIComponent).join('/');
 
-    await new Promise<void>((resolve, reject) => {
+    const viaXhr = () => new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `${baseUrl}/storage/v1/object/${BUCKET}/${encodedPath}`);
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
@@ -230,6 +230,39 @@ export const technicalReportService = {
       lastProgressAt = Date.now();
       xhr.send(file);
     });
+
+    try {
+      await viaXhr();
+    } catch (e) {
+      // Falha de rede "pura" (sem resposta nenhuma): tenta uma vez por outro caminho (fetch). Em
+      // alguns ambientes (extensões, antivírus, proxies) o XMLHttpRequest é barrado e o fetch passa.
+      if (e instanceof PhotoUploadError && e.network && !e.status && navigator.onLine !== false) {
+        let fallbackError: unknown = null;
+        try {
+          const res = await fetch(`${baseUrl}/storage/v1/object/${BUCKET}/${encodedPath}`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              apikey: anonKey,
+              'Content-Type': file.type || 'image/jpeg',
+              'x-upsert': 'false',
+            },
+            body: file,
+          });
+          if (res.ok || res.status === 409) {
+            opts?.onProgress?.(file.size, file.size);
+            const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+            return { url: data.publicUrl, path };
+          }
+          fallbackError = new PhotoUploadError(`Falha ao enviar a foto (HTTP ${res.status}).`, { network: res.status >= 500, status: res.status });
+        } catch (fe) {
+          fallbackError = fe;
+        }
+        console.warn('Envio da foto falhou por XHR e por fetch', e, fallbackError);
+        if (fallbackError instanceof PhotoUploadError) throw fallbackError;
+      }
+      throw e;
+    }
 
     opts?.onProgress?.(file.size, file.size);
     const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
