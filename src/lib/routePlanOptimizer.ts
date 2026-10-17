@@ -33,10 +33,16 @@ export function evaluateOrder(
     matrix: number[][],
     params: PlanningParams,
     startDate: Date,
-    departureTime?: string
+    departureTime?: string,
+    dailyReturn: boolean = false
 ): PlanMetrics {
     const ordered = order.map(i => stops[i]);
-    const plan = simulateRoutePlan(ordered, legsFor(order, matrix), params, startDate, departureTime);
+    const n = matrix.length - 2;
+    // Ida e volta no dia: tempos base↔parada de cada parada na ordem testada.
+    const roundTrip = dailyReturn
+        ? { fromBase: order.map(i => matrix[0][i + 1]), toBase: order.map(i => matrix[i + 1][n + 1]) }
+        : undefined;
+    const plan = simulateRoutePlan(ordered, legsFor(order, matrix), params, startDate, departureTime, roundTrip);
     let mismatches = 0;
     plan.stops.forEach((p, k) => {
         const kind = requestedTurnKind(ordered[k].turn);
@@ -83,11 +89,12 @@ export function suggestPlanOrder(
     params: PlanningParams,
     startDate: Date,
     departureTime?: string,
-    maxMs: number = 1800
+    maxMs: number = 1800,
+    dailyReturn: boolean = false
 ): { order: number[]; before: PlanMetrics; after: PlanMetrics } {
     const n = stops.length;
     const identity = Array.from({ length: n }, (_, i) => i);
-    const evalOrder = (o: number[]) => evaluateOrder(stops, o, matrix, params, startDate, departureTime);
+    const evalOrder = (o: number[]) => evaluateOrder(stops, o, matrix, params, startDate, departureTime, dailyReturn);
     const before = evalOrder(identity);
     if (n < 3) return { order: identity, before, after: before };
 

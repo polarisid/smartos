@@ -51,6 +51,9 @@ type Props = {
     onDepartureTimeChange: (t: string) => void;
     // Matriz de minutos entre saída, paradas e chegada (ver fetchDurationMatrixMin) e aplicação da ordem sugerida.
     fetchMatrix: () => Promise<number[][]>;
+    // Rota de ida e volta no mesmo dia (volta à base todo dia, sem dormir fora).
+    dailyReturn: boolean;
+    onDailyReturnChange: (v: boolean) => void;
     onApplyOrder: (serviceOrders: string[]) => void;
 };
 
@@ -59,7 +62,7 @@ const SOURCE_LABEL = { manual: "manual", product: "do produto", default: "padrã
 export function RoutePlanningPanel({
     stops, legKm, legDurationMin, legsLoading, startDate, startPoint, endPoint,
     onStartPointChange, onEndPointChange, params: rawParams, weekendWork, onSaveParams, onStopMinutesChange,
-    onStopsScheduleChange, arrivalDate, onArrivalDateChange, departureTime, onDepartureTimeChange, fetchMatrix, onApplyOrder,
+    onStopsScheduleChange, arrivalDate, onArrivalDateChange, departureTime, onDepartureTimeChange, fetchMatrix, onApplyOrder, dailyReturn, onDailyReturnChange,
 }: Props) {
     const { toast } = useToast();
     const [startText, setStartText] = useState("");
@@ -69,9 +72,31 @@ export function RoutePlanningPanel({
 
     const params = useMemo(() => (weekendWork ? withWeekendWork(rawParams) : rawParams), [weekendWork, rawParams]);
 
+    // Ida e volta no mesmo dia: precisa dos tempos base↔cada parada (matriz), buscados quando liga a opção
+    // ou quando as paradas/pontos mudam.
+    const [matrix, setMatrix] = useState<number[][] | null>(null);
+    const matrixKey = stops.map(s => s.serviceOrder + ":" + s.city + ":" + s.zipCode).join(";") + "|" + (startPoint?.lat ?? "") + "|" + (endPoint?.lat ?? "");
+    useEffect(() => {
+        if (!dailyReturn || stops.length === 0) { setMatrix(null); return; }
+        let cancelled = false;
+        setMatrix(null);
+        fetchMatrix().then(m => { if (!cancelled) setMatrix(m); }).catch(e => console.error("Falha ao calcular ida e volta:", e));
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dailyReturn, matrixKey]);
+    const roundTrip = useMemo(() => {
+        if (!dailyReturn || !matrix) return undefined;
+        const n = stops.length;
+        return {
+            fromBase: stops.map((_, i) => matrix[0]?.[i + 1] ?? 0),
+            toBase: stops.map((_, i) => matrix[i + 1]?.[n + 1] ?? 0),
+        };
+    }, [dailyReturn, matrix, stops]);
+    const waitingRoundTrip = dailyReturn && !roundTrip;
+
     const plan = useMemo(
-        () => simulateRoutePlan(stops, legDurationMin, params, startDate || new Date(), departureTime),
-        [stops, legDurationMin, params, startDate, departureTime]
+        () => simulateRoutePlan(stops, legDurationMin, params, startDate || new Date(), departureTime, roundTrip),
+        [stops, legDurationMin, params, startDate, departureTime, roundTrip]
     );
 
     // Previsão de cada parada no formato que a rota guarda (data dd/mm/aaaa + turno M/T).
@@ -90,7 +115,7 @@ export function RoutePlanningPanel({
     const [suggestion, setSuggestion] = useState<{ order: number[]; before: PlanMetrics; after: PlanMetrics } | null>(null);
 
     // Qualquer mudança que altere a simulação invalida a sugestão mostrada.
-    const suggestionKey = `${stops.map(s => s.serviceOrder).join(",")}|${departureTime}|${startPoint?.lat}|${endPoint?.lat}|${JSON.stringify(params)}`;
+    const suggestionKey = `${stops.map(s => s.serviceOrder).join(",")}|${departureTime}|${dailyReturn}|${startPoint?.lat}|${endPoint?.lat}|${JSON.stringify(params)}`;
     useEffect(() => { setSuggestion(null); }, [suggestionKey]);
 
     const handleSuggest = async () => {
@@ -99,7 +124,7 @@ export function RoutePlanningPanel({
             const matrix = await fetchMatrix();
             // deixa o "calculando" aparecer antes do cálculo síncrono
             await new Promise(r => setTimeout(r, 30));
-            setSuggestion(suggestPlanOrder(stops, matrix, params, startDate || new Date(), departureTime));
+            setSuggestion(suggestPlanOrder(stops, matrix, params, startDate || new Date(), departureTime, 1800, dailyReturn));
         } catch (e) {
             console.error("Falha ao sugerir ordem:", e);
             toast({ variant: "destructive", title: "Não foi possível sugerir a ordem", description: "Tente de novo em instantes." });
@@ -207,14 +232,24 @@ export function RoutePlanningPanel({
                         {params.workSaturday && params.workSunday ? ", trabalha sábado e domingo" : params.workSaturday ? ", trabalha sábado" : params.workSunday ? ", trabalha domingo" : ", sem sábado/domingo"}{weekendWork ? " (rota em andamento)" : ""}.
                     </p>
                 </div>
+
+                <label className="flex items-start gap-2 rounded-md border bg-background px-3 py-2 cursor-pointer">
+                    <input type="checkbox" className="mt-0.5" checked={dailyReturn} onChange={e => onDailyReturnChange(e.target.checked)} />
+                    <span className="text-sm">
+                        <strong>Rota de ida e volta no mesmo dia</strong>
+                        <span className="block text-[11px] text-muted-foreground">
+                            O técnico sai da base e volta para ela todos os dias (não dorme fora). Cada dia só leva as OS que permitem voltar até as {params.travelUntil}; as demais ficam para o dia seguinte.
+                        </span>
+                    </span>
+                </label>
             </div>
 
             {/* Resumo */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
                     { label: "Dias de rota", value: String(plan.days.length) },
-                    { label: "Dormidas", value: String(Math.max(0, plan.days.length - 1)) },
-                    { label: "Deslocamento", value: legsLoading ? "…" : formatDuration(plan.totalTravelMin) },
+                    { label: dailyReturn ? "Volta à base" : "Dormidas", value: dailyReturn ? (roundTrip ? plan.days.length + "x" : "…") : String(Math.max(0, plan.days.length - 1)) },
+                    { label: "Deslocamento", value: legsLoading || waitingRoundTrip ? "…" : formatDuration(plan.totalTravelMin) },
                     { label: "Atendimento", value: formatDuration(plan.totalServiceMin) },
                 ].map(c => (
                     <div key={c.label} className="rounded-lg border px-3 py-2">
@@ -319,7 +354,12 @@ export function RoutePlanningPanel({
             )}
 
             {/* Dias */}
-            {plan.days.map((day, di) => (
+            {waitingRoundTrip && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Calculando as viagens de ida e volta à base…
+                </p>
+            )}
+            {!waitingRoundTrip && plan.days.map((day, di) => (
                 <div key={day.dayIndex} className="border rounded-lg overflow-hidden">
                     <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/50 px-3 py-2 border-b">
                         <p className="text-sm font-semibold capitalize">
@@ -349,11 +389,13 @@ export function RoutePlanningPanel({
                                                 <span className="text-muted-foreground animate-pulse">calculando…</span>
                                             ) : (
                                                 <span className="font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-                                                    {legKm[si] !== undefined ? (formatLegTempo(legKm[si], legDurationMin[si]) || `${legKm[si].toFixed(1)} km`) : `${formatDuration(p.travelMin)}`}
+                                                    {!dailyReturn && legKm[si] !== undefined ? (formatLegTempo(legKm[si], legDurationMin[si]) || `${legKm[si].toFixed(1)} km`) : `${formatDuration(p.travelMin)}`}
                                                 </span>
                                             )}
                                             {k === 0 && si === 0 && <span className="text-muted-foreground">desde {startPoint ? "a saída" : "a base"}</span>}
                                             {p.droveTonight && <span className="text-indigo-600 dark:text-indigo-400">viaja na noite anterior</span>}
+                                            {dailyReturn && p.fromBase && <span className="text-muted-foreground">desde a base ({formatDuration(p.travelMin)})</span>}
+                                            {dailyReturn && p.unreachable && <span className="text-red-600 dark:text-red-400 font-semibold">não dá para ir e voltar no mesmo dia</span>}
                                 {p.roadSleep && <span className="text-indigo-600 dark:text-indigo-400">dormiu na estrada, termina o trajeto de manhã</span>}
                                             {p.afterLunch && <span className="text-muted-foreground">· almoço antes</span>}
                                         </div>
@@ -474,13 +516,21 @@ export function RoutePlanningPanel({
                         })}
                     </div>
 
+                    {day.returnToBaseMin !== undefined && day.returnArriveMin !== undefined && (
+                        <div className="flex items-center gap-2 px-3 py-2 border-t bg-muted/30 text-xs text-muted-foreground">
+                            <Truck className="h-4 w-4 shrink-0" />
+                            <span>
+                                Volta {endPoint ? "ao ponto de chegada" : "à base"}: {formatDuration(day.returnToBaseMin)} — chega às <strong>{formatClock(day.returnArriveMin)}</strong>
+                            </span>
+                        </div>
+                    )}
                     {day.sleepCity && (
                         <div className="flex items-center gap-2 px-3 py-2 border-t bg-indigo-50/60 dark:bg-indigo-950/20 text-xs text-indigo-800 dark:text-indigo-300">
                             <Moon className="h-4 w-4 shrink-0" />
                             <span><strong>Dorme em {day.sleepCity}</strong>{day.sleepNote ? ` — ${day.sleepNote}` : ""}</span>
                         </div>
                     )}
-                    {di === plan.days.length - 1 && (
+                    {di === plan.days.length - 1 && !dailyReturn && (
                         <div className={cn(
                             "flex items-center gap-2 px-3 py-2 border-t text-xs",
                             plan.returnAfterHours ? "bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300" : "bg-muted/30 text-muted-foreground"

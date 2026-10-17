@@ -85,6 +85,8 @@ type RouteLeg = {
     durationMin: number;
     // Status do trecho: 'completed' pinta o percurso já concluído de verde.
     status: 'completed' | 'pending' | 'todo';
+    // Cor própria do trecho (ex.: um dia da rota de ida e volta), usada quando ainda a fazer.
+    color?: string;
     hasFerry: boolean;
     // Rota alternativa 100% rodoviária (via alternatives=true do OSRM), só buscada
     // quando hasFerry - pra o usuário poder optar por não usar a balsa.
@@ -396,6 +398,7 @@ export default function RouteMap({
                         distanceKm: legData.distanceKm,
                         durationMin: legData.durationMin,
                         status,
+                        color: (stops[0]?.route as any)?.mapColor,
                         hasFerry: legData.hasFerry,
                         fromServiceOrder: fromStop?.serviceOrder,
                         fromStopAvoidFerry: !!fromStop?.avoidFerryToNext,
@@ -528,7 +531,7 @@ export default function RouteMap({
                     // Cor do trecho pelo status do destino: concluído=verde, pendência=âmbar, a fazer=azul.
                     const legColor = leg.status === 'completed' ? '#10b981'
                         : leg.status === 'pending' ? '#f59e0b'
-                        : (polylineColor && polylineColor !== '#8b5cf6' ? polylineColor : '#3b82f6');
+                        : (leg.color || (polylineColor && polylineColor !== '#8b5cf6' ? polylineColor : '#3b82f6'));
 
                     // Se o usuário optou por não usar a balsa (e temos a alternativa), desenha
                     // e informa a rota 100% rodoviária em vez da que inclui a travessia.

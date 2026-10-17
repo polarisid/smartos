@@ -101,6 +101,8 @@ export type PlannedStop = {
     afterLunch: boolean;      // almoço entrou antes deste atendimento
     droveTonight: boolean;    // o deslocamento até aqui foi feito na noite anterior
     roadSleep: boolean;       // viagem longa: dormiu na estrada e terminou o trajeto de manhã
+    fromBase: boolean;        // (ida e volta no dia) o deslocamento até aqui saiu da base
+    unreachable: boolean;     // (ida e volta no dia) nem saindo cedo dá pra voltar à base no mesmo dia
 };
 
 export type PlannedDay = {
@@ -113,6 +115,8 @@ export type PlannedDay = {
     serviceMin: number;
     sleepCity?: string;       // onde dorme ao fim deste dia (ausente no último)
     sleepNote?: string;
+    returnToBaseMin?: number;   // (ida e volta no dia) viagem de volta à base ao fim deste dia
+    returnArriveMin?: number;   // hora em que chega de volta à base
 };
 
 export type RoutePlan = {
@@ -153,7 +157,11 @@ export function simulateRoutePlan(
     params: PlanningParams,
     startDate: Date,
     // Hora ("HH:mm") em que o técnico sai no 1º dia; vazio/inválido = início do expediente.
-    firstDayDeparture?: string
+    firstDayDeparture?: string,
+    // Rota de ida e volta no mesmo dia: todo dia sai da base e volta pra ela (não dorme fora).
+    // fromBase[i] / toBase[i] = minutos base→parada i / parada i→base. firstLegFromHere: o 1º trecho
+    // sai de onde o técnico está (planejamento ao vivo), não da base.
+    roundTrip?: { fromBase: number[]; toBase: number[]; firstLegFromHere?: boolean }
 ): RoutePlan {
     const dayStart = timeToMinutes(params.dayStart, 8 * 60);
     const dayEnd = Math.max(dayStart + 60, timeToMinutes(params.dayEnd, 18 * 60));
@@ -193,6 +201,59 @@ export function simulateRoutePlan(
     stops.forEach((stop, i) => {
         const travel = Math.max(0, legMin[i] ?? 0);
         const { minutes: serviceMin, source } = resolveServiceMinutes(stop, params);
+
+        if (roundTrip) {
+            const fromBase = Math.max(0, roundTrip.fromBase[i] ?? 0);
+            const toBase = Math.max(0, roundTrip.toBase[i] ?? 0);
+            const firstLegFromHere = planned.length === 0 && !!roundTrip.firstLegFromHere;
+            const legInto = () => (currentDay.stopIndexes.length === 0 ? (firstLegFromHere ? Math.max(0, legMin[i] ?? 0) : fromBase) : Math.max(0, legMin[i] ?? 0));
+            const lunchAt = (a: number) => (!lunchTaken && a >= lunchStart ? { a: a + lunchMin, lunch: true } : { a, lunch: false });
+
+            let travelRT = legInto();
+            let r = lunchAt(t + travelRT);
+            let startRT = r.a;
+            let lunchRT = r.lunch;
+            let endRT = startRT + serviceMin;
+
+            // Depois desta parada não dá pra voltar à base hoje: o dia anterior fecha com a volta e este
+            // atendimento vira o 1º do dia seguinte (saindo da base).
+            if (currentDay.stopIndexes.length > 0 && endRT + toBase > travelUntil) {
+                const backPrev = Math.max(0, roundTrip.toBase[i - 1] ?? 0);
+                currentDay.returnToBaseMin = backPrev;
+                currentDay.returnArriveMin = t + backPrev;
+                currentDay.travelMin += backPrev;
+                startNextDay();
+                travelRT = fromBase;
+                r = lunchAt(t + travelRT);
+                startRT = r.a;
+                lunchRT = r.lunch;
+                endRT = startRT + serviceMin;
+            }
+            if (lunchRT) lunchTaken = true;
+
+            planned.push({
+                index: i,
+                dayIndex,
+                date,
+                travelMin: travelRT,
+                startMin: startRT,
+                endMin: endRT,
+                serviceMin,
+                source,
+                turn: startRT < lunchStart ? "Manhã" : "Tarde",
+                afterLunch: lunchRT,
+                droveTonight: false,
+                roadSleep: false,
+                fromBase: currentDay.stopIndexes.length === 0 && !firstLegFromHere,
+                unreachable: endRT + toBase > travelUntil,
+            });
+            currentDay.stopIndexes.push(i);
+            currentDay.endMin = endRT;
+            currentDay.serviceMin += serviceMin;
+            currentDay.travelMin += travelRT;
+            t = endRT;
+            return;
+        }
 
         let lunchBefore = false;
         let droveTonight = false;
@@ -272,6 +333,8 @@ export function simulateRoutePlan(
             afterLunch: lunchBefore,
             droveTonight,
             roadSleep,
+            fromBase: false,
+            unreachable: false,
         });
         currentDay.stopIndexes.push(i);
         currentDay.endMin = end;
@@ -279,6 +342,25 @@ export function simulateRoutePlan(
         currentDay.travelMin += countedTravel;
         t = end;
     });
+
+    // Ida e volta no mesmo dia: o último dia também fecha com a volta à base.
+    if (roundTrip && stops.length > 0) {
+        const back = Math.max(0, roundTrip.toBase[stops.length - 1] ?? 0);
+        currentDay.returnToBaseMin = back;
+        currentDay.returnArriveMin = t + back;
+        currentDay.travelMin += back;
+        return {
+            stops: planned,
+            days: days.filter(d => d.stopIndexes.length > 0),
+            returnTravelMin: back,
+            returnArriveMin: t + back,
+            returnDate: date,
+            returnNights: 0,
+            returnAfterHours: t + back > dayEnd,
+            totalTravelMin: days.reduce((a, d) => a + d.travelMin, 0),
+            totalServiceMin: planned.reduce((a, p) => a + p.serviceMin, 0),
+        };
+    }
 
     // Retorno: mesma regra da viagem longa - se passa do limite de direção, dorme na estrada e chega no dia seguinte.
     const returnTravelMin = stops.length > 0 ? Math.max(0, legMin[stops.length] ?? 0) : 0;

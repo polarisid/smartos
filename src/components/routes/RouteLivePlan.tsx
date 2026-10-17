@@ -148,13 +148,19 @@ export function RouteLivePlan({ route, serviceOrders }: { route: Route; serviceO
                                     );
                                 })}
                             </div>
+                            {day.returnToBaseMin !== undefined && day.returnArriveMin !== undefined && (
+                                <div className="flex items-center gap-2 px-3 py-2 border-t bg-muted/30 text-xs text-muted-foreground">
+                                    <Truck className="h-4 w-4 shrink-0" />
+                                    <span>Volta {route.endPoint ? "ao ponto de chegada" : "à base"}: {formatDuration(day.returnToBaseMin)} — chega às <strong>{formatClock(day.returnArriveMin)}</strong></span>
+                                </div>
+                            )}
                             {day.sleepCity && (
                                 <div className="flex items-center gap-2 px-3 py-2 border-t bg-indigo-50/60 dark:bg-indigo-950/20 text-xs text-indigo-800 dark:text-indigo-300">
                                     <Moon className="h-4 w-4 shrink-0" />
                                     <span><strong>Dorme em {day.sleepCity}</strong>{day.sleepNote ? ` — ${day.sleepNote}` : ""}</span>
                                 </div>
                             )}
-                            {di === livePlan.days.length - 1 && (
+                            {di === livePlan.days.length - 1 && !route.dailyReturn && (
                                 <div className={cn("flex items-center gap-2 px-3 py-2 border-t text-xs", livePlan.returnAfterHours ? "bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300" : "bg-muted/30 text-muted-foreground")}>
                                     {livePlan.returnAfterHours ? <AlertTriangle className="h-4 w-4 shrink-0" /> : <Truck className="h-4 w-4 shrink-0" />}
                                     <span>

@@ -36,7 +36,7 @@ import { RouteHistory } from "@/components/routes/RouteHistory";
 import { RouteDelayBadge } from "@/components/routes/RouteDelayBadge";
 import { formatDuration as formatPlanDuration } from "@/lib/routePlanning";
 import { configService } from "@/services/supabase/configService";
-import { DEFAULT_PLANNING_PARAMS, isRouteInProgress, type PlanningParams } from "@/lib/routePlanning";
+import { DEFAULT_PLANNING_PARAMS, isRouteInProgress, simulateRoutePlan, withWeekendWork, type PlanningParams } from "@/lib/routePlanning";
 import { tagStopsWithZipMismatch } from "@/lib/geocode";
 import { optimizeRouteStopsAsync } from "@/lib/routeOptimizer";
 import { fetchLegDistancesAndDurations, fetchDurationMatrixMin } from "@/lib/routeLegs";
@@ -342,6 +342,8 @@ function RouteForm({
 
     // Hora de saída do 1º dia no modo planejamento ("" = início do expediente). Grava junto com a rota ao salvar.
     const [planningDepartureTime, setPlanningDepartureTime] = useState("");
+    // Rota de ida e volta no mesmo dia (grava com a rota ao salvar).
+    const [dailyReturn, setDailyReturn] = useState(false);
 
     // Tempos de atendimento por produto + expediente (modo planejamento).
     const queryClientForPlanning = useQueryClient();
@@ -454,6 +456,46 @@ function RouteForm({
     // Paradas da pré-visualização (parsedStops, ainda sendo editadas) no
     // formato que o RouteMap espera - status fica sempre "todo" aqui, já que
     // isso é só um preview geográfico da edição atual, não o status real da OS.
+    // Ida e volta no mesmo dia: o mapa separa o percurso por dia (base → paradas do dia → base), cada dia
+    // com sua cor, e dá pra ver um dia por vez.
+    const DAY_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2', '#db2777', '#65a30d'];
+    const [dayPlanInfo, setDayPlanInfo] = useState<{ daysBySO: Record<string, number>; days: { index: number; label: string; color: string }[] } | null>(null);
+    const [mapDay, setMapDay] = useState<'all' | number>('all');
+    useEffect(() => {
+        if (!dailyReturn || activeStops.length === 0 || !(previewViewTab === 'map' || previewViewTab === 'split')) { setDayPlanInfo(null); return; }
+        let cancelled = false;
+        (async () => {
+            try {
+                const matrix = await fetchDurationMatrixMin(activeStops, 'Aracaju', activeUnidadeId, routeEndpoints);
+                if (cancelled) return;
+                const n = activeStops.length;
+                const inProgress = mode === 'edit' && !!initialData && isRouteInProgress(initialData, serviceOrders);
+                const simParams = inProgress ? withWeekendWork(planningParams) : planningParams;
+                const legs = activeStops.map((_, i) => (i === 0 ? matrix[0][1] : matrix[i][i + 1]));
+                legs.push(matrix[n][n + 1]);
+                const plan = simulateRoutePlan(activeStops, legs, simParams, departureDate || new Date(), planningDepartureTime, {
+                    fromBase: activeStops.map((_, i) => matrix[0][i + 1]),
+                    toBase: activeStops.map((_, i) => matrix[i + 1][n + 1]),
+                });
+                const daysBySO: Record<string, number> = {};
+                plan.stops.forEach((p, k) => { daysBySO[activeStops[k].serviceOrder] = p.dayIndex; });
+                setDayPlanInfo({
+                    daysBySO,
+                    days: plan.days.map(d => ({ index: d.dayIndex, label: 'Dia ' + (d.dayIndex + 1) + ' · ' + format(d.date, 'dd/MM'), color: DAY_COLORS[d.dayIndex % DAY_COLORS.length] })),
+                });
+            } catch (e) {
+                console.error('Falha ao separar o mapa por dia:', e);
+            }
+        })();
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dailyReturn, stopsGeoKey, endpointsKey, previewViewTab, planningParams, departureDate, planningDepartureTime]);
+
+    // Dia escolhido que deixou de existir (paradas mudaram): volta a mostrar todos.
+    useEffect(() => {
+        if (mapDay !== 'all' && dayPlanInfo && !dayPlanInfo.days.some(d => d.index === mapDay)) setMapDay('all');
+    }, [dayPlanInfo, mapDay]);
+
     const previewMapStops = useMemo(() => {
         const previewRoute = {
             id: initialData?.id || 'draft',
@@ -465,8 +507,18 @@ function RouteForm({
             startPoint,
             endPoint,
         } as Route;
+        if (dailyReturn && dayPlanInfo) {
+            return parsedStops
+                .filter(s => !s.isReallocated && dayPlanInfo.daysBySO[s.serviceOrder] !== undefined && (mapDay === 'all' || dayPlanInfo.daysBySO[s.serviceOrder] === mapDay))
+                .map(stop => {
+                    const d = dayPlanInfo.daysBySO[stop.serviceOrder];
+                    const info = dayPlanInfo.days.find(x => x.index === d);
+                    const dayRoute = { ...previewRoute, id: previewRoute.id + '-d' + d, name: previewRoute.name + ' — ' + (info?.label || ('Dia ' + (d + 1))), mapColor: info?.color } as Route;
+                    return { stop, route: dayRoute, status: 'todo' as const };
+                });
+        }
         return parsedStops.map(stop => ({ stop, route: previewRoute, status: 'todo' as const }));
-    }, [parsedStops, routeName, technicianId, technicians, initialData, startPoint, endPoint]);
+    }, [parsedStops, routeName, technicianId, technicians, initialData, startPoint, endPoint, dailyReturn, dayPlanInfo, mapDay]);
 
     const [manualStopData, setManualStopData] = useState({
         serviceOrder: '',
@@ -515,6 +567,7 @@ function RouteForm({
                 setStartPoint(initialData.startPoint || null);
                 setEndPoint(initialData.endPoint || null);
                 setPlanningDepartureTime(initialData.departureTime || "");
+                setDailyReturn(!!initialData.dailyReturn);
                 const initialStops = initialData.stops.map(s => ({ ...s, stopType: s.stopType || 'padrao' }));
                 setParsedStops(initialStops);
                 tagStopsWithZipMismatch(initialStops).then(setParsedStops).catch(console.error);
@@ -532,6 +585,7 @@ function RouteForm({
                 setStartPoint(null);
                 setEndPoint(null);
                 setPlanningDepartureTime("");
+                setDailyReturn(false);
                 setParsedStops([]);
             }
             setExpandedStops(new Set());
@@ -1006,6 +1060,8 @@ function RouteForm({
                 // Só envia quando há hora (ou quando havia e foi limpa): rota sem hora de saída
                 // nunca depende da coluna departure_time (migração 19).
                 ...(planningDepartureTime || initialData?.departureTime ? { departureTime: planningDepartureTime || null } : {}),
+                // Só envia quando ligado (ou quando estava ligado e foi desligado): migração 23.
+                ...(dailyReturn || initialData?.dailyReturn ? { dailyReturn } : {}),
             };
 
             if (mode === 'add' && newAsDraft) {
@@ -1544,6 +1600,8 @@ function RouteForm({
                             onApplyOrder={handleApplyPlanOrder}
                             arrivalDate={arrivalDate}
                             onArrivalDateChange={setArrivalDate}
+                            dailyReturn={dailyReturn}
+                            onDailyReturnChange={setDailyReturn}
                             departureTime={planningDepartureTime}
                             onDepartureTimeChange={setPlanningDepartureTime}
                             onStopMinutesChange={(so, minutes) =>
@@ -2054,6 +2112,25 @@ function RouteForm({
                             );
                         })()}
                     </div>
+                    )}
+                    {(previewViewTab === 'map' || previewViewTab === 'split') && dailyReturn && dayPlanInfo && dayPlanInfo.days.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 lg:col-span-2 -mb-1">
+                            <span className="text-[11px] text-muted-foreground font-medium">Ver no mapa:</span>
+                            <button type="button" onClick={() => setMapDay('all')} className={cn("px-2.5 py-0.5 rounded-full text-[11px] font-semibold border transition-colors", mapDay === 'all' ? "bg-foreground text-background border-foreground" : "text-muted-foreground hover:bg-muted")}>
+                                Todos os dias
+                            </button>
+                            {dayPlanInfo.days.map(d => (
+                                <button
+                                    key={d.index}
+                                    type="button"
+                                    onClick={() => setMapDay(d.index)}
+                                    className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold border transition-colors"
+                                    style={{ background: mapDay === d.index ? d.color : 'transparent', borderColor: d.color, color: mapDay === d.index ? 'white' : d.color }}
+                                >
+                                    {d.label}
+                                </button>
+                            ))}
+                        </div>
                     )}
                     {(previewViewTab === 'map' || previewViewTab === 'split') && (
                         <div className={cn("rounded-lg border overflow-hidden h-[500px]", previewViewTab === 'split' && "lg:sticky lg:top-4")}>

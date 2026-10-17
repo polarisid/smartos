@@ -219,6 +219,7 @@ export const routeService = {
       endPoint: row.end_point || null,
       departureTime: row.departure_time || undefined,
       updatedAt: row.updated_at || undefined,
+      dailyReturn: row.daily_return === true,
       createdAt: new Date(row.created_at)
     };
   },
@@ -245,6 +246,8 @@ export const routeService = {
     if (obj.endPoint !== undefined) row.end_point = obj.endPoint;
     // Hora de saída do 1º dia ("HH:mm"); null/"" volta ao início do expediente.
     if (obj.departureTime !== undefined) row.departure_time = obj.departureTime || null;
+    // Só enviado quando definido (migração 23): rota que nunca usou a opção não depende da coluna.
+    if (obj.dailyReturn !== undefined) row.daily_return = !!obj.dailyReturn;
     return row;
   }
 };

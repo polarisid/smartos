@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/AuthContext";
 import { configService } from "@/services/supabase/configService";
-import { fetchLegDistancesAndDurations, geocodeStop } from "@/lib/routeLegs";
+import { fetchLegDistancesAndDurations, fetchDurationMatrixMin, geocodeStop } from "@/lib/routeLegs";
 import type { Route, RoutePoint, RouteStop, ServiceOrder } from "@/lib/data";
 import {
     DEFAULT_PLANNING_PARAMS,
@@ -98,12 +98,33 @@ export function useLiveRoutePlan(
         staleTime: 30 * 60 * 1000,
     });
 
+    // Rota de ida e volta no mesmo dia: precisa dos tempos base↔parada de todas as paradas.
+    const dailyReturn = !!route.dailyReturn;
+    const { data: matrix } = useQuery({
+        queryKey: ["live-plan-matrix", route.id, stopsKey(activeStops), endpoints.start?.lat, endpoints.end?.lat],
+        queryFn: () => fetchDurationMatrixMin(activeStops, "Aracaju", activeUnidadeId, endpoints),
+        enabled: dailyReturn && activeStops.length > 0,
+        staleTime: 30 * 60 * 1000,
+    });
+    const roundTripFor = (list: RouteStop[], firstLegFromHere = false) => {
+        if (!dailyReturn || !matrix) return undefined;
+        const n = activeStops.length;
+        const idxOf = (st: RouteStop) => activeStops.findIndex(x => x.serviceOrder === st.serviceOrder);
+        return {
+            fromBase: list.map(st => matrix[0]?.[idxOf(st) + 1] ?? 0),
+            toBase: list.map(st => matrix[idxOf(st) + 1]?.[n + 1] ?? 0),
+            firstLegFromHere,
+        };
+    };
+
     const departureDate = route.departureDate ? new Date(route.departureDate) : createdAt;
 
     const originalPlan: RoutePlan | null = useMemo(() => {
         if (!originalLegs || activeStops.length === 0) return null;
-        return simulateRoutePlan(activeStops, originalLegs.durationMin, params, departureDate, route.departureTime || "");
-    }, [originalLegs, activeStops, params, departureDate, route.departureTime]);
+        if (dailyReturn && !matrix) return null;
+        return simulateRoutePlan(activeStops, originalLegs.durationMin, params, departureDate, route.departureTime || "", roundTripFor(activeStops));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [originalLegs, activeStops, params, departureDate, route.departureTime, dailyReturn, matrix]);
 
     const livePlan: RoutePlan | null = useMemo(() => {
         if (!lastDone) return originalPlan;
@@ -111,8 +132,11 @@ export function useLiveRoutePlan(
         if (!remainingLegs) return null;
         const dayStart = timeToMinutes(params.dayStart, 8 * 60);
         const nowMin = now.getHours() * 60 + now.getMinutes();
-        return simulateRoutePlan(remainingStops, remainingLegs.durationMin, params, now, formatClock(Math.max(nowMin, dayStart)));
-    }, [lastDone, originalPlan, remainingStops, remainingLegs, params, now]);
+        if (dailyReturn && !matrix) return null;
+        // Ida e volta: o 1º trecho sai de onde o técnico está (última parada atendida); os próximos dias saem da base.
+        return simulateRoutePlan(remainingStops, remainingLegs.durationMin, params, now, formatClock(Math.max(nowMin, dayStart)), roundTripFor(remainingStops, true));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [lastDone, originalPlan, remainingStops, remainingLegs, params, now, dailyReturn, matrix]);
 
     // Diferença (min; + = atrasado) entre o horário previsto agora e o da previsão original.
     const deltaFor = (stop: RouteStop, startMin: number, date: Date): number | null => {
