@@ -93,17 +93,13 @@ export default function RoutesPage() {
     const isStopAttended = (stop: RouteStop, routeCreatedAt: Date) =>
         serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && os.date.getTime() >= routeCreatedAt.getTime());
 
+    // Ordem: a rota fixada primeiro, depois as rotas no nome do próprio técnico, depois as demais da equipe.
+    // (sort é estável: dentro de cada grupo vale a ordem original.)
     const displayedRoutes = useMemo(() => {
-        const routes = [...activeRoutes];
-        if (pinnedRouteId) {
-            routes.sort((a, b) => {
-                if (a.id === pinnedRouteId) return -1;
-                if (b.id === pinnedRouteId) return 1;
-                return 0;
-            });
-        }
-        return routes;
-    }, [activeRoutes, pinnedRouteId]);
+        const mine = (r: Route) => !!appUser?.uid && r.technicianId === appUser.uid;
+        const rank = (r: Route) => (r.id === pinnedRouteId ? 0 : mine(r) ? 1 : 2);
+        return [...activeRoutes].sort((a, b) => rank(a) - rank(b));
+    }, [activeRoutes, pinnedRouteId, appUser?.uid]);
 
     if (dataFetchError) {
         return (
@@ -184,6 +180,7 @@ export default function RoutesPage() {
                                     <CardTitle className="flex items-center gap-2 text-primary">
                                         <RouteIcon className="w-5 h-5" /> Rota: {route.name}
                                         {pinnedRouteId === route.id && <Pin className="w-4 h-4 text-primary fill-primary/20" />}
+                                        {isOwnRoute && <Badge className="text-[10px] px-1.5 py-0 font-bold">Sua rota</Badge>}
                                     </CardTitle>
                                     <CardDescription>
                                         Técnico responsável: <span className="font-medium text-foreground">{route.technicianName}</span>
@@ -264,13 +261,13 @@ export default function RoutesPage() {
                                         Ver Detalhes da Rota
                                     </Button>
                                 </DialogTrigger>
-                                <DialogContent className="max-w-6xl w-[95vw] md:w-full p-2 md:p-6 bg-muted md:bg-background">
-                                    <DialogHeader>
-                                        <DialogTitle>Detalhes da Rota: {route.name}</DialogTitle>
-                                        <DialogDescription>
+                                <DialogContent className="w-[100vw] max-w-none md:max-w-6xl md:w-full max-h-[100dvh] rounded-none md:rounded-lg p-2 md:p-6 gap-2 md:gap-4 bg-muted md:bg-background">
+                                    <DialogHeader className="space-y-1">
+                                        <DialogTitle className="text-base md:text-lg">Detalhes da Rota: {route.name}</DialogTitle>
+                                        <DialogDescription className="hidden md:block">
                                             Use a legenda de cores para identificar os tipos de parada.
                                         </DialogDescription>
-                                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs pt-2">
+                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] md:text-xs md:pt-2">
                                             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-yellow-100 border border-yellow-300"></div><span>Coleta</span></div>
                                             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300"></div><span>Entrega</span></div>
                                             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-100 border border-green-300"></div><span>Finalizada</span></div>
@@ -278,7 +275,7 @@ export default function RoutesPage() {
                                             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-violet-100 border border-violet-300 flex items-center justify-center"><History className="w-2 h-2 text-violet-600" /></div><span>Já Visitada</span></div>
                                         </div>
                                     </DialogHeader>
-                                    <div className="max-h-[70vh] overflow-y-auto">
+                                    <div className="max-h-[calc(100dvh-7.5rem)] md:max-h-[70vh] overflow-y-auto">
                                         {filteredStops.length === 0 ? (
                                             <div className="py-12 text-center text-muted-foreground">
                                                 <p className="font-medium">Nenhuma OS encontrada</p>
@@ -286,7 +283,7 @@ export default function RoutesPage() {
                                             </div>
                                         ) : (
                                             <>
-                                                <div className="md:hidden space-y-4 py-2">
+                                                <div className="md:hidden space-y-2 py-1">
                                                     {filteredStops.map((stop, index) => (
                                                         <MobileRouteStopCard
                                                             key={index}

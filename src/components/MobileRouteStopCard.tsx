@@ -90,6 +90,10 @@ export function MobileRouteStopCard({
         }
     };
 
+    const hasVisitDate = !!stop.firstVisitDate && !/^0{1,2}\/0{1,2}\/0{2,4}$/.test(stop.firstVisitDate.trim());
+    const showAsc = !!stop.ascJobNumber && stop.ascJobNumber.trim() !== stop.serviceOrder.trim();
+    const cityLine = [stop.city, stop.state ? stop.state.toUpperCase() : ''].filter(Boolean).join(' / ');
+
     const stopTypeLabels = {
         padrao: 'Padrão',
         coleta: 'Coleta',
@@ -98,15 +102,15 @@ export function MobileRouteStopCard({
 
     return (
         <Card className={cn("overflow-hidden border", getCardClass())}>
-            <div className="p-3 space-y-2.5">
+            <div className="p-2.5 space-y-2">
                 <div className="flex justify-between items-start">
                     <div>
-                        <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                        <div className="flex flex-wrap items-center gap-1 mb-0.5">
                             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{stopTypeLabels[stop.stopType || 'padrao']}</span>
                             {stop.ts && <span className="text-[9px] font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded">{stop.ts}</span>}
                             {stop.warrantyType && <span className="text-[9px] font-bold bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded">{stop.warrantyType}</span>}
-                            {stop.ascJobNumber && <span className="text-[9px] font-bold bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{stop.ascJobNumber}</span>}
-                            {stop.firstVisitDate && <span className="text-[9px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 px-1.5 py-0.5 rounded flex items-center gap-1"><Calendar className="h-3 w-3" />{stop.firstVisitDate}</span>}
+                            {showAsc && <span className="text-[9px] font-bold bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{stop.ascJobNumber}</span>}
+                            {hasVisitDate && <span className="text-[9px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 px-1.5 py-0.5 rounded flex items-center gap-1"><Calendar className="h-3 w-3" />{stop.firstVisitDate}</span>}
                             {stop.turn && <span className="text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 px-1.5 py-0.5 rounded">{stop.turn}</span>}
                             {stop.warrantyType === 'LP' && stop.ts?.toUpperCase() === 'IH' && (
                                 <button
@@ -129,7 +133,7 @@ export function MobileRouteStopCard({
                                 </button>
                             )}
                         </div>
-                        <p className={cn("font-mono font-black text-lg tracking-tight text-foreground leading-none", (isCompleted || stop.isReallocated) && "line-through opacity-60")}>{stop.serviceOrder}</p>
+                        <p className={cn("font-mono font-black text-base tracking-tight text-foreground leading-none", (isCompleted || stop.isReallocated) && "line-through opacity-60")}>{stop.serviceOrder}</p>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="flex flex-col items-end gap-1">
@@ -143,51 +147,67 @@ export function MobileRouteStopCard({
                                 </div>
                             )}
                         </div>
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-8 w-8 shrink-0 text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100"
-                            onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${addressQuery}`, '_blank')}
-                            title="Abrir no Google Maps"
-                        >
-                            <MapPin className="h-4 w-4" />
-                        </Button>
                     </div>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-2 text-sm bg-background/60 p-2 rounded border border-border/40">
-                    <div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm bg-background/60 p-2 rounded border border-border/40">
+                    <div className="min-w-0">
                         <p className="text-[9px] uppercase font-bold text-muted-foreground">Local</p>
-                        <p className="text-xs font-semibold leading-tight line-clamp-1">{stop.city}{stop.state ? ` (${stop.state.toUpperCase()})` : ''} - {stop.neighborhood}</p>
-                        {stop.zipCode && <p className="text-[10px] font-mono text-muted-foreground mt-0.5">CEP: {stop.zipCode}</p>}
+                        <p className="text-[13px] font-bold leading-tight break-words">{cityLine || "—"}</p>
+                        {stop.neighborhood && <p className="text-xs font-semibold leading-tight break-words text-foreground/90">{stop.neighborhood}</p>}
+                        {stop.zipCode && <p className="text-[10px] font-mono text-muted-foreground">CEP {stop.zipCode}</p>}
                     </div>
-                    <div>
+                    <div className="min-w-0">
                         <p className="text-[9px] uppercase font-bold text-muted-foreground">Produto</p>
-                        <p className="text-xs font-semibold leading-tight line-clamp-1">{stop.model}</p>
+                        <p className="text-xs font-semibold leading-tight break-all">{stop.model}</p>
+                        {stop.productType && <p className="text-[10px] text-muted-foreground leading-tight break-words">{stop.productType}</p>}
+                        {stop.consumerName && <p className="text-[11px] leading-tight break-words mt-1"><span className="font-bold text-[9px] uppercase text-muted-foreground">Cliente </span>{stop.consumerName}</p>}
                     </div>
+                    {stop.addressDetails && (
+                        <p className="col-span-2 text-xs leading-snug break-words text-foreground/80 border-t border-border/40 pt-1"><span className="font-bold text-[9px] uppercase text-muted-foreground">Endereço </span>{stop.addressDetails}</p>
+                    )}
+                    {(stop.statusComment || stop.observations) && (
+                        <div className="col-span-2 rounded bg-amber-50 dark:bg-amber-900/10 border border-amber-200/70 dark:border-amber-900/40 px-2 py-1">
+                            {stop.statusComment && <p className="text-[11px] leading-snug break-words"><span className="font-bold uppercase text-[9px] text-amber-800 dark:text-amber-400">Status ASC: </span>{stop.statusComment}</p>}
+                            {stop.observations && <p className="text-[11px] leading-snug break-words mt-0.5"><span className="font-bold uppercase text-[9px] text-amber-800 dark:text-amber-400">Obs: </span>{stop.observations}</p>}
+                        </div>
+                    )}
                 </div>
 
                 {stop.parts && stop.parts.length > 0 && (
-                    <div className="pt-1">
-                        <div className="flex flex-wrap gap-1.5">
+                    <div>
+                        <div className="flex flex-wrap gap-1">
                             {stop.parts.map((part, pIndex) => (
-                                <div key={pIndex} className="bg-background border shadow-sm rounded flex items-center px-1.5 py-0.5 font-mono text-[10px] font-bold">
-                                    {part.code} <span className="text-primary ml-1 opacity-80">x{part.quantity}</span>
+                                <div key={pIndex} className="bg-background border shadow-sm rounded px-1.5 py-0.5 max-w-full">
+                                    <div className="font-mono text-[10px] font-bold">{part.code} <span className="text-primary ml-1 opacity-80">x{part.quantity}</span></div>
+                                    {part.description && <div className="text-[9px] leading-tight text-muted-foreground break-words">{part.description}</div>}
                                 </div>
                             ))}
                         </div>
                     </div>
                 )}
 
-                <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full font-bold h-9 text-primary border-primary/30 bg-primary/5 hover:bg-primary/10"
-                    onClick={() => router.push(`/?os=${encodeURIComponent(stop.serviceOrder)}`)}
-                >
-                    <Wrench className="mr-2 h-4 w-4" />
-                    Lançar OS
-                </Button>
+                <div className="flex gap-2">
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 font-bold h-9 text-primary border-primary/30 bg-primary/5 hover:bg-primary/10"
+                        onClick={() => router.push(`/?os=${encodeURIComponent(stop.serviceOrder)}`)}
+                    >
+                        <Wrench className="mr-2 h-4 w-4" />
+                        Lançar OS
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="default"
+                        className="flex-1 font-bold h-9 bg-primary"
+                        onClick={handleCopyVisitText}
+                        title="Copia o texto de aviso de visita para enviar ao cliente"
+                    >
+                        <MessageSquare className="mr-2 h-4 w-4" />
+                        Anúncio de visita
+                    </Button>
+                </div>
 
                 {isBlocked && (
                     <div className="bg-red-100 dark:bg-red-900/30 border border-red-300 rounded p-2">
@@ -198,7 +218,7 @@ export function MobileRouteStopCard({
 
                 <Collapsible>
                     <CollapsibleTrigger asChild>
-                        <Button variant="ghost" size="sm" className="w-full h-7 text-[10px] uppercase font-bold text-muted-foreground hover:bg-transparent border-t border-transparent hover:border-border/50 mt-1 rounded-none">
+                        <Button variant="ghost" size="sm" className="w-full h-6 text-[10px] uppercase font-bold text-muted-foreground hover:bg-transparent rounded-none">
                             <span className="flex items-center">Menu Expandido <ChevronDown className="h-3 w-3 ml-1 transition-transform [&[data-state=open]]:rotate-180" /></span>
                         </Button>
                     </CollapsibleTrigger>
@@ -210,15 +230,10 @@ export function MobileRouteStopCard({
                                 </p>
                             </div>
                         )}
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Consumidor:</p>
-                                <p className="text-xs font-medium line-clamp-1">{stop.consumerName || "N/A"}</p>
-                            </div>
-                            <div>
-                                <p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Status ASC:</p>
-                                <p className="text-[11px] font-medium leading-tight line-clamp-2">{stop.statusComment || "N/A"}</p>
-                            </div>
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                            {stop.tat && <div><p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">TAT:</p><p className="font-medium">{stop.tat}</p></div>}
+                            {stop.requestDate && <div><p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Solicitada em:</p><p className="font-medium">{stop.requestDate}</p></div>}
+                            {stop.replacedPart && <div className="col-span-2"><p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Peça trocada:</p><p className="font-medium break-words">{stop.replacedPart}</p></div>}
                         </div>
                         {isPending && (
                             <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-2 space-y-1">
@@ -279,9 +294,15 @@ export function MobileRouteStopCard({
                             </div>
                         )}
 
-                        <Button size="sm" variant="default" className="w-full font-bold h-9 bg-primary" onClick={handleCopyVisitText}>
-                            <MessageSquare className="mr-2 h-4 w-4" />
-                            Copiar Anúncio de Visita
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-full font-bold h-9 text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100"
+                            onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${addressQuery}`, '_blank')}
+                            title="Abrir no Google Maps"
+                        >
+                            <MapPin className="mr-2 h-4 w-4" />
+                            Ir no mapa
                         </Button>
                     </CollapsibleContent>
                 </Collapsible>
