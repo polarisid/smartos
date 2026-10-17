@@ -279,7 +279,7 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="p-6 space-y-4 max-w-4xl mx-auto">
+      <div className="p-4 sm:p-6 space-y-4 max-w-4xl mx-auto">
         <div className="h-8 w-48 bg-muted animate-pulse rounded" />
         <div className="h-64 w-full bg-muted animate-pulse rounded-xl" />
       </div>

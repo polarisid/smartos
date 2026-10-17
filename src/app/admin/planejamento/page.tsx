@@ -1538,7 +1538,7 @@ export default function PlanejamentoPage() {
 
         {/* ── Kanban Board: one column per day ── */}
         <div className="overflow-x-auto pb-2">
-          <div className="grid grid-cols-7 gap-3 min-w-[900px]">
+          <div className="grid grid-cols-7 gap-3 min-w-[1400px] md:min-w-[900px]">
             {weekDays.map((day, i) => {
               const isToday = isSameDay(day, new Date());
               const isWeekend = i >= 5;

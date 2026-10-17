@@ -199,9 +199,9 @@ export default function TriageAdminPage() {
 
     return (
         <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
-            <div className="flex items-center justify-between space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 space-y-2">
                 <h2 className="text-3xl font-bold tracking-tight">Triagem Assistida por IA</h2>
-                <div className="flex items-center space-x-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <div className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 border ${apiStats.requests >= apiStats.limit ? 'border-red-200 bg-red-50 text-red-600' : 'border-green-200 bg-green-50 text-green-700'}`}>
                         <div className={`h-2 w-2 rounded-full ${apiStats.requests >= apiStats.limit ? 'bg-red-500' : 'bg-green-500 animate-pulse'}`} />
                         Gemini AI ({apiStats.requests}/{apiStats.limit} hoje)
@@ -330,7 +330,7 @@ export default function TriageAdminPage() {
                                 <DialogContent className="max-w-2xl">
                                     <DialogHeader><DialogTitle>{editingDocId ? 'Editar Informativo' : 'Cadastrar Informativo DIT / GSPN'}</DialogTitle></DialogHeader>
                                     <div className="grid gap-4 py-4">
-                                        <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                             <div className="space-y-2">
                                                 <Label>Título (Para sua organização)</Label>
                                                 <Input value={docTitle} onChange={e => setDocTitle(e.target.value)} placeholder="Ex: Defeito Crônico Display QN85" />

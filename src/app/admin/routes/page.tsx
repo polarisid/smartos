@@ -3480,7 +3480,7 @@ ${rowsXml}  </Table>
 
                     {/* Tab Navigation between List and Map */}
                     <Tabs defaultValue="list" className="w-full">
-                        <TabsList className="grid w-full max-w-[760px] grid-cols-4">
+                        <TabsList className="flex sm:grid w-full max-w-[760px] sm:grid-cols-4 justify-start">
                             <TabsTrigger value="list" className="flex items-center gap-2">
                                 <List className="w-4 h-4" /> Lista de Paradas
                             </TabsTrigger>

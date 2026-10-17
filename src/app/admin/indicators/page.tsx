@@ -96,8 +96,8 @@ function LaunchIndicatorsDialog({ indicators, onSave }: { indicators: Indicator[
         </DialogHeader>
         <div className="py-4 space-y-4 max-h-[60vh] overflow-y-auto">
             {indicators.map(indicator => (
-              <div key={indicator.id} className="grid grid-cols-3 items-center gap-4">
-                  <Label htmlFor={`indicator-${indicator.id}`} className="col-span-2">{indicator.name}</Label>
+              <div key={indicator.id} className="grid grid-cols-1 sm:grid-cols-3 items-center gap-1.5 sm:gap-4">
+                  <Label htmlFor={`indicator-${indicator.id}`} className="sm:col-span-2">{indicator.name}</Label>
                   <Input
                     id={`indicator-${indicator.id}`}
                     type="number"

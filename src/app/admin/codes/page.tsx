@@ -434,9 +434,9 @@ export default function CodesPage() {
   return (
     <>
       <div className="flex flex-col gap-6 p-4 sm:p-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-2xl font-bold">Gerenciar Códigos</h1>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" onClick={handleExport}>
                 <Download className="mr-2 h-4 w-4" /> Exportar Planilha
               </Button>
@@ -520,14 +520,14 @@ export default function CodesPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="type" className="text-right">Tipo</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-4 items-center gap-1.5 sm:gap-4">
+              <Label htmlFor="type" className="sm:text-right">Tipo</Label>
               <Select 
                 value={formData.type} 
                 onValueChange={(value) => handleFormSelectChange('type', value)}
                 disabled={dialogMode === 'edit'}
               >
-                <SelectTrigger className="col-span-3">
+                <SelectTrigger className="sm:col-span-3">
                   <SelectValue placeholder="Selecione o tipo" />
                 </SelectTrigger>
                 <SelectContent>
@@ -536,14 +536,14 @@ export default function CodesPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="category" className="text-right">Categoria</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-4 items-center gap-1.5 sm:gap-4">
+              <Label htmlFor="category" className="sm:text-right">Categoria</Label>
               <Select 
                 value={formData.category} 
                 onValueChange={(value) => handleFormSelectChange('category', value)}
                 disabled={dialogMode === 'edit'}
               >
-                <SelectTrigger className="col-span-3">
+                <SelectTrigger className="sm:col-span-3">
                   <SelectValue placeholder="Selecione a categoria" />
                 </SelectTrigger>
                 <SelectContent>
@@ -552,13 +552,13 @@ export default function CodesPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="code" className="text-right">Código</Label>
-              <Input id="code" value={formData.code} onChange={handleFormInputChange} className="col-span-3" disabled={dialogMode === 'edit'}/>
+            <div className="grid grid-cols-1 sm:grid-cols-4 items-center gap-1.5 sm:gap-4">
+              <Label htmlFor="code" className="sm:text-right">Código</Label>
+              <Input id="code" value={formData.code} onChange={handleFormInputChange} className="sm:col-span-3" disabled={dialogMode === 'edit'}/>
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="description" className="text-right">Descrição</Label>
-              <Input id="description" value={formData.description} onChange={handleFormInputChange} className="col-span-3" />
+            <div className="grid grid-cols-1 sm:grid-cols-4 items-center gap-1.5 sm:gap-4">
+              <Label htmlFor="description" className="sm:text-right">Descrição</Label>
+              <Input id="description" value={formData.description} onChange={handleFormInputChange} className="sm:col-span-3" />
             </div>
           </div>
           <DialogFooter>

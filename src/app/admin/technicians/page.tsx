@@ -277,9 +277,9 @@ export default function TechniciansPage() {
   return (
     <>
       <div className="flex flex-col gap-6 p-4 sm:p-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-2xl font-bold">Gerenciar Técnicos</h1>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => handleOpenFormDialog('add')}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Cadastrar Técnico
             </Button>

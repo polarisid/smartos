@@ -85,6 +85,8 @@ export function ScannerDialog({
     const [error, setError] = useState<string | null>(null);
     const [torchSupported, setTorchSupported] = useState(false);
     const [torchOn, setTorchOn] = useState(false);
+    const [torchMsg, setTorchMsg] = useState<string | null>(null);
+    const [cameraRunning, setCameraRunning] = useState(false);
     const [zoom, setZoom] = useState<{ min: number; max: number; step: number; value: number } | null>(null);
     const [cameras, setCameras] = useState<CameraOption[]>([]);
     const [activeCameraId, setActiveCameraId] = useState<string | null>(null);
@@ -109,6 +111,8 @@ export function ScannerDialog({
         setError(null);
         setStarting(true);
         setTorchSupported(false);
+        setTorchMsg(null);
+        setCameraRunning(false);
         setTorchOn(false);
         setZoom(null);
         setCameras([]);
@@ -199,6 +203,7 @@ export function ScannerDialog({
                 try {
                     const caps = scanner.getRunningTrackCameraCapabilities();
                     setTorchSupported(!!caps.torchFeature().isSupported());
+                    setCameraRunning(true);
                     const z = caps.zoomFeature();
                     if (z.isSupported()) {
                         const min = z.min(), max = z.max();
@@ -230,13 +235,20 @@ export function ScannerDialog({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, ready, mode, chosenCamera]);
 
+    // A lanterna é pedida direto à câmera. Alguns aparelhos/navegadores não avisam que têm lanterna mas aceitam o
+    // comando, então o botão aparece sempre e tentamos; se não der, explica o que fazer.
     const toggleTorch = async () => {
+        setTorchMsg(null);
+        const next = !torchOn;
         try {
-            const t = scannerRef.current?.getRunningTrackCameraCapabilities().torchFeature();
-            if (!t) return;
-            await t.apply(!torchOn);
-            setTorchOn(v => !v);
-        } catch { /* lanterna indisponível */ }
+            const feature = scannerRef.current?.getRunningTrackCameraCapabilities().torchFeature();
+            if (feature?.isSupported()) await feature.apply(next);
+            else await scannerRef.current?.applyVideoConstraints({ advanced: [{ torch: next } as any] });
+            setTorchOn(next);
+        } catch {
+            setTorchOn(false);
+            setTorchMsg("Este celular não deixa o navegador acender a lanterna. Acenda pela lanterna do próprio celular (painel rápido, puxando de cima) ou aproxime de uma luz.");
+        }
     };
 
     const changeZoom = async (value: number) => {
@@ -297,10 +309,10 @@ export function ScannerDialog({
                         </div>
                     )}
 
-                    {(torchSupported || zoom) && (
+                    {(cameraRunning || zoom) && (
                         <div className="flex items-center gap-3">
-                            {torchSupported && (
-                                <Button type="button" variant={torchOn ? "default" : "outline"} size="sm" onClick={toggleTorch}>
+                            {cameraRunning && (
+                                <Button type="button" variant={torchOn ? "default" : "outline"} size="sm" onClick={toggleTorch} title={torchSupported ? "Liga/desliga a lanterna" : "Tenta acender a lanterna"}>
                                     {torchOn ? <FlashlightOff className="h-4 w-4 mr-1.5" /> : <Flashlight className="h-4 w-4 mr-1.5" />}
                                     Lanterna
                                 </Button>
@@ -321,6 +333,8 @@ export function ScannerDialog({
                             )}
                         </div>
                     )}
+
+                    {torchMsg && <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">{torchMsg}</p>}
 
                     <DialogFooter>
                         <Button variant="outline" onClick={onClose}>Cancelar</Button>

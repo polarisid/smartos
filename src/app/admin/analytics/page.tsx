@@ -239,7 +239,7 @@ export default function AnalyticsPage() {
                 </h2>
 
                 {/* Summary pills */}
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <Card className="border border-slate-800 bg-slate-900/40">
                         <CardContent className="p-4 flex flex-col gap-1">
                             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Hoje (até agora)</span>

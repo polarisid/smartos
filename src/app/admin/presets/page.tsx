@@ -255,7 +255,7 @@ export default function PresetsPage() {
     return (
         <>
             <div className="flex flex-col gap-6 p-4 sm:p-6">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                     <h1 className="text-2xl font-bold">Gerenciar Presets e Modelos</h1>
                     <Button onClick={handleOpenAddDialog}>
                         <PlusCircle className="mr-2 h-4 w-4" /> Criar Preset de Códigos

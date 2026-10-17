@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { useAuth } from "@/context/AuthContext"
 import {
   SidebarProvider,
+  useSidebar,
   Sidebar,
   SidebarHeader,
   SidebarContent,
@@ -248,6 +249,28 @@ const NAV_GROUPS = [
   },
 ] as const;
 
+// Cabeçalho do celular: menu, logo e, para o master, a troca de unidade sem precisar abrir o menu.
+function MobileHeader() {
+    const { appUser } = useAuth();
+    return (
+        <header className="px-3 py-2.5 border-b border-sidebar-border flex items-center gap-3 bg-sidebar md:hidden sticky top-0 z-50 shadow-sm">
+            <SidebarTrigger className="h-10 w-10 shrink-0 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground" />
+            <Logo size={26} withWordmark wordmarkClassName="text-lg text-sidebar-foreground" />
+            {appUser?.role === 'master' && (
+                <div className="ml-auto w-36 min-w-0"><UnidadeSwitcher /></div>
+            )}
+        </header>
+    );
+}
+
+// Fecha o menu lateral do celular ao navegar (antes ele ficava aberto cobrindo a tela nova).
+function CloseMobileMenuOnNavigate() {
+    const pathname = usePathname();
+    const { setOpenMobile } = useSidebar();
+    React.useEffect(() => { setOpenMobile(false); }, [pathname, setOpenMobile]);
+    return null;
+}
+
 const AdminSidebar = memo(function AdminSidebar({children}: {children: React.ReactNode}) {
     const pathname = usePathname()
     const { user, logout, appUser } = useAuth();
@@ -263,6 +286,7 @@ const AdminSidebar = memo(function AdminSidebar({children}: {children: React.Rea
 
     return (
         <SidebarProvider>
+            <CloseMobileMenuOnNavigate />
             <Sidebar className="border-r border-sidebar-border bg-sidebar overflow-x-hidden">
                 <SidebarHeader>
                     <div className="flex items-center gap-3 p-2">
@@ -317,11 +341,8 @@ const AdminSidebar = memo(function AdminSidebar({children}: {children: React.Rea
                 </SidebarFooter>
             </Sidebar>
 
-            <div className="flex-1 flex flex-col min-h-screen">
-                <header className="p-4 border-b border-sidebar-border flex items-center gap-4 bg-sidebar md:hidden sticky top-0 z-50 shadow-sm">
-                    <SidebarTrigger className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground" />
-                    <Logo size={26} withWordmark wordmarkClassName="text-lg text-sidebar-foreground" />
-                </header>
+            <div className="flex-1 flex flex-col min-h-screen min-w-0">
+                <MobileHeader />
                 <SidebarInset className="bg-transparent">{children}</SidebarInset>
             </div>
         </SidebarProvider>

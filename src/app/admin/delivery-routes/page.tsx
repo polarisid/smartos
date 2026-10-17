@@ -698,9 +698,9 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             {/* Filtros */}
             <div className="rounded-lg border p-2.5 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                    <div className="relative">
+                    <div className="relative w-full sm:w-auto">
                         <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
-                        <Input className="h-8 w-[230px] pl-7 text-xs" placeholder="Buscar OS, cliente, cidade, modelo, peça…" value={search} onChange={e => setSearch(e.target.value)} />
+                        <Input className="h-8 w-full sm:w-[230px] pl-7 text-xs" placeholder="Buscar OS, cliente, cidade, modelo, peça…" value={search} onChange={e => setSearch(e.target.value)} />
                     </div>
                     <MultiFilter label="Situação" options={options.statuses} selected={fStatus} onChange={setFStatus} />
                     <MultiFilter label="Garantia" options={options.warranties} selected={fWarranty} onChange={setFWarranty} />
@@ -724,7 +724,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                             </div>
                         </PopoverContent>
                     </Popover>
-                    <div className="ml-auto flex items-center gap-1.5">
+                    <div className="ml-auto flex flex-wrap items-center gap-1.5">
                         <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setDense(d => !d)} title="Altura das linhas">{dense ? "Linhas maiores" : "Linhas compactas"}</Button>
                         <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={saveDefaultView} title="Guarda filtros, ordenação, colunas e densidade como padrão ao abrir">
                             <Star className="h-3.5 w-3.5" /> Salvar como padrão
@@ -746,7 +746,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             {/* Programar dia nas selecionadas */}
             <div className={cn("flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 transition-colors", selected.size > 0 ? "bg-primary/5 border-primary/40" : "bg-muted/30")}>
                 <span className="text-sm font-medium">{selected.size} selecionada(s)</span>
-                <Input type="date" className="h-8 w-[160px] text-xs" value={bulkDay} onChange={e => setBulkDay(e.target.value)} />
+                <Input type="date" className="h-8 w-full sm:w-[160px] text-xs" value={bulkDay} onChange={e => setBulkDay(e.target.value)} />
                 <Button size="sm" disabled={selected.size === 0 || !bulkDay || saving} onClick={async () => { await setDays(Array.from(selected), bulkDay); setSelected(new Set()); }}>
                     {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CalendarPlus className="mr-1.5 h-3.5 w-3.5" />} Programar para este dia
                 </Button>

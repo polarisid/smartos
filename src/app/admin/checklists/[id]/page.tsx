@@ -333,7 +333,7 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
         }
     };
     
-    const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>, fieldId: string) => {
+    const handleMouseDown = (e: React.PointerEvent<HTMLDivElement>, fieldId: string) => {
         const field = fields.find(f => f.id === fieldId);
         if (!field || !pdfContainerRef.current) return;
         
@@ -344,7 +344,7 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
         });
     };
     
-    const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const handleMouseMove = (e: React.PointerEvent<HTMLDivElement>) => {
         if (!draggingField || !pdfContainerRef.current) return;
 
         const containerRect = pdfContainerRef.current.getBoundingClientRect();
@@ -379,9 +379,9 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
 
     return (
         <>
-            <div className="flex h-screen flex-col bg-muted/40 overflow-hidden">
-                <header className="bg-card border-b p-4 flex justify-between items-center z-40 shrink-0">
-                    <div className="flex items-center gap-4">
+            <div className="flex min-h-screen md:h-screen flex-col bg-muted/40 md:overflow-hidden">
+                <header className="bg-card border-b p-3 md:p-4 flex flex-wrap gap-2 justify-between items-center z-40 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 md:gap-4">
                         <Button variant="outline" size="sm" onClick={() => router.push('/admin/checklists')}>
                             <ArrowLeft className="mr-2 h-4 w-4" /> Voltar
                         </Button>
@@ -400,8 +400,8 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
                     </div>
                 </header>
 
-                <div className="flex-1 grid md:grid-cols-3 gap-4 p-4 min-h-0">
-                    <aside className="md:col-span-1 bg-card rounded-lg border flex flex-col h-full min-h-0 overflow-hidden">
+                <div className="flex-1 grid md:grid-cols-3 gap-3 md:gap-4 p-2 md:p-4 md:min-h-0">
+                    <aside className="md:col-span-1 bg-card rounded-lg border flex flex-col h-[60vh] md:h-full min-h-0 overflow-hidden">
                         <CardHeader className="p-4 shrink-0">
                             <CardTitle>Campos do Checklist</CardTitle>
                             <CardDescription>Adicione, edite e remova os campos do formulário.</CardDescription>
@@ -486,10 +486,11 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
                     </aside>
 
                     <main 
-                        className="md:col-span-2 bg-card rounded-lg border p-4 overflow-auto min-h-0 relative"
-                        onMouseMove={handleMouseMove}
-                        onMouseUp={handleMouseUp}
-                        onMouseLeave={handleMouseUp}
+                        className="md:col-span-2 bg-card rounded-lg border p-2 md:p-4 overflow-auto h-[75vh] md:h-auto md:min-h-0 relative"
+                        onPointerMove={handleMouseMove}
+                        onPointerUp={handleMouseUp}
+                        onPointerCancel={handleMouseUp}
+                        onPointerLeave={handleMouseUp}
                     >
                         {/* This wrapper must tightly hug the rendered PDF pages so that
                             absolute-positioned field overlays have the same coordinate
@@ -517,9 +518,9 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
                             {fields.map(field => (
                                 <div
                                     key={field.id}
-                                    className="absolute flex items-center gap-1 p-1 rounded-sm bg-blue-500/30 border border-blue-600 cursor-move"
+                                    className="absolute flex items-center gap-1 p-1 rounded-sm bg-blue-500/30 border border-blue-600 cursor-move touch-none"
                                     style={{ left: `${field.x}px`, top: `${field.y}px` }}
-                                    onMouseDown={(e) => handleMouseDown(e, field.id)}
+                                    onPointerDown={(e) => handleMouseDown(e, field.id)}
                                 >
                                     <Move className="h-3 w-3 text-blue-800" />
                                     {field.type === 'text' ? (
