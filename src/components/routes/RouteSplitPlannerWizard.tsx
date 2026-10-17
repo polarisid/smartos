@@ -157,17 +157,30 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
     }
   };
 
+  // Filtro por garantia (OW/LP): esconde as outras paradas da lista e do mapa, sem mexer nos grupos.
+  const [warrantyFilter, setWarrantyFilter] = useState<"all" | "OW" | "LP">("all");
+  const matchesWarranty = (s: RouteStop) => warrantyFilter === "all" || (s.warrantyType || "").trim().toUpperCase() === warrantyFilter;
+  const warrantyCounts = useMemo(() => {
+    const all = groups.flat();
+    return {
+      all: all.length,
+      OW: all.filter(s => (s.warrantyType || "").trim().toUpperCase() === "OW").length,
+      LP: all.filter(s => (s.warrantyType || "").trim().toUpperCase() === "LP").length,
+    };
+  }, [groups]);
+
   const mapPoints: SplitMapPoint[] = useMemo(() => {
     const pts: SplitMapPoint[] = [];
     groups.forEach((g, gi) => {
       if (hiddenGroups.has(gi)) return;
       g.forEach((stop, si) => {
+        if (warrantyFilter !== "all" && (stop.warrantyType || "").trim().toUpperCase() !== warrantyFilter) return;
         const c = coordsByOrder.get(stop.serviceOrder);
         if (c) pts.push({ stop, coords: c, groupIndex: gi, sequence: si + 1 });
       });
     });
     return pts;
-  }, [groups, coordsByOrder, hiddenGroups]);
+  }, [groups, coordsByOrder, hiddenGroups, warrantyFilter]);
 
   const visibleRoutePaths = useMemo(
     () => routePaths.filter(p => !hiddenGroups.has(p.groupIndex)),
@@ -518,9 +531,35 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
                     </Button>
                   </div>
                 </div>
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border p-2.5 bg-muted/30">
+                  <Label className="text-xs font-semibold shrink-0">Garantia</Label>
+                  <div className="flex items-center gap-1 rounded-lg border p-0.5 bg-background">
+                    {([
+                      { key: "all" as const, label: "Todas", count: warrantyCounts.all },
+                      { key: "OW" as const, label: "OW", count: warrantyCounts.OW },
+                      { key: "LP" as const, label: "LP", count: warrantyCounts.LP },
+                    ]).map(opt => (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setWarrantyFilter(opt.key)}
+                        className={cn(
+                          "px-2.5 py-1 rounded-md text-xs font-semibold transition-colors",
+                          warrantyFilter === opt.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+                        )}
+                      >
+                        {opt.label} <span className="opacity-70">({opt.count})</span>
+                      </button>
+                    ))}
+                  </div>
+                  {warrantyFilter !== "all" && (
+                    <span className="text-[11px] text-muted-foreground">Mostrando só {warrantyFilter} na lista e no mapa.</span>
+                  )}
+                </div>
                 {groups.map((groupStops, gi) => {
                   const color = colorForGroup(gi).hex;
                   const created = createdRouteIds[gi];
+                  const visibleCount = groupStops.filter(matchesWarranty).length;
                   return (
                     <div
                       key={gi}
@@ -536,7 +575,7 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
                           className="h-7 text-sm font-semibold flex-1 min-w-0"
                         />
                         <span className="text-[11px] text-muted-foreground font-mono shrink-0">
-                          {groupStops.length} parada{groupStops.length !== 1 ? "s" : ""}
+                          {warrantyFilter !== "all" ? `${visibleCount} de ${groupStops.length}` : groupStops.length} parada{groupStops.length !== 1 ? "s" : ""}
                         </span>
                         <Button
                           type="button"
@@ -575,8 +614,10 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
                       <div className="p-1.5 space-y-1 max-h-[180px] overflow-y-auto">
                         {groupStops.length === 0 ? (
                           <p className="text-[11px] text-muted-foreground text-center py-3">Arraste uma parada aqui</p>
+                        ) : visibleCount === 0 ? (
+                          <p className="text-[11px] text-muted-foreground text-center py-3">Nenhuma parada {warrantyFilter} neste grupo.</p>
                         ) : (
-                          groupStops.map((stop, si) => (
+                          groupStops.map((stop, si) => !matchesWarranty(stop) ? null : (
                             <div
                               key={stop.serviceOrder}
                               draggable
@@ -594,6 +635,23 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
                               <GripVertical className="h-3 w-3 text-muted-foreground/50 shrink-0" />
                               <span className="text-muted-foreground/70 w-4 text-right shrink-0">{si + 1}.</span>
                               <span className="font-mono font-bold shrink-0">{stop.serviceOrder}</span>
+                              {stop.warrantyType && (
+                                <span
+                                  className={cn(
+                                    "text-[9px] font-bold px-1 rounded shrink-0",
+                                    stop.warrantyType.trim().toUpperCase() === "LP"
+                                      ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                                      : "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                  )}
+                                >
+                                  {stop.warrantyType.trim().toUpperCase()}
+                                </span>
+                              )}
+                              {stop.tat && (
+                                <span className="text-[9px] font-semibold px-1 rounded border text-muted-foreground shrink-0" title="TAT (tempo de atendimento da OS)">
+                                  TAT {stop.tat}
+                                </span>
+                              )}
                               <span className="text-muted-foreground truncate">
                                 {stop.city}{stop.neighborhood ? ` · ${stop.neighborhood}` : ""}
                               </span>
