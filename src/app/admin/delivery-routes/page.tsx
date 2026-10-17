@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ExternalLink, Loader2, Package, PlusCircle, Route as RouteIcon, Search, Truck } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, Route as RouteIcon, Search, Star, Trash2, Truck, X } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -65,6 +67,62 @@ const COLUMNS: Array<{ key: SortKey; label: string; value: (r: Row) => string | 
     { key: "warranty", label: "OW/LP", value: r => r.stop.warrantyType || "" },
 ];
 
+const STATUS_ORDER = ["A programar", "Com dia", "Programada", "Pendência", "Finalizada"];
+
+// Colunas que podem ser escondidas (SO, Dia e Situação ficam sempre).
+const TOGGLEABLE_COLUMNS: Array<{ key: string; label: string }> = [
+    ...COLUMNS.filter(c => c.key !== "so").map(c => ({ key: c.key as string, label: c.label })),
+    { key: "parts", label: "Peças" },
+];
+
+type Prefs = {
+    status: string[]; warranty: string[]; city: string[]; neighborhood: string[]; turn: string[];
+    hidden: string[]; sort: { key: SortKey; dir: "asc" | "desc" }; dense: boolean;
+};
+const PREFS_KEY = "smartos_delivery_table_prefs";
+function loadPrefs(): Partial<Prefs> {
+    try { return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}"); } catch { return {}; }
+}
+
+// Filtro de múltipla escolha: marca quantos valores quiser (OU dentro do filtro; os filtros se combinam em E).
+function MultiFilter({ label, options, selected, onChange, searchable }: {
+    label: string;
+    options: Array<{ value: string; count: number }>;
+    selected: Set<string>;
+    onChange: (s: Set<string>) => void;
+    searchable?: boolean;
+}) {
+    const [q, setQ] = useState("");
+    const shown = options.filter(o => !q.trim() || o.value.toLowerCase().includes(q.trim().toLowerCase()));
+    const toggle = (v: string) => { const n = new Set(selected); if (n.has(v)) n.delete(v); else n.add(v); onChange(n); };
+    return (
+        <Popover>
+            <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className={cn("h-8 gap-1.5 text-xs", selected.size > 0 && "border-primary bg-primary/5")}>
+                    {label}{selected.size > 0 ? " (" + selected.size + ")" : ""} <ChevronDown className="h-3 w-3 opacity-60" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-64 p-2">
+                {searchable && <Input className="h-8 text-xs mb-1.5" placeholder={"Buscar " + label.toLowerCase() + "…"} value={q} onChange={e => setQ(e.target.value)} />}
+                <div className="max-h-64 overflow-y-auto grid gap-0.5">
+                    {shown.map(o => (
+                        <label key={o.value} className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-muted cursor-pointer">
+                            <Checkbox checked={selected.has(o.value)} onCheckedChange={() => toggle(o.value)} />
+                            <span className="flex-1 truncate">{o.value}</span>
+                            <span className="text-muted-foreground tabular-nums">{o.count}</span>
+                        </label>
+                    ))}
+                    {shown.length === 0 && <p className="text-xs text-muted-foreground px-1.5 py-2">Nada encontrado.</p>}
+                </div>
+                <div className="flex items-center justify-between pt-1.5 mt-1.5 border-t">
+                    <button type="button" className="text-[11px] text-primary hover:underline" onClick={() => onChange(new Set(shown.map(o => o.value)))}>Marcar visíveis</button>
+                    <button type="button" className="text-[11px] text-muted-foreground hover:underline" onClick={() => onChange(new Set())}>Limpar</button>
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
+}
+
 export default function DeliveryRoutesPage() {
     const { appUser, activeUnidadeId } = useAuth();
     const { toast } = useToast();
@@ -78,6 +136,25 @@ export default function DeliveryRoutesPage() {
         enabled: !!appUser?.uid,
         refetchInterval: 30000,
     });
+
+    // ── Excluir rota de entrega ──
+    const [toDelete, setToDelete] = useState<Route | null>(null);
+    const [deleting, setDeleting] = useState(false);
+    const handleDelete = async () => {
+        if (!toDelete) return;
+        setDeleting(true);
+        try {
+            await routeService.removeDeliveryRoute(toDelete.id);
+            await queryClient.invalidateQueries({ queryKey: ["delivery-routes"] });
+            await queryClient.invalidateQueries({ queryKey: ["routes"] });
+            toast({ title: "Rota de entrega excluída", description: toDelete.name });
+            setToDelete(null);
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível excluir", description: e?.message });
+        } finally {
+            setDeleting(false);
+        }
+    };
 
     // ── Criar rota de entrega ──
     const [createOpen, setCreateOpen] = useState(false);
@@ -149,7 +226,18 @@ export default function DeliveryRoutesPage() {
                     {routes.map(r => (
                         <Card key={r.id} className="cursor-pointer hover:border-primary transition-colors" onClick={() => setSelectedId(r.id)}>
                             <CardHeader className="pb-2">
-                                <CardTitle className="text-base">{r.name}</CardTitle>
+                                <div className="flex items-start justify-between gap-2">
+                                    <CardTitle className="text-base">{r.name}</CardTitle>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 -mt-1 -mr-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                        title="Excluir esta rota de entrega"
+                                        onClick={(e) => { e.stopPropagation(); setToDelete(r); }}
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
                                 <CardDescription>Criada em {format(new Date(r.createdAt), "dd/MM/yyyy")} · {r.stops.length} OS</CardDescription>
                             </CardHeader>
                             <CardContent className="text-xs text-muted-foreground">
@@ -159,6 +247,24 @@ export default function DeliveryRoutesPage() {
                     ))}
                 </div>
             )}
+
+            <AlertDialog open={!!toDelete} onOpenChange={(o) => { if (!o && !deleting) setToDelete(null); }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir a rota de entrega?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            <strong>{toDelete?.name}</strong> será apagada por completo, junto com os rastreios de peças e os dias programados nela.
+                            As rotas filhas já criadas continuam em Rotas (apenas perdem o vínculo). Isso não pode ser desfeito.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deleting}>Voltar</AlertDialogCancel>
+                        <AlertDialogAction className="bg-destructive hover:bg-destructive/90" disabled={deleting} onClick={(e) => { e.preventDefault(); void handleDelete(); }}>
+                            {deleting ? "Excluindo..." : "Sim, excluir"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogContent className="max-w-2xl">
@@ -208,18 +314,38 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         refetchInterval: 15000,
     });
 
-    const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "so", dir: "asc" });
+    const initialPrefs = useMemo(() => loadPrefs(), []);
+    const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>(initialPrefs.sort || { key: "so", dir: "asc" });
     const [search, setSearch] = useState("");
-    const [fStatus, setFStatus] = useState("todas");
-    const [fWarranty, setFWarranty] = useState("todas");
-    const [fCity, setFCity] = useState("todas");
-    const [fTurn, setFTurn] = useState("todas");
+    // Filtros múltiplos: vários valores por filtro (OU) e todos os filtros juntos (E). Vazio = sem filtro.
+    const [fStatus, setFStatus] = useState<Set<string>>(new Set(initialPrefs.status || []));
+    const [fWarranty, setFWarranty] = useState<Set<string>>(new Set(initialPrefs.warranty || []));
+    const [fCity, setFCity] = useState<Set<string>>(new Set(initialPrefs.city || []));
+    const [fNeighborhood, setFNeighborhood] = useState<Set<string>>(new Set(initialPrefs.neighborhood || []));
+    const [fTurn, setFTurn] = useState<Set<string>>(new Set(initialPrefs.turn || []));
+    const [hidden, setHidden] = useState<Set<string>>(new Set(initialPrefs.hidden || []));
+    const [dense, setDense] = useState<boolean>(initialPrefs.dense ?? true);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [bulkDay, setBulkDay] = useState("");
     const [saving, setSaving] = useState(false);
     const [createOpen, setCreateOpen] = useState(false);
     const [optimize, setOptimize] = useState(true);
     const [creatingChildren, setCreatingChildren] = useState(false);
+    const [confirmDelete, setConfirmDelete] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const handleDeleteRoute = async () => {
+        setDeleting(true);
+        try {
+            await routeService.removeDeliveryRoute(routeId);
+            await queryClient.invalidateQueries({ queryKey: ["delivery-routes"] });
+            await queryClient.invalidateQueries({ queryKey: ["routes"] });
+            toast({ title: "Rota de entrega excluída" });
+            onBack();
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível excluir", description: e?.message });
+            setDeleting(false);
+        }
+    };
 
     const rows: Row[] = useMemo(() => {
         if (!route) return [];
@@ -243,17 +369,57 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     }, [route, serviceOrders, children]);
 
     const options = useMemo(() => {
-        const uniq = (f: (r: Row) => string) => Array.from(new Set(rows.map(f).filter(Boolean))).sort((a, b) => a.localeCompare(b));
-        return { cities: uniq(r => r.stop.city || ""), turns: uniq(r => r.stop.turn || ""), warranties: uniq(r => r.stop.warrantyType || "") };
+        const count = (f: (r: Row) => string) => {
+            const m = new Map<string, number>();
+            rows.forEach(r => { const v = f(r); if (v) m.set(v, (m.get(v) || 0) + 1); });
+            return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0], "pt-BR")).map(([value, n]) => ({ value, count: n }));
+        };
+        const statusCounts = new Map<string, number>();
+        rows.forEach(r => statusCounts.set(statusOf(r), (statusCounts.get(statusOf(r)) || 0) + 1));
+        return {
+            cities: count(r => r.stop.city || ""),
+            neighborhoods: count(r => r.stop.neighborhood || ""),
+            turns: count(r => r.stop.turn || ""),
+            warranties: count(r => r.stop.warrantyType || ""),
+            statuses: STATUS_ORDER.map(value => ({ value, count: statusCounts.get(value) || 0 })),
+        };
     }, [rows]);
+
+    const currentPrefs = (): Prefs => ({
+        status: [...fStatus], warranty: [...fWarranty], city: [...fCity], neighborhood: [...fNeighborhood], turn: [...fTurn],
+        hidden: [...hidden], sort, dense,
+    });
+    const clearFilters = () => { setFStatus(new Set()); setFWarranty(new Set()); setFCity(new Set()); setFNeighborhood(new Set()); setFTurn(new Set()); setSearch(""); };
+    const saveDefaultView = () => {
+        try {
+            localStorage.setItem(PREFS_KEY, JSON.stringify(currentPrefs()));
+            toast({ title: "Visualização padrão salva", description: "Filtros, ordenação, colunas e densidade serão aplicados sempre que abrir uma rota de entrega neste navegador." });
+        } catch {
+            toast({ variant: "destructive", title: "Não foi possível salvar o padrão neste navegador." });
+        }
+    };
+    const resetView = () => {
+        try { localStorage.removeItem(PREFS_KEY); } catch { /* ok */ }
+        clearFilters(); setSort({ key: "so", dir: "asc" }); setHidden(new Set()); setDense(true);
+        toast({ title: "Visualização restaurada", description: "O padrão salvo foi apagado." });
+    };
+    const drop = (set: Set<string>, v: string) => { const n = new Set(set); n.delete(v); return n; };
+    const activeChips: Array<{ label: string; value: string; remove: () => void }> = [
+        ...[...fStatus].map(v => ({ label: "Situação", value: v, remove: () => setFStatus(s => drop(s, v)) })),
+        ...[...fWarranty].map(v => ({ label: "Garantia", value: v, remove: () => setFWarranty(s => drop(s, v)) })),
+        ...[...fCity].map(v => ({ label: "Cidade", value: v, remove: () => setFCity(s => drop(s, v)) })),
+        ...[...fNeighborhood].map(v => ({ label: "Bairro", value: v, remove: () => setFNeighborhood(s => drop(s, v)) })),
+        ...[...fTurn].map(v => ({ label: "Turno", value: v, remove: () => setFTurn(s => drop(s, v)) })),
+    ];
 
     const visible = useMemo(() => {
         const q = search.trim().toLowerCase();
         const list = rows.filter(r => {
-            if (fStatus !== "todas" && statusOf(r) !== fStatus) return false;
-            if (fWarranty !== "todas" && (r.stop.warrantyType || "") !== fWarranty) return false;
-            if (fCity !== "todas" && (r.stop.city || "") !== fCity) return false;
-            if (fTurn !== "todas" && (r.stop.turn || "") !== fTurn) return false;
+            if (fStatus.size && !fStatus.has(statusOf(r))) return false;
+            if (fWarranty.size && !fWarranty.has(r.stop.warrantyType || "")) return false;
+            if (fCity.size && !fCity.has(r.stop.city || "")) return false;
+            if (fNeighborhood.size && !fNeighborhood.has(r.stop.neighborhood || "")) return false;
+            if (fTurn.size && !fTurn.has(r.stop.turn || "")) return false;
             if (!q) return true;
             const hay = [r.stop.serviceOrder, r.stop.ascJobNumber, r.stop.consumerName, r.stop.city, r.stop.neighborhood, r.stop.model, ...(r.stop.parts || []).map(p => p.code)].join(" ").toLowerCase();
             return hay.includes(q);
@@ -270,7 +436,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
             return String(va).localeCompare(String(vb), "pt-BR", { numeric: true }) * dir;
         });
-    }, [rows, search, fStatus, fWarranty, fCity, fTurn, sort]);
+    }, [rows, search, fStatus, fWarranty, fCity, fNeighborhood, fTurn, sort]);
 
     const summary = useMemo(() => ({
         total: rows.length,
@@ -284,6 +450,14 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
 
     const toggleSort = (key: SortKey) => setSort(s => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
     const sortIcon = (key: SortKey) => (sort.key !== key ? <ArrowUpDown className="h-3 w-3 opacity-40" /> : sort.dir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />);
+
+    const allColumns: Array<{ key: string; label: string; sortable: boolean }> = [
+        ...COLUMNS.map(c => ({ key: c.key as string, label: c.label, sortable: true })),
+        { key: "parts", label: "Peças", sortable: false },
+        { key: "day", label: "Dia", sortable: true },
+        { key: "status", label: "Situação", sortable: true },
+    ];
+    const shownColumns = allColumns.filter(c => !hidden.has(c.key));
 
     const selectable = (r: Row) => !r.finalizedAt && !r.childName;
     const allVisibleSelected = visible.filter(selectable).length > 0 && visible.filter(selectable).every(r => selected.has(r.stop.serviceOrder));
@@ -387,6 +561,56 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         );
     };
 
+    const renderCell = (r: Row, key: string): ReactNode => {
+        const so = r.stop.serviceOrder;
+        switch (key) {
+            case "tat": return r.stop.tat || "";
+            case "request": return r.stop.requestDate || "";
+            case "visit": return r.stop.firstVisitDate || "";
+            case "warranty": {
+                const v = (r.stop.warrantyType || "").trim();
+                if (!v) return "";
+                return (
+                    <span className={cn("text-[10px] font-bold px-1 rounded", v.toUpperCase() === "LP" ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300" : "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300")}>{v}</span>
+                );
+            }
+            case "parts":
+                return (
+                    <span className="font-mono text-[10px] inline-flex flex-wrap gap-x-1.5 max-w-[260px] whitespace-normal">
+                        {(r.stop.parts || []).map(p => {
+                            const tracked = (p.trackingCode || "").trim() !== "";
+                            return (
+                                <span
+                                    key={p.code}
+                                    className={cn("inline-flex items-center gap-0.5", tracked ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")}
+                                    title={(p.description || "") + (tracked ? " — rastreio " + p.trackingCode : " — sem rastreio")}
+                                >
+                                    {tracked ? <CheckCircle2 className="h-2.5 w-2.5" /> : null}{p.code}{p.quantity > 1 ? " x" + p.quantity : ""}
+                                </span>
+                            );
+                        })}
+                    </span>
+                );
+            case "day":
+                return selectable(r) ? (
+                    <Input
+                        type="date"
+                        className="h-6 w-[112px] text-[10px] px-1"
+                        value={r.day}
+                        onChange={e => setDays([so], e.target.value)}
+                        title={r.day ? format(new Date(r.day + "T12:00:00"), "EEEE", { locale: ptBR }) : "Definir o dia"}
+                    />
+                ) : (
+                    <span className="text-muted-foreground">{r.day ? format(new Date(r.day + "T12:00:00"), "dd/MM") : "—"}</span>
+                );
+            case "status": return statusBadge(r);
+            default: {
+                const c = COLUMNS.find(x => x.key === key);
+                return c ? String(c.value(r)) : "";
+            }
+        }
+    };
+
     return (
         <div className="flex flex-col gap-4 p-4 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -398,6 +622,9 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
+                    <Button variant="outline" size="icon" className="text-muted-foreground hover:text-destructive" title="Excluir esta rota de entrega" onClick={() => setConfirmDelete(true)}>
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
                     <Button variant="outline" asChild>
                         <Link href="/admin/part-separation"><Package className="mr-2 h-4 w-4" /> Rastreio das peças</Link>
                     </Button>
@@ -439,29 +666,51 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             )}
 
             {/* Filtros */}
-            <div className="flex flex-wrap items-end gap-2 rounded-lg border p-3">
-                <div className="relative">
-                    <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                    <Input className="h-9 w-[240px] pl-7 text-sm" placeholder="Buscar OS, cliente, cidade, modelo, peça…" value={search} onChange={e => setSearch(e.target.value)} />
-                </div>
-                {([
-                    { label: "Status", value: fStatus, set: setFStatus, items: ["Finalizada", "Programada", "Com dia", "Pendência", "A programar"] },
-                    { label: "OW/LP", value: fWarranty, set: setFWarranty, items: options.warranties },
-                    { label: "Cidade", value: fCity, set: setFCity, items: options.cities },
-                    { label: "Turno", value: fTurn, set: setFTurn, items: options.turns },
-                ]).map(f => (
-                    <div key={f.label} className="space-y-0.5">
-                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">{f.label}</Label>
-                        <Select value={f.value} onValueChange={f.set}>
-                            <SelectTrigger className="h-9 w-[150px] text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="todas">Todos</SelectItem>
-                                {f.items.map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
+            <div className="rounded-lg border p-2.5 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative">
+                        <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                        <Input className="h-8 w-[230px] pl-7 text-xs" placeholder="Buscar OS, cliente, cidade, modelo, peça…" value={search} onChange={e => setSearch(e.target.value)} />
                     </div>
-                ))}
-                <p className="text-xs text-muted-foreground ml-auto self-center">{visible.length} de {rows.length} OS</p>
+                    <MultiFilter label="Situação" options={options.statuses} selected={fStatus} onChange={setFStatus} />
+                    <MultiFilter label="Garantia" options={options.warranties} selected={fWarranty} onChange={setFWarranty} />
+                    <MultiFilter label="Cidade" options={options.cities} selected={fCity} onChange={setFCity} searchable />
+                    <MultiFilter label="Bairro" options={options.neighborhoods} selected={fNeighborhood} onChange={setFNeighborhood} searchable />
+                    <MultiFilter label="Turno" options={options.turns} selected={fTurn} onChange={setFTurn} />
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+                                <Columns3 className="h-3.5 w-3.5" /> Colunas{hidden.size > 0 ? " (" + (TOGGLEABLE_COLUMNS.length - hidden.size) + "/" + TOGGLEABLE_COLUMNS.length + ")" : ""}
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-56 p-2">
+                            <div className="grid grid-cols-1 gap-0.5 max-h-72 overflow-y-auto">
+                                {TOGGLEABLE_COLUMNS.map(c => (
+                                    <label key={c.key} className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-muted cursor-pointer">
+                                        <Checkbox checked={!hidden.has(c.key)} onCheckedChange={() => setHidden(prev => { const n = new Set(prev); if (n.has(c.key)) n.delete(c.key); else n.add(c.key); return n; })} />
+                                        {c.label}
+                                    </label>
+                                ))}
+                            </div>
+                        </PopoverContent>
+                    </Popover>
+                    <div className="ml-auto flex items-center gap-1.5">
+                        <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setDense(d => !d)} title="Altura das linhas">{dense ? "Linhas maiores" : "Linhas compactas"}</Button>
+                        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={saveDefaultView} title="Guarda filtros, ordenação, colunas e densidade como padrão ao abrir">
+                            <Star className="h-3.5 w-3.5" /> Salvar como padrão
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={resetView} title="Volta ao visual de fábrica e apaga o padrão salvo">Restaurar</Button>
+                    </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 min-h-[22px]">
+                    {activeChips.map(c => (
+                        <button key={c.label + c.value} type="button" onClick={c.remove} className="inline-flex items-center gap-1 rounded-full border bg-primary/10 px-2 py-0.5 text-[11px] hover:bg-primary/20" title="Remover este filtro">
+                            <span className="text-muted-foreground">{c.label}:</span> {c.value} <X className="h-3 w-3" />
+                        </button>
+                    ))}
+                    {(activeChips.length > 0 || search) && <button type="button" onClick={clearFilters} className="text-[11px] text-primary hover:underline">Limpar filtros</button>}
+                    <span className="ml-auto text-xs text-muted-foreground">{visible.length} de {rows.length} OS</span>
+                </div>
             </div>
 
             {/* Programar dia nas selecionadas */}
@@ -476,78 +725,70 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             </div>
 
             {/* Tabela */}
-            <div className="rounded-lg border overflow-auto max-h-[68vh]">
-                <table className="w-full text-xs border-collapse">
-                    <thead className="sticky top-0 z-10 bg-slate-900 text-white">
+            <div className="rounded-lg border overflow-auto max-h-[70vh]">
+                <table className={cn("w-full border-collapse", dense ? "text-[11px]" : "text-xs")}>
+                    <thead className="sticky top-0 z-20 bg-slate-900 text-white">
                         <tr>
-                            <th className="px-2 py-2 w-8"><Checkbox checked={allVisibleSelected} onCheckedChange={toggleAllVisible} className="border-white data-[state=checked]:bg-white data-[state=checked]:text-slate-900" /></th>
-                            {COLUMNS.map(c => (
-                                <th key={c.key} className="px-2 py-2 text-left font-semibold whitespace-nowrap cursor-pointer select-none" onClick={() => toggleSort(c.key)}>
-                                    <span className="inline-flex items-center gap-1">{c.label} {sortIcon(c.key)}</span>
+                            <th className="px-2 py-1.5 w-8 sticky left-0 z-30 bg-slate-900">
+                                <Checkbox checked={allVisibleSelected} onCheckedChange={toggleAllVisible} className="border-white data-[state=checked]:bg-white data-[state=checked]:text-slate-900" />
+                            </th>
+                            {shownColumns.map(c => (
+                                <th
+                                    key={c.key}
+                                    className={cn("px-2 py-1.5 text-left font-semibold whitespace-nowrap", c.sortable && "cursor-pointer select-none hover:bg-slate-800", c.key === "so" && "sticky left-8 z-30 bg-slate-900")}
+                                    onClick={c.sortable ? () => toggleSort(c.key as SortKey) : undefined}
+                                >
+                                    <span className="inline-flex items-center gap-1">{c.label} {c.sortable && sortIcon(c.key as SortKey)}</span>
                                 </th>
                             ))}
-                            <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Peças</th>
-                            <th className="px-2 py-2 text-left font-semibold whitespace-nowrap cursor-pointer select-none" onClick={() => toggleSort("day")}>
-                                <span className="inline-flex items-center gap-1">Dia {sortIcon("day")}</span>
-                            </th>
-                            <th className="px-2 py-2 text-left font-semibold whitespace-nowrap cursor-pointer select-none" onClick={() => toggleSort("status")}>
-                                <span className="inline-flex items-center gap-1">Situação {sortIcon("status")}</span>
-                            </th>
                         </tr>
                     </thead>
                     <tbody>
                         {visible.map((r, i) => {
                             const so = r.stop.serviceOrder;
                             const done = !!r.finalizedAt;
+                            const pad = dense ? "py-0.5" : "py-2";
                             return (
-                                <tr key={so} className={cn("border-b", i % 2 ? "bg-muted/20" : "", done && "opacity-60", selected.has(so) && "bg-primary/10")}>
-                                    <td className="px-2 py-1.5">
+                                <tr key={so} className={cn("border-b hover:bg-muted/50", i % 2 ? "bg-muted/20" : "", done && "opacity-60", selected.has(so) && "!bg-primary/10")}>
+                                    <td className={cn("px-2 sticky left-0 z-10 bg-background", pad)}>
                                         <Checkbox
                                             checked={selected.has(so)}
                                             disabled={!selectable(r)}
-                                            onCheckedChange={() => setSelected(prev => { const n = new Set(prev); n.has(so) ? n.delete(so) : n.add(so); return n; })}
+                                            onCheckedChange={() => setSelected(prev => { const n = new Set(prev); if (n.has(so)) n.delete(so); else n.add(so); return n; })}
                                         />
                                     </td>
-                                    {COLUMNS.map(c => {
-                                        const v = c.key === "tat" ? (r.stop.tat || "") : c.key === "request" ? (r.stop.requestDate || "") : c.key === "visit" ? (r.stop.firstVisitDate || "") : c.value(r);
-                                        return (
-                                            <td key={c.key} className={cn("px-2 py-1.5 whitespace-nowrap", c.className, c.key === "name" && "whitespace-normal")}>
-                                                {c.key === "warranty" && v ? (
-                                                    <span className={cn("text-[10px] font-bold px-1 rounded", String(v).toUpperCase() === "LP" ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300" : "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300")}>{String(v)}</span>
-                                                ) : String(v)}
-                                            </td>
-                                        );
-                                    })}
-                                    <td className="px-2 py-1.5 font-mono text-[10px] max-w-[220px]">
-                                        {(r.stop.parts || []).map(p => (
-                                            <span key={p.code} className={cn("mr-1 inline-flex items-center gap-0.5", (p.trackingCode || "").trim() ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")} title={(p.description || "") + ((p.trackingCode || "").trim() ? " — rastreio " + p.trackingCode : " — sem rastreio")}>
-                                                {(p.trackingCode || "").trim() ? <CheckCircle2 className="h-2.5 w-2.5" /> : null}{p.code}{p.quantity > 1 ? " x" + p.quantity : ""}
-                                            </span>
-                                        ))}
-                                    </td>
-                                    <td className="px-2 py-1.5">
-                                        {selectable(r) ? (
-                                            <Input
-                                                type="date"
-                                                className="h-7 w-[132px] text-[11px] px-1.5"
-                                                value={r.day}
-                                                onChange={e => setDays([so], e.target.value)}
-                                                title={r.day ? format(new Date(r.day + "T12:00:00"), "EEEE", { locale: ptBR }) : "Definir o dia"}
-                                            />
-                                        ) : (
-                                            <span className="text-muted-foreground">{r.day ? format(new Date(r.day + "T12:00:00"), "dd/MM") : "—"}</span>
-                                        )}
-                                    </td>
-                                    <td className="px-2 py-1.5">{statusBadge(r)}</td>
+                                    {shownColumns.map(c => (
+                                        <td key={c.key} className={cn("px-2 whitespace-nowrap", pad, c.key === "so" && "sticky left-8 z-10 bg-background font-mono font-semibold", c.key === "name" && "whitespace-normal min-w-[160px]", c.key === "model" && "font-mono text-[10px]")}>
+                                            {renderCell(r, c.key)}
+                                        </td>
+                                    ))}
                                 </tr>
                             );
                         })}
                         {visible.length === 0 && (
-                            <tr><td colSpan={COLUMNS.length + 4} className="text-center text-muted-foreground py-8">Nenhuma OS com esses filtros.</td></tr>
+                            <tr><td colSpan={shownColumns.length + 1} className="text-center text-muted-foreground py-8">Nenhuma OS com esses filtros.</td></tr>
                         )}
                     </tbody>
                 </table>
             </div>
+
+            <AlertDialog open={confirmDelete} onOpenChange={(o) => { if (!deleting) setConfirmDelete(o); }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir a rota de entrega?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            <strong>{route.name}</strong> será apagada por completo, junto com os rastreios de peças e os dias programados nela.
+                            {children.length > 0 ? " As " + children.length + " rota(s) filha(s) já criadas continuam em Rotas (apenas perdem o vínculo)." : ""} Isso não pode ser desfeito.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deleting}>Voltar</AlertDialogCancel>
+                        <AlertDialogAction className="bg-destructive hover:bg-destructive/90" disabled={deleting} onClick={(e) => { e.preventDefault(); void handleDeleteRoute(); }}>
+                            {deleting ? "Excluindo..." : "Sim, excluir"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             {/* Criar rotas filhas */}
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>

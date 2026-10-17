@@ -202,6 +202,18 @@ export const routeService = {
     if (error) throw error;
   },
 
+  // Exclui uma ROTA DE ENTREGA (a remove() comum recusa rotas ativas). As rotas filhas já criadas continuam,
+  // só perdem o vínculo. Não mexe em nenhuma rota comum.
+  async removeDeliveryRoute(id: string): Promise<void> {
+    const route = await this.getById(id);
+    if (!route) return;
+    if (route.kind !== 'delivery') throw new Error("Esta não é uma rota de entrega.");
+    const { error: unlinkError } = await supabase.from('routes').update({ parent_route_id: null }).eq('parent_route_id', id);
+    if (unlinkError && (unlinkError as any).code !== '42703') throw unlinkError;
+    const { error } = await supabase.from('routes').delete().eq('id', id).eq('kind', 'delivery');
+    if (error) throw error;
+  },
+
   async getActiveRoutes(unidadeId?: string | null): Promise<Route[]> {
     let query = supabase.from('routes').select('*').eq('is_active', true).order('created_at', { ascending: false });
     if (unidadeId) query = query.eq('unidade_id', unidadeId);
