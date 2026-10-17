@@ -213,6 +213,8 @@ export type RoutePart = {
 }
 
 export type RouteStop = {
+    // Rota de entrega: dia (AAAA-MM-DD) em que a OS foi programada para uma rota filha.
+    plannedDay?: string;
     serviceOrder: string;
     ascJobNumber: string;
     consumerName: string;
@@ -290,6 +292,10 @@ export type Route = {
     endPoint?: RoutePoint | null;
     /** Hora ("HH:mm") em que o técnico sai no 1º dia, usada pelo modo Planejamento. Ausente = início do expediente. */
     departureTime?: string | null;
+    /** 'delivery' = rota de entrega (controle de envio de peças/OS, não vai pro técnico); ausente/'normal' = rota comum. */
+    kind?: 'normal' | 'delivery';
+    /** Rota de entrega de onde esta rota (filha) foi criada. */
+    parentRouteId?: string;
     /** Rota de ida e volta no mesmo dia (volta à base todo dia, sem dormir fora) - modo Planejamento. */
     dailyReturn?: boolean;
     /** Carimbo da última alteração (ISO, como veio do banco) - usado pra detectar edição simultânea. */

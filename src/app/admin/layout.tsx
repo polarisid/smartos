@@ -220,6 +220,7 @@ const NAV_GROUPS = [
     items: [
       { href: '/admin/service-orders', label: 'Ordens de Serviço', Icon: ClipboardCheck, tooltip: 'Ordens de Serviço' },
       { href: '/admin/routes', label: 'Rotas', Icon: Route, tooltip: 'Rotas' },
+      { href: '/admin/delivery-routes', label: 'Rotas de Entrega', Icon: Truck, tooltip: 'Rotas de Entrega: controle de peças e OS, com rotas filhas por dia' },
       { href: '/admin/planejamento', label: 'Planejamento', Icon: CalendarDays, tooltip: 'Planejamento de Rotas' },
       { href: '/admin/part-separation', label: 'Conferência de Peças', Icon: PackageSearch, tooltip: 'Conferência de Peças' },
       { href: '/admin/cost-calculator', label: 'Calculadora de Custo', Icon: Calculator, tooltip: 'Calculadora de Custo de Deslocamento' },

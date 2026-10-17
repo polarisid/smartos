@@ -27,13 +27,38 @@ export const routeService = {
     return list;
   },
 
-  async getAll(unidadeId?: string | null): Promise<Route[]> {
+  // Rotas de entrega ficam de fora por padrão (não são rotas de atendimento: duplicariam OS nos painéis);
+  // a Conferência de Peças pede com includeDelivery.
+  async getAll(unidadeId?: string | null, opts?: { includeDelivery?: boolean }): Promise<Route[]> {
     let query = supabase.from('routes').select('*').order('created_at', { ascending: false });
     if (unidadeId) query = query.eq('unidade_id', unidadeId);
     const { data, error } = await query;
 
     if (error) throw error;
-    return data.map(this.mapFromDb);
+    const routes = data.map(this.mapFromDb);
+    return opts?.includeDelivery ? routes : routes.filter(r => r.kind !== 'delivery');
+  },
+
+  async getDeliveryRoutes(unidadeId?: string | null): Promise<Route[]> {
+    let query = supabase.from('routes').select('*').eq('kind', 'delivery').order('created_at', { ascending: false });
+    if (unidadeId) query = query.eq('unidade_id', unidadeId);
+    const { data, error } = await query;
+    // Coluna ainda não existe (migração 25 pendente): não há rotas de entrega.
+    if (error) { if ((error as any).code === '42703') return []; throw error; }
+    return (data || []).map(this.mapFromDb);
+  },
+
+  // O banco já tem a coluna `kind` (migração 25)? Sem ela, uma "rota de entrega" nasceria como rota comum.
+  async supportsDeliveryRoutes(): Promise<boolean> {
+    const { error } = await supabase.from('routes').select('kind').limit(1);
+    if (error) { if ((error as any).code === '42703') return false; throw error; }
+    return true;
+  },
+
+  async getChildRoutes(parentId: string): Promise<Route[]> {
+    const { data, error } = await supabase.from('routes').select('*').eq('parent_route_id', parentId).order('created_at', { ascending: true });
+    if (error) { if ((error as any).code === '42703') return []; throw error; }
+    return (data || []).map(this.mapFromDb);
   },
 
   async getById(id: string): Promise<Route | null> {
@@ -138,6 +163,32 @@ export const routeService = {
     throw new Error("Muitas pessoas salvando ao mesmo tempo. Tente de novo.");
   },
 
+  /**
+   * Altera campos de paradas (ex.: o dia programado) sobre a versão ATUAL da rota, com a trava de edição
+   * simultânea e nova tentativa - várias pessoas podem programar OS da mesma rota de entrega.
+   */
+  async patchStopFields(routeId: string, patches: Array<{ serviceOrder: string; fields: Record<string, unknown> }>): Promise<Route> {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const latest = await this.getById(routeId);
+      if (!latest) throw new Error("Rota não encontrada");
+      const stops = (latest.stops || []).map(stop => {
+        const patch = patches.find(p => p.serviceOrder === stop.serviceOrder);
+        if (!patch) return stop;
+        const next: any = { ...stop };
+        Object.entries(patch.fields).forEach(([k, v]) => { if (v === undefined || v === null || v === "") delete next[k]; else next[k] = v; });
+        return next;
+      });
+      try {
+        await this.update(routeId, { stops }, { expectedUpdatedAt: latest.updatedAt || null });
+        return { ...latest, stops };
+      } catch (e) {
+        if (e instanceof RouteConflictError) continue;
+        throw e;
+      }
+    }
+    throw new Error("Muitas pessoas salvando ao mesmo tempo. Tente de novo.");
+  },
+
   async remove(id: string): Promise<void> {
     const route = await this.getById(id);
     if (route && route.isActive) {
@@ -157,7 +208,7 @@ export const routeService = {
     const { data, error } = await query;
 
     if (error) throw error;
-    return data.map(this.mapFromDb);
+    return data.map(this.mapFromDb).filter(r => r.kind !== 'delivery');
   },
 
   async getDraftRoutes(unidadeId?: string | null): Promise<Route[]> {
@@ -211,7 +262,7 @@ export const routeService = {
     const newLastVisible = (lastVisible || 0) + (data?.length || 0);
 
     return {
-      routes: (data || []).map(this.mapFromDb),
+      routes: (data || []).map(this.mapFromDb).filter(r => r.kind !== 'delivery'),
       lastVisible: newLastVisible
     };
   },
@@ -247,6 +298,8 @@ export const routeService = {
       departureTime: row.departure_time || undefined,
       updatedAt: row.updated_at || undefined,
       dailyReturn: row.daily_return === true,
+      kind: row.kind === 'delivery' ? 'delivery' : 'normal',
+      parentRouteId: row.parent_route_id || undefined,
       createdAt: new Date(row.created_at)
     };
   },
@@ -275,6 +328,9 @@ export const routeService = {
     if (obj.departureTime !== undefined) row.departure_time = obj.departureTime || null;
     // Só enviado quando definido (migração 23): rota que nunca usou a opção não depende da coluna.
     if (obj.dailyReturn !== undefined) row.daily_return = !!obj.dailyReturn;
+    // Só enviados quando definidos (migração 25): rota comum nunca depende dessas colunas.
+    if (obj.kind !== undefined && obj.kind !== 'normal') row.kind = obj.kind;
+    if (obj.parentRouteId !== undefined) row.parent_route_id = obj.parentRouteId;
     return row;
   }
 };

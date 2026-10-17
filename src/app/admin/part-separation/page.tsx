@@ -749,7 +749,7 @@ function OsRouteSearch() {
 
         try {
             // Busca todas as rotas (ativas e finalizadas) que contenham a OS no campo stops
-            const routesSnapshot = await routeService.getAll(activeUnidadeId);
+            const routesSnapshot = await routeService.getAll(activeUnidadeId, { includeDelivery: true });
 
             const found: { route: Route; stop: RouteStop; osStatus: string; usedPartsSet: Set<string> }[] = [];
             const term = searchTerm.trim().toLowerCase();
@@ -1092,7 +1092,7 @@ export default function PartSeparationPage() {
     const fetchAllData = async () => {
         setIsLoading(true);
         try {
-            const routesData = await routeService.getAll(activeUnidadeId);
+            const routesData = await routeService.getAll(activeUnidadeId, { includeDelivery: true });
             const cutoff30Days = subDays(new Date(), 30);
             const recentRoutes = routesData.filter(r => r.createdAt >= cutoff30Days);
             setAllRoutes(recentRoutes);
