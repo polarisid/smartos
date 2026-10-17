@@ -5,6 +5,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { AlertCircle, History, Loader2, User } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { HelpTip } from "@/components/HelpTip";
 import { routeAuditService, type RouteChange } from "@/services/supabase/routeAuditService";
 
 const ROUTE_FIELD_LABELS: Record<string, string> = {
@@ -116,6 +117,7 @@ export function RouteHistory({ routeId }: { routeId: string }) {
 
     return (
         <div className="space-y-2 p-1">
+            <p className="flex items-center gap-1 text-[11px] text-muted-foreground">Quem mudou o quê e quando <HelpTip topic="historico" /></p>
             {entries.map(entry => (
                 <div key={entry.id} className="rounded-lg border bg-card">
                     <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b bg-muted/40">

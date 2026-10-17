@@ -1,6 +1,8 @@
 import { openDB } from "idb";
 import { supabase } from "@/lib/supabase";
 import { technicalReportService, PhotoUploadError } from "@/services/supabase/technicalReportService";
+import { offlineReadiness } from "@/lib/offlinePages";
+import { loadOfflineSession, loadQueryCache } from "@/lib/offlineCache";
 
 export type DiagnosticLine = { label: string; status: "ok" | "warn" | "fail"; detail: string };
 
@@ -97,6 +99,25 @@ export async function runDiagnostics(onLine: (l: DiagnosticLine) => void): Promi
     });
 
     for (const l of await testStorageOnDevice()) push(l);
+
+    // Pronto para usar sem internet? (telas guardadas, dados guardados, login guardado)
+    try {
+        for (const r of await offlineReadiness()) push({ label: r.label, status: r.ok ? "ok" : "warn", detail: r.detail });
+        const { data: sd } = await supabase.auth.getSession();
+        const uid = sd.session?.user?.id;
+        const rec = uid ? await loadQueryCache(uid) : null;
+        const queries = rec ? ((rec.state as any)?.queries?.length ?? 0) : 0;
+        push({
+            label: "Dados guardados para uso sem sinal",
+            status: queries > 0 ? "ok" : "warn",
+            detail: queries > 0 ? queries + " consultas guardadas às " + new Date(rec!.savedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "ainda nada guardado. Abra Rotas e Relatório com internet e espere alguns segundos.",
+        });
+        push({
+            label: "Login guardado para uso sem sinal",
+            status: loadOfflineSession() ? "ok" : "warn",
+            detail: loadOfflineSession() ? "guardado" : "ainda não guardado. Entre no app com internet uma vez.",
+        });
+    } catch { /* checagens opcionais */ }
 
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token || ANON();

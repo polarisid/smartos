@@ -670,9 +670,9 @@ export default function ServiceOrdersPage() {
                   <Select value={form.watch('samsungRepairType')} onValueChange={(v) => form.setValue('samsungRepairType', v)}>
                     <SelectTrigger><SelectValue placeholder="LP / OW / VOID" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="LP">LP</SelectItem>
-                      <SelectItem value="OW">OW</SelectItem>
-                      <SelectItem value="VOID">VOID</SelectItem>
+                      <SelectItem value="LP">LP - Em Garantia</SelectItem>
+                      <SelectItem value="OW">OW - Fora de garantia</SelectItem>
+                      <SelectItem value="VOID">VOID - Exclusão</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

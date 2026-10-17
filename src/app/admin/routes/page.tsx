@@ -456,13 +456,13 @@ function RouteForm({
     // Paradas da pré-visualização (parsedStops, ainda sendo editadas) no
     // formato que o RouteMap espera - status fica sempre "todo" aqui, já que
     // isso é só um preview geográfico da edição atual, não o status real da OS.
-    // Ida e volta no mesmo dia: o mapa separa o percurso por dia (base → paradas do dia → base), cada dia
-    // com sua cor, e dá pra ver um dia por vez.
+    // O mapa separa o percurso por dia (simulação do planejamento), cada dia com sua cor, e dá pra ver um dia
+    // por vez. Ida e volta no mesmo dia: base → paradas do dia → base; nas demais, o técnico dorme em campo.
     const DAY_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2', '#db2777', '#65a30d'];
     const [dayPlanInfo, setDayPlanInfo] = useState<{ daysBySO: Record<string, number>; days: { index: number; label: string; color: string }[] } | null>(null);
     const [mapDay, setMapDay] = useState<'all' | number>('all');
     useEffect(() => {
-        if (!dailyReturn || activeStops.length === 0 || !(previewViewTab === 'map' || previewViewTab === 'split')) { setDayPlanInfo(null); return; }
+        if (activeStops.length === 0 || !(previewViewTab === 'map' || previewViewTab === 'split')) { setDayPlanInfo(null); return; }
         let cancelled = false;
         (async () => {
             try {
@@ -473,10 +473,10 @@ function RouteForm({
                 const simParams = inProgress ? withWeekendWork(planningParams) : planningParams;
                 const legs = activeStops.map((_, i) => (i === 0 ? matrix[0][1] : matrix[i][i + 1]));
                 legs.push(matrix[n][n + 1]);
-                const plan = simulateRoutePlan(activeStops, legs, simParams, departureDate || new Date(), planningDepartureTime, {
+                const plan = simulateRoutePlan(activeStops, legs, simParams, departureDate || new Date(), planningDepartureTime, dailyReturn ? {
                     fromBase: activeStops.map((_, i) => matrix[0][i + 1]),
                     toBase: activeStops.map((_, i) => matrix[i + 1][n + 1]),
-                });
+                } : undefined);
                 const daysBySO: Record<string, number> = {};
                 plan.stops.forEach((p, k) => { daysBySO[activeStops[k].serviceOrder] = p.dayIndex; });
                 setDayPlanInfo({
@@ -507,13 +507,15 @@ function RouteForm({
             startPoint,
             endPoint,
         } as Route;
-        if (dailyReturn && dayPlanInfo) {
+        if (dayPlanInfo && dayPlanInfo.days.length > 1) {
             return parsedStops
                 .filter(s => !s.isReallocated && dayPlanInfo.daysBySO[s.serviceOrder] !== undefined && (mapDay === 'all' || dayPlanInfo.daysBySO[s.serviceOrder] === mapDay))
                 .map(stop => {
                     const d = dayPlanInfo.daysBySO[stop.serviceOrder];
                     const info = dayPlanInfo.days.find(x => x.index === d);
-                    const dayRoute = { ...previewRoute, id: previewRoute.id + '-d' + d, name: previewRoute.name + ' — ' + (info?.label || ('Dia ' + (d + 1))), mapColor: info?.color } as Route;
+                    const dayRoute = { ...previewRoute, id: previewRoute.id + '-d' + d, name: previewRoute.name + ' — ' + (info?.label || ('Dia ' + (d + 1))), mapColor: info?.color,
+                        // Sem ida e volta: o dia 1 sai da base, os seguintes continuam de onde o técnico dormiu e só o último volta à base.
+                        ...(dailyReturn ? {} : { mapChain: d === 0 ? 'first' : d === dayPlanInfo.days.length - 1 ? 'last' : 'middle' }) } as Route;
                     return { stop, route: dayRoute, status: 'todo' as const };
                 });
         }
@@ -2164,7 +2166,7 @@ function RouteForm({
                         })()}
                     </div>
                     )}
-                    {(previewViewTab === 'map' || previewViewTab === 'split') && dailyReturn && dayPlanInfo && dayPlanInfo.days.length > 0 && (
+                    {(previewViewTab === 'map' || previewViewTab === 'split') && dayPlanInfo && dayPlanInfo.days.length > 1 && (
                         <div className="flex flex-wrap items-center gap-1.5 lg:col-span-2 -mb-1">
                             <span className="text-[11px] text-muted-foreground font-medium">Ver no mapa:</span>
                             <button type="button" onClick={() => setMapDay('all')} className={cn("px-2.5 py-0.5 rounded-full text-[11px] font-semibold border transition-colors", mapDay === 'all' ? "bg-foreground text-background border-foreground" : "text-muted-foreground hover:bg-muted")}>

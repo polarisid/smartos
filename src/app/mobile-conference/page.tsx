@@ -9,6 +9,8 @@ import { useToast } from "@/hooks/use-toast";
 import { type Route, type RoutePart, type ServiceOrder } from "@/lib/data";
 import { routeService } from "@/services/supabase/routeService";
 import { entriesFromCodes, mergeServerCodes } from "@/lib/trackingCodes";
+import { savePartTracking } from "@/lib/offlineTrackingQueue";
+import { useTrackingQueue } from "@/hooks/useTrackingQueue";
 import { PackageSearch, Save, ScanLine, Smartphone, Loader2, RefreshCw } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -32,6 +34,7 @@ export default function MobileConferencePage() {
     const [routes, setRoutes] = useState<EnrichedRoute[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    useTrackingQueue((sent) => { toast({ title: "Rastreios enviados", description: `${sent} código(s) guardados no aparelho foram salvos.` }); });
     const [trackingCodes, setTrackingCodes] = useState<Record<string, Record<string, Record<string, string>>>>({});
     
     const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -90,8 +93,12 @@ export default function MobileConferencePage() {
         setIsSubmitting(true);
         try {
             // Lê a rota na hora e grava só este código (outras pessoas podem estar bipando ao mesmo tempo).
-            const { route: fresh } = await routeService.patchPartTracking(routeId, entriesFromCodes(trackingCodes[routeId] || {}, stopServiceOrder, partCode));
-            setTrackingCodes(prev => ({ ...prev, [routeId]: mergeServerCodes(prev[routeId] || {}, fresh) }));
+            const { route: fresh, queued } = await savePartTracking(routeId, entriesFromCodes(trackingCodes[routeId] || {}, stopServiceOrder, partCode));
+            if (queued) {
+                toast({ title: "Guardado no aparelho", description: `Sem conexão: o rastreio da peça ${partCode} será enviado quando a internet voltar.` });
+                return;
+            }
+            if (fresh) setTrackingCodes(prev => ({ ...prev, [routeId]: mergeServerCodes(prev[routeId] || {}, fresh) }));
 
             toast({ title: "Código de rastreio salvo!", description: `Rastreio para a peça ${partCode} salvo.` });
         } catch (error) {
@@ -206,6 +213,7 @@ export default function MobileConferencePage() {
             </div>
             <ScannerDialog 
                 isOpen={isScannerOpen} 
+                mode="tracking"
                 onClose={() => setIsScannerOpen(false)}
                 onScanSuccess={handleScanSuccess}
             />

@@ -1542,6 +1542,7 @@ export default function PartSeparationPage() {
             
             <ScannerDialog 
                 isOpen={isScannerOpen} 
+                mode="tracking"
                 onClose={() => setIsScannerOpen(false)}
                 onScanSuccess={handleScanSuccess}
             />

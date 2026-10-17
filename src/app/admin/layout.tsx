@@ -27,7 +27,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
-import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera, Calculator, Loader2, Building2, KeyRound, Copy, Check, Shuffle } from "lucide-react"
+import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera, Calculator, Loader2, Building2, KeyRound, Copy, Check, Shuffle, LifeBuoy } from "lucide-react"
 import { Logo } from "@/components/Logo"
 import { unidadeService } from "@/services/supabase/unidadeService"
 import { type Unidade } from "@/lib/data"
@@ -243,6 +243,7 @@ const NAV_GROUPS = [
     label: "Sistema",
     items: [
       { href: '/admin/settings', label: 'Configurações', Icon: Settings, tooltip: 'Configurações do Sistema' },
+      { href: '/admin/ajuda', label: 'Ajuda', Icon: LifeBuoy, tooltip: 'Como usar o sistema' },
     ],
   },
 ] as const;

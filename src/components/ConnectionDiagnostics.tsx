@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { warmOfflinePages } from "@/lib/offlinePages";
 import { diagnosticsToText, runDiagnostics, type DiagnosticLine } from "@/lib/diagnostics";
 
 // Testa passo a passo o que o envio de relatório precisa (aparelho, rede, servidor, upload de
@@ -26,6 +27,14 @@ export function ConnectionDiagnostics({ trigger }: { trigger?: React.ReactNode }
     } finally {
       setRunning(false);
     }
+  };
+
+  const prepare = async () => {
+    if (!navigator.onLine) { toast({ variant: "destructive", title: "Sem internet", description: "Conecte-se para preparar o uso sem sinal." }); return; }
+    setRunning(true);
+    const n = await warmOfflinePages(true);
+    toast({ title: n > 0 ? "Telas guardadas no aparelho" : "Não deu para guardar as telas", description: n > 0 ? "Rotas, Relatório e as demais telas já abrem sem sinal." : "Tente de novo com sinal melhor." });
+    await start();
   };
 
   const copy = async () => {
@@ -72,8 +81,9 @@ export function ConnectionDiagnostics({ trigger }: { trigger?: React.ReactNode }
           </p>
         )}
 
-        <div className="flex gap-2 justify-end">
+        <div className="flex flex-wrap gap-2 justify-end">
           <Button variant="outline" size="sm" onClick={copy} disabled={lines.length === 0}><Copy className="h-3.5 w-3.5 mr-1.5" /> Copiar resultado</Button>
+          <Button variant="outline" size="sm" onClick={prepare} disabled={running}>Preparar para usar sem sinal</Button>
           <Button size="sm" onClick={start} disabled={running}>Testar de novo</Button>
         </div>
       </DialogContent>

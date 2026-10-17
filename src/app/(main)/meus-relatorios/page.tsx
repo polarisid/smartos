@@ -1,6 +1,7 @@
 "use client";
 
 import { ConnectionDiagnostics } from "@/components/ConnectionDiagnostics";
+import { HelpTip } from "@/components/HelpTip";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -115,7 +116,7 @@ export default function MeusRelatoriosPage() {
   return (
     <div className="max-w-3xl mx-auto w-full space-y-4 animate-in fade-in ease-out duration-300">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-2xl font-bold tracking-tight">Meus Relatórios</h2>
+        <h2 className="text-2xl font-bold tracking-tight flex items-center gap-1.5">Meus Relatórios <HelpTip topic="relatorio" /></h2>
         <div className="flex items-center gap-1">
           <ConnectionDiagnostics />
           <Button variant="ghost" size="icon" onClick={() => refetch()} disabled={isFetching || !technicianId} aria-label="Atualizar">

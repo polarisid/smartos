@@ -1,8 +1,28 @@
 
+const defaultCache = require('next-pwa/cache');
+
 const withPWA = require('next-pwa')({
   dest: 'public',
   register: true,
   skipWaiting: true,
+  // Telas do técnico (documento HTML, sem as requisições internas do Next `_rsc`) ficam num cache SÓ delas, por
+  // 7 dias: antes dividiam um cache de 32 itens com tudo e eram expulsas, e sem sinal a tela não abria.
+  // A lista é repetida em src/lib/offlinePages.ts (a função abaixo vai inteira para o service worker).
+  runtimeCaching: [
+    {
+      urlPattern: ({ url, request }) => {
+        const pages = ['/', '/routes', '/reports', '/meus-relatorios', '/producao', '/scanner', '/dashboard', '/ranking', '/ajuda'];
+        return self.origin === url.origin && pages.includes(url.pathname) && request.headers.get('RSC') !== '1' && !url.searchParams.has('_rsc');
+      },
+      handler: 'NetworkFirst',
+      options: {
+        cacheName: 'app-pages',
+        expiration: { maxEntries: 24, maxAgeSeconds: 7 * 24 * 60 * 60 },
+        networkTimeoutSeconds: 3,
+      },
+    },
+    ...defaultCache,
+  ],
   // O service worker só "ativa" se TODOS os arquivos do pré-cache baixarem. O Next 14 lista o
   // app-build-manifest.json, que em produção responde 404 - isso derrubava a instalação do
   // service worker (sem SW não há push nem cache offline). Também não pré-carrega os PDFs

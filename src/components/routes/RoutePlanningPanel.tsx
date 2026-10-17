@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { HelpTip } from "@/components/HelpTip";
 import { PlanningParamsForm } from "@/components/routes/PlanningParamsForm";
 import { cn } from "@/lib/utils";
 import { geocodeAddressText } from "@/lib/geocode";
@@ -261,7 +262,7 @@ export function RoutePlanningPanel({
                 <label className="flex items-start gap-2 rounded-md border bg-background px-3 py-2 cursor-pointer">
                     <input type="checkbox" className="mt-0.5" checked={dailyReturn} onChange={e => onDailyReturnChange(e.target.checked)} />
                     <span className="text-sm">
-                        <strong>Rota de ida e volta no mesmo dia</strong>
+                        <strong className="inline-flex items-center gap-1">Rota de ida e volta no mesmo dia <HelpTip topic="ida-e-volta" /></strong>
                         <span className="block text-[11px] text-muted-foreground">
                             O técnico sai da base e volta para ela todos os dias (não dorme fora). Cada dia só leva as OS que permitem voltar até as {params.travelUntil}; as demais ficam para o dia seguinte.
                         </span>

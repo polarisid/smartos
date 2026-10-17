@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { type Route } from "@/lib/data";
 import { routeService } from "@/services/supabase/routeService";
 import { entriesFromCodes, mergeServerCodes } from "@/lib/trackingCodes";
+import { savePartTracking } from "@/lib/offlineTrackingQueue";
+import { useTrackingQueue } from "@/hooks/useTrackingQueue";
 import { PackageSearch, Save, ScanLine, Smartphone, Loader2, RefreshCw, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
@@ -30,6 +32,7 @@ export default function MobileConferenceRoutePage() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scanTarget, setScanTarget] = useState<{ stopServiceOrder: string; partCode: string } | null>(null);
   const [filterText, setFilterText] = useState("");
+  useTrackingQueue((sent) => { toast({ title: "Rastreios enviados", description: `${sent} código(s) guardados no aparelho foram salvos.` }); fetchData(); });
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -79,8 +82,12 @@ export default function MobileConferenceRoutePage() {
     if (!route) return;
     setIsSubmitting(true);
     try {
-      const { route: fresh } = await routeService.patchPartTracking(route.id, entriesFromCodes(trackingCodes, stopServiceOrder, partCode));
-      applyServerRoute(fresh);
+      const { route: fresh, queued } = await savePartTracking(route.id, entriesFromCodes(trackingCodes, stopServiceOrder, partCode));
+      if (queued) {
+        toast({ title: "Guardado no aparelho", description: `Sem conexão: o rastreio da peça ${partCode} será enviado quando a internet voltar.` });
+        return;
+      }
+      if (fresh) applyServerRoute(fresh);
       toast({ title: "Código de rastreio salvo!", description: `Rastreio para a peça ${partCode} salvo.` });
     } catch (error) {
       console.error("Error saving part tracking code:", error);
@@ -94,8 +101,12 @@ export default function MobileConferenceRoutePage() {
     if (!route) return;
     setIsSubmitting(true);
     try {
-      const { route: fresh, written } = await routeService.patchPartTracking(route.id, entriesFromCodes(trackingCodes));
-      applyServerRoute(fresh);
+      const { route: fresh, written, queued } = await savePartTracking(route.id, entriesFromCodes(trackingCodes));
+      if (queued) {
+        toast({ title: "Guardado no aparelho", description: "Sem conexão: os rastreios serão enviados quando a internet voltar." });
+        return;
+      }
+      if (fresh) applyServerRoute(fresh);
       toast({ title: "Códigos de rastreio salvos!", description: written > 0 ? `${written} peça(s) da rota "${route.name}" atualizada(s).` : "Nada novo para salvar." });
     } catch (error) {
       console.error("Error saving all tracking codes:", error);
@@ -244,6 +255,7 @@ export default function MobileConferenceRoutePage() {
       </div>
       <ScannerDialog
         isOpen={isScannerOpen}
+        mode="tracking"
         onClose={() => setIsScannerOpen(false)}
         onScanSuccess={handleScanSuccess}
       />

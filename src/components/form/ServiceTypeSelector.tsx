@@ -68,9 +68,9 @@ export function ServiceTypeSelector({ value, onChange, form }: ServiceTypeSelect
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="LP">LP</SelectItem>
-                            <SelectItem value="OW">OW</SelectItem>
-                            <SelectItem value="VOID">VOID</SelectItem>
+                            <SelectItem value="LP">LP - Em Garantia</SelectItem>
+                            <SelectItem value="OW">OW - Fora de garantia</SelectItem>
+                            <SelectItem value="VOID">VOID - Exclusão</SelectItem>
                           </SelectContent>
                         </Select>
                       </FormItem>

@@ -15,6 +15,8 @@ import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { PushPrompt } from "@/components/PushPrompt";
 import { ConnectionDiagnostics } from "@/components/ConnectionDiagnostics";
+import { warmOfflinePages } from "@/lib/offlinePages";
+import { useTrackingQueue } from "@/hooks/useTrackingQueue";
 import { QueryCachePersistence } from "@/components/QueryCachePersistence";
 
 function AppLoadingScreen({ message }: { message: string }) {
@@ -169,9 +171,40 @@ function OfflineQueueBanner() {
   );
 }
 
+// Rastreios bipados sem internet: sobem sozinhos quando a conexão volta, de qualquer tela.
+function TrackingQueueNotice() {
+  const { toast } = useToast();
+  const pending = useTrackingQueue((sent) => toast({ title: "Rastreios enviados", description: `${sent} código(s) que estavam guardados no aparelho foram salvos.` }));
+  if (pending === 0) return null;
+  return (
+    <div className="border-b border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm px-4 py-2 flex items-center gap-2">
+      <CloudUpload className="h-4 w-4 shrink-0" />
+      {pending} código(s) de rastreio guardado(s) no aparelho — serão enviados sozinhos quando houver internet.
+    </div>
+  );
+}
+
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+
+  // Com internet, guarda as telas do técnico para abrirem sem sinal (o service worker as armazena ao serem pedidas).
+  useEffect(() => {
+    if (loading || !user) return;
+    let cancelled = false;
+    const run = () => { if (!cancelled) void warmOfflinePages(); };
+    const timer = setTimeout(run, 4000);
+    // O service worker pode assumir o controle da página só depois do 1º acesso: tenta de novo quando isso acontece.
+    const onControl = () => { setTimeout(() => { if (!cancelled) void warmOfflinePages(true); }, 1500); };
+    navigator.serviceWorker?.addEventListener?.('controllerchange', onControl);
+    window.addEventListener('online', run);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      navigator.serviceWorker?.removeEventListener?.('controllerchange', onControl);
+      window.removeEventListener('online', run);
+    };
+  }, [loading, user]);
 
   useEffect(() => {
     if (loading) return;
@@ -194,6 +227,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             </Suspense>
             <QueryCachePersistence />
             <OfflineQueueBanner />
+            <TrackingQueueNotice />
             <PushPrompt />
             <div className="flex-1 w-full p-4 md:p-8">
                {children}

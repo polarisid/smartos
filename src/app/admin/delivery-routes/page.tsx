@@ -4,7 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, Route as RouteIcon, Search, Star, Trash2, Truck, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import Link from "next/link";
@@ -21,6 +21,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useServiceOrders } from "@/hooks/queries";
 import { cn } from "@/lib/utils";
+import { HelpTip } from "@/components/HelpTip";
 import { parseRouteText } from "@/lib/parseRouteText";
 import { optimizeRouteStopsAsync } from "@/lib/routeOptimizer";
 import type { Route, RouteStop } from "@/lib/data";
@@ -209,7 +210,7 @@ export default function DeliveryRoutesPage() {
         <div className="flex flex-col gap-6 p-4 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                    <h1 className="text-2xl font-bold flex items-center gap-2"><Truck className="h-6 w-6" /> Rotas de Entrega</h1>
+                    <h1 className="text-2xl font-bold flex items-center gap-2"><Truck className="h-6 w-6" /> Rotas de Entrega <HelpTip topic="rota-entrega" /></h1>
                     <p className="text-sm text-muted-foreground max-w-2xl">
                         Controle do envio de peças e ordens de serviço. A partir de cada rota de entrega você cria as rotas por dia com as OS ainda não finalizadas.
                     </p>
@@ -331,6 +332,25 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const [createOpen, setCreateOpen] = useState(false);
     const [optimize, setOptimize] = useState(true);
     const [creatingChildren, setCreatingChildren] = useState(false);
+    const [syncing, setSyncing] = useState(false);
+    // Rastreio da rota de entrega e das filhas em dia (o que só existe de um lado é copiado pro outro).
+    const handleSyncTracking = async () => {
+        setSyncing(true);
+        try {
+            const r = await routeService.syncDeliveryTracking(routeId);
+            await refresh();
+            toast({
+                title: r.toChildren + r.toParent > 0 ? "Rastreios sincronizados" : "Tudo em dia",
+                description: r.toChildren + r.toParent > 0
+                    ? r.toChildren + " código(s) levado(s) para as rotas filhas e " + r.toParent + " trazido(s) delas para esta rota."
+                    : "A rota de entrega e as rotas filhas já têm os mesmos rastreios.",
+            });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível sincronizar", description: e?.message });
+        } finally {
+            setSyncing(false);
+        }
+    };
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const handleDeleteRoute = async () => {
@@ -352,7 +372,10 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         const createdMs = new Date(route.createdAt).getTime();
         const activeChildren = children.filter(c => !c.isCanceled);
         return (route.stops || []).filter(s => !s.isReallocated).map(stop => {
-            const related = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && os.date.getTime() >= createdMs);
+            // Concluída = a OS foi lançada depois da SOLICITAÇÃO (ciclo desta planilha), mesmo antes de a rota de
+            // entrega ser criada: muita OS da planilha já foi atendida. Sem data de solicitação, vale a criação da rota.
+            const sinceMs = parseBrDate(stop.requestDate) || createdMs;
+            const related = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && os.date.getTime() >= sinceMs);
             const last = related.length ? related.reduce((a, b) => (b.date.getTime() > a.date.getTime() ? b : a)) : null;
             const child = activeChildren.find(c => (c.stops || []).some(cs => cs.serviceOrder === stop.serviceOrder));
             const parts = stop.parts || [];
@@ -625,6 +648,9 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     <Button variant="outline" size="icon" className="text-muted-foreground hover:text-destructive" title="Excluir esta rota de entrega" onClick={() => setConfirmDelete(true)}>
                         <Trash2 className="h-4 w-4" />
                     </Button>
+                    <Button variant="outline" onClick={handleSyncTracking} disabled={syncing || children.length === 0} title="Copia rastreios entre esta rota e as rotas filhas">
+                        {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />} Sincronizar rastreios
+                    </Button>
                     <Button variant="outline" asChild>
                         <Link href="/admin/part-separation"><Package className="mr-2 h-4 w-4" /> Rastreio das peças</Link>
                     </Button>
@@ -656,7 +682,11 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     <div className="flex flex-wrap gap-2">
                         {children.map(c => (
                             <Link key={c.id} href="/admin/routes" className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs hover:bg-muted" title="Abrir em Rotas">
-                                <RouteIcon className="h-3 w-3" /> {c.name} · {c.stops.length} OS
+                                <RouteIcon className="h-3 w-3" /> {c.name} · {(() => {
+                                    const cMs = new Date(c.createdAt).getTime();
+                                    const done = c.stops.filter(st => serviceOrders.some(os => os.serviceOrderNumber === st.serviceOrder && !os.ignoreInRoute && os.date.getTime() >= cMs)).length;
+                                    return done + "/" + c.stops.length + " OS atendidas";
+                                })()}
                                 <Badge variant="outline" className="text-[9px] px-1 py-0">{c.isCanceled ? "Cancelada" : c.isDraft ? "Rascunho" : c.isActive ? "Ativa" : "Finalizada"}</Badge>
                                 <ExternalLink className="h-3 w-3 text-muted-foreground" />
                             </Link>
@@ -749,7 +779,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                             const done = !!r.finalizedAt;
                             const pad = dense ? "py-0.5" : "py-2";
                             return (
-                                <tr key={so} className={cn("border-b hover:bg-muted/50", i % 2 ? "bg-muted/20" : "", done && "opacity-60", selected.has(so) && "!bg-primary/10")}>
+                                <tr key={so} className={cn("border-b hover:bg-muted/50", i % 2 ? "bg-muted/20" : "", done && "!bg-emerald-50 dark:!bg-emerald-950/20", selected.has(so) && "!bg-primary/10")}>
                                     <td className={cn("px-2 sticky left-0 z-10 bg-background", pad)}>
                                         <Checkbox
                                             checked={selected.has(so)}

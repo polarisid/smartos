@@ -18,6 +18,7 @@ import { Table, TableHeader, TableRow, TableHead, TableBody } from "@/components
 import { MobileRouteStopCard } from "@/components/MobileRouteStopCard";
 import { RouteDetailsRow } from "@/components/RouteDetailsRow";
 import { RouteLivePlan } from "@/components/routes/RouteLivePlan";
+import { HelpTip } from "@/components/HelpTip";
 import { RoutePartTracking } from "@/components/RoutePartTracking";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
@@ -376,7 +377,7 @@ export default function RoutesPage() {
                                     </DialogTrigger>
                                     <DialogContent className="max-w-3xl w-[95vw] md:w-full p-2 md:p-6 bg-muted md:bg-background">
                                         <DialogHeader>
-                                            <DialogTitle>Previsão da Rota: {route.name}</DialogTitle>
+                                            <DialogTitle className="flex items-center gap-1.5">Previsão da Rota: {route.name} <HelpTip topic="previsao" /></DialogTitle>
                                             <DialogDescription>
                                                 Horário estimado de cada atendimento, atualizado conforme você lança as OS.
                                             </DialogDescription>

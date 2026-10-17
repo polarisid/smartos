@@ -355,15 +355,20 @@ export default function RouteMap({
         const loadLegs = async () => {
             const legs: RouteLeg[] = [];
 
+            // Último ponto do dia anterior (rotas de vários dias sem ida e volta): o novo dia continua dali.
+            let prevDayLast: [number, number] | null = null;
+
             for (const [routeKey, stops] of groups) {
                 const points: PointWithStatus[] = [];
+                const chain = (stops[0]?.route as any)?.mapChain as 'first' | 'middle' | 'last' | undefined;
                 // Saída/chegada próprias da rota (opcionais) - sem elas, base da unidade.
                 const routeStart = stops[0]?.route?.startPoint;
                 const routeEnd = stops[0]?.route?.endPoint;
-                const startCoords: [number, number] | null = routeStart ? [routeStart.lat, routeStart.lng] : baseCoords;
-                const endCoords: [number, number] | null = routeEnd ? [routeEnd.lat, routeEnd.lng] : baseCoords;
+                const continuesFromPrevDay = chain === 'middle' || chain === 'last';
+                const startCoords: [number, number] | null = continuesFromPrevDay ? prevDayLast : (routeStart ? [routeStart.lat, routeStart.lng] : baseCoords);
+                const endCoords: [number, number] | null = chain === 'first' || chain === 'middle' ? null : (routeEnd ? [routeEnd.lat, routeEnd.lng] : baseCoords);
                 const baseOffset = startCoords ? 1 : 0;
-                if (startCoords) points.push({ label: routeStart ? 'Saída da rota' : 'Base (Loja)', coords: startCoords, status: 'completed' });
+                if (startCoords) points.push({ label: continuesFromPrevDay ? 'Pernoite' : routeStart ? 'Saída da rota' : 'Base (Loja)', coords: startCoords, status: 'completed' });
                 stops.forEach((s, idx) => {
                     points.push({
                         label: `#${idx + 1} (${s.stop.city} - ${s.stop.neighborhood})`,
@@ -374,6 +379,8 @@ export default function RouteMap({
                 // Retorno à base — concluído só se todas as paradas da rota foram concluídas.
                 const allDone = stops.length > 0 && stops.every(s => s.status === 'completed');
                 if (endCoords) points.push({ label: routeEnd ? 'Chegada da rota' : 'Retorno Base', coords: endCoords, status: allDone ? 'completed' : 'todo' });
+
+                prevDayLast = stops.length > 0 ? stops[stops.length - 1].coords : prevDayLast;
 
                 if (points.length < 2) continue;
 

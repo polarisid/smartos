@@ -128,7 +128,9 @@ export const routeService = {
    */
   async patchPartTracking(
     routeId: string,
-    entries: Array<{ serviceOrder: string; partCode: string; trackingCode: string }>
+    entries: Array<{ serviceOrder: string; partCode: string; trackingCode: string }>,
+    // propagate: rota de entrega <-> rotas filhas ficam em sincronia (padrão ligado; as chamadas internas desligam).
+    opts?: { propagate?: boolean }
   ): Promise<{ route: Route; written: number }> {
     for (let attempt = 0; attempt < 6; attempt++) {
       const latest = await this.getById(routeId);
@@ -154,7 +156,12 @@ export const routeService = {
 
       try {
         await this.update(routeId, { stops }, { expectedUpdatedAt: latest.updatedAt || null });
-        return { route: { ...latest, stops }, written };
+        const result = { route: { ...latest, stops }, written };
+        if (opts?.propagate !== false) {
+          // Melhor esforço: a gravação principal já deu certo; falha aqui não pode desfazê-la.
+          await this.propagateTracking(result.route, entries).catch(e => console.warn('Não foi possível sincronizar o rastreio com a rota vinculada:', e));
+        }
+        return result;
       } catch (e) {
         if (e instanceof RouteConflictError) continue; // alguém salvou no meio: lê de novo e refaz
         throw e;
@@ -187,6 +194,60 @@ export const routeService = {
       }
     }
     throw new Error("Muitas pessoas salvando ao mesmo tempo. Tente de novo.");
+  },
+
+  /**
+   * Rota de entrega e rotas filhas dividem as mesmas peças: o rastreio digitado em uma aparece na outra.
+   * Da mãe vai para as filhas que levam a OS; da filha vai para a mãe.
+   */
+  async propagateTracking(route: Route, entries: Array<{ serviceOrder: string; partCode: string; trackingCode: string }>): Promise<void> {
+    if (route.kind === 'delivery') {
+      const children = (await this.getChildRoutes(route.id)).filter(c => !c.isCanceled);
+      for (const child of children) {
+        const own = new Set((child.stops || []).map(st => st.serviceOrder));
+        const subset = entries.filter(e => own.has(e.serviceOrder));
+        if (subset.length > 0) await this.patchPartTracking(child.id, subset, { propagate: false });
+      }
+    } else if (route.parentRouteId) {
+      const parent = await this.getById(route.parentRouteId);
+      if (!parent) return;
+      const own = new Set((parent.stops || []).map(st => st.serviceOrder));
+      const subset = entries.filter(e => own.has(e.serviceOrder));
+      if (subset.length > 0) await this.patchPartTracking(parent.id, subset, { propagate: false });
+    }
+  },
+
+  /**
+   * Põe a rota de entrega e as filhas em dia: rastreio que só existe de um lado é copiado para o outro;
+   * se os dois têm e são diferentes, vale o da rota de entrega (é onde o envio é controlado).
+   */
+  async syncDeliveryTracking(parentId: string): Promise<{ toChildren: number; toParent: number }> {
+    const parent = await this.getById(parentId);
+    if (!parent) throw new Error("Rota de entrega não encontrada");
+    const children = (await this.getChildRoutes(parentId)).filter(c => !c.isCanceled);
+    const codeOf = (r: Route, so: string, code: string) =>
+      ((r.stops || []).find(st => st.serviceOrder === so)?.parts || []).find(p => p.code === code)?.trackingCode?.trim() || "";
+
+    const toParent: Array<{ serviceOrder: string; partCode: string; trackingCode: string }> = [];
+    let toChildren = 0;
+    for (const child of children) {
+      const forChild: Array<{ serviceOrder: string; partCode: string; trackingCode: string }> = [];
+      for (const stop of child.stops || []) {
+        for (const part of stop.parts || []) {
+          const p = codeOf(parent, stop.serviceOrder, part.code);
+          const c = (part.trackingCode || "").trim();
+          if (p && p !== c) forChild.push({ serviceOrder: stop.serviceOrder, partCode: part.code, trackingCode: p });
+          else if (!p && c) toParent.push({ serviceOrder: stop.serviceOrder, partCode: part.code, trackingCode: c });
+        }
+      }
+      if (forChild.length > 0) {
+        const r = await this.patchPartTracking(child.id, forChild, { propagate: false });
+        toChildren += r.written;
+      }
+    }
+    let written = 0;
+    if (toParent.length > 0) written = (await this.patchPartTracking(parentId, toParent, { propagate: false })).written;
+    return { toChildren, toParent: written };
   },
 
   async remove(id: string): Promise<void> {

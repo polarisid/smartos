@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Wrench, TrendingUp, Trophy, Map, QrCode, LogIn, Menu, Download, Shield, Camera, LogOut, ClipboardCheck, FolderOpen } from "lucide-react";
+import { Wrench, TrendingUp, Trophy, Map, QrCode, LogIn, Menu, Download, Shield, Camera, LogOut, ClipboardCheck, FolderOpen, LifeBuoy } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -66,6 +66,12 @@ export function Sidebar() {
         { href: "/ranking", label: "Ranking", icon: Trophy },
       ],
     },
+    {
+      label: "Ajuda",
+      items: [
+        { href: "/ajuda", label: "Como usar o app", icon: LifeBuoy },
+      ],
+    },
   ];
   const routes = groups.flatMap(g => g.items);
 
@@ -92,7 +98,14 @@ export function Sidebar() {
                 >
                   <Link
                     href={route.href}
-                    onClick={() => setOpen(false)}
+                    onClick={(e) => {
+                      setOpen(false);
+                      // Sem internet o roteador do Next não consegue buscar a tela: navega direto, e o aparelho abre a cópia guardada.
+                      if (typeof navigator !== "undefined" && !navigator.onLine && route.href !== pathname) {
+                        e.preventDefault();
+                        window.location.href = route.href;
+                      }
+                    }}
                     className={`relative flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 ${
                       isActive
                         ? 'bg-sidebar-accent text-sidebar-foreground font-semibold'

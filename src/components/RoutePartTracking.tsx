@@ -9,7 +9,9 @@ import { useToast } from "@/hooks/use-toast";
 import { type Route } from "@/lib/data";
 import { routeService } from "@/services/supabase/routeService";
 import { entriesFromCodes, mergeServerCodes } from "@/lib/trackingCodes";
-import { Save, ScanLine, Search } from "lucide-react";
+import { savePartTracking, overlayPendingCodes } from "@/lib/offlineTrackingQueue";
+import { useTrackingQueue } from "@/hooks/useTrackingQueue";
+import { Save, ScanLine, Search, CloudOff } from "lucide-react";
 
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
@@ -29,17 +31,20 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
         initial[stop.serviceOrder][part.code] = part.trackingCode || "";
       });
     });
-    return initial;
+    // O que foi bipado sem internet e ainda não subiu volta preenchido, mesmo depois de recarregar a página.
+    return overlayPendingCodes(route.id, initial);
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [filterText, setFilterText] = useState("");
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scanTarget, setScanTarget] = useState<{ stopServiceOrder: string; partCode: string } | null>(null);
+  // Envia sozinho o que ficou guardado no aparelho assim que a internet volta.
+  const pendingCount = useTrackingQueue(() => { onSaved?.(); });
 
   // Mostra na hora o que as outras pessoas bipam (a cada 8s, sem mexer no que você está digitando).
   useEffect(() => {
     const timer = setInterval(async () => {
-      if (document.hidden) return;
+      if (document.hidden || !navigator.onLine) return;
       try {
         const data = await routeService.getById(route.id);
         if (data) setTrackingCodes(prev => mergeServerCodes(prev, data));
@@ -59,8 +64,12 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
     setIsSubmitting(true);
     try {
       // Lê a rota na hora e grava só este código (outras pessoas podem estar bipando ao mesmo tempo).
-      const { route: fresh } = await routeService.patchPartTracking(route.id, entriesFromCodes(trackingCodes, stopServiceOrder, partCode));
-      setTrackingCodes(prev => mergeServerCodes(prev, fresh));
+      const { route: fresh, queued } = await savePartTracking(route.id, entriesFromCodes(trackingCodes, stopServiceOrder, partCode));
+      if (queued) {
+        toast({ title: "Guardado no aparelho", description: `Sem conexão: o rastreio da peça ${partCode} será enviado sozinho quando a internet voltar.` });
+        return;
+      }
+      if (fresh) setTrackingCodes(prev => mergeServerCodes(prev, fresh));
       toast({ title: "Código de rastreio salvo!", description: `Rastreio para a peça ${partCode} salvo.` });
       onSaved?.();
     } catch (error) {
@@ -74,8 +83,12 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
   const handleSaveAll = async () => {
     setIsSubmitting(true);
     try {
-      const { route: fresh, written } = await routeService.patchPartTracking(route.id, entriesFromCodes(trackingCodes));
-      setTrackingCodes(prev => mergeServerCodes(prev, fresh));
+      const { route: fresh, written, queued } = await savePartTracking(route.id, entriesFromCodes(trackingCodes));
+      if (queued) {
+        toast({ title: "Guardado no aparelho", description: "Sem conexão: os rastreios serão enviados sozinhos quando a internet voltar." });
+        return;
+      }
+      if (fresh) setTrackingCodes(prev => mergeServerCodes(prev, fresh));
       toast({ title: "Códigos de rastreio salvos!", description: written > 0 ? `${written} peça(s) da rota "${route.name}" atualizada(s).` : "Nada novo para salvar." });
       onSaved?.();
     } catch (error) {
@@ -127,6 +140,13 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
           </div>
         </div>
 
+        {pendingCount > 0 && (
+          <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+            <CloudOff className="h-4 w-4 shrink-0" />
+            {pendingCount} rastreio(s) guardado(s) no aparelho, aguardando internet para enviar.
+          </div>
+        )}
+
         <Button onClick={handleSaveAll} disabled={isSubmitting} className="w-full">
           <Save className="mr-2 h-4 w-4" />
           {isSubmitting ? "Salvando..." : "Salvar Todos os Rastreios da Rota"}
@@ -175,6 +195,7 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
       </div>
       <ScannerDialog
         isOpen={isScannerOpen}
+        mode="tracking"
         onClose={() => setIsScannerOpen(false)}
         onScanSuccess={handleScanSuccess}
       />
