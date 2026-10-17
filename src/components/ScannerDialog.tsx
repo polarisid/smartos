@@ -46,6 +46,16 @@ function friendlyCameras(list: Array<{ id: string; label: string }>): CameraOpti
   });
 }
 
+// Texto de ajuda quando a lanterna não acende, com o que o aparelho informou (ajuda a entender o motivo).
+function explainTorchFailure(scanner: Html5Qrcode | null, motivo: string): string {
+  let caps = 'não informado';
+  try {
+    const c = (scanner as any)?.getRunningTrackCapabilities?.() as any;
+    if (c) caps = c.torch ? 'o aparelho informa lanterna' : 'o aparelho NÃO informa lanterna para esta câmera';
+  } catch { /* ok */ }
+  return 'A lanterna não acendeu (' + motivo + '; ' + caps + '). O navegador não tem uma permissão separada para isso: ela vem junto com a da câmera, e neste celular ele não libera o controle da lanterna. Acenda pela lanterna do próprio celular (painel rápido, puxando de cima) ou aproxime de uma luz.';
+}
+
 function feedback() {
   try { navigator.vibrate?.(80); } catch { /* sem vibração */ }
   try {
@@ -86,6 +96,11 @@ export function ScannerDialog({
     const [torchSupported, setTorchSupported] = useState(false);
     const [torchOn, setTorchOn] = useState(false);
     const [torchMsg, setTorchMsg] = useState<string | null>(null);
+    // Lanterna e zoom vão juntos para a câmera: cada novo applyConstraints SUBSTITUI o anterior, então mexer no
+    // zoom apagava a lanterna (e vice-versa). Aqui guardamos o conjunto e reenviamos tudo.
+    const advRef = useRef<{ torch?: boolean; zoom?: number }>({});
+    const torchWantedRef = useRef(false);
+    const [restartKey, setRestartKey] = useState(0);
     const [cameraRunning, setCameraRunning] = useState(false);
     const [zoom, setZoom] = useState<{ min: number; max: number; step: number; value: number } | null>(null);
     const [cameras, setCameras] = useState<CameraOption[]>([]);
@@ -111,8 +126,9 @@ export function ScannerDialog({
         setError(null);
         setStarting(true);
         setTorchSupported(false);
-        setTorchMsg(null);
+        if (!torchWantedRef.current) setTorchMsg(null);
         setCameraRunning(false);
+        advRef.current = torchWantedRef.current ? { torch: true } : {};
         setTorchOn(false);
         setZoom(null);
         setCameras([]);
@@ -148,8 +164,7 @@ export function ScannerDialog({
                     ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'environment' }),
                     width: { ideal: 1920 },
                     height: { ideal: 1440 },
-                    // @ts-expect-error focusMode ainda não está nos tipos do TS, mas Chrome/Android aceita
-                    advanced: [{ focusMode: 'continuous' }],
+                    advanced: [{ focusMode: 'continuous' }, ...(torchWantedRef.current ? [{ torch: true }] : [])] as any,
                 });
                 const config = {
                         fps: 20,
@@ -200,6 +215,17 @@ export function ScannerDialog({
                     if (!cancelled) setCameras(friendlyCameras(list));
                 } catch { /* sem lista de câmeras: continua só com a padrão */ }
 
+                if (torchWantedRef.current) {
+                    const st = scanner.getRunningTrackSettings() as any;
+                    const on = !!st.torch;
+                    setTorchOn(on);
+                    if (!on) {
+                        torchWantedRef.current = false;
+                        advRef.current = { ...advRef.current, torch: undefined };
+                        setTorchMsg(explainTorchFailure(scanner, 'a câmera reaberta ignorou o pedido'));
+                    }
+                }
+
                 try {
                     const caps = scanner.getRunningTrackCameraCapabilities();
                     setTorchSupported(!!caps.torchFeature().isSupported());
@@ -209,7 +235,8 @@ export function ScannerDialog({
                         const min = z.min(), max = z.max();
                         // Já começa com um pouco de zoom: etiqueta pequena fica legível sem aproximar demais o celular.
                         const initial = Math.min(max, Math.max(min, min + (max - min) * 0.2));
-                        await z.apply(initial).catch(() => { /* sem zoom */ });
+                        advRef.current = { ...advRef.current, zoom: initial };
+                        await applyAdvanced().catch(() => { /* sem zoom */ });
                         setZoom({ min, max, step: z.step() || 0.1, value: initial });
                     }
                 } catch { /* recursos opcionais */ }
@@ -233,27 +260,61 @@ export function ScannerDialog({
             teardownRef.current = stopScanner(s);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOpen, ready, mode, chosenCamera]);
+    }, [isOpen, ready, mode, chosenCamera, restartKey]);
 
-    // A lanterna é pedida direto à câmera. Alguns aparelhos/navegadores não avisam que têm lanterna mas aceitam o
-    // comando, então o botão aparece sempre e tentamos; se não der, explica o que fazer.
+    // Trilha de vídeo da câmera em uso (para lanterna e zoom).
+    const getTrack = (): MediaStreamTrack | null => {
+        const video = document.querySelector('#' + scannerId + ' video') as HTMLVideoElement | null;
+        const stream = video?.srcObject as MediaStream | null | undefined;
+        return stream?.getVideoTracks?.()[0] ?? null;
+    };
+
+    // Reenvia lanterna + zoom juntos, cada um como pedido independente (se um não existir, o outro continua valendo).
+    const applyAdvanced = async () => {
+        const track = getTrack();
+        if (!track) throw new Error('sem câmera ativa');
+        const advanced: any[] = [];
+        if (advRef.current.zoom !== undefined) advanced.push({ zoom: advRef.current.zoom });
+        if (advRef.current.torch !== undefined) advanced.push({ torch: advRef.current.torch });
+        await track.applyConstraints({ advanced } as any);
+    };
+
+    // Não existe permissão separada para a lanterna: ela vem junto com a da câmera. Se o navegador do aparelho
+    // não deixa o site controlar a lanterna, o app tenta (1) o comando direto, (2) reabrir a câmera já pedindo
+    // a lanterna e só então avisa o que fazer.
     const toggleTorch = async () => {
         setTorchMsg(null);
         const next = !torchOn;
         try {
-            const feature = scannerRef.current?.getRunningTrackCameraCapabilities().torchFeature();
-            if (feature?.isSupported()) await feature.apply(next);
-            else await scannerRef.current?.applyVideoConstraints({ advanced: [{ torch: next } as any] });
-            setTorchOn(next);
+            advRef.current = { ...advRef.current, torch: next };
+            await applyAdvanced();
+            const st = (getTrack()?.getSettings() as any) || {};
+            const caps = (getTrack()?.getCapabilities?.() as any) || {};
+            // Só confirma quando o aparelho informa o estado da lanterna (ou diz que tem lanterna).
+            if (st.torch === next || (st.torch === undefined && caps.torch)) {
+                setTorchOn(next);
+                return;
+            }
+            throw new Error('lanterna não confirmada');
         } catch {
-            setTorchOn(false);
-            setTorchMsg("Este celular não deixa o navegador acender a lanterna. Acenda pela lanterna do próprio celular (painel rápido, puxando de cima) ou aproxime de uma luz.");
+            if (next) {
+                // 2ª tentativa: reabre a câmera pedindo a lanterna na própria abertura.
+                torchWantedRef.current = true;
+                setTorchOn(true);
+                setRestartKey(k => k + 1);
+            } else {
+                torchWantedRef.current = false;
+                setTorchOn(false);
+                advRef.current = { ...advRef.current, torch: undefined };
+                setRestartKey(k => k + 1);
+            }
         }
     };
 
     const changeZoom = async (value: number) => {
         try {
-            await scannerRef.current?.getRunningTrackCameraCapabilities().zoomFeature().apply(value);
+            advRef.current = { ...advRef.current, zoom: value };
+            await applyAdvanced();
             setZoom(z => (z ? { ...z, value } : z));
         } catch { /* zoom indisponível */ }
     };
