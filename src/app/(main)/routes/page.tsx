@@ -28,12 +28,26 @@ import type { Route, RouteStop } from "@/lib/data";
 
 const RouteMap = dynamic(() => import("@/components/RouteMap"), { ssr: false });
 export default function RoutesPage() {
-    const { data: activeRoutes = [], isError: errRoutes, isLoading: loadingRoutes } = useActiveRoutes();
+    const routesQuery = useActiveRoutes();
+    const { data: activeRoutes = [], isError: errRoutes, isLoading: loadingRoutes } = routesQuery;
     const { data: serviceOrders = [], isError: errSo, isLoading: loadingSo } = useServiceOrders(2000);
     const { data: visitTemplate = "", isError: errTemplate, isLoading: loadingTemplate } = useVisitTemplate();
 
     const dataFetchError = errRoutes || errSo || errTemplate;
     const isLoading = loadingRoutes || loadingSo || loadingTemplate;
+
+    // Sem internet: as rotas guardadas no aparelho continuam valendo. A tela só vira erro quando NÃO há nada guardado.
+    const [isOffline, setIsOffline] = useState(false);
+    useEffect(() => {
+        const update = () => setIsOffline(!navigator.onLine);
+        update();
+        window.addEventListener("online", update);
+        window.addEventListener("offline", update);
+        return () => { window.removeEventListener("online", update); window.removeEventListener("offline", update); };
+    }, []);
+    const hasRoutesData = routesQuery.data !== undefined;
+    const showingSavedData = hasRoutesData && (isOffline || dataFetchError || routesQuery.fetchStatus === "paused");
+    const savedAt = routesQuery.dataUpdatedAt ? new Date(routesQuery.dataUpdatedAt) : null;
 
     const { toast } = useToast();
     const { appUser } = useAuth();
@@ -101,7 +115,19 @@ export default function RoutesPage() {
         return [...activeRoutes].sort((a, b) => rank(a) - rank(b));
     }, [activeRoutes, pinnedRouteId, appUser?.uid]);
 
-    if (dataFetchError) {
+    if (!hasRoutesData && (isOffline || routesQuery.fetchStatus === "paused")) {
+        return (
+          <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh]">
+            <div className="rounded-full bg-amber-500/10 p-4 mb-4">
+              <AlertCircle className="h-8 w-8 text-amber-600" />
+            </div>
+            <h2 className="text-xl font-bold mb-2">Sem internet e sem rotas guardadas</h2>
+            <p className="text-muted-foreground max-w-md">Abra a tela de Rotas uma vez com internet e espere alguns segundos: as rotas ficam guardadas no aparelho e passam a abrir sem sinal.</p>
+          </div>
+        );
+    }
+
+    if (dataFetchError && !hasRoutesData) {
         return (
           <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh]">
             <div className="rounded-full bg-destructive/10 p-4 mb-4">
@@ -146,6 +172,12 @@ export default function RoutesPage() {
     return (
         <div className="w-full animate-in fade-in ease-out duration-300 space-y-4">
             <h2 className="text-2xl font-bold tracking-tight">Rotas Ativas da Equipe</h2>
+            {showingSavedData && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                    {isOffline ? "Sem internet" : "Não foi possível atualizar agora"} — mostrando as rotas guardadas no aparelho
+                    {savedAt ? ` (atualizadas às ${format(savedAt, "HH:mm")})` : ""}. Ao voltar o sinal, a lista atualiza sozinha.
+                </div>
+            )}
 
             {displayedRoutes.map(route => {
                 const departure = route.departureDate ? route.departureDate : new Date();
