@@ -1288,6 +1288,41 @@ function RouteForm({
         }
     };
 
+    // Saída/chegada da rota: em rota já existente grava na hora (não depende de lembrar de clicar em
+    // Salvar); em rota nova vai junto ao criar. Em série com os outros salvamentos automáticos; se
+    // alguém mexeu na rota antes, traz as mudanças dela (mescla) e grava de novo.
+    const handlePointChange = (kind: "start" | "end", point: RoutePoint | null) => {
+        if (kind === "start") setStartPoint(point); else setEndPoint(point);
+        if (!(mode === 'edit' && initialData?.id && initialData.id !== 'draft')) return;
+        const id = initialData.id;
+        const patch = kind === "start" ? { startPoint: point } : { endPoint: point };
+        autosavePendingRef.current++;
+        autosaveChainRef.current = autosaveChainRef.current.then(async () => {
+            try {
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    try {
+                        const ts = await routeService.update(id, patch, { expectedUpdatedAt: knownUpdatedAtRef.current });
+                        if (ts) knownUpdatedAtRef.current = ts;
+                        toast({ title: kind === "start" ? "Saída salva" : "Chegada salva", description: point ? point.address : "Voltou a valer a base da unidade." });
+                        return;
+                    } catch (e) {
+                        if (e instanceof RouteConflictError) {
+                            const latest = await routeService.getById(id);
+                            if (latest) { mergeLatestRef.current(latest); continue; }
+                        }
+                        throw e;
+                    }
+                }
+                toast({ variant: "destructive", title: "Não salvou", description: "A rota está sendo alterada por outras pessoas. Clique em Salvar Rota." });
+            } catch (e) {
+                console.error("Falha ao salvar saída/chegada:", e);
+                toast({ variant: "destructive", title: "Não salvou", description: "Não foi possível gravar agora. Clique em Salvar Rota." });
+            } finally {
+                autosavePendingRef.current--;
+            }
+        });
+    };
+
     // Ordem sugerida pelo modo planejamento: paradas ativas na nova ordem; realocadas ficam no fim.
     const handleApplyPlanOrder = (order: string[]) => {
         const bySo = new Map(parsedStops.map(s => [s.serviceOrder, s] as const));
@@ -1579,8 +1614,8 @@ function RouteForm({
                             startDate={departureDate}
                             startPoint={startPoint}
                             endPoint={endPoint}
-                            onStartPointChange={setStartPoint}
-                            onEndPointChange={setEndPoint}
+                            onStartPointChange={(p) => handlePointChange("start", p)}
+                            onEndPointChange={(p) => handlePointChange("end", p)}
                             params={planningParams}
                             weekendWork={mode === 'edit' && !!initialData && isRouteInProgress(initialData, serviceOrders)}
                             onSaveParams={handleSavePlanningParams}

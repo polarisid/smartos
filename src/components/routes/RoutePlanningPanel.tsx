@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { PlanningParamsForm } from "@/components/routes/PlanningParamsForm";
 import { cn } from "@/lib/utils";
 import { geocodeAddressText } from "@/lib/geocode";
+import { loadRecentPoints, rememberPoint } from "@/lib/recentPoints";
 import { suggestPlanOrder, type PlanMetrics } from "@/lib/routePlanOptimizer";
 import { formatLegTempo } from "@/lib/emailExport";
 import type { RoutePoint, RouteStop } from "@/lib/data";
@@ -69,6 +70,13 @@ export function RoutePlanningPanel({
     const [endText, setEndText] = useState("");
     const [resolving, setResolving] = useState<"start" | "end" | null>(null);
     const [configOpen, setConfigOpen] = useState(false);
+    // Saída/chegada usadas antes (neste navegador): atalho pra aplicar sem digitar de novo.
+    const [recentPoints, setRecentPoints] = useState<RoutePoint[]>([]);
+    useEffect(() => { setRecentPoints(loadRecentPoints()); }, []);
+    const applyPoint = (kind: "start" | "end", point: RoutePoint) => {
+        (kind === "start" ? onStartPointChange : onEndPointChange)(point);
+        setRecentPoints(rememberPoint(point));
+    };
 
     const params = useMemo(() => (weekendWork ? withWeekendWork(rawParams) : rawParams), [weekendWork, rawParams]);
 
@@ -151,7 +159,8 @@ export function RoutePlanningPanel({
                 return;
             }
             const point: RoutePoint = { address: found.label, lat: found.coords[0], lng: found.coords[1] };
-            if (kind === "start") { onStartPointChange(point); setStartText(""); } else { onEndPointChange(point); setEndText(""); }
+            applyPoint(kind, point);
+            if (kind === "start") setStartText(""); else setEndText("");
         } finally {
             setResolving(null);
         }
@@ -203,6 +212,22 @@ export function RoutePlanningPanel({
                                     <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" onClick={() => handleSet(kind)} disabled={!text.trim() || resolving !== null}>
                                         {resolving === kind ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Definir"}
                                     </Button>
+                                </div>
+                            )}
+                            {!point && recentPoints.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                                    <span className="text-[10px] text-muted-foreground">Usados antes:</span>
+                                    {recentPoints.slice(0, 4).map(rp => (
+                                        <button
+                                            key={rp.lat + "," + rp.lng}
+                                            type="button"
+                                            onClick={() => applyPoint(kind, rp)}
+                                            className="max-w-[210px] truncate rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                                            title={rp.address}
+                                        >
+                                            {rp.address}
+                                        </button>
+                                    ))}
                                 </div>
                             )}
                         </div>

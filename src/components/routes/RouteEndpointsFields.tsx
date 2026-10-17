@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { geocodeAddressText } from "@/lib/geocode";
+import { loadRecentPoints, rememberPoint } from "@/lib/recentPoints";
 import type { RoutePoint } from "@/lib/data";
 
 // Saída e chegada opcionais de uma rota (vazio = base da unidade).
@@ -20,6 +21,12 @@ export function RouteEndpointsFields({ start, end, onStartChange, onEndChange, d
     const { toast } = useToast();
     const [texts, setTexts] = useState({ start: "", end: "" });
     const [resolving, setResolving] = useState<"start" | "end" | null>(null);
+    const [recentPoints, setRecentPoints] = useState<RoutePoint[]>([]);
+    useEffect(() => { setRecentPoints(loadRecentPoints()); }, []);
+    const applyPoint = (kind: "start" | "end", point: RoutePoint) => {
+        (kind === "start" ? onStartChange : onEndChange)(point);
+        setRecentPoints(rememberPoint(point));
+    };
 
     const handleSet = async (kind: "start" | "end") => {
         const text = texts[kind].trim();
@@ -32,7 +39,7 @@ export function RouteEndpointsFields({ start, end, onStartChange, onEndChange, d
                 return;
             }
             const point: RoutePoint = { address: found.label, lat: found.coords[0], lng: found.coords[1] };
-            (kind === "start" ? onStartChange : onEndChange)(point);
+            applyPoint(kind, point);
             setTexts(t => ({ ...t, [kind]: "" }));
         } finally {
             setResolving(null);
@@ -70,6 +77,22 @@ export function RouteEndpointsFields({ start, end, onStartChange, onEndChange, d
                                 <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" onClick={() => handleSet(kind)} disabled={disabled || !texts[kind].trim() || resolving !== null}>
                                     {resolving === kind ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Definir"}
                                 </Button>
+                            </div>
+                        )}
+                        {!point && recentPoints.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                                <span className="text-[10px] text-muted-foreground">Usados antes:</span>
+                                {recentPoints.slice(0, 4).map(rp => (
+                                    <button
+                                        key={rp.lat + "," + rp.lng}
+                                        type="button"
+                                        onClick={() => applyPoint(kind, rp)}
+                                        className="max-w-[210px] truncate rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                                        title={rp.address}
+                                    >
+                                        {rp.address}
+                                    </button>
+                                ))}
                             </div>
                         )}
                     </div>
