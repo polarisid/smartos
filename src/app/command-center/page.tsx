@@ -686,7 +686,7 @@ export default function CommandCenterPage() {
         <div className="min-h-screen lg:h-screen bg-[#0B1420] text-slate-100 font-body flex flex-col lg:flex-row lg:overflow-hidden">
 
             {/* Área principal */}
-            <main className="flex-1 p-4 md:p-6 lg:p-8 flex flex-col overflow-y-auto">
+            <main className="flex-1 min-w-0 p-3 md:p-6 lg:p-8 flex flex-col overflow-y-auto">
                 {/* Barra "Estado do Dia" — sempre visível */}
                 <StateOfDayBar
                     stats={{
@@ -702,8 +702,8 @@ export default function CommandCenterPage() {
                     liveCount={feed.length}
                 />
 
-                <Tabs defaultValue="mapa" className="w-full mt-6">
-                    <TabsList className="mb-8 grid w-full grid-cols-4 max-w-[720px] bg-[#0f1c2e] border border-white/10 p-1 h-auto">
+                <Tabs defaultValue="mapa" className="w-full mt-3 sm:mt-6">
+                    <TabsList className="mb-4 sm:mb-8 grid w-full grid-cols-4 max-w-[720px] bg-[#0f1c2e] border border-white/10 p-1 h-auto">
                         {[
                             { v: 'mapa', l: 'Mapa' },
                             { v: 'rota', l: 'Rotas' },
@@ -721,11 +721,11 @@ export default function CommandCenterPage() {
                     </TabsList>
 
                     <TabsContent value="mapa" className="animate-in fade-in-50 duration-500 mt-0">
-                        <div className="flex flex-col h-[75vh]">
+                        <div className="flex flex-col h-[72dvh] min-h-[380px] sm:h-[75vh]">
                             {/* ── Route chip filter ── */}
-                            <div className="mb-3 p-3 rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm space-y-3">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5 mr-1">
+                            <div className="mb-2 sm:mb-3 p-2 sm:p-3 rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm space-y-2 sm:space-y-3">
+                                <div className="flex flex-nowrap sm:flex-wrap items-center gap-2 overflow-x-auto sm:overflow-visible pb-1 sm:pb-0">
+                                    <span className="shrink-0 text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5 mr-1">
                                         <MapPin className="h-3 w-3" /> Rotas Exibidas
                                     </span>
                                     {routes.map(r => {
@@ -747,7 +747,7 @@ export default function CommandCenterPage() {
                                                     }
                                                     return next;
                                                 })}
-                                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                                                className={`inline-flex shrink-0 whitespace-nowrap items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
                                                     isSelected
                                                         ? 'bg-blue-600 border-blue-500 text-white shadow-sm shadow-blue-500/30'
                                                         : 'bg-slate-800 border-slate-700 text-slate-500 hover:border-slate-600'
@@ -759,7 +759,7 @@ export default function CommandCenterPage() {
                                             </button>
                                         );
                                     })}
-                                    <div className="ml-auto flex gap-3 text-xs">
+                                    <div className="ml-auto flex shrink-0 gap-3 text-xs">
                                         {selectedMapRoutes.size > 0 && (
                                             <button onClick={() => setSelectedMapRoutes(new Set())} className="text-[#17E9B0] hover:text-[#17E9B0]/80 transition-colors font-semibold">Mostrar todas</button>
                                         )}
@@ -767,8 +767,8 @@ export default function CommandCenterPage() {
                                 </div>
 
                                 {/* ── Status filter ── */}
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mr-1">Filtrar por Status</span>
+                                <div className="flex flex-nowrap sm:flex-wrap items-center gap-2 overflow-x-auto sm:overflow-visible pb-1 sm:pb-0">
+                                    <span className="shrink-0 text-[10px] font-bold text-slate-500 uppercase tracking-widest mr-1">Filtrar por Status</span>
                                     {([
                                         { key: 'all',       label: 'Todas',              color: 'bg-slate-600 border-slate-500 text-white' },
                                         { key: 'todo',      label: 'A Fazer',            color: 'bg-blue-600 border-blue-500 text-white' },
@@ -778,7 +778,7 @@ export default function CommandCenterPage() {
                                         <button
                                             key={opt.key}
                                             onClick={() => setMapStatusFilter(opt.key)}
-                                            className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                                            className={`shrink-0 whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
                                                 mapStatusFilter === opt.key
                                                     ? opt.color
                                                     : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:border-slate-600'
@@ -787,7 +787,7 @@ export default function CommandCenterPage() {
                                             {opt.label}
                                         </button>
                                     ))}
-                                    <div className="ml-auto flex gap-4 text-xs font-medium text-slate-400">
+                                    <div className="ml-auto hidden sm:flex gap-4 text-xs font-medium text-slate-400">
                                         <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Concluídos</span>
                                         <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-yellow-500" /> Com Pendência</span>
                                         <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-blue-600" /> A Fazer</span>
@@ -816,18 +816,18 @@ export default function CommandCenterPage() {
                                 <TrendingUp className="text-[#17E9B0] h-5 w-5" />
                                 <h2 className="text-xl font-semibold text-slate-200">Comparativo Ontem × Hoje</h2>
                             </div>
-                            <div className="grid grid-cols-3 gap-4">
+                            <div className="grid grid-cols-3 gap-2 sm:gap-4">
                                 <Card className="border border-white/10 bg-white/[0.03]">
-                                    <CardContent className="p-4 flex flex-col gap-1">
+                                    <CardContent className="p-3 sm:p-4 flex flex-col gap-1">
                                         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Hoje (até agora)</span>
-                                        <span className="font-mono text-4xl font-bold tabular-nums text-white">{analyticsData.todayTotal}</span>
+                                        <span className="font-mono text-3xl sm:text-4xl font-bold tabular-nums text-white">{analyticsData.todayTotal}</span>
                                         <span className="text-xs text-slate-500">atendimentos</span>
                                     </CardContent>
                                 </Card>
                                 <Card className="border border-white/10 bg-white/[0.03]">
-                                    <CardContent className="p-4 flex flex-col gap-1">
+                                    <CardContent className="p-3 sm:p-4 flex flex-col gap-1">
                                         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Ontem (mesmo horário)</span>
-                                        <span className="font-mono text-4xl font-bold tabular-nums text-slate-400">{analyticsData.yestTotal}</span>
+                                        <span className="font-mono text-3xl sm:text-4xl font-bold tabular-nums text-slate-400">{analyticsData.yestTotal}</span>
                                         <span className="text-xs text-slate-500">atendimentos</span>
                                     </CardContent>
                                 </Card>
@@ -835,15 +835,15 @@ export default function CommandCenterPage() {
                                     analyticsData.trend > 0 ? 'border-emerald-500/30 bg-emerald-500/5'
                                     : analyticsData.trend < 0 ? 'border-red-500/30 bg-red-500/5'
                                     : 'border-slate-700 bg-slate-800/20'}`}>
-                                    <CardContent className="p-4 flex flex-col gap-1">
+                                    <CardContent className="p-3 sm:p-4 flex flex-col gap-1">
                                         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tendência</span>
                                         <div className="flex items-center gap-2">
                                             {analyticsData.trend > 0
-                                                ? <TrendingUp className="h-6 w-6 text-emerald-400" />
+                                                ? <TrendingUp className="hidden sm:block h-6 w-6 text-emerald-400" />
                                                 : analyticsData.trend < 0
-                                                    ? <TrendingUp className="h-6 w-6 text-red-400 rotate-180" />
-                                                    : <Activity className="h-6 w-6 text-slate-400" />}
-                                            <span className={`font-mono text-4xl font-bold tabular-nums ${
+                                                    ? <TrendingUp className="hidden sm:block h-6 w-6 text-red-400 rotate-180" />
+                                                    : <Activity className="hidden sm:block h-6 w-6 text-slate-400" />}
+                                            <span className={`font-mono text-3xl sm:text-4xl font-bold tabular-nums ${
                                                 analyticsData.trend > 0 ? 'text-emerald-300'
                                                 : analyticsData.trend < 0 ? 'text-red-300' : 'text-slate-400'}`}>
                                                 {analyticsData.trend > 0 ? '+' : ''}{analyticsData.trend}
@@ -1011,7 +1011,7 @@ export default function CommandCenterPage() {
 
                     <TabsContent value="dashboard" className="animate-in fade-in-50 duration-500 mt-0 space-y-8">
                         {/* Resumo da Semana */}
-                        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 sm:p-5">
                             <div className="flex items-center gap-2 mb-4">
                                 <CalendarIcon className="h-4 w-4 text-[#17E9B0]" />
                                 <h3 className="text-base font-semibold text-slate-200">Resumo da Semana</h3>
@@ -1020,7 +1020,7 @@ export default function CommandCenterPage() {
                                 </span>
                             </div>
                             <div className="flex flex-col lg:flex-row lg:items-center gap-6">
-                                <div className="grid grid-cols-3 gap-6 lg:w-[360px] shrink-0">
+                                <div className="grid grid-cols-3 gap-3 sm:gap-6 lg:w-[360px] shrink-0">
                                     <KpiFigure label="Atendimentos" value={weeklyData.total} tone="neutral" />
                                     <KpiFigure label="Concluídos" value={weeklyData.completed} tone="teal" />
                                     <KpiFigure label="Pendentes" value={weeklyData.pending} tone="amber" />
@@ -1041,7 +1041,7 @@ export default function CommandCenterPage() {
                             </div>
                         </section>
 
-                        <div className="mb-6 flex items-center gap-2">
+                        <div className="mb-4 sm:mb-6 flex flex-wrap items-center gap-x-2 gap-y-2">
                             <BarChart2 className="text-[#17E9B0] h-5 w-5" />
                             <h2 className="text-xl font-semibold text-slate-200">Produtividade do Dia</h2>
                             <span className="ml-auto text-xs text-slate-500 font-mono">{format(new Date(), "dd/MM/yyyy", { locale: ptBR })}</span>

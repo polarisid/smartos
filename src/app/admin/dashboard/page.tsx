@@ -535,57 +535,57 @@ function GeneralDashboard({
 
             <div>
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">Resumo do período selecionado</h2>
-             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+             <div className="grid grid-cols-2 gap-3 sm:gap-6 lg:grid-cols-4">
                 <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Ordens de Serviço ({filterLabels[filterPeriod]})</CardTitle>
+                <CardHeader className="flex flex-row items-start justify-between gap-1 space-y-0 p-3 pb-1 sm:p-6 sm:pb-2">
+                    <CardTitle className="text-xs sm:text-sm font-medium leading-tight">Ordens de Serviço ({filterLabels[filterPeriod]})</CardTitle>
                     <StatIconBadge icon={Wrench} colorClass="bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400" />
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                     <div className="flex items-center gap-2">
-                        <div className="text-2xl font-bold">{totalOsFiltered}</div>
+                        <div className="text-xl sm:text-2xl font-bold">{totalOsFiltered}</div>
                         <DeltaPill pct={osChangePct} goodDirection="up" />
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">Total de OS no período selecionado</p>
+                    <p className="hidden sm:block text-xs text-muted-foreground mt-1">Total de OS no período selecionado</p>
                 </CardContent>
                 </Card>
                 <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Faturamento Líquido ({filterLabels[filterPeriod]})</CardTitle>
+                <CardHeader className="flex flex-row items-start justify-between gap-1 space-y-0 p-3 pb-1 sm:p-6 sm:pb-2">
+                    <CardTitle className="text-xs sm:text-sm font-medium leading-tight">Faturamento Líquido ({filterLabels[filterPeriod]})</CardTitle>
                     <StatIconBadge icon={DollarSign} colorClass="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400" />
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <div className="text-2xl font-bold">{netBonusFiltered}</div>
+                        <div className="text-xl sm:text-2xl font-bold">{netBonusFiltered}</div>
                         <DeltaPill pct={revenueChangePct} goodDirection="up" />
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">Valor líquido (com estornos) no período</p>
+                    <p className="hidden sm:block text-xs text-muted-foreground mt-1">Valor líquido (com estornos) no período</p>
                 </CardContent>
                 </Card>
                 <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total de Retornos ({filterLabels[filterPeriod]})</CardTitle>
+                <CardHeader className="flex flex-row items-start justify-between gap-1 space-y-0 p-3 pb-1 sm:p-6 sm:pb-2">
+                    <CardTitle className="text-xs sm:text-sm font-medium leading-tight">Total de Retornos ({filterLabels[filterPeriod]})</CardTitle>
                     <StatIconBadge icon={History} colorClass="bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-400" />
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                     <div className="flex items-center gap-2">
-                        <div className="text-2xl font-bold">{totalReturnsFiltered}</div>
+                        <div className="text-xl sm:text-2xl font-bold">{totalReturnsFiltered}</div>
                         <DeltaPill pct={returnsChangePct} goodDirection="down" />
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">Retornos no período selecionado</p>
+                    <p className="hidden sm:block text-xs text-muted-foreground mt-1">Retornos no período selecionado</p>
                 </CardContent>
                 </Card>
                 <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total de Estornos ({filterLabels[filterPeriod]})</CardTitle>
+                <CardHeader className="flex flex-row items-start justify-between gap-1 space-y-0 p-3 pb-1 sm:p-6 sm:pb-2">
+                    <CardTitle className="text-xs sm:text-sm font-medium leading-tight">Total de Estornos ({filterLabels[filterPeriod]})</CardTitle>
                     <StatIconBadge icon={FileMinus} colorClass="bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400" />
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <div className="text-2xl font-bold text-destructive">-{totalChargebacksFiltered.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
+                        <div className="text-lg sm:text-2xl font-bold text-destructive">-{totalChargebacksFiltered.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
                         <DeltaPill pct={chargebacksChangePct} goodDirection="down" />
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">Estornos (chargebacks) no período</p>
+                    <p className="hidden sm:block text-xs text-muted-foreground mt-1">Estornos (chargebacks) no período</p>
                 </CardContent>
                 </Card>
             </div>
@@ -597,6 +597,25 @@ function GeneralDashboard({
                     <CardDescription>Contagem de OS e acompanhamento de metas no período.</CardDescription>
                 </CardHeader>
                 <CardContent>
+                    <div className="space-y-2 md:hidden">
+                        {performanceData.map((data) => (
+                            <div key={data.technician.id} className="rounded-lg border p-3 space-y-2">
+                                <div className="flex items-baseline justify-between gap-2">
+                                    <p className="font-semibold truncate">{data.technician.name}</p>
+                                    <p className="text-sm font-bold shrink-0">{data.revenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                                </div>
+                                <div className="flex gap-4 text-xs text-muted-foreground">
+                                    <span><strong className="text-foreground">{data.osCount}</strong> OS</span>
+                                    <span><strong className="text-foreground">{data.cleaningsCount}</strong> limpezas</span>
+                                </div>
+                                <div className="space-y-1">
+                                    <Progress value={data.progress} />
+                                    <p className="text-[11px] text-muted-foreground text-right">Meta: {data.goal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="hidden md:block">
                     <Table>
                     <TableHeader>
                         <TableRow>
@@ -626,6 +645,7 @@ function GeneralDashboard({
                         ))}
                     </TableBody>
                     </Table>
+                    </div>
                 </CardContent>
                 </Card>
 
@@ -727,16 +747,16 @@ function ReturnsRanking({ technicians, returns }: { technicians: Technician[], r
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead className="w-[100px]">Posição</TableHead>
+                                <TableHead className="w-[70px] sm:w-[100px]">Posição</TableHead>
                                 <TableHead>Técnico</TableHead>
-                                <TableHead className="text-center">Total de Retornos (Ano)</TableHead>
-                                <TableHead className="text-right">Média de Dias p/ Retorno</TableHead>
+                                <TableHead className="text-center">Retornos (ano)</TableHead>
+                                <TableHead className="text-right">Média de dias</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {returnsByTechnician.map((tech, index) => (
                                 <TableRow key={tech.id}>
-                                    <TableCell className="font-bold text-lg flex items-center gap-2">
+                                    <TableCell className="font-bold text-base sm:text-lg flex items-center gap-1 sm:gap-2">
                                         <Trophy className={`h-5 w-5 ${getTrophyColor(index)}`} />
                                         <span>#{index + 1}</span>
                                     </TableCell>

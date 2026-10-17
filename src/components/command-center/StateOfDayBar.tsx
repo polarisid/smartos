@@ -37,11 +37,11 @@ export function KpiFigure({
 }) {
   return (
     <div className="flex flex-col min-w-0">
-      <span className={`font-mono text-2xl md:text-[1.7rem] font-semibold tabular-nums leading-none ${TONES[tone]}`}>
+      <span className={`font-mono text-xl md:text-[1.7rem] font-semibold tabular-nums leading-none ${TONES[tone]}`}>
         {value}
         {suffix && <span className="text-sm font-medium text-slate-500 ml-0.5">{suffix}</span>}
       </span>
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mt-1.5 truncate">{label}</span>
+      <span className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-wide sm:tracking-wider text-slate-500 mt-1 sm:mt-1.5 leading-tight sm:truncate">{label}</span>
     </div>
   );
 }
@@ -76,8 +76,8 @@ export function StateOfDayBar({
     <section className="rounded-2xl border border-white/10 bg-[#0f1c2e]/80 backdrop-blur-sm shadow-xl shadow-black/20">
       <div className="flex flex-col lg:flex-row lg:items-stretch">
         {/* Identidade + medidor de operação (assinatura) */}
-        <div className="flex-1 p-5 lg:p-6 border-b lg:border-b-0 lg:border-r border-white/10">
-          <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex-1 p-3 sm:p-5 lg:p-6 border-b lg:border-b-0 lg:border-r border-white/10">
+          <div className="flex items-center justify-between gap-3 mb-2 sm:mb-4">
             <div className="flex items-center gap-3 min-w-0">
               <Link
                 href="/admin/dashboard"
@@ -104,7 +104,7 @@ export function StateOfDayBar({
 
           <div className="flex items-end justify-between mb-2.5">
             <div className="flex items-baseline gap-2">
-              <span className="font-mono text-4xl md:text-5xl font-bold tabular-nums text-white leading-none">
+              <span className="font-mono text-3xl md:text-5xl font-bold tabular-nums text-white leading-none">
                 {pct}
                 <span className="text-2xl text-slate-500">%</span>
               </span>
@@ -130,7 +130,7 @@ export function StateOfDayBar({
         </div>
 
         {/* KPIs do dia */}
-        <div className="p-5 lg:p-6 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-4 lg:w-[460px]">
+        <div className="p-3 sm:p-5 lg:p-6 grid grid-cols-4 gap-x-2 sm:gap-x-6 gap-y-3 sm:gap-y-4 lg:w-[460px]">
           <KpiFigure label="Programados" value={total} tone="neutral" />
           <KpiFigure label="Concluídos" value={done} tone="teal" />
           <KpiFigure label="Pendências" value={pend} tone="amber" />

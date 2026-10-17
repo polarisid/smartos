@@ -146,8 +146,8 @@ export function ScannerDialog({
 
                 const buildConstraints = (deviceId: string | null): MediaTrackConstraints => ({
                     ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'environment' }),
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 },
+                    width: { ideal: 1280 },
+                    height: { ideal: 960 },
                     // @ts-expect-error focusMode ainda não está nos tipos do TS, mas Chrome/Android aceita
                     advanced: [{ focusMode: 'continuous' }],
                 });
@@ -261,15 +261,15 @@ export function ScannerDialog({
     return (
         <>
             <style jsx global>{`
-                /* Cabe na tela do celular: a imagem nunca passa de metade da altura visível e mantém a proporção. */
-                #${scannerId} video { width: auto !important; max-width: 100% !important; height: auto !important; max-height: min(46dvh, 380px) !important; display: block; margin: 0 auto; border-radius: 0.5rem; }
+                /* A imagem ocupa a largura do quadro (o retângulo de leitura é desenhado sobre ela) e é pedida em 4:3 para não ficar alta demais. */
+                #${scannerId} video { width: 100% !important; height: auto !important; display: block; }
                 #${scannerId} { min-height: 160px; }
             `}</style>
             <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
                 <DialogContent className="max-h-[100dvh] w-[calc(100vw-1rem)] max-w-lg gap-3 overflow-y-auto p-4 sm:p-6">
                     <DialogHeader>
                         <DialogTitle>Ler Código de Barras</DialogTitle>
-                        <DialogDescription>
+                        <DialogDescription className="hidden sm:block">
                             Deixe o código dentro da faixa, na horizontal e bem iluminado. A leitura é automática.
                         </DialogDescription>
                     </DialogHeader>
