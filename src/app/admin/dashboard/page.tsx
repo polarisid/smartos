@@ -174,7 +174,7 @@ function GeneralDashboard({
         (route.stops || []).forEach(stop => {
             if ((stop.firstVisitDate || '').trim() !== todayStr) return;
             const matchedOs = serviceOrders
-                .filter(os => os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt))
+                .filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && route.createdAt && isAfter(os.date, route.createdAt))
                 .sort((a, b) => b.date.getTime() - a.date.getTime())[0];
             const status: 'completed' | 'pending' | 'todo' = matchedOs
                 ? (matchedOs.isFinalized === false ? 'pending' : 'completed')
@@ -214,7 +214,7 @@ function GeneralDashboard({
             if (!isPastStop) return;
 
             const hasAnyOs = serviceOrders.some(os =>
-                os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt)
+                os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && route.createdAt && isAfter(os.date, route.createdAt)
             );
             if (hasAnyOs) return;
 
@@ -238,7 +238,7 @@ function GeneralDashboard({
         if (stops.length === 0) return null;
         const completed = stops.filter(stop => {
             const relatedOs = serviceOrders.filter(os =>
-                os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt)
+                os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && route.createdAt && isAfter(os.date, route.createdAt)
             );
             if (relatedOs.length === 0) return false;
             const mostRecent = [...relatedOs].sort((a, b) => b.date.getTime() - a.date.getTime())[0];

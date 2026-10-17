@@ -232,7 +232,7 @@ export default function CommandCenterPage() {
 
                 // OS mais recente desta parada após a criação da rota
                 const matchedOs = serviceOrders
-                    .filter(os => os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt as Date))
+                    .filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && route.createdAt && isAfter(os.date, route.createdAt as Date))
                     .sort((a, b) => b.date.getTime() - a.date.getTime())[0];
 
                 const status: OrderRow['status'] = matchedOs
@@ -277,7 +277,7 @@ export default function CommandCenterPage() {
             
             const completedStopsCount = stops.filter(stop => 
                 serviceOrders.some(MathOs => 
-                    MathOs.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(MathOs.date, route.createdAt as Date)
+                    MathOs.serviceOrderNumber === stop.serviceOrder && !MathOs.ignoreInRoute && route.createdAt && isAfter(MathOs.date, route.createdAt as Date)
                 )
             ).length;
 
@@ -329,7 +329,7 @@ export default function CommandCenterPage() {
             const createdAt = route.createdAt as Date;
             const completed = stops.filter(stop =>
                 serviceOrders.some(os =>
-                    os.serviceOrderNumber === stop.serviceOrder &&
+                    os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute &&
                     createdAt && isAfter(os.date, createdAt) && os.isFinalized !== false
                 )
             ).length;
@@ -412,7 +412,7 @@ export default function CommandCenterPage() {
                 // We use deduplicated today SOs if possible, or search the main SO array
                 // Let's search the main `serviceOrders` array in descending date order (most recent first)
                 const matchedOS = serviceOrders
-                    .filter(os => os.serviceOrderNumber === stop.serviceOrder && createdAt && isAfter(os.date, createdAt))
+                    .filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && createdAt && isAfter(os.date, createdAt))
                     .sort((a, b) => b.date.getTime() - a.date.getTime())[0];
                 
                 let status: 'completed' | 'pending' | 'todo' = 'todo';
@@ -432,7 +432,7 @@ export default function CommandCenterPage() {
 
             const createdAt = route.createdAt as Date;
             const matchedOS = dedupedTodaySOs.find(os =>
-                os.serviceOrderNumber === stop.serviceOrder &&
+                os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute &&
                 createdAt && isAfter(os.date, createdAt)
             );
 
@@ -482,7 +482,7 @@ export default function CommandCenterPage() {
 
             const pastStop = futureFutureStops.find(({ stop, route }) => {
                 const createdAt = route.createdAt as Date;
-                return stop.serviceOrder === os.serviceOrderNumber && createdAt && isAfter(os.date, createdAt);
+                return stop.serviceOrder === os.serviceOrderNumber && !os.ignoreInRoute && createdAt && isAfter(os.date, createdAt);
             });
             if (pastStop && !seenAtrasados.has(os.serviceOrderNumber)) {
                 seenAtrasados.add(os.serviceOrderNumber);
@@ -573,7 +573,7 @@ export default function CommandCenterPage() {
             cityMap[city].total++;
             const createdAt = route.createdAt as Date;
             const matchedOS = dedupedTodaySOs.find(os =>
-                os.serviceOrderNumber === stop.serviceOrder && createdAt && isAfter(os.date, createdAt)
+                os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && createdAt && isAfter(os.date, createdAt)
             );
             if (matchedOS) {
                 if (matchedOS.isFinalized === false) cityMap[city].pending++;
@@ -616,7 +616,7 @@ export default function CommandCenterPage() {
             // Check if there is ANY service order (success or failure) launched after route creation
             const createdAt = route.createdAt as Date;
             const hasAnyOS = serviceOrders.some(os =>
-                os.serviceOrderNumber === stop.serviceOrder && createdAt && isAfter(os.date, createdAt)
+                os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && createdAt && isAfter(os.date, createdAt)
             );
             
             if (!hasAnyOS) {

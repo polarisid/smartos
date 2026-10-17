@@ -422,6 +422,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
             serviceOrders.forEach(os => {
                 if (
                     routeStopOSNumbers.has(os.serviceOrderNumber) && 
+                    !os.ignoreInRoute && 
                     os.replacedPart && 
                     createdAtDate && 
                     isAfter(os.date, createdAtDate)
@@ -448,6 +449,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
             serviceOrders.forEach(os => {
                 if (
                     routeStopOSNumbers.has(os.serviceOrderNumber) &&
+                    !os.ignoreInRoute &&
                     os.pendingReason?.includes('Peça nova com defeito') &&
                     createdAtDate &&
                     isAfter(os.date, createdAtDate)
@@ -828,6 +830,7 @@ function OsRouteSearch() {
 
                     const candidates = osListMap.get(f.stop.serviceOrder) || [];
                     const relatedList = candidates.filter(os => {
+                        if (os.ignoreInRoute) return false; // lançamento desconsiderado na rota
                         const osDate = os.date as Date;
                         if (routeDate && !isAfter(osDate, routeDate)) return false; // deve ser após a criação da rota
                         if (windowEnd && !isAfter(windowEnd, osDate)) return false; // deve ser antes da próxima rota

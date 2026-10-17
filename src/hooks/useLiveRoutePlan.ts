@@ -63,7 +63,7 @@ export function useLiveRoutePlan(
     const attendedBy = useMemo(() => {
         const map = new Map<string, Attended>();
         activeStops.forEach(stop => {
-            const related = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && os.date.getTime() >= createdAt.getTime());
+            const related = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && os.date.getTime() >= createdAt.getTime());
             if (related.length === 0) return;
             const last = related.reduce((a, b) => (b.date.getTime() > a.date.getTime() ? b : a));
             map.set(stop.serviceOrder, { at: last.date, finalized: last.isFinalized !== false });

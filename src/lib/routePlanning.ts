@@ -441,13 +441,13 @@ export function withWeekendWork(params: PlanningParams): PlanningParams {
 // depois da criação da rota) ou a data de saída já chegou.
 export function isRouteInProgress(
     route: { isActive?: boolean; isDraft?: boolean; isCanceled?: boolean; createdAt: Date | string; departureDate?: Date | string; stops: RouteStop[] },
-    serviceOrders: Array<{ serviceOrderNumber: string; date: Date }>,
+    serviceOrders: Array<{ serviceOrderNumber: string; date: Date; ignoreInRoute?: boolean }>,
     now: Date = new Date()
 ): boolean {
     if (!route.isActive || route.isDraft || route.isCanceled) return false;
     const createdAt = route.createdAt instanceof Date ? route.createdAt : new Date(route.createdAt);
     const stopNumbers = new Set((route.stops || []).filter(s => !s.isReallocated).map(s => s.serviceOrder));
-    const anyAttended = serviceOrders.some(os => stopNumbers.has(os.serviceOrderNumber) && os.date.getTime() >= createdAt.getTime());
+    const anyAttended = serviceOrders.some(os => stopNumbers.has(os.serviceOrderNumber) && !os.ignoreInRoute && os.date.getTime() >= createdAt.getTime());
     if (anyAttended) return true;
     if (!route.departureDate) return false;
     const dep = route.departureDate instanceof Date ? route.departureDate : new Date(route.departureDate);

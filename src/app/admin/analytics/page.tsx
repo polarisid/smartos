@@ -151,7 +151,7 @@ export default function AnalyticsPage() {
             const createdAt = route.createdAt as Date;
             const completedStops = stops.filter(stop =>
                 serviceOrders.some(os =>
-                    os.serviceOrderNumber === stop.serviceOrder &&
+                    os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute &&
                     createdAt && isAfter(os.date, createdAt) &&
                     os.isFinalized !== false
                 )

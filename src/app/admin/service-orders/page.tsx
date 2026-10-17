@@ -30,7 +30,8 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Edit, Trash2, Calendar as CalendarIcon, FilterX, Sparkles, Search, ChevronDown, Loader2, Camera, BarChart3, ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { Edit, Trash2, Calendar as CalendarIcon, FilterX, Sparkles, Search, ChevronDown, Loader2, Camera, BarChart3, ChevronLeft, ChevronRight, Download, Link2Off, Link2 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { type ServiceOrder, type Technician } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
@@ -73,6 +74,7 @@ const serviceTypeLabels: Record<string, string> = {
 
 export default function ServiceOrdersPage() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { data: technicians } = useTechnicians();
 
   // Data state
@@ -329,6 +331,26 @@ export default function ServiceOrdersPage() {
     setIsFormDialogOpen(true);
   };
 
+  // Desconsidera (ou volta a considerar) este lançamento na rota: o registro fica, mas não conta como
+  // atendimento da parada (progresso, mapa, previsão, uso de peças).
+  const handleToggleIgnoreInRoute = async (order: ServiceOrder) => {
+    const next = !order.ignoreInRoute;
+    try {
+      await serviceOrderService.setIgnoreInRoute(order.id, next);
+      setServiceOrders(prev => prev.map(o => (o.id === order.id ? { ...o, ignoreInRoute: next } : o)));
+      queryClient.invalidateQueries({ queryKey: ["service-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["routes"] });
+      toast({
+        title: next ? "Lançamento desconsiderado na rota" : "Lançamento voltou a valer na rota",
+        description: next
+          ? "O registro continua aqui, mas a OS não conta mais como atendida na rota."
+          : "A OS volta a contar como atendida na rota.",
+      });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Não foi possível alterar", description: e?.message || "Tente novamente." });
+    }
+  };
+
   const handleOpenDeleteDialog = (order: ServiceOrder) => {
     setSelectedOrder(order);
     setIsDeleteDialogOpen(true);
@@ -501,6 +523,11 @@ export default function ServiceOrdersPage() {
                               {serviceTypeLabels[order.serviceType] || order.serviceType}
                               {order.samsungRepairType ? ` - ${order.samsungRepairType}` : ''}
                             </span>
+                            {order.ignoreInRoute && (
+                              <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300 text-[10px] px-1.5 py-0" title="Registro mantido, mas não conta como atendimento na rota">
+                                Fora da rota
+                              </Badge>
+                            )}
                             {order.samsungRepairType === 'LP' && order.isFinalized !== false && (
                               <div>
                                 {order.observations?.includes('[Pesquisa LP realizada: Sim]') ? (
@@ -538,6 +565,18 @@ export default function ServiceOrdersPage() {
                               <Camera className="mr-2 h-4 w-4" /> Ver Relatório
                             </Button>
                           )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={`ml-2 ${order.ignoreInRoute ? "border-amber-300 text-amber-700 dark:text-amber-300" : ""}`}
+                            onClick={() => handleToggleIgnoreInRoute(order)}
+                            title={order.ignoreInRoute
+                              ? "Este lançamento está fora da rota. Clique para voltar a contar como atendimento."
+                              : "Mantém o registro, mas a rota deixa de considerar esta OS como atendida."}
+                          >
+                            {order.ignoreInRoute ? <Link2 className="mr-2 h-4 w-4" /> : <Link2Off className="mr-2 h-4 w-4" />}
+                            {order.ignoreInRoute ? "Considerar na rota" : "Desconsiderar na rota"}
+                          </Button>
                           <Button variant="outline" size="sm" className="ml-2" onClick={() => handleOpenEditDialog(order)}>
                             <Edit className="mr-2 h-4 w-4" /> Editar
                           </Button>

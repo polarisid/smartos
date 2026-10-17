@@ -9,7 +9,24 @@ export class RouteConflictError extends Error {
   }
 }
 
+// Colunas que o banco ainda não tem (migração pendente): o campo é descartado da gravação e a
+// rota salva mesmo assim - em vez de o salvamento inteiro falhar por causa de uma opção nova.
+const droppedColumns = new Set<string>();
+
+function missingColumnOf(error: any, dbData: Record<string, unknown>): string | null {
+  if (error?.code !== 'PGRST204') return null;
+  const col = /'([^']+)' column/.exec(String(error.message || ''))?.[1];
+  return col && col in dbData ? col : null;
+}
+
 export const routeService = {
+  /** Campos que não foram gravados desde a última chamada porque falta a coluna no banco (limpa a lista). */
+  consumeSchemaWarnings(): string[] {
+    const list = Array.from(droppedColumns);
+    droppedColumns.clear();
+    return list;
+  },
+
   async getAll(unidadeId?: string | null): Promise<Route[]> {
     let query = supabase.from('routes').select('*').order('created_at', { ascending: false });
     if (unidadeId) query = query.eq('unidade_id', unidadeId);
@@ -41,14 +58,19 @@ export const routeService = {
   async create(data: Omit<Route, 'id'>, unidadeId?: string | null): Promise<string> {
     const dbData = this.mapToDb(data as Route);
     if (unidadeId) dbData.unidade_id = unidadeId;
-    const { data: newDoc, error } = await supabase
-      .from('routes')
-      .insert(dbData)
-      .select()
-      .single();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { data: newDoc, error } = await supabase
+        .from('routes')
+        .insert(dbData)
+        .select()
+        .single();
 
-    if (error) throw error;
-    return newDoc.id;
+      const col = missingColumnOf(error, dbData);
+      if (col) { delete dbData[col]; droppedColumns.add(col); continue; }
+      if (error) throw error;
+      return newDoc.id;
+    }
+    throw new Error('Não foi possível criar a rota.');
   },
 
   // expectedUpdatedAt: só grava se a rota ainda estiver como a pessoa abriu (controle de
@@ -57,13 +79,18 @@ export const routeService = {
   async update(id: string, data: Partial<Route>, opts?: { expectedUpdatedAt?: string | null }): Promise<string | null> {
     const dbData = this.mapToDb(data as Route);
     const guarded = !!opts?.expectedUpdatedAt;
-    let query = supabase.from('routes').update(dbData).eq('id', id);
-    if (guarded) query = query.eq('updated_at', opts!.expectedUpdatedAt as string);
-    const { data: rows, error } = guarded ? await query.select('updated_at') : await query;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      let query = supabase.from('routes').update(dbData).eq('id', id);
+      if (guarded) query = query.eq('updated_at', opts!.expectedUpdatedAt as string);
+      const { data: rows, error } = guarded ? await query.select('updated_at') : await query;
 
-    if (error) throw error;
-    if (guarded && (!rows || (rows as any[]).length === 0)) throw new RouteConflictError();
-    return guarded ? ((rows as any[])[0]?.updated_at ?? null) : null;
+      const col = missingColumnOf(error, dbData);
+      if (col) { delete dbData[col]; droppedColumns.add(col); continue; }
+      if (error) throw error;
+      if (guarded && (!rows || (rows as any[]).length === 0)) throw new RouteConflictError();
+      return guarded ? ((rows as any[])[0]?.updated_at ?? null) : null;
+    }
+    throw new Error('Não foi possível atualizar a rota.');
   },
 
   /**

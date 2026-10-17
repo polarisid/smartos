@@ -42,7 +42,7 @@ export function MobileRouteStopCard({
         .filter(os => os.serviceOrderNumber === stop.serviceOrder)
         .sort((a, b) => b.date.getTime() - a.date.getTime());
     
-    const currentRouteOs = allRelatedOs.filter(os => os.date.getTime() >= routeCreatedAt.getTime());
+    const currentRouteOs = allRelatedOs.filter(os => os.date.getTime() >= routeCreatedAt.getTime() && !os.ignoreInRoute);
     const previousVisits = allRelatedOs.filter(os => os.date.getTime() < routeCreatedAt.getTime());
     
     // Status based ONLY on current route visits

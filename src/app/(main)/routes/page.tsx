@@ -79,7 +79,7 @@ export default function RoutesPage() {
     // Cor da parada no mapa: sem OS lançada depois da criação da rota = a fazer;
     // última OS finalizada = concluída; última com pendência = pendente.
     const stopMapStatus = (stop: RouteStop, routeCreatedAt: Date): "completed" | "pending" | "todo" => {
-        const related = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && os.date.getTime() >= routeCreatedAt.getTime());
+        const related = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && os.date.getTime() >= routeCreatedAt.getTime());
         if (related.length === 0) return "todo";
         const last = related.reduce((a, b) => (b.date.getTime() > a.date.getTime() ? b : a));
         return last.isFinalized === false ? "pending" : "completed";
@@ -90,7 +90,7 @@ export default function RoutesPage() {
     // mesmo critério do painel admin. Só finalizada deixava de fora as paradas
     // visitadas com pendência e o progresso no celular ficava menor que no admin.
     const isStopAttended = (stop: RouteStop, routeCreatedAt: Date) =>
-        serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder && os.date.getTime() >= routeCreatedAt.getTime());
+        serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && os.date.getTime() >= routeCreatedAt.getTime());
 
     const displayedRoutes = useMemo(() => {
         const routes = [...activeRoutes];

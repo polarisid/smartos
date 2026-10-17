@@ -211,6 +211,16 @@ export const serviceOrderService = {
     if (error) throw error;
   },
 
+  // Desconsidera (ou volta a considerar) o lançamento na rota, mantendo o registro. Exige a coluna
+  // ignore_in_route (migração 24).
+  async setIgnoreInRoute(id: string, ignore: boolean): Promise<void> {
+    const { error } = await supabase.from('service_orders').update({ ignore_in_route: ignore }).eq('id', id);
+    if (error) {
+      if ((error as any).code === 'PGRST204') throw new Error('O banco ainda não tem essa opção. Aplique a migração 24 (ignore_in_route).');
+      throw error;
+    }
+  },
+
   async updateStatus(id: string, isFinalized: boolean, pendingReason?: string): Promise<void> {
     const updateData: any = { is_finalized: isFinalized };
     if (!isFinalized && pendingReason) {
@@ -282,6 +292,7 @@ export const serviceOrderService = {
       cleaningPerformed: row.cleaning_performed,
       isFinalized: row.is_finalized,
       pendingReason: row.pending_reason,
+      ignoreInRoute: row.ignore_in_route === true,
     };
   },
 
@@ -306,6 +317,7 @@ export const serviceOrderService = {
     if (obj.cleaningPerformed !== undefined) row.cleaning_performed = obj.cleaningPerformed;
     if (obj.isFinalized !== undefined) row.is_finalized = obj.isFinalized;
     if (obj.pendingReason !== undefined) row.pending_reason = obj.pendingReason;
+    if (obj.ignoreInRoute !== undefined) row.ignore_in_route = !!obj.ignoreInRoute;
     return row;
   }
 };

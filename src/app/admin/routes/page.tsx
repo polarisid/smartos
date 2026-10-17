@@ -1127,6 +1127,22 @@ function RouteForm({
                 }
             }
 
+            // Opção nova que o banco ainda não suporta (migração pendente): a rota foi salva sem ela.
+            const dropped = routeService.consumeSchemaWarnings();
+            if (dropped.length > 0) {
+                const names: Record<string, string> = {
+                    daily_return: "ida e volta no mesmo dia",
+                    departure_time: "hora de saída",
+                    start_point: "ponto de saída",
+                    end_point: "ponto de chegada",
+                };
+                toast({
+                    variant: "destructive",
+                    title: "Rota salva, mas faltou gravar uma opção",
+                    description: `O banco ainda não tem a coluna de: ${dropped.map(d => names[d] || d).join(", ")}. Peça para aplicar as migrações pendentes (23 = ida e volta, 19 = hora de saída, 16 = saída/chegada).`,
+                });
+            }
+
             onCancel();
             onRouteSaved();
         } catch (error) {
@@ -1650,7 +1666,7 @@ function RouteForm({
                     <div className="border rounded-lg p-1.5 space-y-1.5">
                         {parsedStops.length > 0 ? parsedStops.map((stop, index) => {
                             const matchingOs = serviceOrders
-                                .filter(os => os.serviceOrderNumber === stop.serviceOrder)
+                                .filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute)
                                 .sort((a, b) => a.date.getTime() - b.date.getTime());
                             const lastVisitOs = matchingOs.length > 0 ? matchingOs[matchingOs.length - 1] : null;
                             const isAlreadyVisited = lastVisitOs != null;
@@ -2471,7 +2487,7 @@ function RouteForm({
 function RouteDetailsRow({ stop, index, serviceOrders, routeCreatedAt }: { stop: RouteStop, index: number, serviceOrders: ServiceOrder[], routeCreatedAt: string | Date }) {
     const createdAtDate = new Date(routeCreatedAt);
     const relatedOsList = serviceOrders.filter(os =>
-        os.serviceOrderNumber === stop.serviceOrder &&
+        os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute &&
         isAfter(os.date, createdAtDate)
     );
     // serviceOrders vem ordenado por data DESCENDENTE (mais recente primeiro) - por isso
@@ -2701,7 +2717,7 @@ export default function RoutesPage() {
 
         return (selectedRoute.stops || []).map(stop => {
             const relatedOsList = serviceOrders.filter(os =>
-                os.serviceOrderNumber === stop.serviceOrder &&
+                os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute &&
                 isAfter(os.date, routeCreatedAt)
             );
             // Idem: pega a OS mais recente por data, não o "último" do array (que vem
@@ -2820,7 +2836,7 @@ export default function RoutesPage() {
             (route.stops || []).forEach(stop => {
                 if (!stop.serviceOrder?.includes(term)) return;
                 const relatedOsList = route.createdAt
-                    ? serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && isAfter(os.date, route.createdAt as Date))
+                    ? serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && isAfter(os.date, route.createdAt as Date))
                     : [];
                 const lastOs = relatedOsList.length > 0
                     ? [...relatedOsList].sort((a, b) => b.date.getTime() - a.date.getTime())[0]
@@ -2918,7 +2934,7 @@ export default function RoutesPage() {
             (route.stops || []).forEach((stop: RouteStop) => {
                 // Determine OS status the same way the UI does
                 const relatedOsList = serviceOrders.filter(os =>
-                    os.serviceOrderNumber === stop.serviceOrder &&
+                    os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute &&
                     isAfter(os.date, routeCreatedAt)
                 );
                 // Idem: pega a OS mais recente por data, não o "último" do array (que vem
@@ -3228,7 +3244,7 @@ ${rowsXml}  </Table>
                                             const totalStops = stops.length;
                                             const completedStopsCount = stops.filter(stop => 
                                                 serviceOrders.some(os => 
-                                                    os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt as Date)
+                                                    os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && route.createdAt && isAfter(os.date, route.createdAt as Date)
                                                 )
                                             ).length;
                                             const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
@@ -3299,7 +3315,7 @@ ${rowsXml}  </Table>
                                         const totalStops = stops.length;
                                         const completedStopsCount = stops.filter(stop => 
                                             serviceOrders.some(os => 
-                                                os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt as Date)
+                                                os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && route.createdAt && isAfter(os.date, route.createdAt as Date)
                                             )
                                         ).length;
                                         const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;

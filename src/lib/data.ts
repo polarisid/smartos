@@ -63,6 +63,9 @@ export type ServiceOrder = {
   cleaningPerformed?: boolean;
   isFinalized?: boolean;
   pendingReason?: string;
+  // Lançamento desconsiderado na rota: continua registrado (relatórios, produção), mas não conta como
+  // atendimento da parada (progresso, mapa, previsão, uso de peças).
+  ignoreInRoute?: boolean;
 };
 
 export type BudgetItem = {

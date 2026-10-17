@@ -27,7 +27,7 @@ export function partUsageInStop(
     let used = false;
     let defective = false;
     for (const os of serviceOrders) {
-        if (os.serviceOrderNumber !== serviceOrderNumber) continue;
+        if (os.serviceOrderNumber !== serviceOrderNumber || os.ignoreInRoute) continue;
         if (!(os.date.getTime() > routeCreatedAt.getTime())) continue;
         if (codesIn(os.replacedPart).includes(code)) used = true;
         if (os.pendingReason?.includes("Peça nova com defeito") && norm(os.pendingReason).includes(code)) defective = true;

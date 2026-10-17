@@ -86,7 +86,7 @@ export function TechnicianPerformanceTab() {
         if (stops.length === 0) return null;
         const completed = stops.filter(stop => {
           const related = serviceOrders.filter(os =>
-            os.serviceOrderNumber === stop.serviceOrder && route.createdAt && isAfter(os.date, route.createdAt as Date)
+            os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && route.createdAt && isAfter(os.date, route.createdAt as Date)
           );
           if (related.length === 0) return false;
           const mostRecent = [...related].sort((a, b) => b.date.getTime() - a.date.getTime())[0];

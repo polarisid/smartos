@@ -53,6 +53,7 @@ export function buildPriorDispatchLookup(allRoutes: Route[], serviceOrders: Serv
                 const used = (ordersByNumber.get(serviceOrder) || []).some(os =>
                     os.date.getTime() >= created.getTime() &&
                     os.date.getTime() < currentCreated &&
+                    !os.ignoreInRoute &&
                     !!os.replacedPart &&
                     norm(os.replacedPart).includes(norm(partCode))
                 );
