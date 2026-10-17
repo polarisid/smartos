@@ -146,8 +146,8 @@ export function ScannerDialog({
 
                 const buildConstraints = (deviceId: string | null): MediaTrackConstraints => ({
                     ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'environment' }),
-                    width: { ideal: 1280 },
-                    height: { ideal: 960 },
+                    width: { ideal: 1920 },
+                    height: { ideal: 1440 },
                     // @ts-expect-error focusMode ainda não está nos tipos do TS, mas Chrome/Android aceita
                     advanced: [{ focusMode: 'continuous' }],
                 });
