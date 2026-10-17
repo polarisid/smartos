@@ -11,7 +11,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import type { Html5Qrcode } from 'html5-qrcode';
-import { Flashlight, FlashlightOff, Loader2, CameraOff } from 'lucide-react';
+import { Flashlight, FlashlightOff, Loader2, CameraOff, Camera } from 'lucide-react';
 
 // "tracking": etiquetas de rastreio de peças (Code 128/39, QR, Data Matrix...) - menos formatos = leitura mais rápida.
 // "default": qualquer código comum (números de série, checklists etc.).
@@ -22,6 +22,29 @@ const DEFAULT_FORMATS = ['QR_CODE', 'CODE_128', 'CODE_39', 'CODE_93', 'EAN_13', 
 
 // Confirma a leitura só quando o mesmo código aparece em 2 quadros seguidos: evita "fantasmas" de leitura torta.
 const CONFIRMATIONS = 2;
+
+const CAMERA_KEY = "smartos_scanner_camera";
+type CameraOption = { id: string; label: string };
+
+function savedCamera(): string | null {
+  try { return localStorage.getItem(CAMERA_KEY); } catch { return null; }
+}
+function saveCamera(id: string | null) {
+  try { if (id) localStorage.setItem(CAMERA_KEY, id); else localStorage.removeItem(CAMERA_KEY); } catch { /* sem armazenamento */ }
+}
+
+// O navegador devolve nomes como "camera2 0, facing back": traduz para algo que o técnico entende.
+function friendlyCameras(list: Array<{ id: string; label: string }>): CameraOption[] {
+  const kind = (l: string) => (/front|user|frontal|selfie/i.test(l) ? 'Frontal' : 'Traseira');
+  const counters: Record<string, number> = {};
+  const totals: Record<string, number> = {};
+  list.forEach(c => { const k = kind(c.label); totals[k] = (totals[k] || 0) + 1; });
+  return list.map(c => {
+    const k = kind(c.label);
+    counters[k] = (counters[k] || 0) + 1;
+    return { id: c.id, label: totals[k] > 1 ? k + ' ' + counters[k] : k };
+  });
+}
 
 function feedback() {
   try { navigator.vibrate?.(80); } catch { /* sem vibração */ }
@@ -63,9 +86,19 @@ export function ScannerDialog({
     const [torchSupported, setTorchSupported] = useState(false);
     const [torchOn, setTorchOn] = useState(false);
     const [zoom, setZoom] = useState<{ min: number; max: number; step: number; value: number } | null>(null);
+    const [cameras, setCameras] = useState<CameraOption[]>([]);
+    const [activeCameraId, setActiveCameraId] = useState<string | null>(null);
+    const [activeInfo, setActiveInfo] = useState<string>("");
+    // Câmera escolhida pelo técnico (lembrada neste aparelho); null = traseira padrão do aparelho.
+    const [chosenCamera, setChosenCamera] = useState<string | null>(null);
+    useEffect(() => { if (isOpen) setChosenCamera(savedCamera()); }, [isOpen]);
+    // Ao trocar de câmera, espera a anterior desligar antes de ligar a nova.
+    const teardownRef = useRef<Promise<void>>(Promise.resolve());
+    const [ready, setReady] = useState(false);
+    useEffect(() => { if (isOpen) setReady(true); else setReady(false); }, [isOpen]);
 
     useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen || !ready) return;
 
         let cancelled = false;
         let handled = false;
@@ -78,6 +111,9 @@ export function ScannerDialog({
         setTorchSupported(false);
         setTorchOn(false);
         setZoom(null);
+        setCameras([]);
+        setActiveCameraId(null);
+        setActiveInfo("");
 
         const stopScanner = async (s: Html5Qrcode | null) => {
             if (!s) return;
@@ -87,6 +123,7 @@ export function ScannerDialog({
 
         const start = async () => {
             try {
+                await teardownRef.current;
                 const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode');
                 // O diálogo monta o contêiner um instante depois de abrir.
                 for (let i = 0; i < 20 && !document.getElementById(scannerId); i++) await new Promise(r => setTimeout(r, 50));
@@ -103,9 +140,14 @@ export function ScannerDialog({
                 });
                 scannerRef.current = scanner;
 
-                await scanner.start(
-                    { facingMode: 'environment' },
-                    {
+                const buildConstraints = (deviceId: string | null): MediaTrackConstraints => ({
+                    ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'environment' }),
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 },
+                    // @ts-expect-error focusMode ainda não está nos tipos do TS, mas Chrome/Android aceita
+                    advanced: [{ focusMode: 'continuous' }],
+                });
+                const config = {
                         fps: 20,
                         // Faixa larga: código de barras de rastreio é comprido e fino (um quadrado cortava as pontas).
                         qrbox: (w: number, h: number) => {
@@ -114,15 +156,8 @@ export function ScannerDialog({
                             return { width: boxW, height: boxH };
                         },
                         disableFlip: true,
-                        videoConstraints: {
-                            facingMode: 'environment',
-                            width: { ideal: 1920 },
-                            height: { ideal: 1080 },
-                            // @ts-expect-error focusMode ainda não está nos tipos do TS, mas Chrome/Android aceita
-                            advanced: [{ focusMode: 'continuous' }],
-                        },
-                    },
-                    (decodedText) => {
+                };
+                const onDecoded = (decodedText: string) => {
                         if (handled) return;
                         const text = decodedText.replace(/\s+/g, '').trim();
                         if (!text) return;
@@ -136,11 +171,30 @@ export function ScannerDialog({
                             scannerRef.current = null;
                             onSuccessRef.current(text);
                         });
-                    },
-                    () => { /* quadro sem código: normal */ }
-                );
+                };
+                const onFrameError = () => { /* quadro sem código: normal */ };
+
+                try {
+                    await scanner.start(chosenCamera ? { deviceId: { exact: chosenCamera } } as any : { facingMode: 'environment' }, { ...config, videoConstraints: buildConstraints(chosenCamera) }, onDecoded, onFrameError);
+                } catch (e) {
+                    // Câmera lembrada não existe mais (outro aparelho, permissão): volta para a traseira padrão.
+                    if (!chosenCamera) throw e;
+                    saveCamera(null);
+                    try { await stopScanner(scanner); } catch { /* ok */ }
+                    scanner = new Html5Qrcode(scannerId, { verbose: false, formatsToSupport: formats as any, useBarCodeDetectorIfSupported: true });
+                    scannerRef.current = scanner;
+                    await scanner.start({ facingMode: 'environment' }, { ...config, videoConstraints: buildConstraints(null) }, onDecoded, onFrameError);
+                }
 
                 if (cancelled) { await stopScanner(scanner); return; }
+
+                try {
+                    const settings = scanner.getRunningTrackSettings();
+                    setActiveCameraId(settings.deviceId || null);
+                    setActiveInfo(settings.width && settings.height ? settings.width + '×' + settings.height : '');
+                    const list = await Html5Qrcode.getCameras();
+                    if (!cancelled) setCameras(friendlyCameras(list));
+                } catch { /* sem lista de câmeras: continua só com a padrão */ }
 
                 try {
                     const caps = scanner.getRunningTrackCameraCapabilities();
@@ -171,9 +225,10 @@ export function ScannerDialog({
             cancelled = true;
             const s = scannerRef.current ?? scanner;
             scannerRef.current = null;
-            void stopScanner(s);
+            teardownRef.current = stopScanner(s);
         };
-    }, [isOpen, mode]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, ready, mode, chosenCamera]);
 
     const toggleTorch = async () => {
         try {
@@ -194,11 +249,12 @@ export function ScannerDialog({
     return (
         <>
             <style jsx global>{`
-                #${scannerId} video { width: 100% !important; border-radius: 0.5rem; }
-                #${scannerId} { min-height: 220px; }
+                /* Cabe na tela do celular: a imagem nunca passa de metade da altura visível e mantém a proporção. */
+                #${scannerId} video { width: auto !important; max-width: 100% !important; height: auto !important; max-height: min(46dvh, 380px) !important; display: block; margin: 0 auto; border-radius: 0.5rem; }
+                #${scannerId} { min-height: 160px; }
             `}</style>
             <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-                <DialogContent>
+                <DialogContent className="max-h-[100dvh] w-[calc(100vw-1rem)] max-w-lg gap-3 overflow-y-auto p-4 sm:p-6">
                     <DialogHeader>
                         <DialogTitle>Ler Código de Barras</DialogTitle>
                         <DialogDescription>
@@ -220,6 +276,26 @@ export function ScannerDialog({
                             </div>
                         )}
                     </div>
+
+                    {!error && (cameras.length > 0 || activeInfo) && (
+                        <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+                            <Camera className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <span className="font-medium">Câmera em uso:</span>
+                            {cameras.length > 1 ? (
+                                <select
+                                    className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs"
+                                    value={activeCameraId || ''}
+                                    onChange={(e) => { saveCamera(e.target.value); setChosenCamera(e.target.value); }}
+                                >
+                                    {cameras.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                                </select>
+                            ) : (
+                                <span>{cameras[0]?.label || 'Traseira'}</span>
+                            )}
+                            {activeInfo && <span className="text-muted-foreground">{activeInfo}</span>}
+                            {cameras.length > 1 && <span className="basis-full text-muted-foreground">Imagem borrada ou muito aberta? Troque de câmera: algumas são grande-angular.</span>}
+                        </div>
+                    )}
 
                     {(torchSupported || zoom) && (
                         <div className="flex items-center gap-3">
