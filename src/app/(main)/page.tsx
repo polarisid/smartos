@@ -135,6 +135,7 @@ const formSchema = z.object({
   cleaningPerformed: z.boolean().optional(),
   isFinalized: z.boolean().default(true),
   pendingReason: z.string().optional(),
+  otherReason: z.string().optional(),
   defectivePart: z.string().optional(),
   reorderPart: z.string().optional(),
   samsungLpSurveyPerformed: z.boolean().optional(),
@@ -147,6 +148,13 @@ const formSchema = z.object({
         code: z.ZodIssueCode.custom,
         message: "Selecione o motivo da pendência.",
         path: ["pendingReason"],
+      });
+    }
+    if (data.pendingReason === 'Outro' && !data.otherReason?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Descreva qual foi o motivo.",
+        path: ["otherReason"],
       });
     }
     return; // SKIP ALL OTHER VALIDATIONS!
@@ -720,6 +728,7 @@ const { toast } = useToast();
       cleaningPerformed: false,
       isFinalized: true,
       pendingReason: "",
+      otherReason: "",
       defectivePart: "",
       reorderPart: "",
       samsungLpSurveyPerformed: true,
@@ -746,7 +755,7 @@ const { toast } = useToast();
     } else if (currentStep === 2) {
       const isFinalized = form.getValues('isFinalized');
       if (!isFinalized) {
-          fieldsToValidate = ['pendingReason'];
+          fieldsToValidate = ['pendingReason', 'otherReason'];
       } else {
           const routeParts = currentRouteStop?.parts || [];
           const unreviewed = routeParts.filter((p: { code: string }) => partsStatus[p.code] === null || partsStatus[p.code] === undefined);
@@ -1080,7 +1089,7 @@ const { toast } = useToast();
       `**Data: ${today} - ${data.equipmentType}**`,
       `**Ordem de Serviço: ${data.serviceOrderNumber}**`,
       `- **Técnico:** ${technicianName}`,
-      isPending ? `⚠️ **ATENDIMENTO NÃO FINALIZADO:** ${data.pendingReason}${data.pendingReason === 'Peça nova com defeito' && data.defectivePart ? ` (Peça: ${data.defectivePart})` : ''}${data.pendingReason === 'Repedido' && data.reorderPart ? ` (Peça: ${data.reorderPart})` : ''} ⚠️` : '',
+      isPending ? `⚠️ **ATENDIMENTO NÃO FINALIZADO:** ${data.pendingReason}${data.pendingReason === 'Peça nova com defeito' && data.defectivePart ? ` (Peça: ${data.defectivePart})` : ''}${data.pendingReason === 'Repedido' && data.reorderPart ? ` (Peça: ${data.reorderPart})` : ''}${data.pendingReason === 'Outro' && data.otherReason?.trim() ? ` (${data.otherReason.trim()})` : ''} ⚠️` : '',
       (!isPending && serviceDetails) ? `- **Atendimento:** ${serviceDetails}` : '',
     ];
 
@@ -1164,7 +1173,9 @@ const { toast } = useToast();
                 ? `Peça nova com defeito (${data.defectivePart})`
                 : (data.pendingReason === 'Repedido' && data.reorderPart)
                     ? `Repedido (${data.reorderPart})`
-                    : (data.pendingReason || ''),
+                    : (data.pendingReason === 'Outro' && data.otherReason?.trim())
+                        ? `Outro (${data.otherReason.trim()})`
+                        : (data.pendingReason || ''),
         };
 
         await serviceOrderService.create(newServiceOrder as Omit<ServiceOrder, 'id'>);
@@ -1228,6 +1239,7 @@ const { toast } = useToast();
         cleaningPerformed: false,
         isFinalized: true,
         pendingReason: "",
+      otherReason: "",
         defectivePart: "",
         reorderPart: "",
         samsungLpSurveyPerformed: true,
@@ -1536,6 +1548,24 @@ const { toast } = useToast();
                                                                             <Input placeholder="Código da peça com defeito" className="border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20" {...field} />
                                                                         </FormControl>
                                                                     )}
+                                                                    <FormMessage />
+                                                                </FormItem>
+                                                            )}/>
+                                                        )}
+                                                        {!form.watch('isFinalized') && form.watch('pendingReason') === 'Outro' && (
+                                                            <FormField control={form.control} name="otherReason" render={({ field }) => (
+                                                                <FormItem className="animate-in fade-in slide-in-from-top-2">
+                                                                    <FormLabel className="text-amber-700 dark:text-amber-300">Descreva o motivo</FormLabel>
+                                                                    <FormControl>
+                                                                        <Textarea
+                                                                            rows={3}
+                                                                            autoFocus
+                                                                            placeholder="Ex.: cliente pediu para voltar na sexta, falta de acesso ao local…"
+                                                                            className="border-amber-300 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-950/20"
+                                                                            {...field}
+                                                                            value={field.value || ''}
+                                                                        />
+                                                                    </FormControl>
                                                                     <FormMessage />
                                                                 </FormItem>
                                                             )}/>
