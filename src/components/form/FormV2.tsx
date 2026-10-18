@@ -7,24 +7,24 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { Route, RouteStop } from "@/lib/data";
 
-// Versão de teste do formulário do técnico. Fica desligada por padrão: quem quiser testar liga no botão do
-// topo do formulário (ou abrindo a tela com ?novo=1) e pode voltar ao formulário atual a qualquer momento
-// (botão "Voltar ao formulário atual" ou ?novo=0). A escolha fica guardada só neste aparelho.
+// Formulário novo do técnico: é o padrão. Quem preferir pode voltar ao formulário antigo no botão do topo
+// (ou abrindo a tela com ?novo=0) e voltar ao novo com ?novo=1. A escolha fica guardada só neste aparelho.
 const KEY = "smartos_form_v2";
+const OFF = "off";
 
 export function useFormV2(): [boolean, (v: boolean) => void] {
-    const [enabled, setEnabled] = useState(false);
+    const [enabled, setEnabled] = useState(true);
     useEffect(() => {
         try {
             const q = new URLSearchParams(window.location.search).get("novo");
-            if (q === "1") localStorage.setItem(KEY, "1");
-            if (q === "0") localStorage.removeItem(KEY);
-            setEnabled(localStorage.getItem(KEY) === "1");
-        } catch { /* sem armazenamento: fica no formulário atual */ }
+            if (q === "0") localStorage.setItem(KEY, OFF);
+            if (q === "1") localStorage.removeItem(KEY);
+            setEnabled(localStorage.getItem(KEY) !== OFF);
+        } catch { /* sem armazenamento: fica no formulário novo */ }
     }, []);
     const set = (v: boolean) => {
         setEnabled(v);
-        try { if (v) localStorage.setItem(KEY, "1"); else localStorage.removeItem(KEY); } catch { /* ok */ }
+        try { if (v) localStorage.removeItem(KEY); else localStorage.setItem(KEY, OFF); } catch { /* ok */ }
     };
     return [enabled, set];
 }
@@ -37,16 +37,16 @@ export function FormV2Switch({ enabled, onChange }: { enabled: boolean; onChange
                 onClick={() => onChange(true)}
                 className="inline-flex items-center gap-1.5 self-start rounded-full border border-dashed border-primary/40 px-3 py-1 text-[11px] font-semibold text-primary hover:bg-primary/5 transition-colors"
             >
-                <FlaskConical className="h-3.5 w-3.5" /> Testar o novo formulário
+                <FlaskConical className="h-3.5 w-3.5" /> Usar o formulário novo
             </button>
         );
     }
     return (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs">
             <FlaskConical className="h-3.5 w-3.5 text-primary shrink-0" />
-            <span className="font-semibold text-primary">Novo formulário (teste)</span>
+            <span className="font-semibold text-primary">Formulário novo</span>
             <button type="button" onClick={() => onChange(false)} className="ml-auto inline-flex items-center gap-1 font-semibold text-muted-foreground hover:text-foreground">
-                <Undo2 className="h-3.5 w-3.5" /> Voltar ao formulário atual
+                <Undo2 className="h-3.5 w-3.5" /> Usar o formulário antigo
             </button>
         </div>
     );
