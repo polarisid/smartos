@@ -19,6 +19,8 @@ const withPWA = require('next-pwa')({
         cacheName: 'app-pages',
         expiration: { maxEntries: 24, maxAgeSeconds: 7 * 24 * 60 * 60 },
         networkTimeoutSeconds: 3,
+        // Atualizar a tela com parâmetros na URL (ex.: /routes?x=1, ?source=pwa) também acha a cópia guardada.
+        matchOptions: { ignoreSearch: true },
       },
     },
     ...defaultCache,
