@@ -86,7 +86,7 @@ import { SignaturePad } from '@/components/SignaturePad';
 import dynamic from "next/dynamic";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-import { useFormV2, FormV2Switch, OsTicket, StopPicker, FinalizeChoice, PendingReasonChips } from "@/components/form/FormV2";
+import { useFormV2, FormV2Switch, OsTicket, FinalizeChoice, PendingReasonChips } from "@/components/form/FormV2";
 import { useTechnicians, usePresets, useCodes, useCodeUsageCounts, useActiveRoutes, useChecklists, useVisitTemplate } from "@/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -1359,14 +1359,6 @@ const { toast } = useToast();
                                         >
                                             {currentStep === 1 && (
                                                 <div ref={stepContentRef} className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
-                                                    {formV2 && (
-                                                        <StopPicker
-                                                            routes={activeRoutes}
-                                                            technicianId={localTechnician}
-                                                            selected={watchedServiceOrderNumber || ""}
-                                                            onPick={(so) => setValue('serviceOrderNumber', so, { shouldValidate: true, shouldDirty: true })}
-                                                        />
-                                                    )}
                                                     <FormField control={form.control} name="equipmentType" render={({ field }) => (
                                                          <FormItem className="space-y-2">
                                                              <FormLabel>Tipo de Aparelho</FormLabel>
