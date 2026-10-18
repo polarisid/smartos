@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import type { ServiceOrder, RouteStop } from "@/lib/data";
 import { copyToClipboard } from "@/lib/clipboard";
+import { stateToUF } from "@/lib/brStates";
 
 export function MobileRouteStopCard({ 
     stop, 
@@ -92,7 +93,7 @@ export function MobileRouteStopCard({
 
     const hasVisitDate = !!stop.firstVisitDate && !/^0{1,2}\/0{1,2}\/0{2,4}$/.test(stop.firstVisitDate.trim());
     const showAsc = !!stop.ascJobNumber && stop.ascJobNumber.trim() !== stop.serviceOrder.trim();
-    const cityLine = [stop.city, stop.state ? stop.state.toUpperCase() : ''].filter(Boolean).join(' / ');
+    const cityLine = [stop.city, stateToUF(stop.state)].filter(Boolean).join(' / ');
 
     const stopTypeLabels = {
         padrao: 'Padrão',
@@ -160,7 +161,6 @@ export function MobileRouteStopCard({
                     <div className="min-w-0">
                         <p className="text-[9px] uppercase font-bold text-muted-foreground">Produto</p>
                         <p className="text-xs font-semibold leading-tight break-all">{stop.model}</p>
-                        {stop.productType && <p className="text-[10px] text-muted-foreground leading-tight break-words">{stop.productType}</p>}
                         {stop.consumerName && <p className="text-[11px] leading-tight break-words mt-1"><span className="font-bold text-[9px] uppercase text-muted-foreground">Cliente </span>{stop.consumerName}</p>}
                     </div>
                     {stop.addressDetails && (
@@ -231,6 +231,7 @@ export function MobileRouteStopCard({
                             </div>
                         )}
                         <div className="grid grid-cols-2 gap-3 text-xs">
+                            {stop.productType && <div className="col-span-2"><p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Descrição do produto:</p><p className="font-medium break-words">{stop.productType}</p></div>}
                             {stop.tat && <div><p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">TAT:</p><p className="font-medium">{stop.tat}</p></div>}
                             {stop.requestDate && <div><p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Solicitada em:</p><p className="font-medium">{stop.requestDate}</p></div>}
                             {stop.replacedPart && <div className="col-span-2"><p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Peça trocada:</p><p className="font-medium break-words">{stop.replacedPart}</p></div>}
