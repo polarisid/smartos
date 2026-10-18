@@ -86,6 +86,7 @@ import { SignaturePad } from '@/components/SignaturePad';
 import dynamic from "next/dynamic";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
+import { useFormV2, FormV2Switch, OsTicket, StopPicker, FinalizeChoice, PendingReasonChips } from "@/components/form/FormV2";
 import { useTechnicians, usePresets, useCodes, useCodeUsageCounts, useActiveRoutes, useChecklists, useVisitTemplate } from "@/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -680,6 +681,9 @@ export default function OsFormPage() {
 const { toast } = useToast();
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 4;
+  // Formulário novo em teste (desligado por padrão; dá para voltar ao atual a qualquer momento).
+  const [formV2, setFormV2] = useFormV2();
+  const STEP_TITLES = ["Básico", "Status", "Detalhes", "Fim"];
   const stepContentRef = useRef<HTMLDivElement>(null);
 
   // Foca o primeiro campo/controle da etapa ao entrar nela - evita ter que
@@ -1299,6 +1303,11 @@ const { toast } = useToast();
                                             Preencha os campos abaixo para gerar o texto da ordem de serviço.
                                         </CardDescription>
                                     </div>
+                                    <FormV2Switch enabled={formV2} onChange={setFormV2} />
+                                    {formV2 ? (
+                                        <OsTicket os={watchedServiceOrderNumber || ""} stop={currentRouteStop} step={currentStep} totalSteps={totalSteps} stepTitle={STEP_TITLES[currentStep - 1]} />
+                                    ) : (
+                                    <>
                                     <div className="flex items-center justify-between w-full max-w-md mt-4">
                                         {[
                                             { step: 1, title: 'Básico', icon: User },
@@ -1339,6 +1348,8 @@ const { toast } = useToast();
                                         })}
                                     </div>
                                     <Progress value={(currentStep / totalSteps) * 100} className="h-1 max-w-md" />
+                                    </>
+                                    )}
                                 </CardHeader>
                                 <CardContent className="px-1 md:px-6">
                                     <Form {...form}>
@@ -1348,6 +1359,14 @@ const { toast } = useToast();
                                         >
                                             {currentStep === 1 && (
                                                 <div ref={stepContentRef} className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
+                                                    {formV2 && (
+                                                        <StopPicker
+                                                            routes={activeRoutes}
+                                                            technicianId={localTechnician}
+                                                            selected={watchedServiceOrderNumber || ""}
+                                                            onPick={(so) => setValue('serviceOrderNumber', so, { shouldValidate: true, shouldDirty: true })}
+                                                        />
+                                                    )}
                                                     <FormField control={form.control} name="equipmentType" render={({ field }) => (
                                                          <FormItem className="space-y-2">
                                                              <FormLabel>Tipo de Aparelho</FormLabel>
@@ -1448,7 +1467,12 @@ const { toast } = useToast();
                                             {currentStep === 2 && (
                                                 <div ref={stepContentRef} className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
                                                     <div className="grid grid-cols-1 gap-4 items-start rounded-lg border p-4 bg-slate-50/50 dark:bg-slate-900/50">
-                                                        <FormField control={form.control} name="isFinalized" render={({ field }) => (
+                                                        {formV2 ? (
+                                                            <FormField control={form.control} name="isFinalized" render={({ field }) => (
+                                                                <FormItem><FinalizeChoice value={!!field.value} onChange={field.onChange} /></FormItem>
+                                                            )}/>
+                                                        ) : (
+                                                            <FormField control={form.control} name="isFinalized" render={({ field }) => (
                                                             <FormItem className="flex flex-row items-center justify-between">
                                                                 <div className="space-y-0.5 mt-1">
                                                                     <FormLabel className="text-base text-slate-700 dark:text-slate-200">Atendimento Finalizado?</FormLabel>
@@ -1462,7 +1486,26 @@ const { toast } = useToast();
                                                                 </FormControl>
                                                             </FormItem>
                                                         )}/>
+                                                        )}
                                                         {!form.watch('isFinalized') && (
+                                                            formV2 ? (
+                                                            <FormField control={form.control} name="pendingReason" render={({ field }) => (
+                                                                <FormItem className="animate-in fade-in slide-in-from-top-2">
+                                                                    <PendingReasonChips
+                                                                        value={field.value || ""}
+                                                                        onChange={field.onChange}
+                                                                        options={[
+                                                                            { value: "Peça nova com defeito", label: "Peça nova com defeito" },
+                                                                            { value: "Repedido", label: "Repedido" },
+                                                                            { value: "Remarcação", label: "Remarcação" },
+                                                                            { value: "Ausente", label: "Ausente / cliente não estava" },
+                                                                            { value: "Outro", label: "Outro" },
+                                                                        ]}
+                                                                    />
+                                                                    <FormMessage />
+                                                                </FormItem>
+                                                            )}/>
+                                                        ) : (
                                                             <FormField control={form.control} name="pendingReason" render={({ field }) => (
                                                                 <FormItem className="animate-in fade-in slide-in-from-top-2">
                                                                     <FormLabel className="text-red-600 dark:text-red-400">Motivo da Pendência</FormLabel>
@@ -1479,6 +1522,7 @@ const { toast } = useToast();
                                                                     <FormMessage />
                                                                 </FormItem>
                                                             )}/>
+                                                        )
                                                         )}
                                                         {!form.watch('isFinalized') && form.watch('pendingReason') === 'Peça nova com defeito' && (
                                                             <FormField control={form.control} name="defectivePart" render={({ field }) => (
@@ -1936,7 +1980,7 @@ const { toast } = useToast();
                                                 </div>
                                             )}
 
-                                            <div className="flex gap-3 pt-4 border-t mt-4">
+                                            <div className={cn("flex gap-3 pt-4 border-t mt-4", formV2 && "fixed inset-x-0 bottom-0 z-40 mt-0 bg-background/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur md:static md:z-auto md:mt-4 md:bg-transparent md:px-0 md:pb-0 md:pt-4 md:backdrop-blur-none")}>
                                                 {currentStep > 1 && (
                                                     <Button type="button" variant="outline" onClick={handlePrevStep} className="flex-1 h-12 font-medium text-base shadow-none">
                                                         Voltar
@@ -1961,6 +2005,7 @@ const { toast } = useToast();
                                                     </Button>
                                                 )}
                                             </div>
+{formV2 && <div className="h-20 md:hidden" aria-hidden />}
 </form>
                                     </Form>
                                 </CardContent>
