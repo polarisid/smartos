@@ -2464,7 +2464,7 @@ function RouteForm({
                                             <div className="flex flex-col">
                                                 <span className="font-medium">{r.name}</span>
                                                 <span className="text-xs text-muted-foreground">
-                                                    {r.technicianName || 'Técnico não definido'} · {r.stops?.length || 0} paradas
+                                                    {r.technicianName || 'Técnico não definido'} · {(r.stops || []).filter(st => !st.isReallocated).length} paradas
                                                     {r.departureDate instanceof Date
                                                         ? ` · ${format(r.departureDate, "dd/MM", { locale: ptBR })}`
                                                         : ''}
@@ -2757,7 +2757,7 @@ export default function RoutesPage() {
 
     const estimatedRouteTime = useMemo(() => {
         if (!selectedRoute) return "0 min";
-        const stopsCount = selectedRoute.stops?.length || 0;
+        const stopsCount = (selectedRoute.stops || []).filter(st => !st.isReallocated).length;
         if (stopsCount === 0) return "0 min";
         
         const isInterior = selectedRoute.routeType?.toLowerCase() === 'interior';
@@ -3260,7 +3260,8 @@ ${rowsXml}  </Table>
                                 </TableHeader>
                                 <TableBody>
                                     {filteredRoutes.map(route => {
-                                            const stops = route.stops || [];
+                                            // Paradas realocadas (movidas para outra rota) não contam nesta rota.
+                                            const stops = (route.stops || []).filter(st => !st.isReallocated);
                                             const totalStops = stops.length;
                                             const completedStopsCount = stops.filter(stop => 
                                                 serviceOrders.some(os => 
@@ -3331,7 +3332,7 @@ ${rowsXml}  </Table>
                             {/* Mobile Card View */}
                             <div className="md:hidden space-y-4">
                                 {filteredRoutes.map(route => {
-                                        const stops = route.stops || [];
+                                        const stops = (route.stops || []).filter(st => !st.isReallocated);
                                         const totalStops = stops.length;
                                         const completedStopsCount = stops.filter(stop => 
                                             serviceOrders.some(os => 
@@ -3486,7 +3487,7 @@ ${rowsXml}  </Table>
                         <div className="flex items-center gap-2 text-sm text-foreground">
                             <MapPin className="w-4 h-4 text-primary" />
                             <span className="font-medium text-muted-foreground">Paradas Totais:</span>
-                            <span className="font-bold text-foreground">{selectedRoute?.stops?.length || 0}</span>
+                            <span className="font-bold text-foreground">{(selectedRoute?.stops || []).filter(st => !st.isReallocated).length}</span>
                         </div>
                         <div className="w-1.5 h-1.5 rounded-full bg-border"></div>
                         <div className="flex items-center gap-2 text-sm text-foreground">

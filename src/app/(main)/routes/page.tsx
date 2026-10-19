@@ -184,9 +184,11 @@ export default function RoutesPage() {
                 const arrival = route.arrivalDate ? route.arrivalDate : new Date();
                 const duration = differenceInDays(arrival, departure) + 1;
 
-                const totalStops = route.stops.length;
+                // Paradas realocadas (movidas para outra rota) não contam nos totais desta rota.
+                const countedStops = route.stops.filter(stop => !stop.isReallocated);
+                const totalStops = countedStops.length;
                 const routeCreated = route.createdAt as Date;
-                const completedStopsCount = route.stops.filter(stop => isStopAttended(stop, routeCreated)).length;
+                const completedStopsCount = countedStops.filter(stop => isStopAttended(stop, routeCreated)).length;
                 const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
 
                 const filteredStops = route.stops || [];

@@ -138,7 +138,7 @@ export default function CommandCenterPage() {
                     
                     for (const r of activeRoutes) {
                         if (r.technicianId === data.technicianId) {
-                            const matchedStop = r.stops?.find(s => s.serviceOrder === data.serviceOrderNumber);
+                            const matchedStop = r.stops?.find(s => s.serviceOrder === data.serviceOrderNumber && !s.isReallocated);
                             if (matchedStop) {
                                 stopCity = matchedStop.city || 'Cidade N/A';
                                 routeName = r.name;
@@ -219,7 +219,7 @@ export default function CommandCenterPage() {
         const groups: Record<string, { total: number; completed: number; routes: Set<string>; orders: OrderRow[] }> = {};
 
         routes.forEach(route => {
-            (route.stops || []).forEach(stop => {
+            (route.stops || []).filter(st => !st.isReallocated).forEach(stop => {
                 // Determine the group key mapping string values or defaulting to "S/D"
                 let dateKey = stop.firstVisitDate || stop.requestDate || "Sem Data";
 
@@ -272,7 +272,7 @@ export default function CommandCenterPage() {
 
     const routeData = React.useMemo(() => {
         return routes.map(route => {
-            const stops = route.stops || [];
+            const stops = (route.stops || []).filter(st => !st.isReallocated);
             const totalStops = stops.length;
             
             const completedStopsCount = stops.filter(stop => 
@@ -324,7 +324,7 @@ export default function CommandCenterPage() {
 
         const todayStart = new Date(); todayStart.setHours(0,0,0,0);
         const routeStats = routes.map(route => {
-            const stops = route.stops || [];
+            const stops = (route.stops || []).filter(st => !st.isReallocated);
             if (stops.length === 0) return null;
             const createdAt = route.createdAt as Date;
             const completed = stops.filter(stop =>
@@ -371,7 +371,7 @@ export default function CommandCenterPage() {
             const fallbackDateObj = route.departureDate || route.createdAt;
             const fallbackDateStr = fallbackDateObj && isValid(fallbackDateObj as Date) ? format(fallbackDateObj as Date, 'dd/MM/yyyy') : '';
 
-            (route.stops || []).forEach(stop => {
+            (route.stops || []).filter(st => !st.isReallocated).forEach(stop => {
                 const stopDate = stop.firstVisitDate || fallbackDateStr;
                 if (stopDate === todayStr && !seenStops.has(stop.serviceOrder)) {
                     seenStops.add(stop.serviceOrder);
@@ -407,7 +407,7 @@ export default function CommandCenterPage() {
         
         routes.forEach(route => {
             const createdAt = route.createdAt as Date;
-            (route.stops || []).forEach(stop => {
+            (route.stops || []).filter(st => !st.isReallocated).forEach(stop => {
                 // To determine map status, find the most recent OS for this stop (if any)
                 // We use deduplicated today SOs if possible, or search the main SO array
                 // Let's search the main `serviceOrders` array in descending date order (most recent first)

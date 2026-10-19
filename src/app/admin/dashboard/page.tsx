@@ -171,7 +171,7 @@ function GeneralDashboard({
     const todayStr = format(now, 'dd/MM/yyyy');
     const todayStopsDetailed: { serviceOrder: string; city: string; routeName: string; status: 'completed' | 'pending' | 'todo' }[] = [];
     activeRoutes.forEach(route => {
-        (route.stops || []).forEach(stop => {
+        (route.stops || []).filter(st => !st.isReallocated).forEach(stop => {
             if ((stop.firstVisitDate || '').trim() !== todayStr) return;
             const matchedOs = serviceOrders
                 .filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && route.createdAt && isAfter(os.date, route.createdAt))
@@ -193,7 +193,7 @@ function GeneralDashboard({
     const backlogStops: { serviceOrder: string; city: string; routeName: string }[] = [];
     activeRoutes.forEach(route => {
         const originDateObj = (route.departureDate || route.createdAt) as Date | undefined;
-        (route.stops || []).forEach(stop => {
+        (route.stops || []).filter(st => !st.isReallocated).forEach(stop => {
             if ((stop.firstVisitDate || '').trim() === todayStr) return;
 
             // A data da PRÓPRIA parada manda - rotas de interior duram vários dias, então uma
@@ -234,7 +234,7 @@ function GeneralDashboard({
         return routeDate && isAfter(routeDate, oneMonthAgo);
     });
     const routeCompletionPercents = routesLastMonth.map(route => {
-        const stops = route.stops || [];
+        const stops = (route.stops || []).filter(st => !st.isReallocated);
         if (stops.length === 0) return null;
         const completed = stops.filter(stop => {
             const relatedOs = serviceOrders.filter(os =>
