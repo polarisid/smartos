@@ -29,7 +29,7 @@ import { configService } from "@/services/supabase/configService";
 import { fetchDurationMatrixMin } from "@/lib/routeLegs";
 import { DEFAULT_PLANNING_PARAMS, simulateRoutePlan, formatClock } from "@/lib/routePlanning";
 import type { Route, RoutePoint, RouteStop } from "@/lib/data";
-import { routeService } from "@/services/supabase/routeService";
+import { routeService, RouteConflictError } from "@/services/supabase/routeService";
 
 // ─── Rota de entrega ("rota mãe") ───────────────────────────────────────────────────────────────
 // Controla o envio das peças e das OS. Daqui saem rotas filhas por dia, só com as OS ainda não
@@ -343,6 +343,15 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const [createProgress, setCreateProgress] = useState("");
     const [optimizingOrder, setOptimizingOrder] = useState(false);
 
+    // Reprogramar uma OS que já está numa rota dos dias (cliente desistiu, remarcou, ausente...): ela sai da rota atual
+    // (fica como "Realocada" nela) e vai para outra rota já programada ou para um novo dia.
+    const [reprogramRow, setReprogramRow] = useState<Row | null>(null);
+    const [reprogramMode, setReprogramMode] = useState<"existing" | "day">("existing");
+    const [reprogramTarget, setReprogramTarget] = useState("");
+    const [reprogramDay, setReprogramDay] = useState("");
+    const [reprogramReason, setReprogramReason] = useState("");
+    const [reprogramming, setReprogramming] = useState(false);
+
 
     // Base padrão de saída e retorno desta rota de entrega: fica gravada na rota e vale para todas as rotas dos dias
     // criadas a partir dela. Vazio = base da unidade.
@@ -461,7 +470,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             const sinceMs = parseBrDate(stop.requestDate) || createdMs;
             const related = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && os.date.getTime() >= sinceMs);
             const last = related.length ? related.reduce((a, b) => (b.date.getTime() > a.date.getTime() ? b : a)) : null;
-            const child = activeChildren.find(c => (c.stops || []).some(cs => cs.serviceOrder === stop.serviceOrder));
+            const child = activeChildren.find(c => (c.stops || []).some(cs => cs.serviceOrder === stop.serviceOrder && !cs.isReallocated));
             const parts = stop.parts || [];
             return {
                 stop,
@@ -622,6 +631,88 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             toast({ variant: "destructive", title: "Não foi possível aplicar as datas", description: e?.message });
         } finally {
             setSugApplying(false);
+        }
+    };
+
+    const childDay = (c: Route): string => {
+        const dt = c.plannedDate || c.departureDate;
+        return dt ? format(new Date(dt), "yyyy-MM-dd") : "";
+    };
+    const openReprogram = (row: Row) => {
+        const sourceChild = children.filter(c => !c.isCanceled).find(c => (c.stops || []).some(cs => cs.serviceOrder === row.stop.serviceOrder && !cs.isReallocated));
+        const others = children.filter(c => !c.isCanceled && c.id !== sourceChild?.id);
+        setReprogramRow(row);
+        setReprogramMode(others.length > 0 ? "existing" : "day");
+        setReprogramTarget(others[0]?.id || "");
+        const t = new Date(); t.setDate(t.getDate() + 1);
+        setReprogramDay(format(t, "yyyy-MM-dd"));
+        setReprogramReason("");
+    };
+    const handleReprogram = async () => {
+        if (!reprogramRow) return;
+        const so = reprogramRow.stop.serviceOrder;
+        const activeChildren = children.filter(c => !c.isCanceled);
+        const source = activeChildren.find(c => (c.stops || []).some(cs => cs.serviceOrder === so && !cs.isReallocated));
+        let target: Route | undefined;
+        let day = reprogramDay;
+        if (reprogramMode === "existing") {
+            target = activeChildren.find(c => c.id === reprogramTarget);
+            if (!target) { toast({ variant: "destructive", title: "Escolha a rota de destino" }); return; }
+            day = childDay(target) || day;
+        } else {
+            if (!reprogramDay) { toast({ variant: "destructive", title: "Escolha o novo dia" }); return; }
+            // Já existe rota nesse dia? Então a OS entra nela em vez de ficar esperando uma rota nova.
+            target = activeChildren.find(c => c.id !== source?.id && childDay(c) === reprogramDay);
+        }
+        setReprogramming(true);
+        try {
+            const [y, m, d] = (day || reprogramDay).split("-").map(Number);
+            const label = format(new Date(y, (m || 1) - 1, d || 1), "dd/MM/yyyy");
+            const reason = reprogramReason.trim();
+            const targetName = target ? target.name : "Reprogramada para " + label.slice(0, 5);
+            const movedStop = (source?.stops || []).find(cs => cs.serviceOrder === so) || reprogramRow.stop;
+
+            // 1) Sai da rota atual: fica marcada como realocada (o técnico vê onde ela foi parar).
+            if (source) {
+                await routeService.patchStopFields(source.id, [{
+                    serviceOrder: so,
+                    fields: { isReallocated: true, reallocatedToRouteName: targetName + (reason ? " (" + reason + ")" : "") },
+                }]);
+            }
+
+            // 2) Entra na rota de destino (com a trava de edição simultânea).
+            if (target) {
+                for (let attempt = 0; attempt < 5; attempt++) {
+                    const fresh = await routeService.getById(target.id);
+                    if (!fresh) throw new Error("Rota de destino não encontrada");
+                    if ((fresh.stops || []).some(st => st.serviceOrder === so && !st.isReallocated)) break;
+                    const { routeOrder: _drop, ...clean } = movedStop;
+                    const stops = [...(fresh.stops || []).filter(st => st.serviceOrder !== so), { ...clean, firstVisitDate: label, isReallocated: false, reallocatedToRouteName: undefined } as RouteStop];
+                    try {
+                        await routeService.update(target.id, { stops }, { expectedUpdatedAt: fresh.updatedAt || null });
+                        break;
+                    } catch (e) {
+                        if (e instanceof RouteConflictError) continue;
+                        throw e;
+                    }
+                }
+            }
+
+            // 3) Controle da rota de entrega: o dia programado passa a ser o novo.
+            await routeService.patchStopFields(routeId, [{ serviceOrder: so, fields: { plannedDay: day || reprogramDay } }]);
+            await queryClient.invalidateQueries({ queryKey: ["routes"] });
+            await refresh();
+            setReprogramRow(null);
+            toast({
+                title: "OS " + so + " reprogramada",
+                description: target
+                    ? "Agora está em " + target.name + "."
+                    : "Programada para " + label.slice(0, 5) + ". Use \"Criar rotas dos dias\" para gerar a rota desse dia.",
+            });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível reprogramar", description: e?.message });
+        } finally {
+            setReprogramming(false);
         }
     };
 
@@ -848,7 +939,14 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                         title={r.day ? format(new Date(r.day + "T12:00:00"), "EEEE", { locale: ptBR }) : "Definir o dia"}
                     />
                 ) : (
-                    <span className="text-muted-foreground">{r.day ? format(new Date(r.day + "T12:00:00"), "dd/MM") : "—"}</span>
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                        <span className="text-muted-foreground">{r.day ? format(new Date(r.day + "T12:00:00"), "dd/MM") : "—"}</span>
+                        {!r.finalizedAt && r.childName && (
+                            <button type="button" className="rounded border px-1 py-0 text-[10px] font-semibold text-primary hover:bg-primary/10" title="Mover esta OS para outro dia ou outra rota (cliente desistiu, remarcou...)" onClick={() => openReprogram(r)}>
+                                Reprogramar
+                            </button>
+                        )}
+                    </span>
                 );
             case "status": return statusBadge(r);
             default: {
@@ -1109,6 +1207,54 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             </AlertDialog>
 
             {/* Criar rotas filhas */}
+            <Dialog open={!!reprogramRow} onOpenChange={(o) => { if (!o && !reprogramming) setReprogramRow(null); }}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Reprogramar OS {reprogramRow?.stop.serviceOrder}</DialogTitle>
+                        <DialogDescription>
+                            {reprogramRow?.stop.city}{reprogramRow?.stop.neighborhood ? " · " + reprogramRow.stop.neighborhood : ""}. Hoje está em <strong>{reprogramRow?.childName}</strong>. Ao reprogramar, ela sai dessa rota (fica como "realocada") e vai para o destino escolhido.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
+                            <button type="button" onClick={() => setReprogramMode("existing")} className={cn("rounded-lg border px-3 py-2 text-left text-sm", reprogramMode === "existing" ? "border-primary bg-primary/10 font-semibold" : "hover:bg-accent")}>
+                                Rota já programada
+                            </button>
+                            <button type="button" onClick={() => setReprogramMode("day")} className={cn("rounded-lg border px-3 py-2 text-left text-sm", reprogramMode === "day" ? "border-primary bg-primary/10 font-semibold" : "hover:bg-accent")}>
+                                Outro dia / rota nova
+                            </button>
+                        </div>
+                        {reprogramMode === "existing" ? (
+                            <div className="space-y-1">
+                                <Label className="text-xs">Rota de destino</Label>
+                                <select className="h-10 w-full rounded-md border bg-background px-2 text-sm" value={reprogramTarget} onChange={e => setReprogramTarget(e.target.value)}>
+                                    {children.filter(c => !c.isCanceled && !(c.stops || []).some(cs => cs.serviceOrder === reprogramRow?.stop.serviceOrder && !cs.isReallocated)).map(c => (
+                                        <option key={c.id} value={c.id}>{c.name}{childDay(c) ? " · " + format(new Date(childDay(c) + "T12:00:00"), "dd/MM") : ""}</option>
+                                    ))}
+                                </select>
+                                {children.filter(c => !c.isCanceled).length < 2 && <p className="text-xs text-muted-foreground">Não há outra rota dos dias criada. Use "Outro dia / rota nova".</p>}
+                            </div>
+                        ) : (
+                            <div className="space-y-1">
+                                <Label className="text-xs">Novo dia</Label>
+                                <Input type="date" value={reprogramDay} onChange={e => setReprogramDay(e.target.value)} />
+                                <p className="text-xs text-muted-foreground">Se já existir rota nesse dia, a OS entra nela. Se não, fica "Com dia" e é incluída quando você usar "Criar rotas dos dias".</p>
+                            </div>
+                        )}
+                        <div className="space-y-1">
+                            <Label className="text-xs">Motivo (opcional)</Label>
+                            <Input value={reprogramReason} onChange={e => setReprogramReason(e.target.value)} placeholder="Ex.: cliente desistiu, pediu outro dia" />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setReprogramRow(null)} disabled={reprogramming}>Cancelar</Button>
+                        <Button onClick={handleReprogram} disabled={reprogramming || (reprogramMode === "existing" ? !reprogramTarget : !reprogramDay)}>
+                            {reprogramming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarPlus className="mr-2 h-4 w-4" />} Reprogramar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={!!dateStops} onOpenChange={(o) => { if (!o && !sugApplying) setDateStops(null); }}>
                 <DialogContent className="max-w-xl">
                     <DialogHeader>
