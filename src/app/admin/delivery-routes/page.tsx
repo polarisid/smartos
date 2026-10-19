@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -24,7 +24,8 @@ import { cn } from "@/lib/utils";
 import { HelpTip } from "@/components/HelpTip";
 import { parseRouteText } from "@/lib/parseRouteText";
 import { optimizeRouteStopsAsync, prewarmStopCoordinates } from "@/lib/routeOptimizer";
-import type { Route, RouteStop } from "@/lib/data";
+import { RouteEndpointsFields } from "@/components/routes/RouteEndpointsFields";
+import type { Route, RoutePoint, RouteStop } from "@/lib/data";
 import { routeService } from "@/services/supabase/routeService";
 
 // ─── Rota de entrega ("rota mãe") ───────────────────────────────────────────────────────────────
@@ -336,6 +337,30 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const [optimize, setOptimize] = useState(true);
     const [creatingChildren, setCreatingChildren] = useState(false);
     const [createProgress, setCreateProgress] = useState("");
+
+    // Base padrão de saída e retorno desta rota de entrega: fica gravada na rota e vale para todas as rotas dos dias
+    // criadas a partir dela. Vazio = base da unidade.
+    const [startPt, setStartPt] = useState<RoutePoint | null>(null);
+    const [endPt, setEndPt] = useState<RoutePoint | null>(null);
+    const endpointsLoadedFor = useRef<string | null>(null);
+    useEffect(() => {
+        if (!route || endpointsLoadedFor.current === route.id) return;
+        endpointsLoadedFor.current = route.id;
+        setStartPt(route.startPoint || null);
+        setEndPt(route.endPoint || null);
+    }, [route]);
+    const saveEndpoints = async (patch: { startPoint?: RoutePoint | null; endPoint?: RoutePoint | null }, what: string) => {
+        try {
+            await routeService.update(routeId, patch);
+            const dropped = routeService.consumeSchemaWarnings();
+            toast(dropped.some(c => c === "start_point" || c === "end_point")
+                ? { variant: "destructive", title: "O banco ainda não tem as colunas de saída/chegada", description: "Aplique as migrações pendentes. Por enquanto vale só até fechar esta tela." }
+                : { title: what + " salva", description: "As próximas rotas dos dias partem e terminam nesse ponto." });
+            queryClient.invalidateQueries({ queryKey: ["delivery-route"] });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível salvar", description: e?.message });
+        }
+    };
     const [syncing, setSyncing] = useState(false);
     // Rastreio da rota de entrega e das filhas em dia (o que só existe de um lado é copiado pro outro).
     const handleSyncTracking = async () => {
@@ -579,7 +604,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     const i = nextDay++;
                     let stops = prepared[i].stops;
                     if (optimize && stops.length > 2) {
-                        try { stops = (await optimizeRouteStopsAsync(stops, "Aracaju", activeUnidadeId)).stops; } catch (e) { console.warn("Otimização falhou, mantendo a ordem da tabela", e); }
+                        try { stops = (await optimizeRouteStopsAsync(stops, "Aracaju", activeUnidadeId, { start: startPt, end: endPt })).stops; } catch (e) { console.warn("Otimização falhou, mantendo a ordem da tabela", e); }
                     }
                     optimizedDays[i] = stops;
                     done++;
@@ -601,6 +626,8 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     isActive: false,
                     isDraft: true,
                     parentRouteId: route.id,
+                    ...(startPt ? { startPoint: startPt } : {}),
+                    ...(endPt ? { endPoint: endPt } : {}),
                     createdAt: new Date(),
                 } as Omit<Route, "id">, activeUnidadeId);
                 created++;
@@ -736,6 +763,15 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     </div>
                 ))}
             </div>
+
+            <RouteEndpointsFields
+                start={startPt}
+                end={endPt}
+                onStartChange={p => { setStartPt(p); void saveEndpoints({ startPoint: p }, "Saída"); }}
+                onEndChange={p => { setEndPt(p); void saveEndpoints({ endPoint: p }, "Chegada"); }}
+                title="Base padrão de saída e retorno"
+                help="Fica gravada nesta rota de entrega. As rotas dos dias criadas aqui saem do ponto de saída e terminam no de retorno; o planejamento e o mapa também usam esses pontos."
+            />
 
             {children.length > 0 && (
                 <div className="rounded-lg border p-3 space-y-1.5">
@@ -931,6 +967,9 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                             </li>
                         ))}
                     </ul>
+                    <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                        <strong>Sai de:</strong> {startPt ? startPt.address : "base da unidade"} · <strong>Volta para:</strong> {endPt ? endPt.address : "base da unidade"}
+                    </p>
                     <label className="flex items-start gap-2 text-sm cursor-pointer">
                         <input type="checkbox" className="mt-0.5" checked={optimize} onChange={e => setOptimize(e.target.checked)} />
                         <span>Roteirizar cada dia (melhor ordem de atendimento saindo da base)</span>

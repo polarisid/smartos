@@ -11,12 +11,14 @@ import { loadRecentPoints, rememberPoint } from "@/lib/recentPoints";
 import type { RoutePoint } from "@/lib/data";
 
 // Saída e chegada opcionais de uma rota (vazio = base da unidade).
-export function RouteEndpointsFields({ start, end, onStartChange, onEndChange, disabled }: {
+export function RouteEndpointsFields({ start, end, onStartChange, onEndChange, disabled, title, help }: {
     start: RoutePoint | null;
     end: RoutePoint | null;
     onStartChange: (p: RoutePoint | null) => void;
     onEndChange: (p: RoutePoint | null) => void;
     disabled?: boolean;
+    title?: string;
+    help?: string;
 }) {
     const { toast } = useToast();
     const [texts, setTexts] = useState({ start: "", end: "" });
@@ -53,7 +55,7 @@ export function RouteEndpointsFields({ start, end, onStartChange, onEndChange, d
 
     return (
         <div className="rounded-lg border p-3 space-y-2">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Saída e chegada das rotas (opcional)</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{title || "Saída e chegada das rotas (opcional)"}</p>
             <div className="grid gap-3 sm:grid-cols-2">
                 {items.map(({ kind, label, icon, point, clear }) => (
                     <div key={kind} className="space-y-1">
@@ -99,7 +101,7 @@ export function RouteEndpointsFields({ start, end, onStartChange, onEndChange, d
                 ))}
             </div>
             <p className="text-[11px] text-muted-foreground">
-                Vale para todas as rotas criadas aqui: a otimização de cada rota parte da saída e termina na chegada.
+                {help || "Vale para todas as rotas criadas aqui: a otimização de cada rota parte da saída e termina na chegada."}
             </p>
         </div>
     );
