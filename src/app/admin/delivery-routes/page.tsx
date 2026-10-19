@@ -78,7 +78,7 @@ const TOGGLEABLE_COLUMNS: Array<{ key: string; label: string }> = [
 
 type Prefs = {
     status: string[]; warranty: string[]; city: string[]; neighborhood: string[]; turn: string[];
-    hidden: string[]; sort: { key: SortKey; dir: "asc" | "desc" }; dense: boolean;
+    hidden: string[]; sort: { key: SortKey; dir: "asc" | "desc" }; sorts: Array<{ key: SortKey; dir: "asc" | "desc" }>; dense: boolean;
 };
 const PREFS_KEY = "smartos_delivery_table_prefs";
 function loadPrefs(): Partial<Prefs> {
@@ -316,7 +316,10 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     });
 
     const initialPrefs = useMemo(() => loadPrefs(), []);
-    const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>(initialPrefs.sort || { key: "so", dir: "asc" });
+    // Ordenação combinada: vários critérios em sequência (o 2º desempata o 1º, e assim por diante).
+    const [sorts, setSorts] = useState<Array<{ key: SortKey; dir: "asc" | "desc" }>>(
+        initialPrefs.sorts && initialPrefs.sorts.length > 0 ? initialPrefs.sorts : initialPrefs.sort ? [initialPrefs.sort] : [{ key: "so", dir: "asc" }]
+    );
     const [search, setSearch] = useState("");
     // Filtros múltiplos: vários valores por filtro (OU) e todos os filtros juntos (E). Vazio = sem filtro.
     const [fStatus, setFStatus] = useState<Set<string>>(new Set(initialPrefs.status || []));
@@ -411,7 +414,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
 
     const currentPrefs = (): Prefs => ({
         status: [...fStatus], warranty: [...fWarranty], city: [...fCity], neighborhood: [...fNeighborhood], turn: [...fTurn],
-        hidden: [...hidden], sort, dense,
+        hidden: [...hidden], sort: sorts[0] || { key: "so", dir: "asc" }, sorts, dense,
     });
     const clearFilters = () => { setFStatus(new Set()); setFWarranty(new Set()); setFCity(new Set()); setFNeighborhood(new Set()); setFTurn(new Set()); setSearch(""); };
     const saveDefaultView = () => {
@@ -424,7 +427,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     };
     const resetView = () => {
         try { localStorage.removeItem(PREFS_KEY); } catch { /* ok */ }
-        clearFilters(); setSort({ key: "so", dir: "asc" }); setHidden(new Set()); setDense(true);
+        clearFilters(); setSorts([{ key: "so", dir: "asc" }]); setHidden(new Set()); setDense(true);
         toast({ title: "Visualização restaurada", description: "O padrão salvo foi apagado." });
     };
     const drop = (set: Set<string>, v: string) => { const n = new Set(set); n.delete(v); return n; };
@@ -448,19 +451,24 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             const hay = [r.stop.serviceOrder, r.stop.ascJobNumber, r.stop.consumerName, r.stop.city, r.stop.neighborhood, r.stop.model, ...(r.stop.parts || []).map(p => p.code)].join(" ").toLowerCase();
             return hay.includes(q);
         });
-        const col = COLUMNS.find(c => c.key === sort.key);
-        const val = (r: Row): string | number => {
+        const valueOf = (key: SortKey, r: Row): string | number => {
+            const col = COLUMNS.find(c => c.key === key);
             if (col) return col.value(r);
-            if (sort.key === "day") return r.day || "9999";
-            return statusOf(r);
+            if (key === "day") return r.day || "9999";
+            return STATUS_ORDER.indexOf(statusOf(r) as any);
         };
-        const dir = sort.dir === "asc" ? 1 : -1;
         return [...list].sort((a, b) => {
-            const va = val(a), vb = val(b);
-            if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
-            return String(va).localeCompare(String(vb), "pt-BR", { numeric: true }) * dir;
+            for (const level of sorts) {
+                const dir = level.dir === "asc" ? 1 : -1;
+                const va = valueOf(level.key, a), vb = valueOf(level.key, b);
+                const c = (typeof va === "number" && typeof vb === "number")
+                    ? va - vb
+                    : String(va).localeCompare(String(vb), "pt-BR", { numeric: true });
+                if (c !== 0) return c * dir;
+            }
+            return 0;
         });
-    }, [rows, search, fStatus, fWarranty, fCity, fNeighborhood, fTurn, sort]);
+    }, [rows, search, fStatus, fWarranty, fCity, fNeighborhood, fTurn, sorts]);
 
     const summary = useMemo(() => ({
         total: rows.length,
@@ -472,8 +480,34 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         tracked: rows.reduce((a, r) => a + r.partsTracked, 0),
     }), [rows]);
 
-    const toggleSort = (key: SortKey) => setSort(s => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
-    const sortIcon = (key: SortKey) => (sort.key !== key ? <ArrowUpDown className="h-3 w-3 opacity-40" /> : sort.dir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />);
+    const toggleSort = (key: SortKey, additive = false) => setSorts(cur => {
+        const i = cur.findIndex(l => l.key === key);
+        if (additive) {
+            if (i < 0) return [...cur, { key, dir: "asc" }];
+            // Já está na combinação: asc -> desc -> sai da combinação (se não for o único critério).
+            if (cur[i].dir === "asc") return cur.map((l, k) => (k === i ? { ...l, dir: "desc" } : l));
+            return cur.length > 1 ? cur.filter((_, k) => k !== i) : [{ key, dir: "asc" }];
+        }
+        if (cur.length === 1 && cur[0].key === key) return [{ key, dir: cur[0].dir === "asc" ? "desc" : "asc" }];
+        return [{ key, dir: "asc" }];
+    });
+    const setSortLevel = (index: number, patch: Partial<{ key: SortKey; dir: "asc" | "desc" }>) => setSorts(cur => cur.map((l, k) => (k === index ? { ...l, ...patch } : l)));
+    const removeSortLevel = (index: number) => setSorts(cur => (cur.length > 1 ? cur.filter((_, k) => k !== index) : cur));
+    const addSortLevel = () => setSorts(cur => {
+        const used = new Set(cur.map(l => l.key));
+        const next = COLUMNS.map(c => c.key as SortKey).concat(["day", "status"] as SortKey[]).find(k => !used.has(k));
+        return next ? [...cur, { key: next, dir: "asc" }] : cur;
+    });
+    const sortIcon = (key: SortKey) => {
+        const i = sorts.findIndex(l => l.key === key);
+        if (i < 0) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
+        return (
+            <span className="inline-flex items-center gap-0.5">
+                {sorts[i].dir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                {sorts.length > 1 && <span className="rounded-full bg-white/25 px-1 text-[9px] font-bold leading-none py-0.5">{i + 1}</span>}
+            </span>
+        );
+    };
 
     const allColumns: Array<{ key: string; label: string; sortable: boolean }> = [
         ...COLUMNS.map(c => ({ key: c.key as string, label: c.label, sortable: true })),
@@ -737,6 +771,40 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     <Popover>
                         <PopoverTrigger asChild>
                             <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+                                <ArrowUpDown className="h-3.5 w-3.5" /> Ordenar{sorts.length > 1 ? " (" + sorts.length + ")" : ""}
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-[min(22rem,calc(100vw-2rem))] p-3 space-y-2">
+                            <p className="text-xs text-muted-foreground">Combine critérios: o 2º desempata o 1º, e assim por diante. No computador, Shift+clique no cabeçalho também soma colunas.</p>
+                            {sorts.map((l, i) => (
+                                <div key={i} className="flex items-center gap-1.5">
+                                    <span className="w-4 text-center text-[11px] font-bold text-muted-foreground">{i + 1}</span>
+                                    <select
+                                        className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs"
+                                        value={l.key}
+                                        onChange={e => setSortLevel(i, { key: e.target.value as SortKey })}
+                                    >
+                                        {allColumns.filter(c => c.sortable).map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+                                    </select>
+                                    <Button type="button" size="sm" variant="outline" className="h-8 w-[4.5rem] gap-1 px-2 text-xs" onClick={() => setSortLevel(i, { dir: l.dir === "asc" ? "desc" : "asc" })}>
+                                        {l.dir === "asc" ? <><ArrowUp className="h-3 w-3" /> A–Z</> : <><ArrowDown className="h-3 w-3" /> Z–A</>}
+                                    </Button>
+                                    <Button type="button" size="icon" variant="ghost" className="h-8 w-8" disabled={sorts.length === 1} onClick={() => removeSortLevel(i)} title="Remover este critério">
+                                        <X className="h-3.5 w-3.5" />
+                                    </Button>
+                                </div>
+                            ))}
+                            <div className="flex items-center justify-between pt-1">
+                                <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={addSortLevel} disabled={sorts.length >= allColumns.filter(c => c.sortable).length}>
+                                    <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Adicionar critério
+                                </Button>
+                                <Button type="button" size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setSorts([{ key: "so", dir: "asc" }])}>Limpar</Button>
+                            </div>
+                        </PopoverContent>
+                    </Popover>
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
                                 <Columns3 className="h-3.5 w-3.5" /> Colunas{hidden.size > 0 ? " (" + (TOGGLEABLE_COLUMNS.length - hidden.size) + "/" + TOGGLEABLE_COLUMNS.length + ")" : ""}
                             </Button>
                         </PopoverTrigger>
@@ -793,7 +861,8 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                                 <th
                                     key={c.key}
                                     className={cn("px-2 py-1.5 text-left font-semibold whitespace-nowrap", c.sortable && "cursor-pointer select-none hover:bg-slate-800", c.key === "so" && "sticky left-8 z-30 bg-slate-900")}
-                                    onClick={c.sortable ? () => toggleSort(c.key as SortKey) : undefined}
+                                    onClick={c.sortable ? (e) => toggleSort(c.key as SortKey, e.shiftKey || e.ctrlKey || e.metaKey) : undefined}
+                                    title={c.sortable ? "Clique para ordenar. Shift+clique soma esta coluna à ordenação atual." : undefined}
                                 >
                                     <span className="inline-flex items-center gap-1">{c.label} {c.sortable && sortIcon(c.key as SortKey)}</span>
                                 </th>
