@@ -25,6 +25,9 @@ import { HelpTip } from "@/components/HelpTip";
 import { parseRouteText } from "@/lib/parseRouteText";
 import { optimizeRouteStopsAsync, prewarmStopCoordinates } from "@/lib/routeOptimizer";
 import { RouteEndpointsFields } from "@/components/routes/RouteEndpointsFields";
+import { configService } from "@/services/supabase/configService";
+import { fetchDurationMatrixMin } from "@/lib/routeLegs";
+import { DEFAULT_PLANNING_PARAMS, simulateRoutePlan, formatClock } from "@/lib/routePlanning";
 import type { Route, RoutePoint, RouteStop } from "@/lib/data";
 import { routeService } from "@/services/supabase/routeService";
 
@@ -340,6 +343,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const [createProgress, setCreateProgress] = useState("");
     const [optimizingOrder, setOptimizingOrder] = useState(false);
 
+
     // Base padrão de saída e retorno desta rota de entrega: fica gravada na rota e vale para todas as rotas dos dias
     // criadas a partir dela. Vazio = base da unidade.
     const [startPt, setStartPt] = useState<RoutePoint | null>(null);
@@ -363,6 +367,55 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             toast({ variant: "destructive", title: "Não foi possível salvar", description: e?.message });
         }
     };
+
+    // Sugestão de datas: distribui as OS (já na ordem otimizada) pelos dias de trabalho, respeitando expediente, almoço,
+    // tempos de atendimento e deslocamento (os mesmos parâmetros do Planejamento).
+    const { data: planningParams = DEFAULT_PLANNING_PARAMS } = useQuery({
+        queryKey: ["planning-params", appUser?.uid, activeUnidadeId],
+        queryFn: () => configService.getPlanningParams(activeUnidadeId),
+        enabled: !!appUser?.uid,
+        staleTime: 5 * 60 * 1000,
+    });
+    const [dateStops, setDateStops] = useState<RouteStop[] | null>(null);
+    const nextWorkday = () => { const d = new Date(); d.setDate(d.getDate() + 1); return format(d, "yyyy-MM-dd"); };
+    const [sugStart, setSugStart] = useState<string>(nextWorkday);
+    const [sugTime, setSugTime] = useState("08:00");
+    const [sugRoundTrip, setSugRoundTrip] = useState(false);
+    const [sugLoading, setSugLoading] = useState(false);
+    const [sugApplying, setSugApplying] = useState(false);
+    const [sugDays, setSugDays] = useState<Array<{ day: string; date: Date; stops: RouteStop[]; endMin: number }> | null>(null);
+    useEffect(() => { if (route?.dailyReturn) setSugRoundTrip(true); }, [route?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        if (!dateStops || dateStops.length === 0) { setSugDays(null); return; }
+        let cancelled = false;
+        (async () => {
+            setSugLoading(true);
+            try {
+                const n = dateStops.length;
+                const matrix = await fetchDurationMatrixMin(dateStops, "Aracaju", activeUnidadeId, { start: startPt, end: endPt });
+                const legs = dateStops.map((_, i) => (i === 0 ? matrix[0][1] : matrix[i][i + 1]));
+                legs.push(matrix[n][n + 1]);
+                const [y, m, d] = sugStart.split("-").map(Number);
+                const startDate = new Date(y, (m || 1) - 1, d || 1, 8, 0, 0);
+                const plan = simulateRoutePlan(dateStops, legs, planningParams, startDate, sugTime, sugRoundTrip ? {
+                    fromBase: dateStops.map((_, i) => matrix[0][i + 1]),
+                    toBase: dateStops.map((_, i) => matrix[i + 1][n + 1]),
+                } : undefined);
+                if (cancelled) return;
+                setSugDays(plan.days.filter(day => day.stopIndexes.length > 0).map(day => ({
+                    day: format(day.date, "yyyy-MM-dd"),
+                    date: day.date,
+                    stops: day.stopIndexes.map(i => dateStops[i]),
+                    endMin: day.endMin,
+                })));
+            } catch (e) {
+                if (!cancelled) { setSugDays(null); toast({ variant: "destructive", title: "Não foi possível calcular as datas", description: (e as any)?.message }); }
+            } finally {
+                if (!cancelled) setSugLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [dateStops, sugStart, sugTime, sugRoundTrip, startPt, endPt, planningParams]); // eslint-disable-line react-hooks/exhaustive-deps
     const [syncing, setSyncing] = useState(false);
     // Rastreio da rota de entrega e das filhas em dia (o que só existe de um lado é copiado pro outro).
     const handleSyncTracking = async () => {
@@ -527,6 +580,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             await routeService.patchStopFields(routeId, patches);
             await refresh();
             setSorts([{ key: "order", dir: "asc" }]);
+            openDateSuggestion(result.stops);
             toast({
                 title: "Ordem otimizada: " + patches.length + " OS",
                 description: (startPt ? "Saindo de " + startPt.address : "Saindo da base") + (endPt ? " e voltando para " + endPt.address : " e voltando à base") + ". A tabela foi ordenada pela coluna Ordem.",
@@ -537,6 +591,40 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             setOptimizingOrder(false);
         }
     };
+    // Só entram na sugestão OS que ainda podem ser programadas (sem finalizar e sem rota filha).
+    const openDateSuggestion = (ordered: RouteStop[]) => {
+        const free = new Set(rows.filter(r => !r.finalizedAt && !r.childName).map(r => r.stop.serviceOrder));
+        const list = ordered.filter(st => free.has(st.serviceOrder));
+        if (list.length === 0) {
+            toast({ variant: "destructive", title: "Nenhuma OS livre para programar", description: "As OS escolhidas já foram finalizadas ou já estão em rota filha." });
+            return;
+        }
+        setDateStops(list);
+    };
+    const suggestFromCurrentOrder = () => {
+        const scope = orderScope().filter(r => r.stop.routeOrder).sort((a, b) => (a.stop.routeOrder || 0) - (b.stop.routeOrder || 0));
+        if (scope.length === 0) {
+            toast({ variant: "destructive", title: "Otimize a ordem primeiro", description: "As datas são sugeridas a partir da ordem otimizada." });
+            return;
+        }
+        openDateSuggestion(scope.map(r => r.stop));
+    };
+    const applyDateSuggestion = async () => {
+        if (!sugDays) return;
+        setSugApplying(true);
+        try {
+            const patches = sugDays.flatMap(d => d.stops.map(st => ({ serviceOrder: st.serviceOrder, fields: { plannedDay: d.day } })));
+            await routeService.patchStopFields(routeId, patches);
+            await refresh();
+            setDateStops(null);
+            toast({ title: "Datas aplicadas", description: patches.length + " OS programadas em " + sugDays.length + " dia(s). Ajuste na coluna Dia se precisar." });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível aplicar as datas", description: e?.message });
+        } finally {
+            setSugApplying(false);
+        }
+    };
+
     const handleClearOrder = async () => {
         const scope = orderScope().filter(r => r.stop.routeOrder);
         if (scope.length === 0) return;
@@ -863,6 +951,11 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                         {optimizingOrder ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RouteIcon className="h-3.5 w-3.5" />} Otimizar ordem
                     </Button>
                     {rows.some(r => r.stop.routeOrder) && (
+                        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={suggestFromCurrentOrder} disabled={optimizingOrder} title="Distribui as OS ordenadas pelos dias de trabalho">
+                            <CalendarPlus className="h-3.5 w-3.5" /> Sugerir datas
+                        </Button>
+                    )}
+                    {rows.some(r => r.stop.routeOrder) && (
                         <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={handleClearOrder} disabled={optimizingOrder} title="Tira a numeração de ordem das OS selecionadas (ou da tabela)">
                             Limpar ordem
                         </Button>
@@ -1016,6 +1109,52 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             </AlertDialog>
 
             {/* Criar rotas filhas */}
+            <Dialog open={!!dateStops} onOpenChange={(o) => { if (!o && !sugApplying) setDateStops(null); }}>
+                <DialogContent className="max-w-xl">
+                    <DialogHeader>
+                        <DialogTitle>Sugestão de datas</DialogTitle>
+                        <DialogDescription>
+                            As OS na ordem otimizada distribuídas pelos dias de trabalho (expediente {planningParams.dayStart}–{planningParams.dayEnd}, tempos de atendimento e deslocamento do Planejamento).
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                            <Label className="text-xs">Primeiro dia</Label>
+                            <Input type="date" value={sugStart} onChange={e => setSugStart(e.target.value)} />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-xs">Saída da base</Label>
+                            <Input type="time" value={sugTime} onChange={e => setSugTime(e.target.value)} />
+                        </div>
+                    </div>
+                    <label className="flex items-start gap-2 text-sm cursor-pointer">
+                        <input type="checkbox" className="mt-0.5" checked={sugRoundTrip} onChange={e => setSugRoundTrip(e.target.checked)} />
+                        <span>Ida e volta no mesmo dia (volta à base todo dia, sem dormir fora)</span>
+                    </label>
+                    <div className="max-h-[45vh] space-y-2 overflow-y-auto">
+                        {sugLoading && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Calculando os dias…</p>}
+                        {!sugLoading && sugDays?.map((d, i) => {
+                            const cities = Array.from(new Set(d.stops.map(st => st.city).filter(Boolean)));
+                            return (
+                                <div key={d.day} className="rounded-lg border px-3 py-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="font-semibold capitalize">Dia {i + 1} · {format(d.date, "EEEE dd/MM", { locale: ptBR })}</span>
+                                        <span className="text-xs text-muted-foreground">{d.stops.length} OS · termina ~{formatClock(d.endMin)}</span>
+                                    </div>
+                                    <p className="mt-0.5 text-xs text-muted-foreground break-words">{cities.slice(0, 6).join(", ")}{cities.length > 6 ? " +" + (cities.length - 6) : ""}</p>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDateStops(null)} disabled={sugApplying}>Agora não</Button>
+                        <Button onClick={applyDateSuggestion} disabled={sugApplying || sugLoading || !sugDays || sugDays.length === 0}>
+                            {sugApplying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarPlus className="mr-2 h-4 w-4" />} Aplicar datas sugeridas
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogContent className="max-w-lg">
                     <DialogHeader>
