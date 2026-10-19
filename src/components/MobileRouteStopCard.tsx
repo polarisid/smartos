@@ -92,7 +92,7 @@ export function MobileRouteStopCard({
     };
 
     const hasVisitDate = !!stop.firstVisitDate && !/^0{1,2}\/0{1,2}\/0{2,4}$/.test(stop.firstVisitDate.trim());
-    const showAsc = !!stop.ascJobNumber && stop.ascJobNumber.trim() !== stop.serviceOrder.trim();
+    const showAsc = !!stop.ascJobNumber && stop.ascJobNumber.trim() !== "";
     const cityLine = [stop.city, stateToUF(stop.state)].filter(Boolean).join(' / ');
 
     const stopTypeLabels = {
@@ -110,7 +110,7 @@ export function MobileRouteStopCard({
                             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{stopTypeLabels[stop.stopType || 'padrao']}</span>
                             {stop.ts && <span className="text-[9px] font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded">{stop.ts}</span>}
                             {stop.warrantyType && <span className="text-[9px] font-bold bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded">{stop.warrantyType}</span>}
-                            {showAsc && <span className="text-[9px] font-bold bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{stop.ascJobNumber}</span>}
+                            {showAsc && <span className="text-[10px] font-bold bg-muted text-foreground/80 px-1.5 py-0.5 rounded"><span className="text-muted-foreground font-semibold">ASC Job </span><span className="font-mono">{stop.ascJobNumber}</span></span>}
                             {hasVisitDate && <span className="text-[9px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 px-1.5 py-0.5 rounded flex items-center gap-1"><Calendar className="h-3 w-3" />{stop.firstVisitDate}</span>}
                             {stop.turn && <span className="text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 px-1.5 py-0.5 rounded">{stop.turn}</span>}
                             {stop.warrantyType === 'LP' && stop.ts?.toUpperCase() === 'IH' && (
