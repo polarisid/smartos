@@ -2971,7 +2971,7 @@ export default function RoutesPage() {
                         stop.city || '',
                         stop.neighborhood || '',
                         stop.model || '',
-                        stop.stopType === 'coleta' ? `Coleta (${stop.collectionType || ''})` : stop.stopType === 'entrega' ? 'Entrega' : 'Padrão',
+                        stop.stopType === 'coleta' ? `Coleta (${stop.collectionType || ''})` : (stop.stopType === 'entrega' || route.parentRouteId || route.kind === 'delivery') ? 'Entrega' : 'Padrão',
                         stop.firstVisitDate || '',
                         osStatus,
                         osStatus === 'Pendente'
