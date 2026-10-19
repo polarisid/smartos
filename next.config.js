@@ -1,5 +1,8 @@
 
-const defaultCache = require('next-pwa/cache');
+// Sem a regra 'cross-origin' do next-pwa: ela passava TODA chamada a outros sites (ViaCEP, rotas, Supabase) pelo service worker,
+// com cache por endereço (não por usuário) e erros 'no-response' no console quando a rede falha. Sem ela essas chamadas
+// vão direto à rede, como antes do service worker existir.
+const defaultCache = require('next-pwa/cache').filter(rule => rule.options?.cacheName !== 'cross-origin');
 
 const withPWA = require('next-pwa')({
   dest: 'public',
@@ -11,9 +14,10 @@ const withPWA = require('next-pwa')({
   // A lista é repetida em src/lib/offlinePages.ts (a função abaixo vai inteira para o service worker).
   runtimeCaching: [
     {
-      // Chamadas autenticadas (Supabase: cabeçalhos apikey/authorization) nunca passam pelo cache do service worker:
+      // Chamadas autenticadas do próprio site (/api com authorization) nunca passam pelo cache do service worker:
       // o cache é por endereço, não por usuário, e poderia entregar dados de outra pessoa no mesmo aparelho.
-      urlPattern: ({ request }) => request.headers.has('apikey') || request.headers.has('authorization'),
+      // (Chamadas a outros sites, como o Supabase, nem entram no service worker.)
+      urlPattern: ({ url, request }) => self.origin === url.origin && (request.headers.has('apikey') || request.headers.has('authorization')),
       handler: 'NetworkOnly',
     },
     {
