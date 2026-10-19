@@ -711,8 +711,19 @@ function RouteForm({
                 createdAt: new Date(),
                 stops: activeStops,
             } as Route;
-            const totalKm = legKm.reduce((a, b) => a + (b || 0), 0);
-            const ok = await copyRouteEmailToClipboard({ route: emailRoute, legKm, legDurationsMin: legDurationMin, totalKm });
+            // Os km/tempos só eram calculados fora da aba "Mapa": no 1º clique em Copiar para e-mail eles ainda estavam
+            // vazios e o e-mail saía com 0 km. Se faltam (ou estão desatualizados), calcula agora (usa o cache de rotas).
+            let kms = legKm;
+            let mins = legDurationMin;
+            if (legsLoading || kms.length !== activeStops.length + 1 || mins.length !== activeStops.length + 1) {
+                const computed = await fetchLegDistancesAndDurations(activeStops, 'Aracaju', activeUnidadeId, routeEndpoints);
+                kms = computed.km;
+                mins = computed.durationMin;
+                setLegKm(computed.km);
+                setLegDurationMin(computed.durationMin);
+            }
+            const totalKm = kms.reduce((a, b) => a + (b || 0), 0);
+            const ok = await copyRouteEmailToClipboard({ route: emailRoute, legKm: kms, legDurationsMin: mins, totalKm });
             toast(ok
                 ? { title: "E-mail copiado!", description: "Cole no seu cliente de e-mail." }
                 : { variant: "destructive", title: "Não foi possível copiar", description: "Tente novamente." });
