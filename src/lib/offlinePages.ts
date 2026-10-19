@@ -46,10 +46,21 @@ export async function offlineReadiness(): Promise<ReadinessLine[]> {
     const lines: ReadinessLine[] = [];
     const sw = typeof navigator !== "undefined" && "serviceWorker" in navigator ? navigator.serviceWorker : null;
     const controlled = !!sw?.controller;
+    let detail = "ativo";
+    if (!controlled) {
+        // Explica em que ponto está: sem registro, instalando ou instalado mas ainda sem controlar esta página.
+        let reg: ServiceWorkerRegistration | undefined;
+        try { reg = await sw?.getRegistration("/"); } catch { /* ok */ }
+        const state = reg?.active?.state || reg?.waiting?.state || reg?.installing?.state;
+        if (!sw) detail = "este navegador não permite o uso sem sinal";
+        else if (!reg) detail = "ainda não registrado. Recarregue a página com internet e espere uns segundos.";
+        else if (state === "installing" || state === "installed") detail = "instalando (" + state + "). Espere alguns segundos e rode o teste de novo.";
+        else detail = "instalado, mas esta página ainda não é controlada por ele. Recarregue a página uma vez.";
+    }
     lines.push({
         label: "App instalado para uso sem sinal (service worker)",
         ok: controlled,
-        detail: controlled ? "ativo" : "ainda não ativo. Abra o app com internet, espere uns segundos e recarregue a página uma vez.",
+        detail,
     });
 
     try {

@@ -4,6 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider } from "@/context/AuthContext";
 import { QueryProvider } from "@/providers/QueryProvider";
+import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-space-grotesk" });
@@ -87,6 +88,7 @@ export default function RootLayout({
       <head />
 
       <body className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} font-body antialiased`}>
+        <ServiceWorkerRegister />
         <QueryProvider>
           <AuthProvider>
             {children}

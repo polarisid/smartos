@@ -3,12 +3,19 @@ const defaultCache = require('next-pwa/cache');
 
 const withPWA = require('next-pwa')({
   dest: 'public',
-  register: true,
+  // O registro é feito por src/components/ServiceWorkerRegister.tsx (o automático do next-pwa não funciona no App Router).
+  register: false,
   skipWaiting: true,
   // Telas do técnico (documento HTML, sem as requisições internas do Next `_rsc`) ficam num cache SÓ delas, por
   // 7 dias: antes dividiam um cache de 32 itens com tudo e eram expulsas, e sem sinal a tela não abria.
   // A lista é repetida em src/lib/offlinePages.ts (a função abaixo vai inteira para o service worker).
   runtimeCaching: [
+    {
+      // Chamadas autenticadas (Supabase: cabeçalhos apikey/authorization) nunca passam pelo cache do service worker:
+      // o cache é por endereço, não por usuário, e poderia entregar dados de outra pessoa no mesmo aparelho.
+      urlPattern: ({ request }) => request.headers.has('apikey') || request.headers.has('authorization'),
+      handler: 'NetworkOnly',
+    },
     {
       urlPattern: ({ url, request }) => {
         const pages = ['/', '/routes', '/reports', '/meus-relatorios', '/producao', '/scanner', '/dashboard', '/ranking', '/ajuda'];
