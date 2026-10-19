@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, X } from "lucide-react";
+import { Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import Link from "next/link";
@@ -28,7 +28,7 @@ import { RouteEndpointsFields } from "@/components/routes/RouteEndpointsFields";
 import { configService } from "@/services/supabase/configService";
 import { fetchDurationMatrixMin } from "@/lib/routeLegs";
 import { DEFAULT_PLANNING_PARAMS, simulateRoutePlan, formatClock } from "@/lib/routePlanning";
-import type { Route, RoutePoint, RouteStop } from "@/lib/data";
+import type { Route, RoutePart, RoutePoint, RouteStop } from "@/lib/data";
 import { routeService, RouteConflictError } from "@/services/supabase/routeService";
 
 // ─── Rota de entrega ("rota mãe") ───────────────────────────────────────────────────────────────
@@ -342,6 +342,63 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const [creatingChildren, setCreatingChildren] = useState(false);
     const [createProgress, setCreateProgress] = useState("");
     const [optimizingOrder, setOptimizingOrder] = useState(false);
+
+    // Peças da OS: enquanto uma peça ainda não tem rastreio (não foi enviada), dá para trocar o código, a descrição e a
+    // quantidade, remover ou incluir outra. Peça com rastreio fica travada (já foi enviada).
+    type PartDraft = { origCode: string | null; code: string; description: string; quantity: number; tracking: string; removed?: boolean };
+    const [partsRow, setPartsRow] = useState<Row | null>(null);
+    const [partsDraft, setPartsDraft] = useState<PartDraft[]>([]);
+    const [partsSaving, setPartsSaving] = useState(false);
+    const openParts = (row: Row) => {
+        setPartsRow(row);
+        setPartsDraft((row.stop.parts || []).map(p => ({ origCode: p.code, code: p.code, description: p.description || "", quantity: p.quantity || 1, tracking: (p.trackingCode || "").trim() })));
+    };
+    const updateDraft = (i: number, patch: Partial<PartDraft>) => setPartsDraft(cur => cur.map((d, k) => (k === i ? { ...d, ...patch } : d)));
+    const handleSaveParts = async () => {
+        if (!partsRow) return;
+        const so = partsRow.stop.serviceOrder;
+        const live = partsDraft.filter(d => !d.removed);
+        if (live.some(d => !d.tracking && !d.code.trim())) { toast({ variant: "destructive", title: "Informe o código de todas as peças" }); return; }
+        const codes = live.map(d => d.code.trim().toLowerCase());
+        if (new Set(codes).size !== codes.length) { toast({ variant: "destructive", title: "Há peças com o mesmo código", description: "Some a quantidade em uma só." }); return; }
+        setPartsSaving(true);
+        try {
+            const originals = partsRow.stop.parts || [];
+            const newParts: RoutePart[] = live.map(d => {
+                if (d.tracking) return originals.find(p => p.code === d.origCode) as RoutePart;
+                return { code: d.code.trim(), description: d.description.trim(), quantity: Math.max(1, Number(d.quantity) || 1) };
+            });
+            await routeService.patchStopFields(routeId, [{ serviceOrder: so, fields: { parts: newParts } }]);
+
+            // As rotas dos dias que levam esta OS recebem a mesma troca (sem mexer em peça que já tem rastreio lá).
+            const applyToChild = (childParts: RoutePart[]) => {
+                const removedOrig = partsDraft.filter(d => d.removed && d.origCode && !d.tracking).map(d => d.origCode as string);
+                const out = childParts.filter(p => !(removedOrig.includes(p.code) && !(p.trackingCode || "").trim()));
+                live.filter(d => !d.tracking).forEach(d => {
+                    const np = { code: d.code.trim(), description: d.description.trim(), quantity: Math.max(1, Number(d.quantity) || 1) };
+                    const idx = d.origCode ? out.findIndex(p => p.code === d.origCode && !(p.trackingCode || "").trim()) : -1;
+                    if (idx >= 0) out[idx] = { ...out[idx], ...np };
+                    else if (!out.some(p => p.code === np.code)) out.push(np);
+                });
+                return out;
+            };
+            for (const child of children.filter(c => !c.isCanceled)) {
+                if (!(child.stops || []).some(cs => cs.serviceOrder === so && !cs.isReallocated)) continue;
+                const fresh = await routeService.getById(child.id);
+                const st = (fresh?.stops || []).find(cs => cs.serviceOrder === so && !cs.isReallocated);
+                if (!fresh || !st) continue;
+                await routeService.patchStopFields(child.id, [{ serviceOrder: so, fields: { parts: applyToChild(st.parts || []) } }]);
+            }
+            await queryClient.invalidateQueries({ queryKey: ["routes"] });
+            await refresh();
+            setPartsRow(null);
+            toast({ title: "Peças da OS " + so + " atualizadas" });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível salvar as peças", description: e?.message });
+        } finally {
+            setPartsSaving(false);
+        }
+    };
 
     // Reprogramar uma OS que já está numa rota dos dias (cliente desistiu, remarcou, ausente...): ela sai da rota atual
     // (fica como "Realocada" nela) e vai para outra rota já programada ou para um novo dia.
@@ -927,6 +984,11 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                                 </span>
                             );
                         })}
+                        {!r.finalizedAt && (
+                            <button type="button" className="inline-flex items-center rounded border px-1 text-[10px] text-primary hover:bg-primary/10" title="Alterar as peças desta OS (as que ainda não têm rastreio)" onClick={() => openParts(r)}>
+                                <Pencil className="h-2.5 w-2.5" />
+                            </button>
+                        )}
                     </span>
                 );
             case "day":
@@ -1207,6 +1269,49 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             </AlertDialog>
 
             {/* Criar rotas filhas */}
+            <Dialog open={!!partsRow} onOpenChange={(o) => { if (!o && !partsSaving) setPartsRow(null); }}>
+                <DialogContent className="max-w-xl">
+                    <DialogHeader>
+                        <DialogTitle>Peças da OS {partsRow?.stop.serviceOrder}</DialogTitle>
+                        <DialogDescription>
+                            Enquanto a peça não tem rastreio (ainda não foi enviada), dá para trocar o código, a descrição e a quantidade, remover ou incluir outra. Peças com rastreio ficam travadas.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="max-h-[55vh] space-y-2 overflow-y-auto">
+                        {partsDraft.map((d, i) => d.removed ? null : d.tracking ? (
+                            <div key={i} className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className="font-mono font-semibold">{d.code} <span className="text-muted-foreground font-normal">x{d.quantity}</span></span>
+                                    <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" /> Enviada · {d.tracking}</span>
+                                </div>
+                                {d.description && <p className="text-xs text-muted-foreground break-words">{d.description}</p>}
+                            </div>
+                        ) : (
+                            <div key={i} className="space-y-1.5 rounded-lg border px-3 py-2">
+                                <div className="grid grid-cols-[1fr_4.5rem_auto] items-center gap-2">
+                                    <Input className="h-9 font-mono text-sm" placeholder="Código da peça" value={d.code} onChange={e => updateDraft(i, { code: e.target.value })} />
+                                    <Input className="h-9 text-sm" type="number" min={1} value={d.quantity} onChange={e => updateDraft(i, { quantity: Number(e.target.value) })} title="Quantidade" />
+                                    <Button type="button" size="icon" variant="ghost" className="h-9 w-9 text-muted-foreground hover:text-destructive" onClick={() => updateDraft(i, { removed: true })} title="Remover esta peça">
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                                <Input className="h-9 text-sm" placeholder="Descrição" value={d.description} onChange={e => updateDraft(i, { description: e.target.value })} />
+                            </div>
+                        ))}
+                        {partsDraft.every(d => d.removed) && <p className="py-3 text-center text-sm text-muted-foreground">Nenhuma peça nesta OS.</p>}
+                    </div>
+                    <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => setPartsDraft(cur => [...cur, { origCode: null, code: "", description: "", quantity: 1, tracking: "" }])}>
+                        <PlusCircle className="mr-1.5 h-4 w-4" /> Incluir peça
+                    </Button>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setPartsRow(null)} disabled={partsSaving}>Cancelar</Button>
+                        <Button onClick={handleSaveParts} disabled={partsSaving}>
+                            {partsSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Salvar peças
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={!!reprogramRow} onOpenChange={(o) => { if (!o && !reprogramming) setReprogramRow(null); }}>
                 <DialogContent className="max-w-md">
                     <DialogHeader>
