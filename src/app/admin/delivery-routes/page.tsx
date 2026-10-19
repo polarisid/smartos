@@ -42,7 +42,7 @@ type Row = {
     partsTracked: number;
 };
 
-type SortKey = "so" | "asc" | "name" | "city" | "neighborhood" | "uf" | "model" | "turn" | "tat" | "request" | "visit" | "ts" | "warranty" | "day" | "status";
+type SortKey = "so" | "asc" | "name" | "city" | "neighborhood" | "uf" | "model" | "turn" | "tat" | "request" | "visit" | "ts" | "warranty" | "order" | "day" | "status";
 
 const parseBrDate = (text?: string): number => {
     const m = /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(text || "");
@@ -55,6 +55,7 @@ const statusOf = (r: Row) => (r.finalizedAt ? "Finalizada" : r.childName ? "Prog
 
 const COLUMNS: Array<{ key: SortKey; label: string; value: (r: Row) => string | number; className?: string }> = [
     { key: "so", label: "SO Nro.", value: r => r.stop.serviceOrder, className: "font-mono font-semibold" },
+    { key: "order", label: "Ordem", value: r => r.stop.routeOrder ?? 999999, className: "font-mono font-bold text-center" },
     { key: "asc", label: "ASC Job No.", value: r => r.stop.ascJobNumber || "" },
     { key: "name", label: "Nome Consumidor", value: r => r.stop.consumerName || "", className: "min-w-[180px]" },
     { key: "city", label: "Cidade", value: r => r.stop.city || "" },
@@ -337,6 +338,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const [optimize, setOptimize] = useState(true);
     const [creatingChildren, setCreatingChildren] = useState(false);
     const [createProgress, setCreateProgress] = useState("");
+    const [optimizingOrder, setOptimizingOrder] = useState(false);
 
     // Base padrão de saída e retorno desta rota de entrega: fica gravada na rota e vale para todas as rotas dos dias
     // criadas a partir dela. Vazio = base da unidade.
@@ -505,6 +507,51 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         tracked: rows.reduce((a, r) => a + r.partsTracked, 0),
     }), [rows]);
 
+    // Escopo da otimização: as OS selecionadas; sem seleção, as que estão na tabela (respeitando os filtros), sem as finalizadas.
+    const orderScope = () => {
+        const base = selected.size > 0 ? visible.filter(r => selected.has(r.stop.serviceOrder)) : visible.filter(r => !r.finalizedAt);
+        return base;
+    };
+    const handleOptimizeOrder = async () => {
+        const scope = orderScope();
+        if (scope.length < 3) {
+            toast({ variant: "destructive", title: "Poucas OS para otimizar", description: "Selecione ou filtre pelo menos 3 OS." });
+            return;
+        }
+        setOptimizingOrder(true);
+        try {
+            const stops = scope.map(r => r.stop);
+            await prewarmStopCoordinates(stops, "Aracaju");
+            const result = await optimizeRouteStopsAsync(stops, "Aracaju", activeUnidadeId, { start: startPt, end: endPt });
+            const patches = result.stops.map((st, i) => ({ serviceOrder: st.serviceOrder, fields: { routeOrder: i + 1 } }));
+            await routeService.patchStopFields(routeId, patches);
+            await refresh();
+            setSorts([{ key: "order", dir: "asc" }]);
+            toast({
+                title: "Ordem otimizada: " + patches.length + " OS",
+                description: (startPt ? "Saindo de " + startPt.address : "Saindo da base") + (endPt ? " e voltando para " + endPt.address : " e voltando à base") + ". A tabela foi ordenada pela coluna Ordem.",
+            });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível otimizar a ordem", description: e?.message });
+        } finally {
+            setOptimizingOrder(false);
+        }
+    };
+    const handleClearOrder = async () => {
+        const scope = orderScope().filter(r => r.stop.routeOrder);
+        if (scope.length === 0) return;
+        setOptimizingOrder(true);
+        try {
+            await routeService.patchStopFields(routeId, scope.map(r => ({ serviceOrder: r.stop.serviceOrder, fields: { routeOrder: null } })));
+            await refresh();
+            toast({ title: "Ordem removida de " + scope.length + " OS" });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível limpar a ordem", description: e?.message });
+        } finally {
+            setOptimizingOrder(false);
+        }
+    };
+
     const toggleSort = (key: SortKey, additive = false) => setSorts(cur => {
         const i = cur.findIndex(l => l.key === key);
         if (additive) {
@@ -588,7 +635,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 const [y, m, d] = day.split("-").map(Number);
                 const dayDate = new Date(y, m - 1, d, 8, 0, 0);
                 const label = format(dayDate, "dd/MM/yyyy");
-                return { dayDate, stops: list.map(r => ({ ...r.stop, firstVisitDate: label })) as RouteStop[] };
+                return { dayDate, stops: list.map(r => { const { routeOrder: _drop, ...rest } = r.stop; return { ...rest, firstVisitDate: label }; }) as RouteStop[] };
             });
             if (optimize) {
                 setCreateProgress("Localizando os endereços…");
@@ -675,6 +722,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const renderCell = (r: Row, key: string): ReactNode => {
         const so = r.stop.serviceOrder;
         switch (key) {
+            case "order": return r.stop.routeOrder ? "#" + r.stop.routeOrder : "—";
             case "tat": return r.stop.tat || "";
             case "request": return r.stop.requestDate || "";
             case "visit": return r.stop.firstVisitDate || "";
@@ -804,6 +852,21 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     <MultiFilter label="Cidade" options={options.cities} selected={fCity} onChange={setFCity} searchable />
                     <MultiFilter label="Bairro" options={options.neighborhoods} selected={fNeighborhood} onChange={setFNeighborhood} searchable />
                     <MultiFilter label="Turno" options={options.turns} selected={fTurn} onChange={setFTurn} />
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 gap-1.5 text-xs border-primary/40 text-primary"
+                        onClick={handleOptimizeOrder}
+                        disabled={optimizingOrder}
+                        title="Organiza as OS (as selecionadas ou as da tabela, sem as finalizadas) na melhor ordem de atendimento, saindo da base e voltando a ela"
+                    >
+                        {optimizingOrder ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RouteIcon className="h-3.5 w-3.5" />} Otimizar ordem
+                    </Button>
+                    {rows.some(r => r.stop.routeOrder) && (
+                        <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={handleClearOrder} disabled={optimizingOrder} title="Tira a numeração de ordem das OS selecionadas (ou da tabela)">
+                            Limpar ordem
+                        </Button>
+                    )}
                     <Popover>
                         <PopoverTrigger asChild>
                             <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">

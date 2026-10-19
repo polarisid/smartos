@@ -215,6 +215,8 @@ export type RoutePart = {
 export type RouteStop = {
     // Rota de entrega: dia (AAAA-MM-DD) em que a OS foi programada para uma rota filha.
     plannedDay?: string;
+    // Rota de entrega: posição da OS na ordem otimizada (menor trajeto saindo da base e voltando a ela).
+    routeOrder?: number;
     serviceOrder: string;
     ascJobNumber: string;
     consumerName: string;
