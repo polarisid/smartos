@@ -2151,6 +2151,28 @@ async function resolveStopCoordAsync(stop: RouteStop, defaultState: string = 'Se
   return getStopCoordinates(stop);
 }
 
+/**
+ * Geocodifica de uma vez todos os endereços distintos das paradas (guardando no aparelho), para que a otimização de
+ * cada dia depois só leia do cache. Paradas com o mesmo endereço/bairro/CEP são resolvidas uma única vez.
+ */
+export async function prewarmStopCoordinates(stops: RouteStop[], originCity: string = "Aracaju"): Promise<void> {
+  const { state: baseState } = parseFullAddress(originCity);
+  const seen = new Map<string, RouteStop>();
+  stops.forEach(st => {
+    const key = [st.city, st.neighborhood, st.state, st.addressDetails, st.zipCode].map(v => (v || '').toString().trim().toLowerCase()).join('|');
+    if (!seen.has(key)) seen.set(key, st);
+  });
+  const unique = Array.from(seen.values());
+  let next = 0;
+  const workers = Array.from({ length: Math.min(6, unique.length) }, async () => {
+    while (next < unique.length) {
+      const st = unique[next++];
+      try { await resolveStopCoordAsync(st, baseState || 'Sergipe'); } catch { /* a otimização trata a falha depois */ }
+    }
+  });
+  await Promise.all(workers);
+}
+
 async function resolveBaseCoordAsync(baseAddress: string, unidadeId?: string | null): Promise<PointCoord> {
   // Pino fixado manualmente nas Configurações tem prioridade sobre
   // geocodificar o texto do endereço.

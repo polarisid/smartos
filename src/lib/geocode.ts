@@ -1,3 +1,5 @@
+import { cached, DAY_MS } from './persistentCache';
+
 const STATE_NAMES: Record<string, string> = {
     'se': 'Sergipe',
     'al': 'Alagoas',
@@ -900,9 +902,22 @@ export async function validateCepWithCityState(zipCode: string, city: string, st
     // 2. Checagem via ViaCEP, quando o código tem cadastro (mais precisa: pega
     // também cidade errada dentro do mesmo estado).
     try {
-        const res = await fetch(`https://viacep.com.br/ws/${cleanZip}/json/`);
+        // A resposta do ViaCEP para um CEP não muda: fica guardada no aparelho (antes cada geocodificação de cada
+        // parada chamava o ViaCEP de novo, sem tempo limite - uma das causas da demora ao criar/abrir rotas).
+        const stored = await cached<{ data: any }>('viacep:' + cleanZip, 180 * DAY_MS, async () => {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 6000);
+            try {
+                const res = await fetch(`https://viacep.com.br/ws/${cleanZip}/json/`, { signal: controller.signal });
+                if (!res.ok) return null;
+                return { data: await res.json() };
+            } finally {
+                clearTimeout(timer);
+            }
+        });
+        const res = { ok: !!stored };
         if (res.ok) {
-            const data = await res.json();
+            const data = stored!.data;
             if (data && !data.erro) {
                 const cepCity = (data.localidade || '').trim();
                 const cepState = (data.uf || '').trim().toUpperCase();
@@ -1349,3 +1364,4 @@ export async function geocodeAddressText(raw: string): Promise<{ coords: [number
     } catch { /* sem resultado */ }
     return null;
 }
+

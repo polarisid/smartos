@@ -23,7 +23,7 @@ import { useServiceOrders } from "@/hooks/queries";
 import { cn } from "@/lib/utils";
 import { HelpTip } from "@/components/HelpTip";
 import { parseRouteText } from "@/lib/parseRouteText";
-import { optimizeRouteStopsAsync } from "@/lib/routeOptimizer";
+import { optimizeRouteStopsAsync, prewarmStopCoordinates } from "@/lib/routeOptimizer";
 import type { Route, RouteStop } from "@/lib/data";
 import { routeService } from "@/services/supabase/routeService";
 
@@ -332,6 +332,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const [createOpen, setCreateOpen] = useState(false);
     const [optimize, setOptimize] = useState(true);
     const [creatingChildren, setCreatingChildren] = useState(false);
+    const [createProgress, setCreateProgress] = useState("");
     const [syncing, setSyncing] = useState(false);
     // Rastreio da rota de entrega e das filhas em dia (o que só existe de um lado é copiado pro outro).
     const handleSyncTracking = async () => {
@@ -523,21 +524,46 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         if (!route || pendingDays.length === 0) return;
         setCreatingChildren(true);
         try {
-            let created = 0;
-            for (const [day, list] of pendingDays) {
+            // 1) Endereços: geocodifica uma vez só os endereços distintos de todos os dias.
+            const prepared = pendingDays.map(([day, list]) => {
                 const [y, m, d] = day.split("-").map(Number);
                 const dayDate = new Date(y, m - 1, d, 8, 0, 0);
                 const label = format(dayDate, "dd/MM/yyyy");
-                let stops: RouteStop[] = list.map(r => ({ ...r.stop, firstVisitDate: label }));
-                if (optimize && stops.length > 2) {
-                    try { stops = (await optimizeRouteStopsAsync(stops, "Aracaju", activeUnidadeId)).stops; } catch (e) { console.warn("Otimização falhou, mantendo a ordem da tabela", e); }
+                return { dayDate, stops: list.map(r => ({ ...r.stop, firstVisitDate: label })) as RouteStop[] };
+            });
+            if (optimize) {
+                setCreateProgress("Localizando os endereços…");
+                await prewarmStopCoordinates(prepared.flatMap(p => p.stops), "Aracaju");
+            }
+
+            // 2) Roteirização dos dias, 3 por vez (antes um dia depois do outro).
+            let done = 0;
+            const optimizedDays: RouteStop[][] = new Array(prepared.length);
+            let nextDay = 0;
+            const workers = Array.from({ length: Math.min(3, prepared.length) }, async () => {
+                while (nextDay < prepared.length) {
+                    const i = nextDay++;
+                    let stops = prepared[i].stops;
+                    if (optimize && stops.length > 2) {
+                        try { stops = (await optimizeRouteStopsAsync(stops, "Aracaju", activeUnidadeId)).stops; } catch (e) { console.warn("Otimização falhou, mantendo a ordem da tabela", e); }
+                    }
+                    optimizedDays[i] = stops;
+                    done++;
+                    setCreateProgress("Roteirizando os dias: " + done + " de " + prepared.length);
                 }
+            });
+            await Promise.all(workers);
+
+            // 3) Gravação das rotas (em ordem).
+            let created = 0;
+            for (let i = 0; i < prepared.length; i++) {
+                setCreateProgress("Salvando as rotas: " + (i + 1) + " de " + prepared.length);
                 await routeService.create({
-                    name: route.name + " — " + format(dayDate, "dd/MM"),
-                    stops,
+                    name: route.name + " — " + format(prepared[i].dayDate, "dd/MM"),
+                    stops: optimizedDays[i],
                     routeType: route.routeType,
-                    plannedDate: dayDate,
-                    departureDate: dayDate,
+                    plannedDate: prepared[i].dayDate,
+                    departureDate: prepared[i].dayDate,
                     isActive: false,
                     isDraft: true,
                     parentRouteId: route.id,
@@ -561,6 +587,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             toast({ variant: "destructive", title: "Não foi possível criar as rotas", description: e?.message });
         } finally {
             setCreatingChildren(false);
+            setCreateProgress("");
         }
     };
 
@@ -842,7 +869,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancelar</Button>
                         <Button onClick={handleCreateChildren} disabled={creatingChildren}>
-                            {creatingChildren ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Criar {pendingDays.length} rota(s)
+                            {creatingChildren ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} {creatingChildren ? (createProgress || "Criando…") : "Criar " + pendingDays.length + " rota(s)"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
