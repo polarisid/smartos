@@ -9,7 +9,7 @@ import { loadQueryCache, saveQueryCache } from "@/lib/offlineCache";
 // Só o que o técnico precisa ver sem sinal: rotas, OS, previsão, produção e referências.
 const PERSISTED_KEYS = new Set([
   "routes", "service-orders", "technicians", "drivers", "checklists", "codes", "presets",
-  "visit-template", "planning-params", "notifications", "live-plan-legs", "live-plan-remaining",
+  "visit-template", "planning-params", "notifications", "live-plan-legs", "live-plan-remaining", "live-plan-matrix",
   "producao-equipe", "tech-goals",
 ]);
 

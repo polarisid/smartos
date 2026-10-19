@@ -1,5 +1,6 @@
 import { RouteStop } from './data';
 import { getCityCoordinates } from './routeOptimizer';
+import { cached, DAY_MS } from './persistentCache';
 
 export const OSRM_BASE_URL = (
   (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_OSRM_URL)
@@ -36,36 +37,37 @@ export async function fetchOsrmDrivingMatrix(
 
   // Cache key based on coordinate strings rounded to 4 decimals
   const cacheKey = points.map(p => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join(';');
-  if (osrmMatrixCache.has(cacheKey)) {
-    return osrmMatrixCache.get(cacheKey)!;
-  }
+  const inMemory = osrmMatrixCache.get(cacheKey);
+  if (inMemory) return inMemory;
 
-  const coordsStr = points.map(p => `${p.lng},${p.lat}`).join(';');
-  const osrmEndpoints = [
-    OSRM_BASE_URL ? `${OSRM_BASE_URL}/table/v1/driving/` : null,
-    `https://router.project-osrm.org/table/v1/driving/`,
-    `https://routing.openstreetmap.de/routed-car/table/v1/driving/`
-  ].filter(Boolean) as string[];
+  // Guardado também no aparelho (30 dias): entrar de novo na rota, mesmo depois de fechar o app, não refaz a conta.
+  const result = await cached<{ durationMatrix: number[][]; distanceMatrix: number[][] }>('osrm-matrix:' + cacheKey, 30 * DAY_MS, async () => {
+    const coordsStr = points.map(p => `${p.lng},${p.lat}`).join(';');
+    const osrmEndpoints = [
+      OSRM_BASE_URL ? `${OSRM_BASE_URL}/table/v1/driving/` : null,
+      `https://router.project-osrm.org/table/v1/driving/`,
+      `https://routing.openstreetmap.de/routed-car/table/v1/driving/`
+    ].filter(Boolean) as string[];
 
-  for (const baseUrl of osrmEndpoints) {
-    try {
-      const url = `${baseUrl}${coordsStr}?annotations=duration,distance`;
-      const res = await fetchWithTimeout(url);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.code === 'Ok' && data.durations) {
-          const result = {
-            durationMatrix: data.durations, // in seconds
-            distanceMatrix: data.distances || data.durations.map((row: number[]) => row.map(d => d * 15)) // fallback meters approx
-          };
-          osrmMatrixCache.set(cacheKey, result);
-          return result;
+    for (const baseUrl of osrmEndpoints) {
+      try {
+        const url = `${baseUrl}${coordsStr}?annotations=duration,distance`;
+        const res = await fetchWithTimeout(url);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.code === 'Ok' && data.durations) {
+            return {
+              durationMatrix: data.durations, // in seconds
+              distanceMatrix: data.distances || data.durations.map((row: number[]) => row.map(d => d * 15)) // fallback meters approx
+            };
+          }
         }
-      }
-    } catch (e) {}
-  }
-
-  return null;
+      } catch (e) {}
+    }
+    return null;
+  });
+  if (result) osrmMatrixCache.set(cacheKey, result);
+  return result;
 }
 
 const noFerryLegCache = new Map<string, { km: number; durationMin: number } | null>();
@@ -83,7 +85,13 @@ function osrmRouteUsesFerry(r: any): boolean {
 export async function fetchOsrmNoFerryLeg(p1: PointCoord, p2: PointCoord): Promise<{ km: number; durationMin: number } | null> {
   const key = `${p1.lat.toFixed(4)},${p1.lng.toFixed(4)};${p2.lat.toFixed(4)},${p2.lng.toFixed(4)}`;
   if (noFerryLegCache.has(key)) return noFerryLegCache.get(key)!;
+  const stored = await cached<{ km: number; durationMin: number }>('osrm-noferry:' + key, 30 * DAY_MS, () => computeNoFerryLeg(p1, p2));
+  if (stored) noFerryLegCache.set(key, stored);
+  return stored;
+}
 
+async function computeNoFerryLeg(p1: PointCoord, p2: PointCoord): Promise<{ km: number; durationMin: number } | null> {
+  const key = `${p1.lat.toFixed(4)},${p1.lng.toFixed(4)};${p2.lat.toFixed(4)},${p2.lng.toFixed(4)}`;
   const coordsStr = `${p1.lng},${p1.lat};${p2.lng},${p2.lat}`;
   const endpoints = [
     OSRM_BASE_URL ? `${OSRM_BASE_URL}/route/v1/driving/` : null,

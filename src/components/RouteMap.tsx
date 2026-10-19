@@ -6,6 +6,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { getCoordinates, parseFullAddress } from '@/lib/geocode';
 import { configService } from '@/services/supabase/configService';
+import { cached, DAY_MS } from '@/lib/persistentCache';
 import { useAuth } from '@/context/AuthContext';
 import { Route, RouteStop } from '@/lib/data';
 
@@ -143,10 +144,41 @@ function toFerryAlternative(r: any): FerryAlternative {
     };
 }
 
-async function fetchLegRoadPath(
+// Executa `fn` sobre os itens com no máximo `limit` chamadas ao mesmo tempo, mantendo a ordem dos resultados.
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+    const out: R[] = new Array(items.length);
+    let next = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+        while (next < items.length) {
+            const i = next++;
+            out[i] = await fn(items[i]);
+        }
+    });
+    await Promise.all(workers);
+    return out;
+}
+
+type LegRoadPath = { coords: [number, number][]; distanceKm: number; durationMin: number; hasFerry: boolean; noFerry?: FerryAlternative };
+
+// Cada trecho (ponto A -> ponto B) é guardado no aparelho por 30 dias: abrir o mapa da rota de novo não refaz as
+// dezenas de chamadas ao servidor de rotas. O traçado de emergência em linha reta (servidor fora) NÃO é guardado.
+async function fetchLegRoadPath(p1: [number, number], p2: [number, number]): Promise<LegRoadPath> {
+    const key = 'leg:' + p1[0].toFixed(4) + ',' + p1[1].toFixed(4) + ';' + p2[0].toFixed(4) + ',' + p2[1].toFixed(4);
+    const real = await cached<LegRoadPath>(key, 30 * DAY_MS, () => fetchLegRoadPathFromServer(p1, p2));
+    if (real) return real;
+    const dist = getHaversineDistance(p1, p2);
+    return {
+        coords: [p1, p2],
+        distanceKm: Math.round(dist * 10) / 10,
+        durationMin: Math.round((dist / 60) * 60),
+        hasFerry: false,
+    };
+}
+
+async function fetchLegRoadPathFromServer(
     p1: [number, number],
     p2: [number, number]
-): Promise<{ coords: [number, number][]; distanceKm: number; durationMin: number; hasFerry: boolean; noFerry?: FerryAlternative }> {
+): Promise<LegRoadPath | null> {
     const coordsStr = `${p1[1]},${p1[0]};${p2[1]},${p2[0]}`;
     const customOsrm = (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_OSRM_URL)
         ? `${process.env.NEXT_PUBLIC_OSRM_URL.replace(/\/$/, '')}/route/v1/driving/`
@@ -186,13 +218,7 @@ async function fetchLegRoadPath(
         } catch (e) {}
     }
 
-    const dist = getHaversineDistance(p1, p2);
-    return {
-        coords: [p1, p2],
-        distanceKm: Math.round(dist * 10) / 10,
-        durationMin: Math.round((dist / 60) * 60),
-        hasFerry: false,
-    };
+    return null;
 }
 
 function MapBounds({ stops, baseCoords }: { stops: MapStop[]; baseCoords?: [number, number] | null }) {
@@ -384,10 +410,13 @@ export default function RouteMap({
 
                 if (points.length < 2) continue;
 
+                // Os trechos são buscados 4 por vez (antes um após o outro) e vêm do cache do aparelho quando já foram traçados.
+                const legResults = await mapLimit(Array.from({ length: points.length - 1 }, (_, k) => k), 4, k => fetchLegRoadPath(points[k].coords, points[k + 1].coords));
+
                 for (let i = 0; i < points.length - 1; i++) {
                     const from = points[i];
                     const to = points[i + 1];
-                    const legData = await fetchLegRoadPath(from.coords, to.coords);
+                    const legData = legResults[i];
 
                     // O trecho é "concluído" (verde) quando o destino já foi atendido.
                     const status: RouteLeg['status'] = to.status;
