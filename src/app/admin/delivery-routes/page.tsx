@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, X } from "lucide-react";
+import { Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import Link from "next/link";
@@ -26,6 +26,7 @@ import { parseRouteText } from "@/lib/parseRouteText";
 import { optimizeRouteStopsAsync, prewarmStopCoordinates } from "@/lib/routeOptimizer";
 import { RouteEndpointsFields } from "@/components/routes/RouteEndpointsFields";
 import { configService } from "@/services/supabase/configService";
+import { downloadSpreadsheet, type SheetRow } from "@/lib/spreadsheetXml";
 import { fetchDurationMatrixMin } from "@/lib/routeLegs";
 import { DEFAULT_PLANNING_PARAMS, simulateRoutePlan, formatClock } from "@/lib/routePlanning";
 import type { Route, RoutePart, RoutePoint, RouteStop } from "@/lib/data";
@@ -773,6 +774,104 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         }
     };
 
+    // Exporta a planilha de entrega inteira (ignora filtros): OS com situação e acompanhamento, uma aba só de peças
+    // com rastreio e um resumo. Linhas coloridas pela situação.
+    const handleExportSheet = () => {
+        if (!route || rows.length === 0) {
+            toast({ title: "Nada para exportar", description: "Esta rota de entrega não tem OS." });
+            return;
+        }
+        const fmtDate = (d: Date | null) => (d ? format(d, "dd/MM/yyyy HH:mm") : "");
+        const fmtDay = (day: string) => (day ? format(new Date(day + "T12:00:00"), "dd/MM/yyyy") : "");
+        const childOf = (name: string | null) => (name ? children.find(c => c.name === name) : undefined);
+        const childStatus = (c?: Route) => (!c ? "" : c.isCanceled ? "Cancelada" : c.isDraft ? "Rascunho" : c.isActive ? "Ativa" : "Finalizada");
+        const toneOf = (st: string): SheetRow["tone"] => (st === "Finalizada" ? "green" : st === "Pendência" ? "red" : st === "Programada" ? "blue" : st === "Com dia" ? "amber" : "default");
+
+        const ordered = [...rows].sort((a, b) =>
+            (a.day || "9999").localeCompare(b.day || "9999") ||
+            (a.stop.routeOrder ?? 999999) - (b.stop.routeOrder ?? 999999) ||
+            a.stop.serviceOrder.localeCompare(b.stop.serviceOrder, "pt-BR", { numeric: true }));
+
+        const osRows: SheetRow[] = ordered.map(r => {
+            const st = statusOf(r);
+            const child = childOf(r.childName);
+            const parts = r.stop.parts || [];
+            return {
+                tone: toneOf(st),
+                values: [
+                    /^\d+$/.test(r.stop.serviceOrder) ? Number(r.stop.serviceOrder) : r.stop.serviceOrder,
+                    r.stop.ascJobNumber || "", r.stop.consumerName || "", r.stop.city || "", r.stop.neighborhood || "", r.stop.state || "", r.stop.zipCode || "",
+                    r.stop.model || "", r.stop.turn || "", r.stop.tat || "", r.stop.requestDate || "", r.stop.firstVisitDate || "", r.stop.ts || "", r.stop.warrantyType || "",
+                    st, fmtDay(r.day), r.stop.routeOrder ? r.stop.routeOrder : "",
+                    r.childName || "", childStatus(child), child?.technicianName || "",
+                    fmtDate(r.finalizedAt), fmtDate(r.pendingAt),
+                    parts.map(p => p.code + (p.quantity > 1 ? " x" + p.quantity : "")).join(" | "),
+                    parts.length, parts.filter(p => (p.trackingCode || "").trim()).length,
+                    parts.filter(p => (p.trackingCode || "").trim()).map(p => p.code + ": " + p.trackingCode).join(" | "),
+                ],
+            };
+        });
+
+        const partRows: SheetRow[] = ordered.flatMap(r => {
+            const st = statusOf(r);
+            return (r.stop.parts || []).map(p => {
+                const tracked = (p.trackingCode || "").trim();
+                return {
+                    tone: tracked ? "green" as const : "default" as const,
+                    values: [
+                        /^\d+$/.test(r.stop.serviceOrder) ? Number(r.stop.serviceOrder) : r.stop.serviceOrder,
+                        r.stop.consumerName || "", r.stop.city || "", r.stop.neighborhood || "",
+                        p.code, p.description || "", p.quantity || 1,
+                        tracked ? "Enviada" : "Sem rastreio", tracked,
+                        st, fmtDay(r.day), r.childName || "",
+                    ],
+                };
+            });
+        });
+
+        const totalParts = rows.reduce((a, r) => a + r.partsTotal, 0);
+        const trackedParts = rows.reduce((a, r) => a + r.partsTracked, 0);
+        const count = (name: string) => rows.filter(r => statusOf(r) === name).length;
+        const byDay = new Map<string, number>();
+        rows.forEach(r => { if (r.day) byDay.set(r.day, (byDay.get(r.day) || 0) + 1); });
+        const summaryRows: SheetRow[] = [
+            { values: ["Rota de entrega", route.name] },
+            { values: ["Criada em", format(new Date(route.createdAt), "dd/MM/yyyy")] },
+            { values: ["Exportada em", format(new Date(), "dd/MM/yyyy HH:mm")] },
+            { values: ["Saída", startPt ? startPt.address : "Base da unidade"] },
+            { values: ["Retorno", endPt ? endPt.address : "Base da unidade"] },
+            { values: ["OS na rota", rows.length] },
+            { tone: "green", values: ["Finalizadas", count("Finalizada")] },
+            { tone: "red", values: ["Com pendência", count("Pendência")] },
+            { tone: "blue", values: ["Programadas (em rota dos dias)", count("Programada")] },
+            { tone: "amber", values: ["Com dia, sem rota", count("Com dia")] },
+            { values: ["A programar", count("A programar")] },
+            { values: ["Peças no total", totalParts] },
+            { tone: "green", values: ["Peças com rastreio (enviadas)", trackedParts] },
+            { values: ["Peças sem rastreio", totalParts - trackedParts] },
+            ...Array.from(byDay.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([day, n]) => ({ values: ["OS programadas em " + fmtDay(day), n] }) as SheetRow),
+        ];
+
+        downloadSpreadsheet(route.name + " - " + format(new Date(), "yyyy-MM-dd"), [
+            { name: "Resumo", headers: ["Item", "Valor"], rows: summaryRows, widths: [38, 60] },
+            {
+                name: "OS", headers: [
+                    "OS Nro.", "ASC Job No.", "Cliente", "Cidade", "Bairro", "UF", "CEP", "Modelo", "Turno", "TAT", "Data Solicitação", "1st Visit Date", "TS", "OW/LP",
+                    "Situação", "Dia programado", "Ordem", "Rota dos dias", "Situação da rota", "Técnico", "Finalizada em", "Pendência em",
+                    "Peças", "Qtd peças", "Peças com rastreio", "Rastreios",
+                ],
+                rows: osRows,
+                widths: [14, 16, 26, 16, 18, 10, 11, 18, 7, 6, 13, 13, 6, 7, 13, 13, 7, 30, 12, 14, 16, 16, 40, 8, 10, 40],
+            },
+            {
+                name: "Peças", headers: ["OS Nro.", "Cliente", "Cidade", "Bairro", "Código da peça", "Descrição", "Qtd", "Envio", "Rastreio", "Situação da OS", "Dia programado", "Rota dos dias"],
+                rows: partRows,
+                widths: [14, 26, 16, 18, 18, 36, 6, 12, 22, 13, 13, 30],
+            },
+        ]);
+        toast({ title: "Planilha exportada", description: rows.length + " OS e " + partRows.length + " peças, com a situação de cada uma." });
+    };
+
     const handleClearOrder = async () => {
         const scope = orderScope().filter(r => r.stop.routeOrder);
         if (scope.length === 0) return;
@@ -1031,6 +1130,9 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 <div className="flex items-center gap-2">
                     <Button variant="outline" size="icon" className="text-muted-foreground hover:text-destructive" title="Excluir esta rota de entrega" onClick={() => setConfirmDelete(true)}>
                         <Trash2 className="h-4 w-4" />
+                    </Button>
+                    <Button variant="outline" onClick={handleExportSheet} title="Baixa a planilha completa: OS, peças com rastreio, datas e situação de cada uma">
+                        <Download className="mr-2 h-4 w-4" /> Exportar planilha
                     </Button>
                     <Button variant="outline" onClick={handleSyncTracking} disabled={syncing || children.length === 0} title="Copia rastreios entre esta rota e as rotas filhas">
                         {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />} Sincronizar rastreios
