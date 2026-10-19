@@ -2921,12 +2921,19 @@ export default function RoutesPage() {
             .replace(/'/g, '&apos;');
     };
 
-    const handleExportActiveRoutes = () => {
+    const handleExportActiveRoutes = async () => {
         const activeRoutesToExport = activeRoutes.filter((route: Route) => route.isActive);
         if (activeRoutesToExport.length === 0) {
             toast({ title: "Atenção", description: "Nenhuma rota ativa encontrada para exportar." });
             return;
         }
+
+        // OS que constam em alguma Rota de Entrega saem como tipo "Entrega" mesmo que a rota do técnico tenha sido criada
+        // por fora (colada da planilha) ou sem o vínculo com a rota de entrega.
+        const deliveryOrders = new Set<string>();
+        try {
+            (await routeService.getDeliveryRoutes(activeUnidadeId)).forEach(dr => (dr.stops || []).forEach(st => { if (!st.isReallocated) deliveryOrders.add(st.serviceOrder); }));
+        } catch (e) { console.warn("Não foi possível consultar as rotas de entrega para a planilha", e); }
 
         const HEADERS = [
             "OS Nro.", "Nome da Rota", "Data de Saída", "Técnico", "Motorista", "ASC Job No.",
@@ -2982,7 +2989,7 @@ export default function RoutesPage() {
                         stop.city || '',
                         stop.neighborhood || '',
                         stop.model || '',
-                        stop.stopType === 'coleta' ? `Coleta (${stop.collectionType || ''})` : (stop.stopType === 'entrega' || route.parentRouteId || route.kind === 'delivery') ? 'Entrega' : 'Padrão',
+                        stop.stopType === 'coleta' ? `Coleta (${stop.collectionType || ''})` : (stop.stopType === 'entrega' || route.parentRouteId || route.kind === 'delivery' || deliveryOrders.has(stop.serviceOrder)) ? 'Entrega' : 'Padrão',
                         stop.firstVisitDate || '',
                         osStatus,
                         osStatus === 'Pendente'
