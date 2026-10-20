@@ -2923,17 +2923,20 @@ export default function RoutesPage() {
 
     const handleExportActiveRoutes = async () => {
         const activeRoutesToExport = activeRoutes.filter((route: Route) => route.isActive);
-        if (activeRoutesToExport.length === 0) {
+        // OS que constam em alguma Rota de Entrega saem como tipo "Entrega" mesmo que a rota do técnico tenha sido criada
+        // por fora (colada da planilha) ou sem o vínculo com a rota de entrega. As OS da própria Rota de Entrega que ainda
+        // não estão em rota ativa (a programar, com dia, em rascunho) entram na planilha no fim.
+        const deliveryOrders = new Set<string>();
+        let deliveryRoutes: Route[] = [];
+        try {
+            deliveryRoutes = await routeService.getDeliveryRoutes(activeUnidadeId);
+            deliveryRoutes.forEach(dr => (dr.stops || []).forEach(st => { if (!st.isReallocated) deliveryOrders.add(st.serviceOrder); }));
+        } catch (e) { console.warn("Não foi possível consultar as rotas de entrega para a planilha", e); }
+
+        if (activeRoutesToExport.length === 0 && deliveryRoutes.length === 0) {
             toast({ title: "Atenção", description: "Nenhuma rota ativa encontrada para exportar." });
             return;
         }
-
-        // OS que constam em alguma Rota de Entrega saem como tipo "Entrega" mesmo que a rota do técnico tenha sido criada
-        // por fora (colada da planilha) ou sem o vínculo com a rota de entrega.
-        const deliveryOrders = new Set<string>();
-        try {
-            (await routeService.getDeliveryRoutes(activeUnidadeId)).forEach(dr => (dr.stops || []).forEach(st => { if (!st.isReallocated) deliveryOrders.add(st.serviceOrder); }));
-        } catch (e) { console.warn("Não foi possível consultar as rotas de entrega para a planilha", e); }
 
         const HEADERS = [
             "OS Nro.", "Nome da Rota", "Data de Saída", "Técnico", "Motorista", "ASC Job No.",
@@ -2991,6 +2994,48 @@ export default function RoutesPage() {
                         stop.model || '',
                         stop.stopType === 'coleta' ? `Coleta (${stop.collectionType || ''})` : (stop.stopType === 'entrega' || route.parentRouteId || route.kind === 'delivery' || deliveryOrders.has(stop.serviceOrder)) ? 'Entrega' : 'Padrão',
                         stop.firstVisitDate || '',
+                        osStatus,
+                        osStatus === 'Pendente'
+                            ? [lastOs?.pendingReason, lastOs?.observations].filter(Boolean).join(' - ') || (stop.statusComment || '')
+                            : '',
+                    ],
+                });
+            });
+        });
+
+        // OS das Rotas de Entrega que não estão em nenhuma rota ativa. Situação = mesmo critério da tela da rota de entrega:
+        // OS lançada depois da data da solicitação (ou da criação da rota, sem solicitação).
+        const alreadyListed = new Set(rows.map(row => String(row.values[0])));
+        const brDateMs = (text?: string) => {
+            const m = /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(text || "");
+            if (!m) return 0;
+            return new Date(Number(m[3]) < 100 ? 2000 + Number(m[3]) : Number(m[3]), Number(m[2]) - 1, Number(m[1])).getTime();
+        };
+        deliveryRoutes.forEach(dr => {
+            const createdMs = new Date(dr.createdAt as any).getTime();
+            (dr.stops || []).filter(st => !st.isReallocated).forEach(stop => {
+                if (alreadyListed.has(String(stop.serviceOrder))) return;
+                const sinceMs = brDateMs(stop.requestDate) || createdMs;
+                const related = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && os.date.getTime() >= sinceMs);
+                const lastOs = related.length > 0 ? [...related].sort((a, b) => b.date.getTime() - a.date.getTime())[0] : null;
+                const osStatus: ReportRow['status'] = !lastOs ? 'A Fazer' : lastOs.isFinalized === false ? 'Pendente' : 'Finalizada';
+                const planned = stop.plannedDay ? new Date(stop.plannedDay + 'T12:00:00').toLocaleDateString('pt-BR') : (stop.firstVisitDate || '');
+                alreadyListed.add(String(stop.serviceOrder));
+                rows.push({
+                    status: osStatus,
+                    values: [
+                        /^\d+$/.test(stop.serviceOrder) ? Number(stop.serviceOrder) : stop.serviceOrder,
+                        dr.name,
+                        '',
+                        'A definir',
+                        'A definir',
+                        stop.ascJobNumber || '',
+                        stop.consumerName || '',
+                        stop.city || '',
+                        stop.neighborhood || '',
+                        stop.model || '',
+                        stop.stopType === 'coleta' ? `Coleta (${stop.collectionType || ''})` : 'Entrega',
+                        planned,
                         osStatus,
                         osStatus === 'Pendente'
                             ? [lastOs?.pendingReason, lastOs?.observations].filter(Boolean).join(' - ') || (stop.statusComment || '')
