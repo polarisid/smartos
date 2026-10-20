@@ -3489,7 +3489,7 @@ ${rowsXml}  </Table>
                                                 {status === 'completed' ? "Concluída" : status === 'pending' ? "Pendência" : "A fazer"}
                                             </Badge>
                                         </p>
-                                        <p className="text-xs text-muted-foreground truncate">{route.name} · {stop.city}</p>
+                                        <p className="text-xs text-muted-foreground truncate">{route.isDraft && <span className="mr-1 rounded border border-amber-300 bg-amber-50 px-1 text-[9px] font-bold uppercase text-amber-800">Rascunho</span>}{route.name} · {stop.city}</p>
                                     </div>
                                     <Button
                                         size="sm"

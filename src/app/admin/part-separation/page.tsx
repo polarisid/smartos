@@ -740,6 +740,8 @@ function OsRouteSearch() {
     const [isSearching, setIsSearching] = useState(false);
     const [results, setResults] = useState<{ route: Route; stop: RouteStop; osStatus: string; usedPartsSet: Set<string>; pendingReason?: string; pendingObservations?: string }[]>([]);
     const [searched, setSearched] = useState(false);
+    // Rascunhos (rotas ainda não publicadas) ficam fora da busca; dá para incluí-los, e aí aparecem avisados como rascunho.
+    const [includeDrafts, setIncludeDrafts] = useState(false);
 
     const handleSearch = async () => {
         if (!searchTerm.trim()) return;
@@ -755,6 +757,7 @@ function OsRouteSearch() {
             const term = searchTerm.trim().toLowerCase();
 
             routesSnapshot.forEach(route => {
+                if (route.isDraft && !includeDrafts) return;
 
                 (route.stops || []).forEach(stop => {
                     const matchesPart = (stop.parts || []).some(
@@ -894,7 +897,10 @@ function OsRouteSearch() {
         }
     };
 
-    const getRouteStatusBadge = (isActive: boolean, isCanceled?: boolean) => {
+    const getRouteStatusBadge = (isActive: boolean, isCanceled?: boolean, isDraft?: boolean) => {
+        if (isDraft && !isCanceled) {
+            return <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"><AlertCircle className="mr-1 h-3 w-3" />Rascunho</Badge>;
+        }
         if (isCanceled) {
             return <Badge variant="destructive"><XCircle className="mr-1 h-3 w-3" />Cancelada</Badge>;
         }
@@ -927,6 +933,10 @@ function OsRouteSearch() {
                             <span className="ml-2 hidden sm:inline">Buscar</span>
                         </Button>
                     </div>
+                    <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+                        <input type="checkbox" checked={includeDrafts} onChange={e => setIncludeDrafts(e.target.checked)} />
+                        Incluir rotas em rascunho (ainda não publicadas)
+                    </label>
                 </CardContent>
             </Card>
 
@@ -950,16 +960,21 @@ function OsRouteSearch() {
                 <div className="space-y-3">
                     <p className="text-sm text-muted-foreground">{results.length} resultado(s) encontrado(s) para <strong>&quot;{searchTerm}&quot;</strong>.</p>
                     {results.map((r, i) => (
-                        <Card key={i} className="border-l-4" style={{ borderLeftColor: r.route.isCanceled ? '#dc2626' : r.route.isActive ? '#2563eb' : '#6b7280' }}>
+                        <Card key={i} className="border-l-4" style={{ borderLeftColor: r.route.isCanceled ? '#dc2626' : r.route.isDraft ? '#d97706' : r.route.isActive ? '#2563eb' : '#6b7280' }}>
                             <CardHeader className="pb-2">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                     <div className="flex items-center gap-2">
                                         <RouteIcon className="h-4 w-4 text-muted-foreground" />
                                         <CardTitle className="text-base">{r.route.name}</CardTitle>
-                                        {getRouteStatusBadge(r.route.isActive, r.route.isCanceled)}
+                                        {getRouteStatusBadge(r.route.isActive, r.route.isCanceled, r.route.isDraft)}
                                     </div>
                                     {getOsStatusBadge(r.osStatus)}
                                 </div>
+                                {r.route.isDraft && !r.route.isCanceled && (
+                                    <p className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                                        Esta rota ainda é um <strong>rascunho</strong> (não foi publicada para o técnico). A situação da OS abaixo é só uma previsão.
+                                    </p>
+                                )}
                                 <CardDescription>
                                     {r.route.departureDate instanceof Date
                                         ? `Saída: ${r.route.departureDate.toLocaleDateString('pt-BR')}`
