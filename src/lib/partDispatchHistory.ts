@@ -21,8 +21,11 @@ const asDate = (d: Date | string | undefined) => (d ? (d instanceof Date ? d : n
 export function buildPriorDispatchLookup(allRoutes: Route[], serviceOrders: ServiceOrder[]) {
     const index = new Map<string, Array<{ route: Route; quantity: number }>>();
     allRoutes.forEach(route => {
-        if (route.isDraft) return;
+        // Rascunho nunca saiu; a Rota de Entrega é só de controle (a peça não sai por ela, sai nas rotas dos dias).
+        if (route.isDraft || route.kind === 'delivery') return;
         (route.stops || []).forEach(stop => {
+            // Parada realocada: a OS (e as peças) foram para outra rota, que é a que conta como saída.
+            if (stop.isReallocated) return;
             (stop.parts || []).forEach(part => {
                 const k = key(stop.serviceOrder, part.code);
                 const list = index.get(k) || [];
