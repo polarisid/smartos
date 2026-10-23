@@ -1224,7 +1224,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 <div className="flex items-center gap-3">
                     <Button variant="outline" size="sm" onClick={onBack}><ArrowLeft className="mr-1.5 h-4 w-4" /> Rotas de Entrega</Button>
                     <div>
-                        <h1 className="text-xl font-bold flex items-center gap-2"><Truck className="h-5 w-5" /> {route.name} <RouteCodeTag id={route.id} /></h1>
+                        <h1 className="text-xl font-bold flex items-center gap-2"><Truck className="h-5 w-5" /> {route.name} <RouteCodeTag route={route} /></h1>
                         <p className="text-xs text-muted-foreground">Criada em {format(new Date(route.createdAt), "dd/MM/yyyy")} · rota de controle (não vai para os técnicos)</p>
                     </div>
                 </div>

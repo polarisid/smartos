@@ -2940,7 +2940,7 @@ export default function RoutesPage() {
                     values: [
                         numericOS,
                         routeName,
-                        routeCode(route.id),
+                        routeCode(route),
                         departure,
                         technician,
                         driver,
@@ -2983,7 +2983,7 @@ export default function RoutesPage() {
                     values: [
                         /^\d+$/.test(stop.serviceOrder) ? Number(stop.serviceOrder) : stop.serviceOrder,
                         dr.name,
-                        routeCode(dr.id),
+                        routeCode(dr),
                         '',
                         'A definir',
                         'A definir',
@@ -3279,7 +3279,7 @@ ${rowsXml}  </Table>
 
                                         return (
                                             <TableRow key={route.id} className={!route.isActive ? "text-muted-foreground" : ""}>
-                                            <TableCell className="font-medium">{route.name}<div className="mt-0.5"><RouteCodeTag id={route.id} /></div></TableCell>
+                                            <TableCell className="font-medium">{route.name}<div className="mt-0.5"><RouteCodeTag route={route} /></div></TableCell>
                                             <TableCell>
                                                 <div className="flex items-center gap-2">
                                                     <Users className="h-4 w-4 text-muted-foreground" />
@@ -3352,7 +3352,7 @@ ${rowsXml}  </Table>
                                         <Card key={route.id} className={cn(!route.isActive && "bg-muted/50")}>
                                             <CardHeader>
                                                 <div className="flex justify-between items-start">
-                                                    <div className="min-w-0"><CardTitle>{route.name}</CardTitle><div className="mt-1"><RouteCodeTag id={route.id} /></div></div>
+                                                    <div className="min-w-0"><CardTitle>{route.name}</CardTitle><div className="mt-1"><RouteCodeTag route={route} /></div></div>
                                                     <Badge
                                                         variant={route.isDraft ? "outline" : route.isActive ? "default" : route.isCanceled ? "destructive" : "secondary"}
                                                         className={route.isDraft ? "border-amber-300 text-amber-700 bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:bg-amber-950" : undefined}
@@ -3433,7 +3433,7 @@ ${rowsXml}  </Table>
                             <div key={"route-" + route.id} className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 p-2.5">
                                 <div className="min-w-0">
                                     <p className="truncate text-sm font-semibold">{route.name}</p>
-                                    <div className="mt-0.5 flex items-center gap-1.5"><RouteCodeTag id={route.id} />{route.isDraft && <span className="rounded border border-amber-300 bg-amber-50 px-1 text-[9px] font-bold uppercase text-amber-800">Rascunho</span>}</div>
+                                    <div className="mt-0.5 flex items-center gap-1.5"><RouteCodeTag route={route} />{route.isDraft && <span className="rounded border border-amber-300 bg-amber-50 px-1 text-[9px] font-bold uppercase text-amber-800">Rascunho</span>}</div>
                                 </div>
                                 <Button size="sm" variant="outline" className="shrink-0" onClick={() => { setIsRouteSearchOpen(false); handleOpenViewDialog(route); }}>
                                     <Eye className="mr-1.5 h-3.5 w-3.5" /> Ver rota
@@ -3483,7 +3483,7 @@ ${rowsXml}  </Table>
                 <DialogContent className="max-w-6xl w-[90vw]">
                     <DialogHeader>
                         <DialogTitle>Detalhes da Rota: {selectedRoute?.name}</DialogTitle>
-                        {selectedRoute && <div><RouteCodeTag id={selectedRoute.id} /></div>}
+                        {selectedRoute && <div><RouteCodeTag route={selectedRoute} /></div>}
                          <DialogDescription>
                             Use a legenda de cores para identificar os tipos de parada.
                         </DialogDescription>

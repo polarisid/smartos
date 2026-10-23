@@ -7,9 +7,9 @@ import { routeCode } from "@/lib/routeCode";
 import { cn } from "@/lib/utils";
 
 // Código único da rota. Tocar copia (para colar numa busca ou numa conversa).
-export function RouteCodeTag({ id, className }: { id?: string | null; className?: string }) {
+export function RouteCodeTag({ id, route, className }: { id?: string | null; route?: { id?: string | null; kind?: string | null } | null; className?: string }) {
     const { toast } = useToast();
-    const code = routeCode(id);
+    const code = routeCode(route ?? id);
     if (!code) return null;
     return (
         <button

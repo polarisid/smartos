@@ -213,7 +213,7 @@ export default function RoutesPage() {
                             <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div>
                                     <CardTitle className="flex items-center gap-2 text-primary">
-                                        <RouteIcon className="w-5 h-5" /> Rota: {route.name} <RouteCodeTag id={route.id} />
+                                        <RouteIcon className="w-5 h-5" /> Rota: {route.name} <RouteCodeTag route={route} />
                                         {pinnedRouteId === route.id && <Pin className="w-4 h-4 text-primary fill-primary/20" />}
                                         {isOwnRoute && <Badge className="text-[10px] px-1.5 py-0 font-bold">Sua rota</Badge>}
                                     </CardTitle>

@@ -97,7 +97,7 @@ function RouteList({ getPriorDispatches, routes, onSaveChanges, onSavePart, isSu
                             <div>
                                 <CardTitle className="flex items-center gap-2">
                                     {areAllPartsTracked && <CheckCircle className="h-6 w-6 text-green-600" />}
-                                    {route.name} <RouteCodeTag id={route.id} />
+                                    {route.name} <RouteCodeTag route={route} />
                                 </CardTitle>
                                 <CardDescription>
                                     Rota criada em {route.createdAt instanceof Date ? route.createdAt.toLocaleDateString('pt-BR') : 'N/A'} com {route.stops.length} paradas.
@@ -549,7 +549,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
             doc.setFont('courier', 'bold');
             doc.setFontSize(12);
             doc.setTextColor(ink.r, ink.g, ink.b);
-            doc.text(routeCode(route.id), pageWidth - marginX, 17, { align: 'right' });
+            doc.text(routeCode(route), pageWidth - marginX, 17, { align: 'right' });
 
             // ── Nome da rota (com quebra) ──
             doc.setTextColor(ink.r, ink.g, ink.b);
@@ -698,7 +698,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                     <CardHeader>
                         <div className="flex flex-wrap items-start justify-between gap-4">
                             <div>
-                                <CardTitle className="flex flex-wrap items-center gap-2">{route.name} <RouteCodeTag id={route.id} /></CardTitle>
+                                <CardTitle className="flex flex-wrap items-center gap-2">{route.name} <RouteCodeTag route={route} /></CardTitle>
                                 <CardDescription>
                                     {`Criação: ${route.createdAt instanceof Date ? route.createdAt.toLocaleDateString('pt-BR') : 'N/A'} | Retorno: ${route.arrivalDate instanceof Date ? route.arrivalDate.toLocaleDateString('pt-BR') : 'Pendente'}`}
                                 </CardDescription>
@@ -980,7 +980,7 @@ function OsRouteSearch() {
                                     <div className="flex items-center gap-2">
                                         <RouteIcon className="h-4 w-4 text-muted-foreground" />
                                         <CardTitle className="text-base">{r.route.name}</CardTitle>
-                                        <span className="rounded border bg-muted/50 px-1.5 font-mono text-[10px] font-semibold text-muted-foreground">{routeCode(r.route.id)}</span>
+                                        <span className="rounded border bg-muted/50 px-1.5 font-mono text-[10px] font-semibold text-muted-foreground">{routeCode(r.route)}</span>
                                         {getRouteStatusBadge(r.route.isActive, r.route.isCanceled, r.route.isDraft)}
                                     </div>
                                     {getOsStatusBadge(r.osStatus)}
@@ -1292,7 +1292,7 @@ export default function PartSeparationPage() {
         doc.setFont('courier', 'bold');
         doc.setFontSize(12);
         doc.setTextColor(ink.r, ink.g, ink.b);
-        doc.text(routeCode(route.id), pageWidth - marginX, 17, { align: 'right' });
+        doc.text(routeCode(route), pageWidth - marginX, 17, { align: 'right' });
 
         // ── Nome da rota (com quebra, evita cortar no fim da página) ──
         doc.setTextColor(ink.r, ink.g, ink.b);
