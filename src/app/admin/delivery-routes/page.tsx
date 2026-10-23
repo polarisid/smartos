@@ -50,7 +50,7 @@ type Row = {
     partsTracked: number;
 };
 
-type SortKey = "so" | "asc" | "name" | "city" | "neighborhood" | "uf" | "model" | "turn" | "tat" | "request" | "visit" | "ts" | "warranty" | "order" | "day" | "status";
+type SortKey = "so" | "asc" | "name" | "city" | "neighborhood" | "uf" | "model" | "turn" | "tat" | "tatNow" | "request" | "visit" | "ts" | "warranty" | "order" | "day" | "status";
 
 const parseBrDate = (text?: string): number => {
     const m = /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(text || "");
@@ -60,6 +60,21 @@ const parseBrDate = (text?: string): number => {
 };
 
 const statusOf = (r: Row) => (r.finalizedAt ? "Finalizada" : r.childName ? "Programada" : r.pendingAt ? "Pendência" : r.day ? "Com dia" : "A programar");
+
+// TAT atual: dias desde a data da solicitação até (1) a finalização, se já foi atendida; (2) o dia programado, se
+// está programada; (3) hoje, se ainda não tem dia. Devolve também até quando foi contado, para explicar na tela.
+const MS_DAY = 24 * 60 * 60 * 1000;
+function tatNow(r: Row): { days: number; until: string; label: string } | null {
+    const start = parseBrDate(r.stop.requestDate);
+    if (!start) return null;
+    const startDay = new Date(start); startDay.setHours(0, 0, 0, 0);
+    let end: Date; let until: string; let label: string;
+    if (r.finalizedAt) { end = new Date(r.finalizedAt); until = "finalização"; label = "até a finalização (" + format(end, "dd/MM") + ")"; }
+    else if (r.day) { end = new Date(r.day + "T12:00:00"); until = "dia programado"; label = "até o dia programado (" + format(end, "dd/MM") + ")"; }
+    else { end = new Date(); until = "hoje"; label = "até hoje (sem dia programado)"; }
+    end.setHours(0, 0, 0, 0);
+    return { days: Math.max(0, Math.round((end.getTime() - startDay.getTime()) / MS_DAY)), until, label };
+}
 
 const COLUMNS: Array<{ key: SortKey; label: string; value: (r: Row) => string | number; className?: string }> = [
     { key: "so", label: "SO Nro.", value: r => r.stop.serviceOrder, className: "font-mono font-semibold" },
@@ -72,6 +87,7 @@ const COLUMNS: Array<{ key: SortKey; label: string; value: (r: Row) => string | 
     { key: "model", label: "Modelo", value: r => r.stop.model || "", className: "font-mono text-[11px]" },
     { key: "turn", label: "Turno", value: r => r.stop.turn || "" },
     { key: "tat", label: "TAT", value: r => Number(String(r.stop.tat || "").replace(/\D/g, "")) || 0 },
+    { key: "tatNow", label: "TAT atual", value: r => tatNow(r)?.days ?? -1, className: "tabular-nums" },
     { key: "request", label: "Data Solicitação", value: r => parseBrDate(r.stop.requestDate) },
     { key: "visit", label: "1st Visit Date", value: r => parseBrDate(r.stop.firstVisitDate) },
     { key: "ts", label: "TS", value: r => r.stop.ts || "" },
@@ -811,7 +827,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 values: [
                     /^\d+$/.test(r.stop.serviceOrder) ? Number(r.stop.serviceOrder) : r.stop.serviceOrder,
                     r.stop.ascJobNumber || "", r.stop.consumerName || "", r.stop.city || "", r.stop.neighborhood || "", r.stop.state || "", r.stop.zipCode || "",
-                    r.stop.model || "", r.stop.turn || "", r.stop.tat || "", r.stop.requestDate || "", r.stop.firstVisitDate || "", r.stop.ts || "", r.stop.warrantyType || "",
+                    r.stop.model || "", r.stop.turn || "", r.stop.tat || "", tatNow(r)?.days ?? "", r.stop.requestDate || "", r.stop.firstVisitDate || "", r.stop.ts || "", r.stop.warrantyType || "",
                     st, fmtDay(r.day), r.stop.routeOrder ? r.stop.routeOrder : "",
                     r.childName || "", childStatus(child), child?.technicianName || "",
                     fmtDate(r.finalizedAt), fmtDate(r.pendingAt),
@@ -866,12 +882,12 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             { name: "Resumo", headers: ["Item", "Valor"], rows: summaryRows, widths: [38, 60] },
             {
                 name: "OS", headers: [
-                    "OS Nro.", "ASC Job No.", "Cliente", "Cidade", "Bairro", "UF", "CEP", "Modelo", "Turno", "TAT", "Data Solicitação", "1st Visit Date", "TS", "OW/LP",
+                    "OS Nro.", "ASC Job No.", "Cliente", "Cidade", "Bairro", "UF", "CEP", "Modelo", "Turno", "TAT", "TAT atual (dias)", "Data Solicitação", "1st Visit Date", "TS", "OW/LP",
                     "Situação", "Dia programado", "Ordem", "Rota dos dias", "Situação da rota", "Técnico", "Finalizada em", "Pendência em",
                     "Peças", "Qtd peças", "Peças com rastreio", "Rastreios",
                 ],
                 rows: osRows,
-                widths: [14, 16, 26, 16, 18, 10, 11, 18, 7, 6, 13, 13, 6, 7, 13, 13, 7, 30, 12, 14, 16, 16, 40, 8, 10, 40],
+                widths: [14, 16, 26, 16, 18, 10, 11, 18, 7, 6, 10, 13, 13, 6, 7, 13, 13, 7, 30, 12, 14, 16, 16, 40, 8, 10, 40],
             },
             {
                 name: "Peças", headers: ["OS Nro.", "Cliente", "Cidade", "Bairro", "Código da peça", "Descrição", "Qtd", "Envio", "Rastreio", "Situação da OS", "Dia programado", "Rota dos dias"],
@@ -1160,6 +1176,11 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 );
             case "order": return r.stop.routeOrder ? "#" + r.stop.routeOrder : "—";
             case "tat": return r.stop.tat || "";
+            case "tatNow": {
+                const t = tatNow(r);
+                if (!t) return <span className="text-muted-foreground">—</span>;
+                return <span className="font-semibold tabular-nums" title={"Dias desde a solicitação " + t.label}>{t.days}</span>;
+            }
             case "request": return r.stop.requestDate || "";
             case "visit": return r.stop.firstVisitDate || "";
             case "warranty": {
