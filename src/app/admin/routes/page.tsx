@@ -2819,6 +2819,28 @@ export default function RoutesPage() {
         return listedRoutes.filter(r => matchesRouteCode(term, r) || (r.name || "").toLowerCase().includes(term.toLowerCase()));
     }, [routeSearchTerm, listedRoutes]);
 
+    // OS que também constam em Rota de Entrega (lista de controle): aparece na busca de OS, mesmo sem rota comum.
+    const { data: deliveryRoutesForSearch = [] } = useQuery({
+        queryKey: ["delivery-routes-search", appUser?.uid, activeUnidadeId],
+        queryFn: () => routeService.getDeliveryRoutes(activeUnidadeId),
+        enabled: isRouteSearchOpen && !!appUser?.uid,
+        staleTime: 60 * 1000,
+    });
+    const deliveryByOrder = useMemo(() => {
+        const map = new Map<string, Array<{ route: Route; stop: RouteStop }>>();
+        deliveryRoutesForSearch.forEach(dr => (dr.stops || []).filter(st => !st.isReallocated).forEach(st => {
+            const list = map.get(st.serviceOrder) || [];
+            list.push({ route: dr, stop: st });
+            map.set(st.serviceOrder, list);
+        }));
+        return map;
+    }, [deliveryRoutesForSearch]);
+    const deliverySearchMatches = useMemo(() => {
+        const term = routeSearchTerm.trim();
+        if (!term) return [];
+        return Array.from(deliveryByOrder.entries()).filter(([so]) => so.includes(term)).flatMap(([, list]) => list);
+    }, [routeSearchTerm, deliveryByOrder]);
+
     const handleOpenDeleteDraftDialog = (route: Route) => {
         setRouteToDelete(route);
         setIsDeleteDraftDialogOpen(true);
@@ -3440,9 +3462,31 @@ ${rowsXml}  </Table>
                                 </Button>
                             </div>
                         ))}
+                        {deliverySearchMatches.length > 0 && (
+                            <div className="space-y-1.5">
+                                <p className="pt-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Em rota de entrega</p>
+                                {deliverySearchMatches.map(({ route, stop }, i) => (
+                                    <div key={"del-" + route.id + "-" + stop.serviceOrder + i} className="flex items-center justify-between gap-3 rounded-lg border border-sky-300/60 bg-sky-50/60 p-2.5 dark:border-sky-900 dark:bg-sky-950/20">
+                                        <div className="min-w-0">
+                                            <p className="flex items-center gap-1.5 font-mono text-sm font-bold">
+                                                {stop.serviceOrder}
+                                                <Badge variant="outline" className="border-sky-300 bg-sky-100 px-1.5 py-0 text-[9px] text-sky-800 dark:bg-sky-950 dark:text-sky-300">Rota de entrega</Badge>
+                                            </p>
+                                            <p className="truncate text-xs text-muted-foreground">
+                                                {route.name} · {stop.city}{stop.plannedDay ? " · dia " + format(new Date(stop.plannedDay + "T12:00:00"), "dd/MM") : " · sem dia programado"}
+                                            </p>
+                                            <div className="mt-0.5"><RouteCodeTag route={route} /></div>
+                                        </div>
+                                        <Button size="sm" variant="outline" className="shrink-0" asChild>
+                                            <a href="/admin/delivery-routes"><Eye className="mr-1.5 h-3.5 w-3.5" /> Abrir</a>
+                                        </Button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                         {routeSearchTerm.trim() === "" ? (
                             <p className="text-sm text-muted-foreground text-center py-6">Digite um número de OS para buscar.</p>
-                        ) : routeSearchResults.length === 0 && routeSearchRoutes.length === 0 ? (
+                        ) : routeSearchResults.length === 0 && routeSearchRoutes.length === 0 && deliverySearchMatches.length === 0 ? (
                             <p className="text-sm text-muted-foreground text-center py-6">Nenhuma OS ou rota encontrada nas rotas listadas.</p>
                         ) : (
                             routeSearchResults.map(({ route, stop, status }, i) => (
@@ -3462,6 +3506,11 @@ ${rowsXml}  </Table>
                                                 {status === 'completed' ? "Concluída" : status === 'pending' ? "Pendência" : "A fazer"}
                                             </Badge>
                                         </p>
+                                        {(deliveryByOrder.get(stop.serviceOrder) || []).length > 0 && (
+                                            <p className="mb-0.5 text-[10px] font-semibold text-sky-700 dark:text-sky-400">
+                                                Também na rota de entrega: {(deliveryByOrder.get(stop.serviceOrder) || []).map(d => d.route.name).join(", ")}
+                                            </p>
+                                        )}
                                         <p className="text-xs text-muted-foreground truncate">{route.isDraft && <span className="mr-1 rounded border border-amber-300 bg-amber-50 px-1 text-[9px] font-bold uppercase text-amber-800">Rascunho</span>}{route.name} · {stop.city}</p>
                                     </div>
                                     <Button
