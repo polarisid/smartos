@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, X } from "lucide-react";
+import { Copy, FileText, Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import Link from "next/link";
@@ -25,6 +25,9 @@ import { HelpTip } from "@/components/HelpTip";
 import { parseRouteText } from "@/lib/parseRouteText";
 import { optimizeRouteStopsAsync, prewarmStopCoordinates } from "@/lib/routeOptimizer";
 import { RouteEndpointsFields } from "@/components/routes/RouteEndpointsFields";
+import { reconstructRouteText } from "@/lib/routeText";
+import { copyToClipboard } from "@/lib/clipboard";
+import { RouteCodeTag } from "@/components/routes/RouteCodeTag";
 import { configService } from "@/services/supabase/configService";
 import { downloadSpreadsheet, type SheetRow } from "@/lib/spreadsheetXml";
 import { fetchDurationMatrixMin } from "@/lib/routeLegs";
@@ -343,6 +346,11 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const [creatingChildren, setCreatingChildren] = useState(false);
     const [createProgress, setCreateProgress] = useState("");
     const [optimizingOrder, setOptimizingOrder] = useState(false);
+
+    // Texto da rota (formato da planilha) e remoção de OS da rota de entrega.
+    const [textOpen, setTextOpen] = useState(false);
+    const [removeList, setRemoveList] = useState<string[] | null>(null);
+    const [removing, setRemoving] = useState(false);
 
     // Peças da OS: enquanto uma peça ainda não tem rastreio (não foi enviada), dá para trocar o código, a descrição e a
     // quantidade, remover ou incluir outra. Peça com rastreio fica travada (já foi enviada).
@@ -872,6 +880,41 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         toast({ title: "Planilha exportada", description: rows.length + " OS e " + partRows.length + " peças, com a situação de cada uma." });
     };
 
+    const routeTextValue = useMemo(() => reconstructRouteText((route?.stops || []).filter(st => !st.isReallocated)), [route]);
+    const handleCopyRouteText = async () => {
+        const ok = await copyToClipboard(routeTextValue);
+        toast(ok ? { title: "Texto copiado", description: "Cole onde precisar (planilha, e-mail, outra rota)." } : { variant: "destructive", title: "Não foi possível copiar", description: "Selecione o texto e copie à mão." });
+    };
+
+    // Remove OS da rota de entrega (lê a rota na hora e grava com a trava de edição simultânea).
+    const handleRemoveOrders = async () => {
+        if (!removeList || removeList.length === 0) return;
+        setRemoving(true);
+        try {
+            const drop = new Set(removeList);
+            for (let attempt = 0; attempt < 5; attempt++) {
+                const fresh = await routeService.getById(routeId);
+                if (!fresh) throw new Error("Rota de entrega não encontrada");
+                const stops = (fresh.stops || []).filter(st => !drop.has(st.serviceOrder));
+                try {
+                    await routeService.update(routeId, { stops }, { expectedUpdatedAt: fresh.updatedAt || null });
+                    break;
+                } catch (e) {
+                    if (e instanceof RouteConflictError && attempt < 4) continue;
+                    throw e;
+                }
+            }
+            setSelected(prev => { const n = new Set(prev); removeList.forEach(so => n.delete(so)); return n; });
+            await refresh();
+            toast({ title: removeList.length === 1 ? "OS " + removeList[0] + " removida" : removeList.length + " OS removidas", description: "Saiu da rota de entrega." });
+            setRemoveList(null);
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível remover", description: e?.message });
+        } finally {
+            setRemoving(false);
+        }
+    };
+
     const handleClearOrder = async () => {
         const scope = orderScope().filter(r => r.stop.routeOrder);
         if (scope.length === 0) return;
@@ -1057,6 +1100,15 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const renderCell = (r: Row, key: string): ReactNode => {
         const so = r.stop.serviceOrder;
         switch (key) {
+            case "so":
+                return (
+                    <span className="inline-flex items-center gap-1.5">
+                        {r.stop.serviceOrder}
+                        <button type="button" className="rounded p-0.5 text-muted-foreground/50 hover:bg-destructive/10 hover:text-destructive" title="Remover esta OS da rota de entrega" onClick={(e) => { e.stopPropagation(); setRemoveList([r.stop.serviceOrder]); }}>
+                            <Trash2 className="h-3 w-3" />
+                        </button>
+                    </span>
+                );
             case "order": return r.stop.routeOrder ? "#" + r.stop.routeOrder : "—";
             case "tat": return r.stop.tat || "";
             case "request": return r.stop.requestDate || "";
@@ -1123,13 +1175,16 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 <div className="flex items-center gap-3">
                     <Button variant="outline" size="sm" onClick={onBack}><ArrowLeft className="mr-1.5 h-4 w-4" /> Rotas de Entrega</Button>
                     <div>
-                        <h1 className="text-xl font-bold flex items-center gap-2"><Truck className="h-5 w-5" /> {route.name}</h1>
+                        <h1 className="text-xl font-bold flex items-center gap-2"><Truck className="h-5 w-5" /> {route.name} <RouteCodeTag id={route.id} /></h1>
                         <p className="text-xs text-muted-foreground">Criada em {format(new Date(route.createdAt), "dd/MM/yyyy")} · rota de controle (não vai para os técnicos)</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
                     <Button variant="outline" size="icon" className="text-muted-foreground hover:text-destructive" title="Excluir esta rota de entrega" onClick={() => setConfirmDelete(true)}>
                         <Trash2 className="h-4 w-4" />
+                    </Button>
+                    <Button variant="outline" onClick={() => setTextOpen(true)} title="Mostra o texto da rota no formato da planilha, para copiar">
+                        <FileText className="mr-2 h-4 w-4" /> Texto da rota
                     </Button>
                     <Button variant="outline" onClick={handleExportSheet} title="Baixa a planilha completa: OS, peças com rastreio, datas e situação de cada uma">
                         <Download className="mr-2 h-4 w-4" /> Exportar planilha
@@ -1300,6 +1355,8 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CalendarPlus className="mr-1.5 h-3.5 w-3.5" />} Programar para este dia
                 </Button>
                 <Button size="sm" variant="ghost" disabled={selected.size === 0 || saving} onClick={async () => { await setDays(Array.from(selected), ""); setSelected(new Set()); }}>Limpar dia</Button>
+                <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={selected.size === 0 || saving} onClick={() => setRemoveList(Array.from(selected))} title="Tira as OS selecionadas da rota de entrega">
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remover da rota</Button>
                 <span className="text-[11px] text-muted-foreground">Só OS não finalizadas e sem rota filha podem ser selecionadas.</span>
             </div>
 
@@ -1371,6 +1428,48 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             </AlertDialog>
 
             {/* Criar rotas filhas */}
+            <Dialog open={textOpen} onOpenChange={setTextOpen}>
+                <DialogContent className="max-w-3xl">
+                    <DialogHeader>
+                        <DialogTitle>Texto da rota</DialogTitle>
+                        <DialogDescription>
+                            Mesmo formato da planilha usada para criar as rotas (cabeçalho + uma linha por OS, separado por tabulação). Dá para copiar e colar em outra rota, na planilha ou num e-mail.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <textarea
+                        readOnly
+                        value={routeTextValue}
+                        onFocus={e => e.currentTarget.select()}
+                        className="h-[50vh] w-full resize-none rounded-md border bg-muted/30 p-3 font-mono text-xs leading-relaxed"
+                    />
+                    <p className="text-xs text-muted-foreground">{(route?.stops || []).filter(st => !st.isReallocated).length} OS nesta rota de entrega.</p>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setTextOpen(false)}>Fechar</Button>
+                        <Button onClick={handleCopyRouteText}><Copy className="mr-2 h-4 w-4" /> Copiar texto</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <AlertDialog open={!!removeList} onOpenChange={(o) => { if (!o && !removing) setRemoveList(null); }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Remover {removeList && removeList.length === 1 ? "a OS " + removeList[0] : removeList?.length + " OS"} da rota de entrega?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {removeList && removeList.length === 1 ? "Ela sai" : "Elas saem"} apenas desta rota de entrega (a lista de controle).
+                            {removeList && rows.some(r => removeList.includes(r.stop.serviceOrder) && r.childName)
+                                ? " Atenção: parte dessas OS já está em rota dos dias; lá elas continuam até você tirá-las de cada rota."
+                                : ""} As peças e rastreios dessa OS aqui também saem. Isso não pode ser desfeito.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={removing}>Voltar</AlertDialogCancel>
+                        <AlertDialogAction disabled={removing} onClick={(e) => { e.preventDefault(); void handleRemoveOrders(); }}>
+                            {removing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Remover
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
             <Dialog open={!!partsRow} onOpenChange={(o) => { if (!o && !partsSaving) setPartsRow(null); }}>
                 <DialogContent className="max-w-xl">
                     <DialogHeader>
