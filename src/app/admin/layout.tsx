@@ -28,7 +28,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
-import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera, Calculator, Loader2, Building2, KeyRound, Copy, Check, Shuffle, LifeBuoy } from "lucide-react"
+import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera, Calculator, Loader2, Building2, KeyRound, Copy, Check, Shuffle, LifeBuoy, ListChecks } from "lucide-react"
 import { Logo } from "@/components/Logo"
 import { unidadeService } from "@/services/supabase/unidadeService"
 import { type Unidade } from "@/lib/data"
@@ -220,6 +220,7 @@ const NAV_GROUPS = [
     label: "Operação",
     items: [
       { href: '/admin/service-orders', label: 'Ordens de Serviço', Icon: ClipboardCheck, tooltip: 'Ordens de Serviço' },
+      { href: '/admin/atendimentos', label: 'Atendimentos', Icon: ListChecks, tooltip: 'Atendimentos: todas as OS em rotas, com TAT atual e projetado' },
       { href: '/admin/routes', label: 'Rotas', Icon: Route, tooltip: 'Rotas' },
       { href: '/admin/delivery-routes', label: 'Rotas de Entrega', Icon: Truck, tooltip: 'Rotas de Entrega: controle de peças e OS, com rotas filhas por dia' },
       { href: '/admin/planejamento', label: 'Planejamento', Icon: CalendarDays, tooltip: 'Planejamento de Rotas' },
