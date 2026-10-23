@@ -68,6 +68,7 @@ const toDayKey = (ms: number) => format(new Date(ms), "yyyy-MM-dd");
 const dateMs = (d: unknown): number => (d instanceof Date ? d.getTime() : d ? new Date(d as any).getTime() : 0);
 
 const kindOf = (r: Route): RouteKind => (r.kind === "delivery" ? "Rota de entrega" : r.isDraft ? "Rascunho" : r.isActive ? "Rota ativa" : "Rota finalizada");
+const routeLabel = (r: Route) => (r.name || "Sem nome") + " · " + routeCode(r);
 const kindRank: Record<RouteKind, number> = { "Rota ativa": 0, "Rascunho": 1, "Rota de entrega": 2, "Rota finalizada": 3 };
 
 const tatClass = (n: number | null, muted = false) =>
@@ -96,7 +97,7 @@ const COLUMNS: Array<{ key: SortKey; label: string; value: (i: Item) => string |
     { key: "parts", label: "Peças", value: i => i.partsTotal },
 ];
 
-type Prefs = { status: string[]; kind: string[]; route: string[]; tech: string[]; city: string[]; neighborhood: string[]; warranty: string[]; turn: string[]; tatMin: string; sorts: SortLevel[] };
+type Prefs = { includeFinished: boolean; status: string[]; kind: string[]; route: string[]; tech: string[]; city: string[]; neighborhood: string[]; warranty: string[]; turn: string[]; tatMin: string; sorts: SortLevel[] };
 function loadPrefs(): Partial<Prefs> {
     try { return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}"); } catch { return {}; }
 }
@@ -124,6 +125,8 @@ export default function AtendimentosPage() {
 
     const initial = useMemo(() => (typeof window === "undefined" ? {} : loadPrefs()), []);
     const [search, setSearch] = useState("");
+    // Rotas finalizadas ficam de fora (milhares de OS antigas); dá para incluí-las.
+    const [includeFinished, setIncludeFinished] = useState<boolean>(initial.includeFinished ?? false);
     const [fStatus, setFStatus] = useState<Set<string>>(new Set(initial.status || []));
     const [fKind, setFKind] = useState<Set<string>>(new Set(initial.kind || []));
     const [fRoute, setFRoute] = useState<Set<string>>(new Set(initial.route || []));
@@ -146,7 +149,7 @@ export default function AtendimentosPage() {
 
         type Entry = { route: Route; stop: RouteStop };
         const byOrder = new Map<string, Entry[]>();
-        [...regularRoutes, ...deliveryRoutes].filter(r => !r.isCanceled).forEach(route => {
+        [...regularRoutes, ...deliveryRoutes].filter(r => !r.isCanceled && (includeFinished || kindOf(r) !== "Rota finalizada")).forEach(route => {
             (route.stops || []).filter(st => !st.isReallocated && st.serviceOrder).forEach(stop => {
                 const list = byOrder.get(stop.serviceOrder);
                 if (list) list.push({ route, stop }); else byOrder.set(stop.serviceOrder, [{ route, stop }]);
@@ -201,7 +204,7 @@ export default function AtendimentosPage() {
             });
         });
         return out;
-    }, [regularRoutes, deliveryRoutes, serviceOrders]);
+    }, [regularRoutes, deliveryRoutes, serviceOrders, includeFinished]);
 
     // ── Filtros ──
     const options = useMemo(() => {
@@ -215,7 +218,7 @@ export default function AtendimentosPage() {
         return {
             status: STATUS_ORDER.map(value => ({ value, count: statusCounts.get(value) || 0 })).filter(o => o.count > 0),
             kind: count(i => i.routeKind),
-            route: count(i => i.route.name),
+            route: count(i => routeLabel(i.route)),
             tech: count(i => i.technician),
             city: count(i => i.stop.city || ""),
             neighborhood: count(i => i.stop.neighborhood || ""),
@@ -230,7 +233,7 @@ export default function AtendimentosPage() {
         const list = items.filter(i => {
             if (fStatus.size && !fStatus.has(i.status)) return false;
             if (fKind.size && !fKind.has(i.routeKind)) return false;
-            if (fRoute.size && !fRoute.has(i.route.name)) return false;
+            if (fRoute.size && !fRoute.has(routeLabel(i.route))) return false;
             if (fTech.size && !fTech.has(i.technician)) return false;
             if (fCity.size && !fCity.has(i.stop.city || "")) return false;
             if (fNeighborhood.size && !fNeighborhood.has(i.stop.neighborhood || "")) return false;
@@ -261,7 +264,7 @@ export default function AtendimentosPage() {
 
     const savePrefs = () => {
         try {
-            const prefs: Prefs = { status: [...fStatus], kind: [...fKind], route: [...fRoute], tech: [...fTech], city: [...fCity], neighborhood: [...fNeighborhood], warranty: [...fWarranty], turn: [...fTurn], tatMin, sorts };
+            const prefs: Prefs = { includeFinished, status: [...fStatus], kind: [...fKind], route: [...fRoute], tech: [...fTech], city: [...fCity], neighborhood: [...fNeighborhood], warranty: [...fWarranty], turn: [...fTurn], tatMin, sorts };
             localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
             toast({ title: "Visualização padrão salva", description: "Filtros e ordenação serão aplicados sempre que abrir esta tela neste navegador." });
         } catch {
@@ -270,7 +273,7 @@ export default function AtendimentosPage() {
     };
     const resetPrefs = () => {
         try { localStorage.removeItem(PREFS_KEY); } catch { /* ok */ }
-        clearFilters(); setSorts([{ key: "tatNow", dir: "desc" }]);
+        clearFilters(); setIncludeFinished(false); setSorts([{ key: "tatNow", dir: "desc" }]);
         toast({ title: "Visualização restaurada" });
     };
 
@@ -366,7 +369,7 @@ export default function AtendimentosPage() {
                 <div>
                     <h1 className="flex items-center gap-2 text-2xl font-bold"><ListChecks className="h-6 w-6" /> Atendimentos</h1>
                     <p className="max-w-3xl text-sm text-muted-foreground">
-                        Todas as OS que estão em rotas (ativas, rascunhos e rotas de entrega), uma linha por OS, com a situação real, o TAT atual e o TAT projetado até o dia previsto.
+                        As OS das rotas em andamento (ativas, rascunhos e rotas de entrega), uma linha por OS, com a situação real, o TAT atual e o TAT projetado até o dia previsto.
                     </p>
                 </div>
                 <Button variant="outline" onClick={handleExport}><Download className="mr-2 h-4 w-4" /> Exportar planilha</Button>
@@ -398,7 +401,7 @@ export default function AtendimentosPage() {
                     </div>
                     <MultiFilter label="Situação" options={options.status} selected={fStatus} onChange={s => { setFStatus(s); setShown(PAGE); }} />
                     <MultiFilter label="Tipo de rota" options={options.kind} selected={fKind} onChange={s => { setFKind(s); setShown(PAGE); }} />
-                    <MultiFilter label="Rota" options={options.route} selected={fRoute} onChange={s => { setFRoute(s); setShown(PAGE); }} searchable />
+                    <MultiFilter label="Rotas" options={options.route} selected={fRoute} onChange={s => { setFRoute(s); setShown(PAGE); }} searchable />
                     <MultiFilter label="Técnico" options={options.tech} selected={fTech} onChange={s => { setFTech(s); setShown(PAGE); }} />
                     <MultiFilter label="Cidade" options={options.city} selected={fCity} onChange={s => { setFCity(s); setShown(PAGE); }} searchable />
                     <MultiFilter label="Bairro" options={options.neighborhood} selected={fNeighborhood} onChange={s => { setFNeighborhood(s); setShown(PAGE); }} searchable />
@@ -448,6 +451,10 @@ export default function AtendimentosPage() {
                     </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <label className="flex cursor-pointer items-center gap-1.5">
+                        <input type="checkbox" checked={includeFinished} onChange={e => { setIncludeFinished(e.target.checked); setShown(PAGE); }} />
+                        Incluir rotas finalizadas
+                    </label>
                     {hasFilters && <button type="button" onClick={clearFilters} className="text-primary hover:underline">Limpar filtros</button>}
                     <span className="ml-auto">{visible.length} de {items.length} atendimentos</span>
                 </div>
