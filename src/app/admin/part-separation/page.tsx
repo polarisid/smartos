@@ -19,6 +19,7 @@ import { partUsageInStop } from "@/lib/partUsage";
 import { Printer, Smartphone, Table as TableIcon, Activity, CheckCircle2, AlertCircle, FileBarChart2, Search, ChevronDown, PackageSearch, Save, FileDown, CheckCircle, ScanLine, Copy, Loader2, Route as RouteIcon, XCircle, Share2 } from "lucide-react";
 import { useServiceOrders } from "@/hooks/queries";
 import { matchesRouteCode, routeCode } from "@/lib/routeCode";
+import { RouteCodeTag } from "@/components/routes/RouteCodeTag";
 import { buildPriorDispatchLookup, describePriorDispatches, type PriorDispatch } from "@/lib/partDispatchHistory";
 import { useAuth } from "@/context/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -68,7 +69,9 @@ function RouteList({ getPriorDispatches, routes, onSaveChanges, onSavePart, isSu
     return (
          <div className="space-y-4">
             {routes.map((route) => {
-                const filteredStops = externalFilter ? route.stops.filter(stop => 
+                // Código (RT-…) ou nome da rota no filtro: mostra a rota inteira em vez de filtrar OS dentro dela.
+                const routeHit = !!externalFilter && (matchesRouteCode(externalFilter, route) || (route.name || "").toLowerCase().includes(externalFilter.toLowerCase()));
+                const filteredStops = externalFilter && !routeHit ? route.stops.filter(stop => 
                     stop.serviceOrder.toLowerCase().includes(externalFilter.toLowerCase()) ||
                     stop.consumerName.toLowerCase().includes(externalFilter.toLowerCase()) ||
                     stop.model.toLowerCase().includes(externalFilter.toLowerCase()) ||
@@ -94,7 +97,7 @@ function RouteList({ getPriorDispatches, routes, onSaveChanges, onSavePart, isSu
                             <div>
                                 <CardTitle className="flex items-center gap-2">
                                     {areAllPartsTracked && <CheckCircle className="h-6 w-6 text-green-600" />}
-                                    {route.name}
+                                    {route.name} <RouteCodeTag id={route.id} />
                                 </CardTitle>
                                 <CardDescription>
                                     Rota criada em {route.createdAt instanceof Date ? route.createdAt.toLocaleDateString('pt-BR') : 'N/A'} com {route.stops.length} paradas.
@@ -686,7 +689,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                     <CardHeader>
                         <div className="flex flex-wrap items-start justify-between gap-4">
                             <div>
-                                <CardTitle>{route.name}</CardTitle>
+                                <CardTitle className="flex flex-wrap items-center gap-2">{route.name} <RouteCodeTag id={route.id} /></CardTitle>
                                 <CardDescription>
                                     {`Criação: ${route.createdAt instanceof Date ? route.createdAt.toLocaleDateString('pt-BR') : 'N/A'} | Retorno: ${route.arrivalDate instanceof Date ? route.arrivalDate.toLocaleDateString('pt-BR') : 'Pendente'}`}
                                 </CardDescription>
@@ -1148,6 +1151,8 @@ export default function PartSeparationPage() {
              if (!filterText) return true;
             const filterLower = filterText.toLowerCase();
 
+            if (matchesRouteCode(filterText, route) || (route.name || "").toLowerCase().includes(filterLower)) return true;
+
             return route.stops.some(stop =>
                 stop.serviceOrder.toLowerCase().includes(filterLower) ||
                 stop.consumerName.toLowerCase().includes(filterLower) ||
@@ -1465,12 +1470,12 @@ export default function PartSeparationPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-2">
-                            <Label htmlFor="os-filter">Pesquisar por OS, Cliente, Modelo ou Peça</Label>
+                            <Label htmlFor="os-filter">Pesquisar por OS, Cliente, Modelo, Peça ou código da rota (RT-…)</Label>
                             <div className="relative">
                                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                                 <Input 
                                     id="os-filter"
-                                    placeholder="Digite para filtrar..."
+                                    placeholder="Digite para filtrar (ex.: OS, peça ou RT-3F9A-2C1B)..."
                                     value={filterText}
                                     onChange={(e) => setFilterText(e.target.value)}
                                     className="pl-8"
