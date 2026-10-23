@@ -19,6 +19,7 @@ import { MobileRouteStopCard } from "@/components/MobileRouteStopCard";
 import { RouteDetailsRow } from "@/components/RouteDetailsRow";
 import { RouteLivePlan } from "@/components/routes/RouteLivePlan";
 import { HelpTip } from "@/components/HelpTip";
+import { RouteCodeTag } from "@/components/routes/RouteCodeTag";
 import { RoutePartTracking } from "@/components/RoutePartTracking";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
@@ -212,7 +213,7 @@ export default function RoutesPage() {
                             <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div>
                                     <CardTitle className="flex items-center gap-2 text-primary">
-                                        <RouteIcon className="w-5 h-5" /> Rota: {route.name}
+                                        <RouteIcon className="w-5 h-5" /> Rota: {route.name} <RouteCodeTag id={route.id} />
                                         {pinnedRouteId === route.id && <Pin className="w-4 h-4 text-primary fill-primary/20" />}
                                         {isOwnRoute && <Badge className="text-[10px] px-1.5 py-0 font-bold">Sua rota</Badge>}
                                     </CardTitle>

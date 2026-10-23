@@ -40,6 +40,8 @@ import { DEFAULT_PLANNING_PARAMS, isRouteInProgress, simulateRoutePlan, withWeek
 import { tagStopsWithZipMismatch } from "@/lib/geocode";
 import { optimizeRouteStopsAsync } from "@/lib/routeOptimizer";
 import { fetchLegDistancesAndDurations, fetchDurationMatrixMin } from "@/lib/routeLegs";
+import { routeCode, matchesRouteCode, matchesRouteQuery } from "@/lib/routeCode";
+import { RouteCodeTag } from "@/components/routes/RouteCodeTag";
 import { formatLegTempo, copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -2835,9 +2837,12 @@ export default function RoutesPage() {
 
     // Derived display list — rascunhos sempre aparecem primeiro, independente do filtro
     // de ativas/inativas (não são "inativas", são um estado à parte, ainda não postado).
-    const filteredRoutes = showOnlyActive
+    const listedRoutes = showOnlyActive
         ? [...draftRoutes, ...activeRoutes]
         : [...draftRoutes, ...activeRoutes, ...inactiveRoutes];
+    // Busca rápida da lista por código da rota (RT-XXXX-XXXX) ou nome.
+    const [routeQuery, setRouteQuery] = useState("");
+    const filteredRoutes = routeQuery.trim() ? listedRoutes.filter(r => matchesRouteQuery(routeQuery, r)) : listedRoutes;
 
     // Busca uma OS dentro das rotas listadas (respeita o filtro "só ativas") - útil pra achar
     // rapidamente em qual rota uma OS específica está sem abrir uma por uma.
@@ -2845,7 +2850,7 @@ export default function RoutesPage() {
         const term = routeSearchTerm.trim();
         if (!term) return [];
         const results: { route: Route; stop: RouteStop; status: 'completed' | 'pending' | 'todo' }[] = [];
-        filteredRoutes.forEach(route => {
+        listedRoutes.forEach(route => {
             (route.stops || []).forEach(stop => {
                 if (!stop.serviceOrder?.includes(term)) return;
                 const relatedOsList = route.createdAt
@@ -2861,7 +2866,14 @@ export default function RoutesPage() {
             });
         });
         return results;
-    }, [routeSearchTerm, filteredRoutes, serviceOrders]);
+    }, [routeSearchTerm, listedRoutes, serviceOrders]);
+
+    // Digitou o código (ou parte do nome) de uma rota no "Buscar": mostra a própria rota além das OS encontradas.
+    const routeSearchRoutes = useMemo(() => {
+        const term = routeSearchTerm.trim();
+        if (term.length < 3) return [];
+        return listedRoutes.filter(r => matchesRouteCode(term, r) || (r.name || "").toLowerCase().includes(term.toLowerCase()));
+    }, [routeSearchTerm, listedRoutes]);
 
     const handleOpenDeleteDraftDialog = (route: Route) => {
         setRouteToDelete(route);
@@ -2939,7 +2951,7 @@ export default function RoutesPage() {
         }
 
         const HEADERS = [
-            "OS Nro.", "Nome da Rota", "Data de Saída", "Técnico", "Motorista", "ASC Job No.",
+            "OS Nro.", "Nome da Rota", "Código da Rota", "Data de Saída", "Técnico", "Motorista", "ASC Job No.",
             "Nome Consumidor", "Cidade", "Bairro", "Modelo", "Tipo de Parada",
             "Data Planejada", "Status da OS", "Motivo Pendência",
         ];
@@ -2984,6 +2996,7 @@ export default function RoutesPage() {
                     values: [
                         numericOS,
                         routeName,
+                        routeCode(route.id),
                         departure,
                         technician,
                         driver,
@@ -3026,6 +3039,7 @@ export default function RoutesPage() {
                     values: [
                         /^\d+$/.test(stop.serviceOrder) ? Number(stop.serviceOrder) : stop.serviceOrder,
                         dr.name,
+                        routeCode(dr.id),
                         '',
                         'A definir',
                         'A definir',
@@ -3270,6 +3284,10 @@ ${rowsXml}  </Table>
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
+                       <div className="relative mb-3 max-w-sm">
+                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input value={routeQuery} onChange={e => setRouteQuery(e.target.value)} placeholder="Buscar rota por código (RT-…) ou nome" className="pl-8" />
+                       </div>
                        <div className="flex items-center space-x-2 mb-4">
                             <Switch
                                 id="active-routes-filter"
@@ -3317,7 +3335,7 @@ ${rowsXml}  </Table>
 
                                         return (
                                             <TableRow key={route.id} className={!route.isActive ? "text-muted-foreground" : ""}>
-                                            <TableCell className="font-medium">{route.name}</TableCell>
+                                            <TableCell className="font-medium">{route.name}<div className="mt-0.5"><RouteCodeTag id={route.id} /></div></TableCell>
                                             <TableCell>
                                                 <div className="flex items-center gap-2">
                                                     <Users className="h-4 w-4 text-muted-foreground" />
@@ -3390,7 +3408,7 @@ ${rowsXml}  </Table>
                                         <Card key={route.id} className={cn(!route.isActive && "bg-muted/50")}>
                                             <CardHeader>
                                                 <div className="flex justify-between items-start">
-                                                    <CardTitle>{route.name}</CardTitle>
+                                                    <div className="min-w-0"><CardTitle>{route.name}</CardTitle><div className="mt-1"><RouteCodeTag id={route.id} /></div></div>
                                                     <Badge
                                                         variant={route.isDraft ? "outline" : route.isActive ? "default" : route.isCanceled ? "destructive" : "secondary"}
                                                         className={route.isDraft ? "border-amber-300 text-amber-700 bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:bg-amber-950" : undefined}
@@ -3457,7 +3475,7 @@ ${rowsXml}  </Table>
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2"><Search className="h-4 w-4" /> Buscar OS em Rota</DialogTitle>
                         <DialogDescription>
-                            Digite o número (ou parte dele) de uma OS para achar em qual rota ela está{!showOnlyActive ? "" : " (entre as rotas ativas)"}.
+                            Digite o número (ou parte dele) de uma OS para achar em qual rota ela está, ou o código da rota (RT-…){!showOnlyActive ? "" : " (entre as rotas ativas)"}.
                         </DialogDescription>
                     </DialogHeader>
                     <Input
@@ -3467,10 +3485,21 @@ ${rowsXml}  </Table>
                         onChange={(e) => setRouteSearchTerm(e.target.value)}
                     />
                     <div className="max-h-[50vh] overflow-y-auto space-y-1.5">
+                        {routeSearchRoutes.map(route => (
+                            <div key={"route-" + route.id} className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 p-2.5">
+                                <div className="min-w-0">
+                                    <p className="truncate text-sm font-semibold">{route.name}</p>
+                                    <div className="mt-0.5 flex items-center gap-1.5"><RouteCodeTag id={route.id} />{route.isDraft && <span className="rounded border border-amber-300 bg-amber-50 px-1 text-[9px] font-bold uppercase text-amber-800">Rascunho</span>}</div>
+                                </div>
+                                <Button size="sm" variant="outline" className="shrink-0" onClick={() => { setIsRouteSearchOpen(false); handleOpenViewDialog(route); }}>
+                                    <Eye className="mr-1.5 h-3.5 w-3.5" /> Ver rota
+                                </Button>
+                            </div>
+                        ))}
                         {routeSearchTerm.trim() === "" ? (
                             <p className="text-sm text-muted-foreground text-center py-6">Digite um número de OS para buscar.</p>
-                        ) : routeSearchResults.length === 0 ? (
-                            <p className="text-sm text-muted-foreground text-center py-6">Nenhuma OS encontrada nas rotas listadas.</p>
+                        ) : routeSearchResults.length === 0 && routeSearchRoutes.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-6">Nenhuma OS ou rota encontrada nas rotas listadas.</p>
                         ) : (
                             routeSearchResults.map(({ route, stop, status }, i) => (
                                 <div key={`${route.id}-${stop.serviceOrder}-${i}`} className="flex items-center justify-between gap-3 rounded-lg border p-2.5">
@@ -3510,6 +3539,7 @@ ${rowsXml}  </Table>
                 <DialogContent className="max-w-6xl w-[90vw]">
                     <DialogHeader>
                         <DialogTitle>Detalhes da Rota: {selectedRoute?.name}</DialogTitle>
+                        {selectedRoute && <div><RouteCodeTag id={selectedRoute.id} /></div>}
                          <DialogDescription>
                             Use a legenda de cores para identificar os tipos de parada.
                         </DialogDescription>

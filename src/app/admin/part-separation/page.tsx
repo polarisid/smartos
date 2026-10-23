@@ -18,6 +18,7 @@ import { entriesFromCodes, mergeServerCodes } from "@/lib/trackingCodes";
 import { partUsageInStop } from "@/lib/partUsage";
 import { Printer, Smartphone, Table as TableIcon, Activity, CheckCircle2, AlertCircle, FileBarChart2, Search, ChevronDown, PackageSearch, Save, FileDown, CheckCircle, ScanLine, Copy, Loader2, Route as RouteIcon, XCircle, Share2 } from "lucide-react";
 import { useServiceOrders } from "@/hooks/queries";
+import { matchesRouteCode, routeCode } from "@/lib/routeCode";
 import { buildPriorDispatchLookup, describePriorDispatches, type PriorDispatch } from "@/lib/partDispatchHistory";
 import { useAuth } from "@/context/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -766,6 +767,7 @@ function OsRouteSearch() {
                             part.trackingCode?.toLowerCase().includes(term)
                     );
                     if (
+                        matchesRouteCode(term, route) ||
                         stop.serviceOrder.toLowerCase().includes(term) ||
                         stop.consumerName?.toLowerCase().includes(term) ||
                         stop.model?.toLowerCase().includes(term) ||
@@ -966,6 +968,7 @@ function OsRouteSearch() {
                                     <div className="flex items-center gap-2">
                                         <RouteIcon className="h-4 w-4 text-muted-foreground" />
                                         <CardTitle className="text-base">{r.route.name}</CardTitle>
+                                        <span className="rounded border bg-muted/50 px-1.5 font-mono text-[10px] font-semibold text-muted-foreground">{routeCode(r.route.id)}</span>
                                         {getRouteStatusBadge(r.route.isActive, r.route.isCanceled, r.route.isDraft)}
                                     </div>
                                     {getOsStatusBadge(r.osStatus)}
