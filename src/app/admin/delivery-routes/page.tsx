@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Copy, FileText, Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, X } from "lucide-react";
+import { Mail, Copy, FileText, Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import Link from "next/link";
@@ -30,7 +30,8 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { RouteCodeTag } from "@/components/routes/RouteCodeTag";
 import { configService } from "@/services/supabase/configService";
 import { downloadSpreadsheet, type SheetRow } from "@/lib/spreadsheetXml";
-import { fetchDurationMatrixMin } from "@/lib/routeLegs";
+import { fetchDurationMatrixMin, fetchLegDistancesAndDurations } from "@/lib/routeLegs";
+import { copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { DEFAULT_PLANNING_PARAMS, simulateRoutePlan, formatClock } from "@/lib/routePlanning";
 import type { Route, RoutePart, RoutePoint, RouteStop } from "@/lib/data";
 import { routeService, RouteConflictError } from "@/services/supabase/routeService";
@@ -351,6 +352,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const [textOpen, setTextOpen] = useState(false);
     const [removeList, setRemoveList] = useState<string[] | null>(null);
     const [removing, setRemoving] = useState(false);
+    const [copyingEmail, setCopyingEmail] = useState(false);
 
     // Peças da OS: enquanto uma peça ainda não tem rastreio (não foi enviada), dá para trocar o código, a descrição e a
     // quantidade, remover ou incluir outra. Peça com rastreio fica travada (já foi enviada).
@@ -915,6 +917,53 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         }
     };
 
+    // E-mail da rota de entrega no mesmo modelo das outras rotas ("Copiar para e-mail"): OS agrupadas por dia programado, com
+    // km e tempo de cada trecho (saindo da base padrão e voltando a ela).
+    const handleCopyEmail = async () => {
+        if (!route) return;
+        const ordered = [...rows].sort((a, b) =>
+            (a.day || "9999").localeCompare(b.day || "9999") ||
+            (a.stop.routeOrder ?? 999999) - (b.stop.routeOrder ?? 999999));
+        if (ordered.length === 0) {
+            toast({ title: "Nada para enviar", description: "Esta rota de entrega não tem OS." });
+            return;
+        }
+        setCopyingEmail(true);
+        try {
+            const dayLabel = (day: string) => (day ? format(new Date(day + "T12:00:00"), "dd/MM/yyyy") : "");
+            const stops: RouteStop[] = ordered.map(r => ({ ...r.stop, firstVisitDate: r.day ? dayLabel(r.day) : r.stop.firstVisitDate }));
+            const legs = await fetchLegDistancesAndDurations(stops, "Aracaju", activeUnidadeId, { start: startPt, end: endPt });
+            const days = ordered.map(r => r.day).filter(Boolean).sort();
+            const emailRoute = {
+                id: route.id,
+                name: route.name,
+                technicianName: "A definir",
+                driverName: "A definir",
+                driverId: "none",
+                licensePlate: "",
+                departureDate: days.length ? new Date(days[0] + "T12:00:00") : route.departureDate,
+                arrivalDate: days.length ? new Date(days[days.length - 1] + "T12:00:00") : route.arrivalDate,
+                routeType: route.routeType,
+                isActive: false,
+                isDraft: false,
+                isCanceled: false,
+                createdAt: new Date(),
+                stops,
+                startPoint: startPt,
+                endPoint: endPt,
+            } as unknown as Route;
+            const totalKm = legs.km.reduce((a, b) => a + (b || 0), 0);
+            const ok = await copyRouteEmailToClipboard({ route: emailRoute, legKm: legs.km, legDurationsMin: legs.durationMin, totalKm });
+            toast(ok
+                ? { title: "E-mail copiado!", description: "Cole no seu cliente de e-mail." }
+                : { variant: "destructive", title: "Não foi possível copiar", description: "Tente novamente." });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível montar o e-mail", description: e?.message });
+        } finally {
+            setCopyingEmail(false);
+        }
+    };
+
     const handleClearOrder = async () => {
         const scope = orderScope().filter(r => r.stop.routeOrder);
         if (scope.length === 0) return;
@@ -1182,6 +1231,9 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 <div className="flex items-center gap-2">
                     <Button variant="outline" size="icon" className="text-muted-foreground hover:text-destructive" title="Excluir esta rota de entrega" onClick={() => setConfirmDelete(true)}>
                         <Trash2 className="h-4 w-4" />
+                    </Button>
+                    <Button variant="outline" onClick={handleCopyEmail} disabled={copyingEmail} title="Copia o e-mail da rota (OS por dia, km e tempo) para colar no seu e-mail">
+                        {copyingEmail ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />} Copiar e-mail
                     </Button>
                     <Button variant="outline" onClick={() => setTextOpen(true)} title="Mostra o texto da rota no formato da planilha, para copiar">
                         <FileText className="mr-2 h-4 w-4" /> Texto da rota
