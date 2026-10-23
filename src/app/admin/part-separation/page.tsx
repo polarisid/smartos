@@ -541,6 +541,15 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
             doc.setFontSize(15);
             doc.setTextColor(ink.r, ink.g, ink.b);
             doc.text('Resumo de Utilização de Peças', marginX, 18);
+            // Código único da rota, no canto direito do cabeçalho (para achar a rota depois pela busca).
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7);
+            doc.setTextColor(muted.r, muted.g, muted.b);
+            doc.text('CÓDIGO DA ROTA', pageWidth - marginX, 10, { align: 'right' });
+            doc.setFont('courier', 'bold');
+            doc.setFontSize(12);
+            doc.setTextColor(ink.r, ink.g, ink.b);
+            doc.text(routeCode(route.id), pageWidth - marginX, 17, { align: 'right' });
 
             // ── Nome da rota (com quebra) ──
             doc.setTextColor(ink.r, ink.g, ink.b);
@@ -1275,6 +1284,15 @@ export default function PartSeparationPage() {
         doc.setFontSize(15);
         doc.setTextColor(ink.r, ink.g, ink.b);
         doc.text('Extrato de Peças', marginX, 18);
+        // Código único da rota, no canto direito do cabeçalho (para achar a rota depois pela busca).
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(muted.r, muted.g, muted.b);
+        doc.text('CÓDIGO DA ROTA', pageWidth - marginX, 10, { align: 'right' });
+        doc.setFont('courier', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(ink.r, ink.g, ink.b);
+        doc.text(routeCode(route.id), pageWidth - marginX, 17, { align: 'right' });
 
         // ── Nome da rota (com quebra, evita cortar no fim da página) ──
         doc.setTextColor(ink.r, ink.g, ink.b);
