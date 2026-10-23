@@ -370,6 +370,25 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const [removing, setRemoving] = useState(false);
     const [copyingEmail, setCopyingEmail] = useState(false);
 
+    // Adicionar mais OS à rota de entrega: cola linhas da planilha (com o cabeçalho). OS que já estão na rota são ignoradas.
+    const [addOpen, setAddOpen] = useState(false);
+    const [addText, setAddText] = useState("");
+    const [adding, setAdding] = useState(false);
+    const addParsed = useMemo(() => (addText.trim() ? parseRouteText(addText) : []), [addText]);
+    const addPreview = useMemo(() => {
+        const existing = new Set((route?.stops || []).filter(st => !st.isReallocated).map(st => st.serviceOrder));
+        const seen = new Set<string>();
+        const fresh: RouteStop[] = [];
+        let dups = 0;
+        addParsed.forEach(st => {
+            if (!st.serviceOrder) return;
+            if (existing.has(st.serviceOrder) || seen.has(st.serviceOrder)) { dups++; return; }
+            seen.add(st.serviceOrder);
+            fresh.push(st);
+        });
+        return { fresh, dups };
+    }, [addParsed, route]);
+
     // Peças da OS: enquanto uma peça ainda não tem rastreio (não foi enviada), dá para trocar o código, a descrição e a
     // quantidade, remover ou incluir outra. Peça com rastreio fica travada (já foi enviada).
     type PartDraft = { origCode: string | null; code: string; description: string; quantity: number; tracking: string; removed?: boolean };
@@ -980,6 +999,38 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         }
     };
 
+    const handleAddOrders = async () => {
+        if (addPreview.fresh.length === 0) return;
+        setAdding(true);
+        try {
+            const newOnes = addPreview.fresh;
+            for (let attempt = 0; attempt < 5; attempt++) {
+                const fresh = await routeService.getById(routeId);
+                if (!fresh) throw new Error("Rota de entrega não encontrada");
+                const have = new Set((fresh.stops || []).filter(st => !st.isReallocated).map(st => st.serviceOrder));
+                const toAdd = newOnes.filter(st => !have.has(st.serviceOrder));
+                try {
+                    await routeService.update(routeId, { stops: [...(fresh.stops || []), ...toAdd] }, { expectedUpdatedAt: fresh.updatedAt || null });
+                    break;
+                } catch (e) {
+                    if (e instanceof RouteConflictError && attempt < 4) continue;
+                    throw e;
+                }
+            }
+            await refresh();
+            toast({
+                title: newOnes.length === 1 ? "1 OS adicionada" : newOnes.length + " OS adicionadas",
+                description: addPreview.dups > 0 ? addPreview.dups + " já estavam na rota e foram ignoradas." : "Já aparecem na tabela, a programar.",
+            });
+            setAddOpen(false);
+            setAddText("");
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível adicionar", description: e?.message });
+        } finally {
+            setAdding(false);
+        }
+    };
+
     const handleClearOrder = async () => {
         const scope = orderScope().filter(r => r.stop.routeOrder);
         if (scope.length === 0) return;
@@ -1253,6 +1304,9 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     <Button variant="outline" size="icon" className="text-muted-foreground hover:text-destructive" title="Excluir esta rota de entrega" onClick={() => setConfirmDelete(true)}>
                         <Trash2 className="h-4 w-4" />
                     </Button>
+                    <Button variant="outline" onClick={() => setAddOpen(true)} title="Cola mais OS da planilha nesta rota de entrega">
+                        <PlusCircle className="mr-2 h-4 w-4" /> Adicionar OS
+                    </Button>
                     <Button variant="outline" onClick={handleCopyEmail} disabled={copyingEmail} title="Copia o e-mail da rota (OS por dia, km e tempo) para colar no seu e-mail">
                         {copyingEmail ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />} Copiar e-mail
                     </Button>
@@ -1501,6 +1555,34 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             </AlertDialog>
 
             {/* Criar rotas filhas */}
+            <Dialog open={addOpen} onOpenChange={(o) => { if (!o && !adding) setAddOpen(false); }}>
+                <DialogContent className="max-w-3xl">
+                    <DialogHeader>
+                        <DialogTitle>Adicionar OS à rota de entrega</DialogTitle>
+                        <DialogDescription>Cole as linhas da planilha (com o cabeçalho). As OS novas entram como "A programar"; as que já estão na rota são ignoradas.</DialogDescription>
+                    </DialogHeader>
+                    <textarea
+                        value={addText}
+                        onChange={e => setAddText(e.target.value)}
+                        placeholder="Cole aqui o cabeçalho e as linhas da planilha de OS…"
+                        className="h-[38vh] w-full resize-none rounded-md border bg-background p-3 font-mono text-xs"
+                    />
+                    {addText.trim() && (
+                        <p className="rounded-md bg-muted/50 px-3 py-2 text-xs">
+                            <strong>{addPreview.fresh.length}</strong> OS nova(s) para adicionar
+                            {addPreview.dups > 0 ? <> · <strong>{addPreview.dups}</strong> já na rota (serão ignoradas)</> : null}
+                            {addParsed.length === 0 ? " · não encontrei OS no texto: confira se o cabeçalho foi colado junto." : ""}
+                        </p>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setAddOpen(false)} disabled={adding}>Cancelar</Button>
+                        <Button onClick={handleAddOrders} disabled={adding || addPreview.fresh.length === 0}>
+                            {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />} Adicionar {addPreview.fresh.length > 0 ? addPreview.fresh.length + " OS" : ""}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={textOpen} onOpenChange={setTextOpen}>
                 <DialogContent className="max-w-3xl">
                     <DialogHeader>
