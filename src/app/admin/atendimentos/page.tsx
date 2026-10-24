@@ -169,12 +169,14 @@ export default function AtendimentosPage() {
             const related = (ordersByNumber.get(so) || []).filter(os => !os.ignoreInRoute && os.date.getTime() >= sinceMs);
             const last = related.length ? related.reduce((a, b) => (b.date.getTime() > a.date.getTime() ? b : a)) : null;
             const finalizedAt = last && last.isFinalized !== false ? last.date : null;
-            const pendingAt = last && last.isFinalized === false ? last.date : null;
+            // Pendência vale até a OS ser reprogramada para um dia depois dela.
+            const pendingAtRaw = last && last.isFinalized === false ? last.date : null;
 
             const plannedMs = deliveryEntry?.stop.plannedDay
                 ? new Date(deliveryEntry.stop.plannedDay + "T12:00:00").getTime()
                 : parseBr(primary.stop.firstVisitDate);
             const plannedDay = plannedMs ? toDayKey(plannedMs) : "";
+            const pendingAt = pendingAtRaw && !(plannedMs && plannedMs + 12 * 60 * 60 * 1000 > pendingAtRaw.getTime() && dayStart(plannedMs) > dayStart(pendingAtRaw.getTime())) ? pendingAtRaw : null;
 
             let status: string;
             if (finalizedAt) status = "Finalizada";

@@ -60,7 +60,10 @@ const parseBrDate = (text?: string): number => {
     return new Date(year, Number(m[2]) - 1, Number(m[1])).getTime();
 };
 
-const statusOf = (r: Row) => (r.finalizedAt ? "Finalizada" : r.childName ? "Programada" : r.pendingAt ? "Pendência" : r.day ? "Com dia" : "A programar");
+// Pendência lançada pelo técnico vale mais que "Programada": a OS foi visitada e não foi concluída. Só deixa de valer se a OS
+// foi reprogramada para um dia DEPOIS da pendência (aí volta a ser Programada / Com dia).
+const isPending = (r: Row) => !!r.pendingAt && !(r.day && new Date(r.day + "T23:59:59").getTime() > r.pendingAt.getTime());
+const statusOf = (r: Row) => (r.finalizedAt ? "Finalizada" : isPending(r) ? "Pendência" : r.childName ? "Programada" : r.day ? "Com dia" : "A programar");
 
 // TAT atual: dias desde a data da solicitação até (1) a finalização, se já foi atendida; (2) o dia programado, se
 // está programada; (3) hoje, se ainda não tem dia. Devolve também até quando foi contado, para explicar na tela.
@@ -627,9 +630,10 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const summary = useMemo(() => ({
         total: rows.length,
         finalized: rows.filter(r => r.finalizedAt).length,
-        scheduled: rows.filter(r => !r.finalizedAt && r.childName).length,
-        withDay: rows.filter(r => !r.finalizedAt && !r.childName && r.day).length,
-        open: rows.filter(r => !r.finalizedAt && !r.childName && !r.day).length,
+        scheduled: rows.filter(r => statusOf(r) === "Programada").length,
+        pending: rows.filter(r => statusOf(r) === "Pendência").length,
+        withDay: rows.filter(r => statusOf(r) === "Com dia").length,
+        open: rows.filter(r => statusOf(r) === "A programar").length,
         parts: rows.reduce((a, r) => a + r.partsTotal, 0),
         tracked: rows.reduce((a, r) => a + r.partsTracked, 0),
     }), [rows]);
@@ -1290,11 +1294,12 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+            <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
                 {[
                     { label: "OS na rota", value: summary.total },
                     { label: "Finalizadas", value: summary.finalized },
-                    { label: "Em rota filha", value: summary.scheduled },
+                    { label: "Programadas (rota filha)", value: summary.scheduled },
+                    { label: "Pendência", value: summary.pending },
                     { label: "Com dia, sem rota", value: summary.withDay },
                     { label: "A programar", value: summary.open },
                     { label: "Peças com rastreio", value: summary.parts > 0 ? summary.tracked + "/" + summary.parts : "—" },
