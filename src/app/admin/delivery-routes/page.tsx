@@ -45,6 +45,7 @@ type Row = {
     stop: RouteStop;
     finalizedAt: Date | null;     // OS lançada como finalizada depois da criação da rota de entrega
     pendingAt: Date | null;       // última visita ficou com pendência
+    pendingNote: string;          // motivo e observações que o técnico registrou nessa pendência
     childName: string | null;     // rota filha que já leva esta OS
     day: string;                  // AAAA-MM-DD programado ("" = sem dia)
     partsTotal: number;
@@ -544,6 +545,9 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 stop,
                 finalizedAt: last && last.isFinalized !== false ? last.date : null,
                 pendingAt: last && last.isFinalized === false ? last.date : null,
+                pendingNote: last && last.isFinalized === false
+                    ? [last.pendingReason ? "Motivo: " + last.pendingReason : "", last.observations ? "Observações: " + last.observations : ""].filter(Boolean).join("\n") || "Sem motivo registrado pelo técnico."
+                    : "",
                 childName: child ? child.name : null,
                 day: stop.plannedDay || "",
                 partsTotal: parts.length,
@@ -1171,9 +1175,9 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             : "text-muted-foreground";
         return (
             <div className="flex flex-col items-start gap-0.5">
-                <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 whitespace-nowrap", cls)}>{st}</Badge>
+                <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 whitespace-nowrap", cls, st === "Pendência" && r.pendingNote && "cursor-help")} title={st === "Pendência" && r.pendingNote ? "Pendência lançada pelo técnico\n" + r.pendingNote : undefined}>{st}</Badge>
                 {r.finalizedAt && <span className="text-[10px] text-muted-foreground tabular-nums">{format(r.finalizedAt, "dd/MM HH:mm")}</span>}
-                {!r.finalizedAt && r.pendingAt && <span className="text-[10px] text-muted-foreground tabular-nums">{format(r.pendingAt, "dd/MM HH:mm")}</span>}
+                {!r.finalizedAt && r.pendingAt && <span className={cn("text-[10px] text-muted-foreground tabular-nums", r.pendingNote && "cursor-help")} title={r.pendingNote || undefined}>{format(r.pendingAt, "dd/MM HH:mm")}</span>}
                 {r.childName && <span className="text-[10px] text-muted-foreground max-w-[150px] truncate" title={r.childName}>{r.childName}</span>}
             </div>
         );

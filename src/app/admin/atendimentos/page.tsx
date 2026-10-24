@@ -44,6 +44,7 @@ type Item = {
     requestMs: number;
     finalizedAt: Date | null;
     pendingAt: Date | null;
+    pendingNote: string;
     plannedDay: string;        // AAAA-MM-DD ("" = sem dia previsto)
     status: string;
     tatNow: number | null;
@@ -102,14 +103,14 @@ function loadPrefs(): Partial<Prefs> {
     try { return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}"); } catch { return {}; }
 }
 
-const statusBadge = (st: string) => {
+const statusBadge = (st: string, note?: string) => {
     const cls =
         st === "Finalizada" ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
         : st === "Pendência" ? "border-red-300 bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
         : st === "Em rota" ? "border-blue-300 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
         : st === "Com dia" || st === "Rascunho" ? "border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
         : "text-muted-foreground";
-    return <Badge variant="outline" className={cn("whitespace-nowrap px-1.5 py-0 text-[10px]", cls)}>{st}</Badge>;
+    return <Badge variant="outline" className={cn("whitespace-nowrap px-1.5 py-0 text-[10px]", cls, st === "Pendência" && note && "cursor-help")} title={st === "Pendência" && note ? "Pendência lançada pelo técnico\n" + note : undefined}>{st}</Badge>;
 };
 
 export default function AtendimentosPage() {
@@ -197,6 +198,9 @@ export default function AtendimentosPage() {
                 requestMs,
                 finalizedAt,
                 pendingAt,
+                pendingNote: pendingAt && last
+                    ? [last.pendingReason ? "Motivo: " + last.pendingReason : "", last.observations ? "Observações: " + last.observations : ""].filter(Boolean).join("\n") || "Sem motivo registrado pelo técnico."
+                    : "",
                 plannedDay,
                 status,
                 tatNow: requestMs ? daysBetween(requestMs, finalizedAt ? finalizedAt.getTime() : now) : null,
@@ -343,7 +347,7 @@ export default function AtendimentosPage() {
             case "tatNow": return <span className={cn("tabular-nums", i.finalizedAt ? "" : tatClass(i.tatNow))} title={i.finalizedAt ? "Dias da solicitação até a finalização" : "Dias da solicitação até hoje"}>{i.tatNow ?? "—"}</span>;
             case "planned": return i.plannedDay ? format(new Date(i.plannedDay + "T12:00:00"), "dd/MM/yyyy") : <span className="text-muted-foreground">—</span>;
             case "tatProj": return <span className={cn("tabular-nums", tatClass(i.tatProjected))} title="Dias da solicitação até o dia previsto de atendimento">{i.tatProjected ?? "—"}</span>;
-            case "status": return statusBadge(i.status);
+            case "status": return statusBadge(i.status, i.pendingNote);
             case "route": return (
                 <div className="flex flex-col items-start gap-0.5">
                     <span className="max-w-[260px] truncate" title={i.route.name}>{i.route.name}</span>
