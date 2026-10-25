@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Wrench, TrendingUp, Trophy, Map, QrCode, LogIn, Menu, Download, Shield, Camera, LogOut, ClipboardCheck, FolderOpen, LifeBuoy } from "lucide-react";
+import { Wrench, TrendingUp, Trophy, Map, QrCode, LogIn, Menu, Download, Shield, Camera, LogOut, ClipboardCheck, FolderOpen, LifeBuoy, Car } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -56,6 +56,7 @@ export function Sidebar() {
         { href: "/reports", label: "Relatório", icon: Camera },
         { href: "/meus-relatorios", label: "Meus Relatórios", icon: FolderOpen },
         { href: "/scanner", label: "Scanner", icon: QrCode },
+        { href: "/veiculo", label: "Veículo", icon: Car },
       ],
     },
     {

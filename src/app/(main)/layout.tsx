@@ -17,6 +17,8 @@ import { PushPrompt } from "@/components/PushPrompt";
 import { ConnectionDiagnostics } from "@/components/ConnectionDiagnostics";
 import { warmOfflinePages } from "@/lib/offlinePages";
 import { useTrackingQueue } from "@/hooks/useTrackingQueue";
+import { useVehicleQueue } from "@/hooks/useVehicleQueue";
+import { useQueryClient } from "@tanstack/react-query";
 import { QueryCachePersistence } from "@/components/QueryCachePersistence";
 
 function AppLoadingScreen({ message }: { message: string }) {
@@ -184,6 +186,26 @@ function TrackingQueueNotice() {
   );
 }
 
+// Km e abastecimentos lançados sem internet: sobem sozinhos quando a conexão volta, de qualquer tela.
+function VehicleQueueNotice() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const pending = useVehicleQueue((r) => {
+    queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+    queryClient.invalidateQueries({ queryKey: ["vehicle-km-logs"] });
+    queryClient.invalidateQueries({ queryKey: ["vehicle-fuel-logs"] });
+    if (r.sent > 0) toast({ title: "Veículo: registros enviados", description: `${r.sent} registro(s) que estavam guardados no aparelho foram salvos.` });
+    if (r.rejected > 0) toast({ variant: "destructive", title: "Registros não enviados", description: `${r.rejected} registro(s) de veículo foram recusados pelo servidor. Confira em "Veículo" e lance de novo.` });
+  });
+  if (pending === 0) return null;
+  return (
+    <div className="border-b border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm px-4 py-2 flex items-center gap-2">
+      <CloudUpload className="h-4 w-4 shrink-0" />
+      {pending} registro(s) de km/abastecimento guardado(s) no aparelho — serão enviados sozinhos quando houver internet.
+    </div>
+  );
+}
+
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -228,6 +250,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             <QueryCachePersistence />
             <OfflineQueueBanner />
             <TrackingQueueNotice />
+            <VehicleQueueNotice />
             <PushPrompt />
             <div className="flex-1 w-full p-4 md:p-8">
                {children}

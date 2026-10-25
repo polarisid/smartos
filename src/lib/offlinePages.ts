@@ -1,6 +1,6 @@
 // Páginas do técnico que precisam abrir SEM internet. Ficam guardadas no cache "app-pages" (o mesmo que o
 // service worker consulta quando a rede falha - ver next.config.js).
-export const OFFLINE_PAGES = ["/", "/routes", "/reports", "/meus-relatorios", "/producao", "/scanner", "/dashboard", "/ranking", "/ajuda"];
+export const OFFLINE_PAGES = ["/", "/routes", "/reports", "/meus-relatorios", "/producao", "/scanner", "/dashboard", "/ranking", "/ajuda", "/veiculo"];
 
 export const PAGES_CACHE = "app-pages";
 const WARM_KEY = "smartos_pages_warmed_at";

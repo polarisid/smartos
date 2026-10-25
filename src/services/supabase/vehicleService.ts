@@ -2,8 +2,9 @@ import { supabase } from "@/lib/supabase";
 import { type Vehicle, type VehicleKmLog, type VehicleFuelLog, type VehicleFuelType, type VehicleOwnership } from "@/lib/data";
 
 type VehicleInput = Omit<Vehicle, 'id'>;
-type KmLogInput = Omit<VehicleKmLog, 'id'>;
-type FuelLogInput = Omit<VehicleFuelLog, 'id'>;
+// id opcional: o celular gera o id antes de enviar, assim reenviar o mesmo registro (fila offline) não duplica.
+type KmLogInput = Omit<VehicleKmLog, 'id'> & { id?: string };
+type FuelLogInput = Omit<VehicleFuelLog, 'id'> & { id?: string };
 
 const vehicleFromDb = (row: any): Vehicle => ({
   id: row.id,
@@ -46,6 +47,7 @@ const logFromDb = (row: any): VehicleKmLog => ({
   odometerStart: row.odometer_start,
   odometerEnd: row.odometer_end ?? undefined,
   notes: row.notes ?? undefined,
+  createdByName: row.created_by_name ?? undefined,
 });
 
 const fuelLogFromDb = (row: any): VehicleFuelLog => ({
@@ -61,10 +63,14 @@ const fuelLogFromDb = (row: any): VehicleFuelLog => ({
   station: row.station ?? undefined,
   cardLast4: row.card_last4 ?? undefined,
   notes: row.notes ?? undefined,
+  createdByName: row.created_by_name ?? undefined,
 });
 
 // 23505 = violação de unicidade (placa repetida na unidade).
 export const DUPLICATE_PLATE_CODE = '23505';
+
+// Reenvio de um registro que já tinha subido (a resposta se perdeu): a chave primária repetida significa "já está salvo".
+const isAlreadySaved = (error: any) => error?.code === DUPLICATE_PLATE_CODE;
 
 export const vehicleService = {
   async getAll(unidadeId?: string | null): Promise<Vehicle[]> {
@@ -115,6 +121,7 @@ export const vehicleService = {
     const { data: row, error } = await supabase
       .from('vehicle_km_logs')
       .insert({
+        ...(data.id ? { id: data.id } : {}),
         vehicle_id: data.vehicleId,
         route_id: data.routeId || null,
         driver_id: data.driverId || null,
@@ -122,11 +129,15 @@ export const vehicleService = {
         odometer_start: data.odometerStart,
         odometer_end: data.odometerEnd ?? null,
         notes: data.notes || null,
+        created_by_name: data.createdByName || null,
         ...(unidadeId ? { unidade_id: unidadeId } : {}),
       } as any)
       .select('id')
       .single();
-    if (error) throw error;
+    if (error) {
+      if (data.id && isAlreadySaved(error)) return data.id;
+      throw error;
+    }
     return row.id;
   },
 
@@ -160,6 +171,7 @@ export const vehicleService = {
     const { data: row, error } = await supabase
       .from('vehicle_fuel_logs')
       .insert({
+        ...(data.id ? { id: data.id } : {}),
         vehicle_id: data.vehicleId,
         driver_id: data.driverId || null,
         fuel_date: data.fuelDate,
@@ -171,11 +183,15 @@ export const vehicleService = {
         station: data.station || null,
         card_last4: data.cardLast4 || null,
         notes: data.notes || null,
+        created_by_name: data.createdByName || null,
         ...(unidadeId ? { unidade_id: unidadeId } : {}),
       } as any)
       .select('id')
       .single();
-    if (error) throw error;
+    if (error) {
+      if (data.id && isAlreadySaved(error)) return data.id;
+      throw error;
+    }
     return row.id;
   },
 

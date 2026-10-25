@@ -10,7 +10,7 @@ import { loadQueryCache, saveQueryCache } from "@/lib/offlineCache";
 const PERSISTED_KEYS = new Set([
   "routes", "service-orders", "technicians", "drivers", "checklists", "codes", "presets",
   "visit-template", "planning-params", "notifications", "live-plan-legs", "live-plan-remaining", "live-plan-matrix",
-  "producao-equipe", "tech-goals",
+  "producao-equipe", "tech-goals", "vehicles", "vehicle-km-logs",
 ]);
 
 const shouldPersist = (q: Query) => q.state.status === "success" && PERSISTED_KEYS.has(String(q.queryKey[0]));

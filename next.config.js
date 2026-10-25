@@ -22,7 +22,7 @@ const withPWA = require('next-pwa')({
     },
     {
       urlPattern: ({ url, request }) => {
-        const pages = ['/', '/routes', '/reports', '/meus-relatorios', '/producao', '/scanner', '/dashboard', '/ranking', '/ajuda'];
+        const pages = ['/', '/routes', '/reports', '/meus-relatorios', '/producao', '/scanner', '/dashboard', '/ranking', '/ajuda', '/veiculo'];
         return self.origin === url.origin && pages.includes(url.pathname) && request.headers.get('RSC') !== '1' && !url.searchParams.has('_rsc');
       },
       handler: 'NetworkFirst',

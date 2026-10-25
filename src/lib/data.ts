@@ -64,6 +64,7 @@ export type VehicleFuelLog = {
   /** Final do cartão corporativo, para conferir com a fatura. */
   cardLast4?: string;
   notes?: string;
+  createdByName?: string;
 };
 
 /** Um uso do veículo: hodômetro de saída e de chegada (km rodado = chegada - saída). */
@@ -78,6 +79,8 @@ export type VehicleKmLog = {
   /** Ausente enquanto o veículo ainda está em uso. */
   odometerEnd?: number;
   notes?: string;
+  /** Nome de quem registrou (lançamento pelo celular ou painel). */
+  createdByName?: string;
 };
 
 export type Technician = {
