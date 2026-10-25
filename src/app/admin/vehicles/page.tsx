@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlusCircle, Edit, Trash2, Car, Flag, Fuel, AlertTriangle } from "lucide-react";
+import { PlusCircle, Edit, Trash2, Car, Flag, AlertTriangle, MapPin } from "lucide-react";
 import { type Vehicle, type VehicleKmLog, type VehicleFuelLog, type VehicleFuelType, type VehicleOwnership } from "@/lib/data";
 import { computeFuelStats, consumptionDeficit, rentalStatus, type FuelLogStats } from "@/lib/vehicleFuel";
 import { useToast } from "@/hooks/use-toast";
@@ -24,6 +24,7 @@ import { vehicleService, DUPLICATE_PLATE_CODE } from "@/services/supabase/vehicl
 import { driverService } from "@/services/supabase/driverService";
 import { routeService } from "@/services/supabase/routeService";
 import { useAuth } from "@/context/AuthContext";
+import { mapsUrl } from "@/lib/geolocation";
 
 const FUEL_LABELS: Record<VehicleFuelType, string> = {
   gasolina: "Gasolina", etanol: "Etanol", flex: "Flex", diesel: "Diesel", gnv: "GNV", eletrico: "Elétrico",
@@ -50,11 +51,11 @@ const emptyVehicleForm: VehicleForm = {
 type LogForm = { vehicleId: string; logDate: string; driverId: string; routeId: string; start: string; end: string; notes: string };
 type FuelForm = {
   vehicleId: string; fuelDate: string; driverId: string; odometer: string; liters: string; totalValue: string;
-  fuelType: string; fullTank: boolean; station: string; cardLast4: string; notes: string;
+  fuelType: string; fullTank: boolean; station: string; routeId: string; notes: string;
 };
 const emptyFuelForm = (): FuelForm => ({
   vehicleId: "", fuelDate: format(new Date(), "yyyy-MM-dd"), driverId: NONE, odometer: "", liters: "", totalValue: "",
-  fuelType: NONE, fullTank: true, station: "", cardLast4: "", notes: "",
+  fuelType: NONE, fullTank: true, station: "", routeId: NONE, notes: "",
 });
 const toDec = (s: string) => (s.trim() === "" ? undefined : Number(s.replace(",", ".")));
 
@@ -397,11 +398,6 @@ export default function VehiclesPage() {
       toast({ variant: "destructive", title: "Hodômetro menor que o do último abastecimento", description: `O último foi com ${kmFmt(lastFuelOdo)} km.` });
       return;
     }
-    const card = fuelForm.cardLast4.trim();
-    if (card && !/^\d{4}$/.test(card)) {
-      toast({ variant: "destructive", title: "Final do cartão inválido", description: "Informe os 4 últimos dígitos." });
-      return;
-    }
     if (!requireUnidade()) return;
     setSubmitting(true);
     try {
@@ -415,7 +411,7 @@ export default function VehiclesPage() {
         fuelType: fuelForm.fuelType === NONE ? undefined : (fuelForm.fuelType as VehicleFuelType),
         fullTank: fuelForm.fullTank,
         station: fuelForm.station.trim(),
-        cardLast4: card,
+        routeId: fuelForm.routeId === NONE ? undefined : fuelForm.routeId,
         notes: fuelForm.notes.trim(),
       }, activeUnidadeId);
       toast({ title: "Abastecimento salvo!" });
@@ -577,13 +573,14 @@ export default function VehiclesPage() {
                           <TableHead className="text-right">Valor</TableHead>
                           <TableHead className="text-right">R$/L</TableHead>
                           <TableHead className="text-right">Consumo</TableHead>
-                          <TableHead>Cartão</TableHead>
+                          <TableHead>Rota</TableHead>
+                          <TableHead>Local</TableHead>
                           <TableHead className="text-right w-[70px]">Ações</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filteredFuel.length === 0 ? (
-                          <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground">Nenhum abastecimento.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground">Nenhum abastecimento.</TableCell></TableRow>
                         ) : filteredFuel.map(l => {
                           const st = fuelStats.get(l.id);
                           const deficit = st ? consumptionDeficit(st.kml, vehicleById.get(l.vehicleId)?.avgKml) : null;
@@ -607,7 +604,18 @@ export default function VehiclesPage() {
                                   </span>
                                 ) : "—"}
                               </TableCell>
-                              <TableCell className="font-mono">{l.cardLast4 ? `•••• ${l.cardLast4}` : "—"}</TableCell>
+                              <TableCell className="max-w-[160px] truncate">{l.routeId ? routeById.get(l.routeId) ?? "—" : "—"}</TableCell>
+                              <TableCell>
+                                {l.latitude != null && l.longitude != null ? (
+                                  <a
+                                    href={mapsUrl(l.latitude, l.longitude)} target="_blank" rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline"
+                                    title={l.locationAccuracyM != null ? `Precisão do GPS: ${Math.round(l.locationAccuracyM)} m` : undefined}
+                                  >
+                                    <MapPin className="h-3.5 w-3.5" /> Ver no mapa
+                                  </a>
+                                ) : "—"}
+                              </TableCell>
                               <TableCell className="text-right">
                                 <Button variant="ghost" size="icon" title="Excluir" onClick={() => setFuelToDelete(l)}>
                                   <Trash2 className="h-4 w-4 text-destructive" />
@@ -934,8 +942,14 @@ export default function VehiclesPage() {
                 <Input id="f-station" value={fuelForm.station} onChange={e => setFuelForm(f => ({ ...f, station: e.target.value }))} />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="f-card">Final do cartão</Label>
-                <Input id="f-card" inputMode="numeric" maxLength={4} value={fuelForm.cardLast4} onChange={e => setFuelForm(f => ({ ...f, cardLast4: e.target.value.replace(/\D/g, "") }))} placeholder="4 dígitos" />
+                <Label>Rota (opcional)</Label>
+                <Select value={fuelForm.routeId} onValueChange={v => setFuelForm(f => ({ ...f, routeId: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>Sem rota</SelectItem>
+                    {recentRoutes.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <label className="flex items-center gap-2 text-sm">

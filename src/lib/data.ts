@@ -61,8 +61,13 @@ export type VehicleFuelLog = {
   /** Tanque cheio: só entre dois abastecimentos assim o consumo (km/l) é calculável. */
   fullTank: boolean;
   station?: string;
-  /** Final do cartão corporativo, para conferir com a fatura. */
-  cardLast4?: string;
+  /** Rota em que o abastecimento aconteceu. */
+  routeId?: string;
+  /** Local do abastecimento (GPS do celular no momento do lançamento). */
+  latitude?: number;
+  longitude?: number;
+  /** Precisão do GPS, em metros. */
+  locationAccuracyM?: number;
   notes?: string;
   createdByName?: string;
 };

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, Car, CloudUpload, Flag, Fuel, Gauge } from "lucide-react";
+import { AlertTriangle, Car, CloudUpload, Flag, Fuel, Gauge, MapPin } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -18,10 +18,12 @@ import {
   flushVehicleQueue, pendingKmCloses, pendingKmLogs, saveFuel, saveKmClose, saveKmOpen, subscribeVehicleQueue,
 } from "@/lib/offlineVehicleQueue";
 import { rentalStatus } from "@/lib/vehicleFuel";
+import { getCurrentPlace, PLACE_FAIL_MESSAGE } from "@/lib/geolocation";
+import { useActiveRoutes } from "@/hooks/queries";
 import type { VehicleKmLog } from "@/lib/data";
 
 const LAST_VEHICLE_KEY = "smartos_last_vehicle_v1";
-const LAST_CARD_KEY = "smartos_last_card_v1";
+const NONE = "none";
 
 const kmFmt = (n: number) => n.toLocaleString("pt-BR");
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -93,9 +95,25 @@ export default function VehiclePage() {
   const [value, setValue] = useState("");
   const [fullTank, setFullTank] = useState(true);
   const [station, setStation] = useState("");
-  const [card, setCard] = useState("");
+  const [routeId, setRouteId] = useState(NONE);
 
-  useEffect(() => { setCard(readStored(LAST_CARD_KEY)); }, []);
+  // Rotas em andamento (as do técnico primeiro). Vêm do cache do aparelho quando não há internet.
+  const { data: activeRoutes = [] } = useActiveRoutes();
+  const routeOptions = useMemo(
+    () => [...activeRoutes].sort((a, b) => Number(b.technicianId === appUser?.uid) - Number(a.technicianId === appUser?.uid)),
+    [activeRoutes, appUser?.uid]
+  );
+  const routeNameById = useMemo(() => new Map(activeRoutes.map(r => [r.id, r.name])), [activeRoutes]);
+
+  // Já vem com a rota quando só há uma atribuída ao técnico (ou uma com a placa do veículo selecionado).
+  useEffect(() => {
+    if (routeId !== NONE || !vehicle) return;
+    const plate = vehicle.plate.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    const mine = routeOptions.filter(r => r.technicianId === appUser?.uid);
+    const byPlate = routeOptions.filter(r => (r.licensePlate || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase() === plate);
+    const pick = mine.length === 1 ? mine[0] : byPlate.length === 1 ? byPlate[0] : undefined;
+    if (pick) setRouteId(pick.id);
+  }, [routeOptions, vehicle, routeId, appUser?.uid]);
 
   // Ao trocar de veículo, a saída e o abastecimento já vêm com o hodômetro conhecido dele.
   useEffect(() => {
@@ -136,6 +154,7 @@ export default function VehiclePage() {
     try {
       const r = await saveKmOpen({
         vehicleId: vehicle.id, logDate: format(new Date(), "yyyy-MM-dd"), odometerStart: start,
+        routeId: routeId === NONE ? undefined : routeId,
         notes: kmNotes.trim() || undefined, createdByName: appUser?.name,
       }, activeUnidadeId);
       setKmNotes("");
@@ -181,21 +200,20 @@ export default function VehiclePage() {
       toast({ variant: "destructive", title: "Informe litros e valor", description: "Os dois precisam ser maiores que zero." });
       return;
     }
-    const c = card.trim();
-    if (c && !/^\d{4}$/.test(c)) {
-      toast({ variant: "destructive", title: "Final do cartão inválido", description: "Informe os 4 últimos dígitos." });
-      return;
-    }
     setSaving(true);
     try {
+      // Local do abastecimento: o GPS funciona sem internet. Sem permissão/sinal, salva mesmo assim e avisa.
+      const loc = await getCurrentPlace();
       const r = await saveFuel({
         vehicleId: vehicle.id, fuelDate: format(new Date(), "yyyy-MM-dd"), odometerKm: fOdo, liters: fLiters,
         totalValue: fValue, fuelType: vehicle.fuelType && vehicle.fuelType !== "flex" ? vehicle.fuelType : undefined,
-        fullTank, station: station.trim() || undefined, cardLast4: c || undefined, createdByName: appUser?.name,
+        fullTank, station: station.trim() || undefined, createdByName: appUser?.name,
+        routeId: routeId === NONE ? undefined : routeId,
+        ...(loc.ok ? { latitude: loc.place.latitude, longitude: loc.place.longitude, locationAccuracyM: loc.place.accuracyM } : {}),
       }, activeUnidadeId);
-      if (c) storeValue(LAST_CARD_KEY, c);
       setLiters(""); setValue(""); setStation("");
-      afterSave(r.queued, "Abastecimento registrado!");
+      afterSave(r.queued, loc.ok ? "Abastecimento registrado com a localização!" : "Abastecimento registrado!");
+      if (!loc.ok) toast({ variant: "destructive", title: "Salvo sem localização", description: PLACE_FAIL_MESSAGE[loc.reason] });
     } catch (error) {
       console.error("Error saving fuel:", error);
       toast({ variant: "destructive", title: "Erro ao salvar" });
@@ -229,6 +247,17 @@ export default function VehiclePage() {
 
       {vehicle && (
         <>
+          <div className="grid gap-2">
+            <Label>Rota</Label>
+            <Select value={routeId} onValueChange={setRouteId}>
+              <SelectTrigger className="h-12 text-base"><SelectValue placeholder="Sem rota" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Sem rota</SelectItem>
+                {routeOptions.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
           <Card>
             <CardContent className="flex flex-wrap items-center justify-between gap-2 p-4">
               <div>
@@ -305,7 +334,7 @@ export default function VehiclePage() {
                   <p className="text-sm font-medium text-muted-foreground">Últimos usos</p>
                   {logs.filter(l => l.odometerEnd != null).slice(0, 4).map(l => (
                     <div key={l.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-                      <span>{dayLabel(l.logDate)}{l.createdByName ? ` · ${l.createdByName}` : ""}</span>
+                      <span>{dayLabel(l.logDate)}{l.createdByName ? ` · ${l.createdByName}` : ""}{l.routeId && routeNameById.get(l.routeId) ? ` · ${routeNameById.get(l.routeId)}` : ""}</span>
                       <span className="font-semibold">{kmFmt(l.odometerEnd! - l.odometerStart)} km</span>
                     </div>
                   ))}
@@ -340,21 +369,18 @@ export default function VehiclePage() {
                   {fLiters && fValue && fLiters > 0 && fValue > 0 && (
                     <p className="text-sm text-muted-foreground">Preço por litro: <span className="font-semibold text-foreground">{brl(fValue / fLiters)}</span></p>
                   )}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-2">
-                      <Label htmlFor="fs">Posto (opcional)</Label>
-                      <Input id="fs" className="h-12" value={station} onChange={e => setStation(e.target.value)} />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="fc">Final do cartão</Label>
-                      <Input id="fc" inputMode="numeric" maxLength={4} className="h-12" value={card} onChange={e => setCard(e.target.value.replace(/\D/g, ""))} placeholder="4 dígitos" />
-                    </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="fs">Posto (opcional)</Label>
+                    <Input id="fs" className="h-12" value={station} onChange={e => setStation(e.target.value)} />
                   </div>
                   <label className="flex items-center gap-3 text-base">
                     <input type="checkbox" className="h-5 w-5" checked={fullTank} onChange={e => setFullTank(e.target.checked)} />
                     Tanque cheio
                   </label>
-                  <Button className="h-12 text-base" onClick={registerFuel} disabled={saving}>{saving ? "Salvando..." : "Registrar abastecimento"}</Button>
+                  <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <MapPin className="h-3.5 w-3.5 shrink-0" /> O local do abastecimento é registrado pelo GPS do celular ao salvar.
+                  </p>
+                  <Button className="h-12 text-base" onClick={registerFuel} disabled={saving}>{saving ? "Obtendo localização e salvando..." : "Registrar abastecimento"}</Button>
                 </CardContent>
               </Card>
             </TabsContent>
