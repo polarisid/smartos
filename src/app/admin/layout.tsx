@@ -28,7 +28,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
-import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera, Calculator, Loader2, Building2, KeyRound, Copy, Check, Shuffle, LifeBuoy, ListChecks } from "lucide-react"
+import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera, Calculator, Loader2, Building2, KeyRound, Copy, Check, Shuffle, LifeBuoy, ListChecks, Car } from "lucide-react"
 import { Logo } from "@/components/Logo"
 import { unidadeService } from "@/services/supabase/unidadeService"
 import { type Unidade } from "@/lib/data"
@@ -236,6 +236,7 @@ const NAV_GROUPS = [
     items: [
       { href: '/admin/technicians', label: 'Técnicos', Icon: UsersIcon, tooltip: 'Técnicos' },
       { href: '/admin/drivers', label: 'Motoristas', Icon: Truck, tooltip: 'Motoristas' },
+      { href: '/admin/vehicles', label: 'Veículos e Km', Icon: Car, tooltip: 'Veículos e controle de km rodado' },
       { href: '/admin/users', label: 'Usuários', Icon: Users, tooltip: 'Usuários' },
       { href: '/admin/codes', label: 'Códigos', Icon: Tag, tooltip: 'Códigos' },
       { href: '/admin/presets', label: 'Presets', Icon: Bookmark, tooltip: 'Presets' },

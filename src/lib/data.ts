@@ -22,6 +22,35 @@ export type Driver = {
   phone: string;
 };
 
+export type VehicleFuelType = 'gasolina' | 'etanol' | 'flex' | 'diesel' | 'gnv' | 'eletrico';
+
+export type Vehicle = {
+  id: string;
+  plate: string;
+  model?: string;
+  fuelType?: VehicleFuelType;
+  /** Consumo de referência (km por litro). */
+  avgKml?: number;
+  /** Hodômetro atual (km) - avança sozinho quando um registro de km é fechado. */
+  currentOdometerKm?: number;
+  isActive: boolean;
+  notes?: string;
+};
+
+/** Um uso do veículo: hodômetro de saída e de chegada (km rodado = chegada - saída). */
+export type VehicleKmLog = {
+  id: string;
+  vehicleId: string;
+  routeId?: string;
+  driverId?: string;
+  /** Dia do uso, no formato YYYY-MM-DD. */
+  logDate: string;
+  odometerStart: number;
+  /** Ausente enquanto o veículo ainda está em uso. */
+  odometerEnd?: number;
+  notes?: string;
+};
+
 export type Technician = {
   id: string;
   name: string;
