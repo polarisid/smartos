@@ -41,11 +41,6 @@ import { useAuth } from "@/context/AuthContext";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useRouter } from "next/navigation";
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-import { pdfjs } from 'react-pdf';
-
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-
 
 type FieldWithPosition = ChecklistField & { x: number; y: number };
 
@@ -85,6 +80,7 @@ function TestChecklistDialog({ template }: { template: ChecklistTemplate | null 
         try {
             const pdfUrl = `${window.location.origin}${template.pdfUrl}`;
             const existingPdfBytes = await fetch(pdfUrl).then(res => res.arrayBuffer());
+            const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
             const pdfDoc = await PDFDocument.load(existingPdfBytes);
             const pages = pdfDoc.getPages();
             

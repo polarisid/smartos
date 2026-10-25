@@ -105,7 +105,7 @@ export default function CommandCenterPage() {
 
                 // 60-day window needed for route completion tracking (past stops)
                 const sixtyDaysAgo = subDays(new Date(), 60);
-                const allOrdersData = await serviceOrderService.getAll(activeUnidadeId);
+                const allOrdersData = await serviceOrderService.getAll(activeUnidadeId, sixtyDaysAgo);
                 const soQuery = allOrdersData.filter(os => os.date >= sixtyDaysAgo);
                 
                 // Narrow 2-day window just for the Ontem × Hoje comparison chart

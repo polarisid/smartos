@@ -2,7 +2,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import * as XLSX from 'xlsx';
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { 
@@ -282,6 +281,7 @@ export default function CodesPage() {
               const data = e.target?.result;
               if (!data) throw new Error("Não foi possível ler o arquivo.");
 
+              const XLSX = await import('xlsx');
               const workbook = XLSX.read(data, { type: 'array' });
               const sheetName = workbook.SheetNames[0];
               const worksheet = workbook.Sheets[sheetName];
@@ -412,7 +412,7 @@ export default function CodesPage() {
 
   // Exporta no MESMO formato aceito pelo import (colunas tipo/categoria/codigo/descricao),
   // pra dar pra editar em planilha e reimportar direto.
-  const handleExport = () => {
+  const handleExport = async () => {
     const rows: { tipo: string; categoria: string; codigo: string; descricao: string }[] = [];
     (['TV/AV', 'DA'] as const).forEach(cat => {
       symptoms[cat].forEach(item => rows.push({ tipo: 'sintoma', categoria: cat, codigo: item.code, descricao: item.description }));
@@ -424,6 +424,7 @@ export default function CodesPage() {
       return;
     }
 
+    const XLSX = await import('xlsx');
     const worksheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Codigos");

@@ -65,8 +65,14 @@ export default function TriageAdminPage() {
     useEffect(() => {
         loadData();
         // Optional: Poll every 30s to keep it fresh
-        const interval = setInterval(loadData, 30000);
-        return () => clearInterval(interval);
+        // Com a aba oculta não busca; ao voltar para ela, atualiza na hora.
+        const interval = setInterval(() => { if (!document.hidden) loadData(); }, 30000);
+        const onVisible = () => { if (!document.hidden) loadData(); };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => {
+            clearInterval(interval);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
     }, [activeUnidadeId]);
 
     const handleCreateTriage = async () => {

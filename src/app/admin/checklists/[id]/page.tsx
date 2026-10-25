@@ -11,14 +11,13 @@ import { useToast } from '@/hooks/use-toast';
 import { checklistService } from '@/services/supabase/checklistService';
 import { type ChecklistTemplate, type ChecklistField, type RouteStop } from '@/lib/data';
 import { ArrowLeft, PlusCircle, Trash2, Save, Move, TestTube2, Link as LinkIcon, ScanLine, Loader2 } from 'lucide-react';
-import { Document, Page, pdfjs } from 'react-pdf';
-import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
-import 'react-pdf/dist/esm/Page/TextLayer.css';
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import dynamic from 'next/dynamic';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+const PdfPagesViewer = dynamic(
+  () => import('@/components/PdfPagesViewer').then(mod => mod.PdfPagesViewer),
+  { ssr: false, loading: () => <p>Carregando PDF...</p> }
+);
 
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
@@ -95,6 +94,7 @@ function TestChecklistDialog({ template, fields, isOpen, onOpenChange }: {
         try {
             const pdfUrl = `${window.location.origin}${template.pdfUrl}`;
             const existingPdfBytes = await fetch(pdfUrl).then(res => res.arrayBuffer());
+            const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
             const pdfDoc = await PDFDocument.load(existingPdfBytes);
             const pages = pdfDoc.getPages();
             const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -497,16 +497,12 @@ export default function EditChecklistPage({ params }: { params: { id: string } }
                             origin as the PDF coordinate system used in pdf-lib. */}
                         <div ref={pdfContainerRef} className="relative inline-block leading-[0]">
                             {template.pdfUrl ? (
-                                <Document
+                                <PdfPagesViewer
                                     file={pdfUrl}
+                                    numPages={numPages}
                                     onLoadSuccess={onDocumentLoadSuccess}
                                     onLoadError={(error) => toast({ variant: 'destructive', title: 'Erro ao carregar PDF', description: error.message })}
-                                    loading="Carregando PDF..."
-                                >
-                                    {Array.from(new Array(numPages), (el, index) => (
-                                        <Page key={`page_${index + 1}`} pageNumber={index + 1} renderTextLayer={false} />
-                                    ))}
-                                </Document>
+                                />
                             ) : (
                                 <div className="flex items-center justify-center h-64 text-muted-foreground">
                                     <p>Nenhum PDF associado a este modelo.</p>

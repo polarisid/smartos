@@ -4,7 +4,6 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay, parseISO, differenceInCalendarWeeks } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import * as XLSX from "xlsx";
 import dynamic from "next/dynamic";
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { optimizeWithGoogle, buildGoogleSummary } from "@/services/googleRouteOptimizer";

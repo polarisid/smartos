@@ -9,7 +9,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import type { RepairCenterInfo } from "@/lib/data";
-import { buildAndDownloadQuotePdf } from "@/lib/quotePdf";
 import { FileText, User, CreditCard, Plus, Trash2, Loader2, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -119,6 +118,7 @@ export function QuoteBuilder({
     }
     setIsGenerating(true);
     try {
+      const { buildAndDownloadQuotePdf } = await import("@/lib/quotePdf");
       await buildAndDownloadQuotePdf({
         repairCenter,
         osNumber: osNumber.trim() || undefined,

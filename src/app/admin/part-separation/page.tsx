@@ -24,15 +24,19 @@ import { buildPriorDispatchLookup, describePriorDispatches, type PriorDispatch }
 import { useAuth } from "@/context/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import { Badge } from "@/components/ui/badge";
 import { isAfter, startOfMonth, endOfMonth, isWithinInterval, getMonth, getYear, setMonth, setYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import * as XLSX from 'xlsx';
+
+// jsPDF e xlsx são pesados: só baixam quando o usuário gera o PDF / a planilha.
+async function loadJsPdf() {
+    const { default: jsPDF } = await import('jspdf');
+    await import('jspdf-autotable');
+    return jsPDF;
+}
 
 
 const ScannerDialog = dynamic(
@@ -300,10 +304,11 @@ function MonthlyPartsSummary({ serviceOrders, routes }: { serviceOrders: Service
         label: new Date(0, i).toLocaleString('pt-BR', { month: 'long' }),
     }));
     
-    const handleDownloadSheet = () => {
+    const handleDownloadSheet = async () => {
         if (monthlyUsedParts.length === 0) {
             return;
         }
+        const XLSX = await import('xlsx');
         const worksheet = XLSX.utils.json_to_sheet(monthlyUsedParts);
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "Peças Usadas");
@@ -517,8 +522,9 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
         );
     }
     
-    const handleGenerateSummaryPdf = (route: Route) => {
+    const handleGenerateSummaryPdf = async (route: Route) => {
         try {
+            const jsPDF = await loadJsPdf();
             const doc = new jsPDF();
             const pageWidth = doc.internal.pageSize.getWidth();
             const pageHeight = doc.internal.pageSize.getHeight();
@@ -1260,7 +1266,8 @@ export default function PartSeparationPage() {
         }
     };
 
-    const handleGeneratePdf = (route: Route) => {
+    const handleGeneratePdf = async (route: Route) => {
+        const jsPDF = await loadJsPdf();
         const doc = new jsPDF();
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();

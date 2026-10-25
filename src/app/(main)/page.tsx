@@ -80,7 +80,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import React from "react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { ptBR } from 'date-fns/locale';
 import { SignaturePad } from '@/components/SignaturePad';
 import dynamic from "next/dynamic";
@@ -462,6 +461,7 @@ function ChecklistSection({
         try {
             const pdfUrl = `${window.location.origin}${selectedTemplate.pdfUrl}`;
             const existingPdfBytes = await fetch(pdfUrl).then(res => res.arrayBuffer());
+            const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
             const pdfDoc = await PDFDocument.load(existingPdfBytes);
             const pages = pdfDoc.getPages();
             const font = await pdfDoc.embedFont(StandardFonts.Helvetica);

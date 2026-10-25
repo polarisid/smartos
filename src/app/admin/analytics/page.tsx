@@ -79,7 +79,8 @@ export default function AnalyticsPage() {
 
                 // 2. Fetch Service Orders
                 // We fetch all orders and filter them locally to match the old behavior.
-                const allOrders = await serviceOrderService.getAll(activeUnidadeId);
+                // oldestRouteDate já é o corte usado logo abaixo (e é sempre anterior a "2 dias atrás").
+                const allOrders = await serviceOrderService.getAll(activeUnidadeId, oldestRouteDate);
                 
                 if (!isMounted) return;
                 
@@ -99,11 +100,15 @@ export default function AnalyticsPage() {
 
         fetchData();
         // Set a polling interval to update data every 60 seconds
-        const dataTimer = setInterval(fetchData, 60000);
+        // Com a aba oculta não busca; ao voltar para ela, atualiza na hora.
+        const dataTimer = setInterval(() => { if (!document.hidden) fetchData(); }, 60000);
+        const onVisible = () => { if (!document.hidden) fetchData(); };
+        document.addEventListener('visibilitychange', onVisible);
 
         return () => {
             isMounted = false;
             clearInterval(dataTimer);
+            document.removeEventListener('visibilitychange', onVisible);
         };
     }, [activeUnidadeId]);
 

@@ -91,7 +91,9 @@ export const serviceOrderService = {
     return all.map(this.mapFromDb);
   },
 
-  async getAll(unidadeId?: string | null): Promise<ServiceOrder[]> {
+  // `since`: só traz OS desta data em diante. Telas que filtram por janela (ex.: últimos 30/60 dias)
+  // devem passá-la, em vez de baixar o histórico inteiro a cada atualização.
+  async getAll(unidadeId?: string | null, since?: Date): Promise<ServiceOrder[]> {
     let allOrders: any[] = [];
     let from = 0;
     const step = 1000;
@@ -100,6 +102,7 @@ export const serviceOrderService = {
     while (hasMore) {
       let query = supabase.from('service_orders').select('*').order('date', { ascending: false }).range(from, from + step - 1);
       if (unidadeId) query = query.eq('unidade_id', unidadeId);
+      if (since) query = query.gte('date', since.toISOString());
       const { data, error } = await query;
 
       if (error) throw error;
