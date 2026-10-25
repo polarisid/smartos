@@ -23,6 +23,7 @@ export type Driver = {
 };
 
 export type VehicleFuelType = 'gasolina' | 'etanol' | 'flex' | 'diesel' | 'gnv' | 'eletrico';
+export type VehicleOwnership = 'propria' | 'locada';
 
 export type Vehicle = {
   id: string;
@@ -34,6 +35,34 @@ export type Vehicle = {
   /** Hodômetro atual (km) - avança sozinho quando um registro de km é fechado. */
   currentOdometerKm?: number;
   isActive: boolean;
+  notes?: string;
+  /** 'propria' = da loja; 'locada' = alugada (os campos rental* descrevem o contrato). */
+  ownership: VehicleOwnership;
+  rentalCompany?: string;
+  /** Hodômetro na retirada do veículo locado - base para medir a franquia de km do contrato. */
+  rentalStartOdometerKm?: number;
+  /** Franquia de km do contrato inteiro (a partir do hodômetro da retirada). */
+  rentalKmLimit?: number;
+  /** Data de devolução, YYYY-MM-DD. */
+  rentalEndDate?: string;
+};
+
+/** Um abastecimento (pago no cartão corporativo). */
+export type VehicleFuelLog = {
+  id: string;
+  vehicleId: string;
+  driverId?: string;
+  /** YYYY-MM-DD */
+  fuelDate: string;
+  odometerKm: number;
+  liters: number;
+  totalValue: number;
+  fuelType?: VehicleFuelType;
+  /** Tanque cheio: só entre dois abastecimentos assim o consumo (km/l) é calculável. */
+  fullTank: boolean;
+  station?: string;
+  /** Final do cartão corporativo, para conferir com a fatura. */
+  cardLast4?: string;
   notes?: string;
 };
 

@@ -1,8 +1,9 @@
 import { supabase } from "@/lib/supabase";
-import { type Vehicle, type VehicleKmLog, type VehicleFuelType } from "@/lib/data";
+import { type Vehicle, type VehicleKmLog, type VehicleFuelLog, type VehicleFuelType, type VehicleOwnership } from "@/lib/data";
 
 type VehicleInput = Omit<Vehicle, 'id'>;
 type KmLogInput = Omit<VehicleKmLog, 'id'>;
+type FuelLogInput = Omit<VehicleFuelLog, 'id'>;
 
 const vehicleFromDb = (row: any): Vehicle => ({
   id: row.id,
@@ -13,6 +14,11 @@ const vehicleFromDb = (row: any): Vehicle => ({
   currentOdometerKm: row.current_odometer_km ?? undefined,
   isActive: row.is_active !== false,
   notes: row.notes ?? undefined,
+  ownership: (row.ownership === 'locada' ? 'locada' : 'propria') as VehicleOwnership,
+  rentalCompany: row.rental_company ?? undefined,
+  rentalStartOdometerKm: row.rental_start_odometer_km ?? undefined,
+  rentalKmLimit: row.rental_km_limit ?? undefined,
+  rentalEndDate: row.rental_end_date ?? undefined,
 });
 
 const vehicleToDb = (v: Partial<VehicleInput>) => ({
@@ -23,6 +29,12 @@ const vehicleToDb = (v: Partial<VehicleInput>) => ({
   ...(v.currentOdometerKm !== undefined && { current_odometer_km: v.currentOdometerKm ?? null }),
   ...(v.isActive !== undefined && { is_active: v.isActive }),
   ...(v.notes !== undefined && { notes: v.notes || null }),
+  ...(v.ownership !== undefined && { ownership: v.ownership }),
+  ...(v.rentalCompany !== undefined && { rental_company: v.rentalCompany || null }),
+  // 'in': undefined explícito limpa a coluna (ex.: veículo locado que voltou a ser próprio).
+  ...('rentalStartOdometerKm' in v && { rental_start_odometer_km: v.rentalStartOdometerKm ?? null }),
+  ...('rentalKmLimit' in v && { rental_km_limit: v.rentalKmLimit ?? null }),
+  ...(v.rentalEndDate !== undefined && { rental_end_date: v.rentalEndDate || null }),
 });
 
 const logFromDb = (row: any): VehicleKmLog => ({
@@ -33,6 +45,21 @@ const logFromDb = (row: any): VehicleKmLog => ({
   logDate: row.log_date,
   odometerStart: row.odometer_start,
   odometerEnd: row.odometer_end ?? undefined,
+  notes: row.notes ?? undefined,
+});
+
+const fuelLogFromDb = (row: any): VehicleFuelLog => ({
+  id: row.id,
+  vehicleId: row.vehicle_id,
+  driverId: row.driver_id ?? undefined,
+  fuelDate: row.fuel_date,
+  odometerKm: row.odometer_km,
+  liters: Number(row.liters),
+  totalValue: Number(row.total_value),
+  fuelType: (row.fuel_type ?? undefined) as VehicleFuelType | undefined,
+  fullTank: row.full_tank !== false,
+  station: row.station ?? undefined,
+  cardLast4: row.card_last4 ?? undefined,
   notes: row.notes ?? undefined,
 });
 
@@ -111,6 +138,49 @@ export const vehicleService = {
 
   async removeKmLog(id: string): Promise<void> {
     const { error } = await supabase.from('vehicle_km_logs').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  /** Abastecimentos, do mais recente para o mais antigo. */
+  async getFuelLogs(unidadeId?: string | null, opts?: { vehicleId?: string; limit?: number }): Promise<VehicleFuelLog[]> {
+    let query = supabase
+      .from('vehicle_fuel_logs')
+      .select('*')
+      .order('fuel_date', { ascending: false })
+      .order('odometer_km', { ascending: false })
+      .limit(opts?.limit ?? 500);
+    if (unidadeId) query = query.eq('unidade_id', unidadeId);
+    if (opts?.vehicleId) query = query.eq('vehicle_id', opts.vehicleId);
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data || []).map(fuelLogFromDb);
+  },
+
+  async createFuelLog(data: FuelLogInput, unidadeId?: string | null): Promise<string> {
+    const { data: row, error } = await supabase
+      .from('vehicle_fuel_logs')
+      .insert({
+        vehicle_id: data.vehicleId,
+        driver_id: data.driverId || null,
+        fuel_date: data.fuelDate,
+        odometer_km: data.odometerKm,
+        liters: data.liters,
+        total_value: data.totalValue,
+        fuel_type: data.fuelType || null,
+        full_tank: data.fullTank,
+        station: data.station || null,
+        card_last4: data.cardLast4 || null,
+        notes: data.notes || null,
+        ...(unidadeId ? { unidade_id: unidadeId } : {}),
+      } as any)
+      .select('id')
+      .single();
+    if (error) throw error;
+    return row.id;
+  },
+
+  async removeFuelLog(id: string): Promise<void> {
+    const { error } = await supabase.from('vehicle_fuel_logs').delete().eq('id', id);
     if (error) throw error;
   },
 };
