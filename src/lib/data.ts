@@ -283,6 +283,8 @@ export type RouteStop = {
     plannedDay?: string;
     // Rota de entrega: posição da OS na ordem otimizada (menor trajeto saindo da base e voltando a ela).
     routeOrder?: number;
+    // Rota de entrega dividida entre equipes: número da equipe (1 = Equipe A, 2 = Equipe B...). Ausente = sem equipe.
+    team?: number;
     serviceOrder: string;
     ascJobNumber: string;
     consumerName: string;

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Mail, Copy, FileText, Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, X } from "lucide-react";
+import { Mail, Copy, FileText, Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, Users, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import Link from "next/link";
@@ -31,7 +31,8 @@ import { RouteCodeTag } from "@/components/routes/RouteCodeTag";
 import { MultiFilter } from "@/components/MultiFilter";
 import { configService } from "@/services/supabase/configService";
 import { downloadSpreadsheet, type SheetRow } from "@/lib/spreadsheetXml";
-import { fetchDurationMatrixMin, fetchLegDistancesAndDurations } from "@/lib/routeLegs";
+import { fetchDurationMatrixMin, fetchLegDistancesAndDurations, geocodeBase } from "@/lib/routeLegs";
+import { MAX_TEAMS, NO_TEAM, childRouteName, groupByTeam, splitStopsIntoTeams, teamColor, teamCounts, teamLabel, teamOf, type TeamSplit } from "@/lib/deliveryTeams";
 import { copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { DEFAULT_PLANNING_PARAMS, simulateRoutePlan, formatClock } from "@/lib/routePlanning";
 import type { Route, RoutePart, RoutePoint, RouteStop } from "@/lib/data";
@@ -48,11 +49,12 @@ type Row = {
     pendingNote: string;          // motivo e observações que o técnico registrou nessa pendência
     childName: string | null;     // rota filha que já leva esta OS
     day: string;                  // AAAA-MM-DD programado ("" = sem dia)
+    team: number;                 // equipe (1 = A, 2 = B...; 0 = sem equipe)
     partsTotal: number;
     partsTracked: number;
 };
 
-type SortKey = "so" | "asc" | "name" | "city" | "neighborhood" | "uf" | "model" | "turn" | "tat" | "tatNow" | "request" | "visit" | "ts" | "warranty" | "order" | "day" | "status";
+type SortKey = "so" | "asc" | "name" | "city" | "neighborhood" | "uf" | "model" | "turn" | "tat" | "tatNow" | "request" | "visit" | "ts" | "warranty" | "order" | "team" | "day" | "status";
 
 const parseBrDate = (text?: string): number => {
     const m = /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(text || "");
@@ -83,6 +85,7 @@ function tatNow(r: Row): { days: number; until: string; label: string } | null {
 
 const COLUMNS: Array<{ key: SortKey; label: string; value: (r: Row) => string | number; className?: string }> = [
     { key: "so", label: "SO Nro.", value: r => r.stop.serviceOrder, className: "font-mono font-semibold" },
+    { key: "team", label: "Equipe", value: r => r.team, className: "text-center" },
     { key: "order", label: "Ordem", value: r => r.stop.routeOrder ?? 999999, className: "font-mono font-bold text-center" },
     { key: "asc", label: "ASC Job No.", value: r => r.stop.ascJobNumber || "" },
     { key: "name", label: "Nome Consumidor", value: r => r.stop.consumerName || "", className: "min-w-[180px]" },
@@ -319,6 +322,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const [fCity, setFCity] = useState<Set<string>>(new Set(initialPrefs.city || []));
     const [fNeighborhood, setFNeighborhood] = useState<Set<string>>(new Set(initialPrefs.neighborhood || []));
     const [fTurn, setFTurn] = useState<Set<string>>(new Set(initialPrefs.turn || []));
+    const [fTeam, setFTeam] = useState<Set<string>>(new Set());
     const [hidden, setHidden] = useState<Set<string>>(new Set(initialPrefs.hidden || []));
     const [dense, setDense] = useState<boolean>(initialPrefs.dense ?? true);
     const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -461,7 +465,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const [sugRoundTrip, setSugRoundTrip] = useState(false);
     const [sugLoading, setSugLoading] = useState(false);
     const [sugApplying, setSugApplying] = useState(false);
-    const [sugDays, setSugDays] = useState<Array<{ day: string; date: Date; stops: RouteStop[]; endMin: number }> | null>(null);
+    const [sugDays, setSugDays] = useState<Array<{ day: string; date: Date; stops: RouteStop[]; endMin: number; team: number }> | null>(null);
     useEffect(() => { if (route?.dailyReturn) setSugRoundTrip(true); }, [route?.id]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => {
         if (!dateStops || dateStops.length === 0) { setSugDays(null); return; }
@@ -469,23 +473,30 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         (async () => {
             setSugLoading(true);
             try {
-                const n = dateStops.length;
-                const matrix = await fetchDurationMatrixMin(dateStops, "Aracaju", activeUnidadeId, { start: startPt, end: endPt });
-                const legs = dateStops.map((_, i) => (i === 0 ? matrix[0][1] : matrix[i][i + 1]));
-                legs.push(matrix[n][n + 1]);
                 const [y, m, d] = sugStart.split("-").map(Number);
                 const startDate = new Date(y, (m || 1) - 1, d || 1, 8, 0, 0);
-                const plan = simulateRoutePlan(dateStops, legs, planningParams, startDate, sugTime, sugRoundTrip ? {
-                    fromBase: dateStops.map((_, i) => matrix[0][i + 1]),
-                    toBase: dateStops.map((_, i) => matrix[i + 1][n + 1]),
-                } : undefined);
+                // Equipes trabalham em paralelo: cada uma é simulada sozinha, todas a partir do mesmo primeiro dia.
+                const allDays: Array<{ day: string; date: Date; stops: RouteStop[]; endMin: number; team: number }> = [];
+                for (const group of groupByTeam(dateStops, st => teamOf(st))) {
+                    const teamStops = group.items;
+                    const n = teamStops.length;
+                    const matrix = await fetchDurationMatrixMin(teamStops, "Aracaju", activeUnidadeId, { start: startPt, end: endPt });
+                    const legs = teamStops.map((_, i) => (i === 0 ? matrix[0][1] : matrix[i][i + 1]));
+                    legs.push(matrix[n][n + 1]);
+                    const plan = simulateRoutePlan(teamStops, legs, planningParams, startDate, sugTime, sugRoundTrip ? {
+                        fromBase: teamStops.map((_, i) => matrix[0][i + 1]),
+                        toBase: teamStops.map((_, i) => matrix[i + 1][n + 1]),
+                    } : undefined);
+                    plan.days.filter(day => day.stopIndexes.length > 0).forEach(day => allDays.push({
+                        day: format(day.date, "yyyy-MM-dd"),
+                        date: day.date,
+                        stops: day.stopIndexes.map(i => teamStops[i]),
+                        endMin: day.endMin,
+                        team: group.team,
+                    }));
+                }
                 if (cancelled) return;
-                setSugDays(plan.days.filter(day => day.stopIndexes.length > 0).map(day => ({
-                    day: format(day.date, "yyyy-MM-dd"),
-                    date: day.date,
-                    stops: day.stopIndexes.map(i => dateStops[i]),
-                    endMin: day.endMin,
-                })));
+                setSugDays(allDays.sort((a, b) => a.day.localeCompare(b.day) || a.team - b.team));
             } catch (e) {
                 if (!cancelled) { setSugDays(null); toast({ variant: "destructive", title: "Não foi possível calcular as datas", description: (e as any)?.message }); }
             } finally {
@@ -550,6 +561,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     : "",
                 childName: child ? child.name : null,
                 day: stop.plannedDay || "",
+                team: teamOf(stop),
                 partsTotal: parts.length,
                 partsTracked: parts.filter(p => (p.trackingCode || "").trim() !== "").length,
             };
@@ -569,6 +581,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             neighborhoods: count(r => r.stop.neighborhood || ""),
             turns: count(r => r.stop.turn || ""),
             warranties: count(r => r.stop.warrantyType || ""),
+            teams: count(r => teamLabel(r.team)),
             statuses: STATUS_ORDER.map(value => ({ value, count: statusCounts.get(value) || 0 })),
         };
     }, [rows]);
@@ -577,7 +590,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         status: [...fStatus], warranty: [...fWarranty], city: [...fCity], neighborhood: [...fNeighborhood], turn: [...fTurn],
         hidden: [...hidden], sort: sorts[0] || { key: "so", dir: "asc" }, sorts, dense,
     });
-    const clearFilters = () => { setFStatus(new Set()); setFWarranty(new Set()); setFCity(new Set()); setFNeighborhood(new Set()); setFTurn(new Set()); setSearch(""); };
+    const clearFilters = () => { setFStatus(new Set()); setFWarranty(new Set()); setFCity(new Set()); setFNeighborhood(new Set()); setFTurn(new Set()); setFTeam(new Set()); setSearch(""); };
     const saveDefaultView = () => {
         try {
             localStorage.setItem(PREFS_KEY, JSON.stringify(currentPrefs()));
@@ -598,6 +611,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         ...[...fCity].map(v => ({ label: "Cidade", value: v, remove: () => setFCity(s => drop(s, v)) })),
         ...[...fNeighborhood].map(v => ({ label: "Bairro", value: v, remove: () => setFNeighborhood(s => drop(s, v)) })),
         ...[...fTurn].map(v => ({ label: "Turno", value: v, remove: () => setFTurn(s => drop(s, v)) })),
+        ...[...fTeam].map(v => ({ label: "Equipe", value: v, remove: () => setFTeam(s => drop(s, v)) })),
     ];
 
     const visible = useMemo(() => {
@@ -608,6 +622,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             if (fCity.size && !fCity.has(r.stop.city || "")) return false;
             if (fNeighborhood.size && !fNeighborhood.has(r.stop.neighborhood || "")) return false;
             if (fTurn.size && !fTurn.has(r.stop.turn || "")) return false;
+            if (fTeam.size && !fTeam.has(teamLabel(r.team))) return false;
             if (!q) return true;
             const hay = [r.stop.serviceOrder, r.stop.ascJobNumber, r.stop.consumerName, r.stop.city, r.stop.neighborhood, r.stop.model, ...(r.stop.parts || []).map(p => p.code)].join(" ").toLowerCase();
             return hay.includes(q);
@@ -629,7 +644,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             }
             return 0;
         });
-    }, [rows, search, fStatus, fWarranty, fCity, fNeighborhood, fTurn, sorts]);
+    }, [rows, search, fStatus, fWarranty, fCity, fNeighborhood, fTurn, fTeam, sorts]);
 
     const summary = useMemo(() => ({
         total: rows.length,
@@ -655,16 +670,25 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         }
         setOptimizingOrder(true);
         try {
-            const stops = scope.map(r => r.stop);
-            await prewarmStopCoordinates(stops, "Aracaju");
-            const result = await optimizeRouteStopsAsync(stops, "Aracaju", activeUnidadeId, { start: startPt, end: endPt });
-            const patches = result.stops.map((st, i) => ({ serviceOrder: st.serviceOrder, fields: { routeOrder: i + 1 } }));
+            await prewarmStopCoordinates(scope.map(r => r.stop), "Aracaju");
+            // Cada equipe tem a sua própria ordem (1, 2, 3...); sem equipes é um grupo só, como sempre foi.
+            const groups = groupByTeam(scope, r => r.team);
+            const patches: Array<{ serviceOrder: string; fields: Record<string, unknown> }> = [];
+            const ordered: RouteStop[] = [];
+            for (const g of groups) {
+                const stops = g.items.map(r => r.stop);
+                const optimized = stops.length > 2
+                    ? (await optimizeRouteStopsAsync(stops, "Aracaju", activeUnidadeId, { start: startPt, end: endPt })).stops
+                    : stops;
+                optimized.forEach((st, i) => patches.push({ serviceOrder: st.serviceOrder, fields: { routeOrder: i + 1 } }));
+                ordered.push(...optimized.map(st => ({ ...st, team: g.team > 0 ? g.team : undefined })));
+            }
             await routeService.patchStopFields(routeId, patches);
             await refresh();
-            setSorts([{ key: "order", dir: "asc" }]);
-            openDateSuggestion(result.stops);
+            setSorts(groups.length > 1 || groups[0]?.team ? [{ key: "team", dir: "asc" }, { key: "order", dir: "asc" }] : [{ key: "order", dir: "asc" }]);
+            openDateSuggestion(ordered);
             toast({
-                title: "Ordem otimizada: " + patches.length + " OS",
+                title: "Ordem otimizada: " + patches.length + " OS" + (groups.length > 1 || groups[0]?.team ? " em " + groups.length + " grupo(s) de equipe" : ""),
                 description: (startPt ? "Saindo de " + startPt.address : "Saindo da base") + (endPt ? " e voltando para " + endPt.address : " e voltando à base") + ". A tabela foi ordenada pela coluna Ordem.",
             });
         } catch (e: any) {
@@ -699,7 +723,8 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             await routeService.patchStopFields(routeId, patches);
             await refresh();
             setDateStops(null);
-            toast({ title: "Datas aplicadas", description: patches.length + " OS programadas em " + sugDays.length + " dia(s). Ajuste na coluna Dia se precisar." });
+            const teamsUsed = new Set(sugDays.map(d => d.team)).size;
+            toast({ title: "Datas aplicadas", description: patches.length + " OS programadas em " + sugDays.length + (teamsUsed > 1 ? " dia(s) de equipe (" + teamsUsed + " equipes em paralelo)" : " dia(s)") + ". Ajuste na coluna Dia se precisar." });
         } catch (e: any) {
             toast({ variant: "destructive", title: "Não foi possível aplicar as datas", description: e?.message });
         } finally {
@@ -1084,10 +1109,16 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     };
 
     // Dias com OS programadas e ainda sem rota filha.
+    // Um grupo por dia e por equipe: com equipes, cada equipe tem a sua rota no dia.
     const pendingDays = useMemo(() => {
-        const map = new Map<string, Row[]>();
-        rows.filter(r => !r.finalizedAt && !r.childName && r.day).forEach(r => map.set(r.day, [...(map.get(r.day) || []), r]));
-        return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+        const map = new Map<string, { day: string; team: number; list: Row[] }>();
+        rows.filter(r => !r.finalizedAt && !r.childName && r.day).forEach(r => {
+            const key = r.day + "|" + r.team;
+            const g = map.get(key) || { day: r.day, team: r.team, list: [] };
+            g.list.push(r);
+            map.set(key, g);
+        });
+        return Array.from(map.values()).sort((a, b) => a.day.localeCompare(b.day) || a.team - b.team);
     }, [rows]);
 
     const handleCreateChildren = async () => {
@@ -1095,11 +1126,11 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         setCreatingChildren(true);
         try {
             // 1) Endereços: geocodifica uma vez só os endereços distintos de todos os dias.
-            const prepared = pendingDays.map(([day, list]) => {
+            const prepared = pendingDays.map(({ day, team, list }) => {
                 const [y, m, d] = day.split("-").map(Number);
                 const dayDate = new Date(y, m - 1, d, 8, 0, 0);
                 const label = format(dayDate, "dd/MM/yyyy");
-                return { dayDate, stops: list.map(r => { const { routeOrder: _drop, ...rest } = r.stop; return { ...rest, firstVisitDate: label }; }) as RouteStop[] };
+                return { dayDate, team, stops: list.map(r => { const { routeOrder: _drop, team: _team, ...rest } = r.stop; return { ...rest, firstVisitDate: label }; }) as RouteStop[] };
             });
             if (optimize) {
                 setCreateProgress("Localizando os endereços…");
@@ -1129,7 +1160,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             for (let i = 0; i < prepared.length; i++) {
                 setCreateProgress("Salvando as rotas: " + (i + 1) + " de " + prepared.length);
                 await routeService.create({
-                    name: route.name + " — " + format(prepared[i].dayDate, "dd/MM"),
+                    name: childRouteName(route.name, format(prepared[i].dayDate, "dd/MM"), prepared[i].team),
                     stops: optimizedDays[i],
                     routeType: route.routeType,
                     plannedDate: prepared[i].dayDate,
@@ -1160,6 +1191,94 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         } finally {
             setCreatingChildren(false);
             setCreateProgress("");
+        }
+    };
+
+    // ── Divisão em equipes ──
+    // Só OS que ainda podem mudar de equipe: sem finalizar e sem rota filha.
+    const [teamsOpen, setTeamsOpen] = useState(false);
+    const [teamsCount, setTeamsCount] = useState(2);
+    const [teamsScope, setTeamsScope] = useState<Row[]>([]);
+    const [teamsPreview, setTeamsPreview] = useState<TeamSplit | null>(null);
+    const [teamsLoading, setTeamsLoading] = useState(false);
+    const [teamsApplying, setTeamsApplying] = useState(false);
+    const [moveTeam, setMoveTeam] = useState("1");
+
+    const openTeamsDialog = () => {
+        const scope = orderScope().filter(r => !r.finalizedAt && !r.childName);
+        if (scope.length < 2) {
+            toast({ variant: "destructive", title: "Poucas OS para dividir", description: "Selecione ou filtre pelo menos 2 OS livres (sem finalizar e sem rota filha)." });
+            return;
+        }
+        setTeamsScope(scope);
+        setTeamsPreview(null);
+        setTeamsOpen(true);
+    };
+    // Prévia: coordenada da base (saída da rota ou a da unidade) + divisão em fatias ao redor dela.
+    useEffect(() => {
+        if (!teamsOpen || teamsScope.length === 0) return;
+        let cancelled = false;
+        (async () => {
+            setTeamsLoading(true);
+            try {
+                let origin: [number, number] | null = startPt ? [startPt.lat, startPt.lng] : null;
+                if (!origin && teamsCount > 1) {
+                    const baseAddress = await configService.getBaseAddress(activeUnidadeId);
+                    origin = await geocodeBase(baseAddress, activeUnidadeId).catch(() => null);
+                }
+                const split = await splitStopsIntoTeams(teamsScope.map(r => r.stop), teamsCount, origin);
+                if (!cancelled) setTeamsPreview(split);
+            } catch (e: any) {
+                if (!cancelled) { setTeamsPreview(null); toast({ variant: "destructive", title: "Não foi possível dividir", description: e?.message }); }
+            } finally {
+                if (!cancelled) setTeamsLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [teamsOpen, teamsCount, teamsScope]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const applyTeams = async () => {
+        if (!teamsPreview) return;
+        setTeamsApplying(true);
+        try {
+            // Mudar de equipe invalida a ordem e o dia que a OS tinha (foram calculados para outro conjunto de OS).
+            const patches = teamsScope.map(r => ({
+                serviceOrder: r.stop.serviceOrder,
+                fields: { team: teamsPreview.get(r.stop.serviceOrder) || null, routeOrder: null, plannedDay: null },
+            }));
+            await routeService.patchStopFields(routeId, patches);
+            await refresh();
+            setTeamsOpen(false);
+            setSelected(new Set());
+            toast({
+                title: teamsCount > 1 ? "Rota dividida em " + teamsCount + " equipes" : "Divisão em equipes desfeita",
+                description: teamsCount > 1 ? "Agora use \"Otimizar ordem\" e \"Sugerir datas\": cada equipe terá a sua ordem e os seus dias, em paralelo." : undefined,
+            });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível aplicar a divisão", description: e?.message });
+        } finally {
+            setTeamsApplying(false);
+        }
+    };
+
+    // Ajuste manual: leva as OS selecionadas para uma equipe (ou tira da equipe).
+    const moveSelectedToTeam = async () => {
+        const list = Array.from(selected);
+        if (list.length === 0) return;
+        const team = Number(moveTeam) || NO_TEAM;
+        setSaving(true);
+        try {
+            await routeService.patchStopFields(routeId, list.map(so => ({ serviceOrder: so, fields: { team: team || null, routeOrder: null } })));
+            await refresh();
+            setSelected(new Set());
+            toast({
+                title: list.length + " OS " + (team ? "movida(s) para a " + teamLabel(team) : "sem equipe"),
+                description: "A ordem dessas OS foi limpa: use \"Otimizar ordem\" de novo para recalcular a rota da equipe.",
+            });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível mover", description: e?.message });
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -1195,6 +1314,10 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                         </button>
                     </span>
                 );
+            case "team":
+                return r.team > 0
+                    ? <span className="inline-flex items-center gap-1 whitespace-nowrap font-semibold" style={{ color: teamColor(r.team) }}><span className="h-2 w-2 rounded-full" style={{ background: teamColor(r.team) }} />{teamLabel(r.team)}</span>
+                    : <span className="text-muted-foreground">—</span>;
             case "order": return r.stop.routeOrder ? "#" + r.stop.routeOrder : "—";
             case "tat": return r.stop.tat || "";
             case "tatNow": {
@@ -1355,6 +1478,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     <MultiFilter label="Cidade" options={options.cities} selected={fCity} onChange={setFCity} searchable />
                     <MultiFilter label="Bairro" options={options.neighborhoods} selected={fNeighborhood} onChange={setFNeighborhood} searchable />
                     <MultiFilter label="Turno" options={options.turns} selected={fTurn} onChange={setFTurn} />
+                    {rows.some(r => r.team > 0) && <MultiFilter label="Equipe" options={options.teams} selected={fTeam} onChange={setFTeam} />}
                     <Button
                         variant="outline"
                         size="sm"
@@ -1364,6 +1488,15 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                         title="Organiza as OS (as selecionadas ou as da tabela, sem as finalizadas) na melhor ordem de atendimento, saindo da base e voltando a ela"
                     >
                         {optimizingOrder ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RouteIcon className="h-3.5 w-3.5" />} Otimizar ordem
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 gap-1.5 text-xs"
+                        onClick={openTeamsDialog}
+                        title="Divide as OS (as selecionadas ou as da tabela) entre mais de uma equipe, por região, para trabalharem em paralelo"
+                    >
+                        <Users className="h-3.5 w-3.5" /> Dividir em equipes
                     </Button>
                     {rows.some(r => r.stop.routeOrder) && (
                         <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={suggestFromCurrentOrder} disabled={optimizingOrder} title="Distribui as OS ordenadas pelos dias de trabalho">
@@ -1453,6 +1586,18 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CalendarPlus className="mr-1.5 h-3.5 w-3.5" />} Programar para este dia
                 </Button>
                 <Button size="sm" variant="ghost" disabled={selected.size === 0 || saving} onClick={async () => { await setDays(Array.from(selected), ""); setSelected(new Set()); }}>Limpar dia</Button>
+                <div className="flex items-center gap-1.5">
+                    <Select value={moveTeam} onValueChange={setMoveTeam}>
+                        <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                            {Array.from({ length: MAX_TEAMS }, (_, i) => i + 1).map(t => <SelectItem key={t} value={String(t)}>{teamLabel(t)}</SelectItem>)}
+                            <SelectItem value="0">Sem equipe</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Button size="sm" variant="outline" disabled={selected.size === 0 || saving} onClick={moveSelectedToTeam} title="Leva as OS selecionadas para a equipe escolhida">
+                        <Users className="mr-1.5 h-3.5 w-3.5" /> Mover para equipe
+                    </Button>
+                </div>
                 <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={selected.size === 0 || saving} onClick={() => setRemoveList(Array.from(selected))} title="Tira as OS selecionadas da rota de entrega">
                     <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remover da rota</Button>
                 <span className="text-[11px] text-muted-foreground">Só OS não finalizadas e sem rota filha podem ser selecionadas.</span>
@@ -1687,6 +1832,52 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 </DialogContent>
             </Dialog>
 
+            <Dialog open={teamsOpen} onOpenChange={(o) => { if (!o && !teamsApplying) setTeamsOpen(false); }}>
+                <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>Dividir em equipes</DialogTitle>
+                        <DialogDescription>
+                            As {teamsScope.length} OS livres são separadas por região ao redor da base, com quantidades parecidas. Cada equipe terá a sua ordem e os seus dias, em paralelo.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-1">
+                        <Label className="text-xs">Quantidade de equipes</Label>
+                        <Select value={String(teamsCount)} onValueChange={v => setTeamsCount(Number(v))}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="1">1 (sem divisão)</SelectItem>
+                                {Array.from({ length: MAX_TEAMS - 1 }, (_, i) => i + 2).map(n => <SelectItem key={n} value={String(n)}>{n} equipes</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="space-y-2">
+                        {teamsLoading && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Localizando os endereços e dividindo…</p>}
+                        {!teamsLoading && teamsPreview && teamsCount > 1 && Array.from(teamCounts(teamsPreview).entries()).sort((a, b) => a[0] - b[0]).map(([team, n]) => {
+                            const cities = Array.from(new Set(teamsScope.filter(r => teamsPreview.get(r.stop.serviceOrder) === team).map(r => r.stop.city).filter(Boolean)));
+                            return (
+                                <div key={team} className="rounded-lg border px-3 py-2" style={{ borderLeft: "4px solid " + teamColor(team) }}>
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="font-semibold" style={{ color: teamColor(team) }}>{teamLabel(team)}</span>
+                                        <span className="text-xs text-muted-foreground">{n} OS</span>
+                                    </div>
+                                    <p className="mt-0.5 text-xs text-muted-foreground break-words">{cities.slice(0, 6).join(", ")}{cities.length > 6 ? " +" + (cities.length - 6) : ""}</p>
+                                </div>
+                            );
+                        })}
+                        {teamsCount === 1 && <p className="text-sm text-muted-foreground">As OS ficam sem equipe (rota única, como antes).</p>}
+                    </div>
+                    <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                        Ao aplicar, a <strong>ordem</strong> e o <strong>dia</strong> dessas OS são limpos, porque foram calculados para outro conjunto de OS. Depois use "Otimizar ordem" e "Sugerir datas". Para ajustar, selecione OS na tabela e use "Mover para equipe".
+                    </p>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setTeamsOpen(false)} disabled={teamsApplying}>Cancelar</Button>
+                        <Button onClick={applyTeams} disabled={teamsApplying || teamsLoading || !teamsPreview}>
+                            {teamsApplying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Users className="mr-2 h-4 w-4" />} {teamsCount > 1 ? "Aplicar divisão" : "Desfazer divisão"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={!!dateStops} onOpenChange={(o) => { if (!o && !sugApplying) setDateStops(null); }}>
                 <DialogContent className="max-w-xl">
                     <DialogHeader>
@@ -1713,10 +1904,13 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                         {sugLoading && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Calculando os dias…</p>}
                         {!sugLoading && sugDays?.map((d, i) => {
                             const cities = Array.from(new Set(d.stops.map(st => st.city).filter(Boolean)));
+                            const dayNumber = sugDays.slice(0, i + 1).filter(x => x.team === d.team).length;
                             return (
-                                <div key={d.day} className="rounded-lg border px-3 py-2">
+                                <div key={d.team + "-" + d.day} className="rounded-lg border px-3 py-2" style={d.team > 0 ? { borderLeft: "4px solid " + teamColor(d.team) } : undefined}>
                                     <div className="flex items-center justify-between gap-2">
-                                        <span className="font-semibold capitalize">Dia {i + 1} · {format(d.date, "EEEE dd/MM", { locale: ptBR })}</span>
+                                        <span className="font-semibold capitalize">
+                                            {d.team > 0 && <span style={{ color: teamColor(d.team) }}>{teamLabel(d.team)} · </span>}Dia {dayNumber} · {format(d.date, "EEEE dd/MM", { locale: ptBR })}
+                                        </span>
                                         <span className="text-xs text-muted-foreground">{d.stops.length} OS · termina ~{formatClock(d.endMin)}</span>
                                     </div>
                                     <p className="mt-0.5 text-xs text-muted-foreground break-words">{cities.slice(0, 6).join(", ")}{cities.length > 6 ? " +" + (cities.length - 6) : ""}</p>
@@ -1740,9 +1934,12 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                         <DialogDescription>Uma rota (rascunho) por dia programado, só com as OS ainda não finalizadas e sem rota filha.</DialogDescription>
                     </DialogHeader>
                     <ul className="space-y-1.5">
-                        {pendingDays.map(([day, list]) => (
-                            <li key={day} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-                                <span className="capitalize">{format(new Date(day + "T12:00:00"), "EEEE dd/MM", { locale: ptBR })}</span>
+                        {pendingDays.map(({ day, team, list }) => (
+                            <li key={day + "|" + team} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                                <span className="capitalize">
+                                    {format(new Date(day + "T12:00:00"), "EEEE dd/MM", { locale: ptBR })}
+                                    {team > 0 && <span className="ml-2 font-semibold normal-case" style={{ color: teamColor(team) }}>{teamLabel(team)}</span>}
+                                </span>
                                 <span className="text-muted-foreground">{list.length} OS</span>
                             </li>
                         ))}
