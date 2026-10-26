@@ -188,3 +188,70 @@ export function buildClosingSummary(text: string, parts: ClosingPart[]): string 
     const lines = used.map(p => `- ${p.code}${p.description ? ` - ${p.description}` : ""} (x${p.quantity}) — rastreio: ${p.trackingCode || "não informado"}`);
     return `${text}\n\n**Peças usadas e rastreio:**\n${lines.join("\n")}`;
 }
+
+// ── Lançamentos duplicados ────────────────────────────────────────────────────────────────────────────────────
+
+/** Janela em que dois lançamentos da mesma OS, com o mesmo status, contam como possível duplicidade. */
+export const DUPLICATE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export type DuplicateLaunch = {
+    order: ServiceOrder;
+    /** Campos que mudam entre este lançamento e o outro (ex.: "observações"). Vazio = textos idênticos. */
+    differences: string[];
+};
+
+const normText = (v?: string | number | boolean | null) => String(v ?? "").replace(/\s+/g, " ").trim().toUpperCase();
+
+const COMPARED_FIELDS: Array<[label: string, get: (o: ServiceOrder) => string]> = [
+    ["tipo de atendimento", o => normText(o.serviceType)],
+    ["tipo de reparo", o => normText(o.samsungRepairType)],
+    ["sintoma", o => normText(o.symptomCode)],
+    ["reparo", o => normText(o.repairCode)],
+    ["peça trocada", o => parseReplacedParts(o.replacedPart).map(p => `${p.code}x${p.quantity}`).sort().join(",")],
+    ["situação", o => (o.isFinalized === false ? `PENDENTE ${normText(o.pendingReason)}` : "FINALIZADO")],
+    ["defeito constatado", o => normText(o.defectFound)],
+    ["peças solicitadas", o => normText(o.partsRequested)],
+    ["produto coletado/instalado", o => normText(o.productCollectedOrInstalled)],
+    ["orçamento", o => `${o.samsungBudgetApproved ? "SIM" : "NAO"} ${o.samsungBudgetValue || 0}`],
+    ["observações", o => normText(o.observations)],
+];
+
+export function launchDifferences(a: ServiceOrder, b: ServiceOrder): string[] {
+    return COMPARED_FIELDS.filter(([, get]) => get(a) !== get(b)).map(([label]) => label);
+}
+
+/**
+ * Lançamentos recentes repetidos: a mesma OS lançada mais de uma vez com o mesmo status (finalizada ou pendente) em até
+ * `windowMs`. Pendência seguida da finalização NÃO conta: é o fluxo normal (o técnico volta e conclui). Devolve, por id
+ * de lançamento, os outros lançamentos do grupo com o que mudou entre eles.
+ */
+export function findRecentDuplicates(orders: ServiceOrder[], windowMs: number = DUPLICATE_WINDOW_MS): Map<string, DuplicateLaunch[]> {
+    const byNumber = new Map<string, ServiceOrder[]>();
+    for (const o of orders) {
+        if (!o.serviceOrderNumber) continue;
+        const list = byNumber.get(o.serviceOrderNumber) || [];
+        list.push(o);
+        byNumber.set(o.serviceOrderNumber, list);
+    }
+
+    const result = new Map<string, DuplicateLaunch[]>();
+    const add = (to: ServiceOrder, other: ServiceOrder) => {
+        const list = result.get(to.id) || [];
+        list.push({ order: other, differences: launchDifferences(to, other) });
+        result.set(to.id, list);
+    };
+
+    for (const group of byNumber.values()) {
+        if (group.length < 2) continue;
+        const sorted = [...group].sort((a, b) => a.date.getTime() - b.date.getTime());
+        for (let i = 0; i < sorted.length; i++) {
+            for (let j = i + 1; j < sorted.length; j++) {
+                if (sorted[j].date.getTime() - sorted[i].date.getTime() > windowMs) break;
+                if ((sorted[i].isFinalized === false) !== (sorted[j].isFinalized === false)) continue;
+                add(sorted[i], sorted[j]);
+                add(sorted[j], sorted[i]);
+            }
+        }
+    }
+    return result;
+}

@@ -16,7 +16,7 @@ import { useCodes, useTechnicians } from "@/hooks/queries";
 import { useToast } from "@/hooks/use-toast";
 import { copyToClipboard } from "@/lib/clipboard";
 import {
-  buildClosingSummary, buildServiceOrderText, closingPartsForOrder, indexStopsBySO,
+  buildClosingSummary, buildServiceOrderText, closingPartsForOrder, findRecentDuplicates, indexStopsBySO,
   type ClosingPart,
 } from "@/lib/orderClosing";
 import type { ServiceOrder, TechnicalReportPhoto } from "@/lib/data";
@@ -50,7 +50,24 @@ type Entry = {
   photos: TechnicalReportPhoto[] | undefined;
   /** Presente quando a OS já foi marcada como encerrada no sistema. */
   closing: OrderClosing | undefined;
+  /** Outros lançamentos recentes da mesma OS com o mesmo status (possível envio duplicado). */
+  duplicates: DuplicateInfo[];
 };
+
+type DuplicateInfo = {
+  order: ServiceOrder;
+  technicianName: string;
+  differences: string[];
+  closed: boolean;
+};
+
+/** "2 min antes", "3 h depois" - quanto o outro lançamento está distante deste. */
+function relativeLaunch(thisDate: Date, otherDate: Date): string {
+  const diffMin = Math.round((thisDate.getTime() - otherDate.getTime()) / 60000);
+  const abs = Math.abs(diffMin);
+  const span = abs < 1 ? "menos de 1 min" : abs < 60 ? `${abs} min` : `${Math.round(abs / 60)} h`;
+  return `${span} ${diffMin >= 0 ? "antes" : "depois"}`;
+}
 
 export default function OrderClosingPage() {
   const { toast } = useToast();
@@ -65,6 +82,7 @@ export default function OrderClosingPage() {
   const [technicianId, setTechnicianId] = useState(NONE);
   const [search, setSearch] = useState("");
   const [closingFilter, setClosingFilter] = useState<ClosingFilter>("pending");
+  const [onlyDuplicates, setOnlyDuplicates] = useState(false);
   const [onlyFinalized, setOnlyFinalized] = useState(true);
   const [onlyWithParts, setOnlyWithParts] = useState(false);
   const [onlyMissingTracking, setOnlyMissingTracking] = useState(false);
@@ -108,6 +126,9 @@ export default function OrderClosingPage() {
   const techName = useMemo(() => new Map(technicians.map(t => [t.id, t.name])), [technicians]);
   const stopsBySO = useMemo(() => indexStopsBySO(routes), [routes]);
 
+  // Calculado sobre todas as OS do período (antes dos filtros), para o aviso não sumir ao filtrar.
+  const duplicatesById = useMemo(() => findRecentDuplicates(orders), [orders]);
+
   const entries: Entry[] = useMemo(() => orders.map(order => {
     const parts = closingPartsForOrder(order, stopsBySO);
     const category = order.equipmentType as "TV/AV" | "DA";
@@ -124,14 +145,23 @@ export default function OrderClosingPage() {
       missingTracking: parts.filter(p => p.status === "usada" && !p.trackingCode).length,
       photos: photosBySO ? (photosBySO.get(order.serviceOrderNumber) ?? []) : undefined,
       closing: closings?.get(order.id),
+      duplicates: (duplicatesById.get(order.id) || [])
+        .sort((a, b) => a.order.date.getTime() - b.order.date.getTime())
+        .map(d => ({
+          order: d.order,
+          technicianName: techName.get(d.order.technicianId) || "—",
+          differences: d.differences,
+          closed: !!closings?.get(d.order.id),
+        })),
     };
-  }), [orders, stopsBySO, techName, codes, photosBySO, closings]);
+  }), [orders, stopsBySO, techName, codes, photosBySO, closings, duplicatesById]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toUpperCase();
     return entries.filter(e => {
       if (closingFilter === "pending" && e.closing) return false;
       if (closingFilter === "closed" && !e.closing) return false;
+      if (onlyDuplicates && e.duplicates.length === 0) return false;
       if (onlyFinalized && e.order.isFinalized === false) return false;
       if (technicianId !== NONE && e.order.technicianId !== technicianId) return false;
       if (q && !e.order.serviceOrderNumber.toUpperCase().includes(q)) return false;
@@ -139,13 +169,14 @@ export default function OrderClosingPage() {
       if (onlyMissingTracking && e.missingTracking === 0) return false;
       return true;
     });
-  }, [entries, closingFilter, onlyFinalized, technicianId, search, onlyWithParts, onlyMissingTracking]);
+  }, [entries, closingFilter, onlyDuplicates, onlyFinalized, technicianId, search, onlyWithParts, onlyMissingTracking]);
 
   const totals = useMemo(() => ({
     orders: filtered.length,
     withParts: filtered.filter(e => e.parts.some(p => p.status === "usada")).length,
     missing: filtered.filter(e => e.missingTracking > 0).length,
     pending: filtered.filter(e => !e.closing).length,
+    duplicates: filtered.filter(e => e.duplicates.length > 0).length,
   }), [filtered]);
 
   const setClosed = (orderId: string, closing: OrderClosing | null) => {
@@ -254,6 +285,10 @@ export default function OrderClosingPage() {
               Só com peças usadas
             </label>
             <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={onlyDuplicates} onChange={e => { setOnlyDuplicates(e.target.checked); setVisible(PAGE_SIZE); }} />
+              Só possíveis duplicadas
+            </label>
+            <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={onlyMissingTracking} onChange={e => { setOnlyMissingTracking(e.target.checked); setVisible(PAGE_SIZE); }} />
               Só com rastreio pendente
             </label>
@@ -272,6 +307,7 @@ export default function OrderClosingPage() {
           <p className="text-sm text-muted-foreground">
             <span className="font-semibold text-foreground">{totals.orders}</span> OS · <span className="font-semibold text-foreground">{totals.pending}</span> pendentes de encerramento · <span className="font-semibold text-foreground">{totals.withParts}</span> com peças usadas
             {totals.missing > 0 && <> · <span className="font-semibold text-amber-600">{totals.missing} com rastreio pendente</span></>}
+            {totals.duplicates > 0 && <> · <span className="font-semibold text-amber-600">{totals.duplicates} com possível envio duplicado</span></>}
           </p>
 
           {errClosings && (
@@ -303,7 +339,7 @@ export default function OrderClosingPage() {
 }
 
 function OrderCard({ entry, onCopy, onMarkClosed, onUnmark }: { entry: Entry; onCopy: (text: string, what: string) => void; onMarkClosed: () => void; onUnmark: () => void }) {
-  const { order, technicianName, parts, text, missingTracking, photos, closing } = entry;
+  const { order, technicianName, parts, text, missingTracking, photos, closing, duplicates } = entry;
   const used = parts.filter(p => p.status === "usada");
   const notUsed = parts.filter(p => p.status === "nao_usada");
 
@@ -317,6 +353,11 @@ function OrderCard({ entry, onCopy, onMarkClosed, onUnmark }: { entry: Entry; on
               <Copy className="h-3.5 w-3.5" />
             </Button>
             {order.isFinalized === false && <Badge variant="secondary">Pendência</Badge>}
+            {duplicates.length > 0 && (
+              <Badge className="bg-amber-500/15 text-amber-700 hover:bg-amber-500/15 dark:text-amber-400">
+                <AlertTriangle className="mr-1 h-3 w-3" /> Possível envio duplicado
+              </Badge>
+            )}
             {closing && (
               <Badge className="bg-green-600/15 text-green-700 hover:bg-green-600/15 dark:text-green-400">
                 <CheckCircle2 className="mr-1 h-3 w-3" /> Encerrada em {format(closing.closedAt, "dd/MM HH:mm")}{closing.closedByName ? ` por ${closing.closedByName}` : ""}
@@ -349,6 +390,21 @@ function OrderCard({ entry, onCopy, onMarkClosed, onUnmark }: { entry: Entry; on
       </CardHeader>
 
       <CardContent className="grid gap-4 lg:grid-cols-2">
+        {duplicates.length > 0 && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-300 lg:col-span-2">
+            <p className="flex items-center gap-1.5 font-semibold"><AlertTriangle className="h-4 w-4" /> Esta OS foi lançada mais de uma vez em curto intervalo</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-5">
+              {duplicates.map(d => (
+                <li key={d.order.id}>
+                  Também lançada em {format(d.order.date, "dd/MM HH:mm")} por {d.technicianName} ({relativeLaunch(order.date, d.order.date)})
+                  {" — "}
+                  {d.differences.length > 0 ? `muda: ${d.differences.join(", ")}` : "conteúdo idêntico"}
+                  {d.closed ? " — o outro lançamento já está marcado como encerrado" : ""}.
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="grid content-start gap-2">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium">Texto do técnico</p>
