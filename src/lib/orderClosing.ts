@@ -52,6 +52,28 @@ export function indexStopsBySO(routes: Route[]): Map<string, RouteStopRef[]> {
 
 const routeTime = (r: Route) => new Date(r.createdAt).getTime();
 
+/** Paradas da OS nas rotas criadas antes do lançamento, da rota mais nova para a mais antiga. */
+function candidateStops(order: ServiceOrder, stopsBySO: Map<string, RouteStopRef[]>): RouteStopRef[] {
+    const orderMs = order.date.getTime();
+    return (stopsBySO.get(order.serviceOrderNumber) || [])
+        .filter(c => routeTime(c.route) <= orderMs)
+        .sort((a, b) => routeTime(b.route) - routeTime(a.route));
+}
+
+/**
+ * Tipo do serviço dentro do atendimento Samsung (LP, OW, VOID...): o que o técnico informou no lançamento
+ * ("Tipo de reparo") ou, na falta dele, o tipo de garantia da parada na rota. Vazio quando não há nenhum.
+ */
+export function warrantyTypeFor(order: ServiceOrder, stopsBySO: Map<string, RouteStopRef[]>): string {
+    const own = (order.samsungRepairType || "").trim();
+    if (own) return own.toUpperCase();
+    for (const c of candidateStops(order, stopsBySO)) {
+        const w = (c.stop.warrantyType || "").trim();
+        if (w) return w.toUpperCase();
+    }
+    return "";
+}
+
 /**
  * Peças da OS para o encerramento: as da parada na rota (descrição e rastreio) marcadas como usadas ou não
  * conforme o "peça trocada" lançado pelo técnico, mais as usadas que não constam na rota.
@@ -59,10 +81,7 @@ const routeTime = (r: Route) => new Date(r.createdAt).getTime();
  * (da mais nova para a mais antiga) que tiver código para aquela peça - a rota de entrega e a do dia se sincronizam.
  */
 export function closingPartsForOrder(order: ServiceOrder, stopsBySO: Map<string, RouteStopRef[]>): ClosingPart[] {
-    const orderMs = order.date.getTime();
-    const candidates = (stopsBySO.get(order.serviceOrderNumber) || [])
-        .filter(c => routeTime(c.route) <= orderMs)
-        .sort((a, b) => routeTime(b.route) - routeTime(a.route));
+    const candidates = candidateStops(order, stopsBySO);
 
     const used = new Map(parseReplacedParts(order.replacedPart).map(p => [p.code, p.quantity]));
     const defectiveText = norm(order.pendingReason).includes("PEÇA NOVA COM DEFEITO") ? norm(order.pendingReason) : "";

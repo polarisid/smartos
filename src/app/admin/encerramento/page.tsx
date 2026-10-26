@@ -16,7 +16,7 @@ import { useCodes, useTechnicians } from "@/hooks/queries";
 import { useToast } from "@/hooks/use-toast";
 import { copyToClipboard } from "@/lib/clipboard";
 import {
-  buildClosingSummary, buildServiceOrderText, closingPartsForOrder, findRecentDuplicates, indexStopsBySO,
+  buildClosingSummary, buildServiceOrderText, closingPartsForOrder, findRecentDuplicates, indexStopsBySO, warrantyTypeFor,
   type ClosingPart,
 } from "@/lib/orderClosing";
 import type { ServiceOrder, TechnicalReportPhoto } from "@/lib/data";
@@ -35,6 +35,13 @@ const SERVICE_TYPE_LABELS: Record<string, string> = {
   instalacao_inicial: "Instalação Inicial",
 };
 
+// Tipo do serviço Samsung escolhido no lançamento ("Tipo de reparo") ou vindo da planilha da rota.
+const WARRANTY_LABELS: Record<string, { label: string; className: string }> = {
+  LP: { label: "LP · Em garantia", className: "bg-green-600/15 text-green-700 hover:bg-green-600/15 dark:text-green-400" },
+  OW: { label: "OW · Fora de garantia", className: "bg-blue-600/15 text-blue-700 hover:bg-blue-600/15 dark:text-blue-400" },
+  VOID: { label: "VOID · Exclusão", className: "bg-slate-500/15 text-slate-700 hover:bg-slate-500/15 dark:text-slate-300" },
+};
+
 const PAGE_SIZE = 25;
 const NONE = "all";
 
@@ -48,6 +55,8 @@ type Entry = {
   missingTracking: number;
   /** undefined = ainda carregando; [] = sem relatório fotográfico. */
   photos: TechnicalReportPhoto[] | undefined;
+  /** Tipo do serviço Samsung (LP, OW, VOID...); vazio quando não há. */
+  warranty: string;
   /** Presente quando a OS já foi marcada como encerrada no sistema. */
   closing: OrderClosing | undefined;
   /** Outros lançamentos recentes da mesma OS com o mesmo status (possível envio duplicado). */
@@ -144,6 +153,7 @@ export default function OrderClosingPage() {
       }),
       missingTracking: parts.filter(p => p.status === "usada" && !p.trackingCode).length,
       photos: photosBySO ? (photosBySO.get(order.serviceOrderNumber) ?? []) : undefined,
+      warranty: warrantyTypeFor(order, stopsBySO),
       closing: closings?.get(order.id),
       duplicates: (duplicatesById.get(order.id) || [])
         .sort((a, b) => a.order.date.getTime() - b.order.date.getTime())
@@ -339,7 +349,7 @@ export default function OrderClosingPage() {
 }
 
 function OrderCard({ entry, onCopy, onMarkClosed, onUnmark }: { entry: Entry; onCopy: (text: string, what: string) => void; onMarkClosed: () => void; onUnmark: () => void }) {
-  const { order, technicianName, parts, text, missingTracking, photos, closing, duplicates } = entry;
+  const { order, technicianName, parts, text, missingTracking, photos, closing, duplicates, warranty } = entry;
   const used = parts.filter(p => p.status === "usada");
   const notUsed = parts.filter(p => p.status === "nao_usada");
 
@@ -370,8 +380,16 @@ function OrderCard({ entry, onCopy, onMarkClosed, onUnmark }: { entry: Entry; on
             )}
           </CardTitle>
           <CardDescription>
-            {format(order.date, "dd/MM/yyyy HH:mm")} · {technicianName} · {order.equipmentType} · {SERVICE_TYPE_LABELS[order.serviceType] || order.serviceType}
+            {format(order.date, "dd/MM/yyyy HH:mm")} · {technicianName} · {order.equipmentType}
           </CardDescription>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <Badge variant="outline">{SERVICE_TYPE_LABELS[order.serviceType] || order.serviceType}</Badge>
+            {warranty && (
+              <Badge className={WARRANTY_LABELS[warranty]?.className ?? "bg-primary/10 text-primary hover:bg-primary/10"}>
+                {WARRANTY_LABELS[warranty]?.label ?? warranty}
+              </Badge>
+            )}
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {closing ? (
