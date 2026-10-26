@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
-import { AlertTriangle, ClipboardCheck, Copy, PackageCheck, Search } from "lucide-react";
+import { AlertTriangle, Camera, ClipboardCheck, Copy, PackageCheck, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,9 +19,10 @@ import {
   buildClosingSummary, buildServiceOrderText, closingPartsForOrder, indexStopsBySO,
   type ClosingPart,
 } from "@/lib/orderClosing";
-import type { ServiceOrder } from "@/lib/data";
+import type { ServiceOrder, TechnicalReportPhoto, TechnicalReportPhotoCategory } from "@/lib/data";
 import { routeService } from "@/services/supabase/routeService";
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
+import { technicalReportService } from "@/services/supabase/technicalReportService";
 
 const SERVICE_TYPE_LABELS: Record<string, string> = {
   reparo_samsung: "Reparo Samsung",
@@ -30,6 +31,15 @@ const SERVICE_TYPE_LABELS: Record<string, string> = {
   coleta_eco_rma: "Coleta Eco/RMA",
   instalacao_inicial: "Instalação Inicial",
 };
+
+const PHOTO_CATEGORY_LABELS: Record<TechnicalReportPhotoCategory, string> = {
+  produto_frontal: "Produto - Frontal",
+  produto_traseira: "Produto - Traseira",
+  produto_serial: "Produto - Etiqueta Serial",
+  defeito: "Defeito Apresentado",
+  pos_reparo: "Pós-Reparo",
+};
+const PHOTO_CATEGORY_ORDER = Object.keys(PHOTO_CATEGORY_LABELS) as TechnicalReportPhotoCategory[];
 
 const PAGE_SIZE = 25;
 const NONE = "all";
@@ -40,6 +50,8 @@ type Entry = {
   parts: ClosingPart[];
   text: string;
   missingTracking: number;
+  /** undefined = ainda carregando; [] = sem relatório fotográfico. */
+  photos: TechnicalReportPhoto[] | undefined;
 };
 
 export default function OrderClosingPage() {
@@ -63,10 +75,7 @@ export default function OrderClosingPage() {
 
   const { data: orders = [], isLoading: loadingOrders, isError: errOrders } = useQuery({
     queryKey: ["closing-orders", ...keyBase, from, to],
-    queryFn: async () => {
-      const all = await serviceOrderService.getByDateRange(start, end);
-      return all;
-    },
+    queryFn: () => serviceOrderService.getByDateRange(start, end, activeUnidadeId),
     enabled: enabled && rangeOk,
   });
   // Rotas inclusive as de entrega: é nelas que ficam as peças e os códigos de rastreio.
@@ -74,6 +83,13 @@ export default function OrderClosingPage() {
     queryKey: ["closing-routes", ...keyBase],
     queryFn: () => routeService.getAll(activeUnidadeId, { includeDelivery: true }),
     enabled,
+    staleTime: 2 * 60 * 1000,
+  });
+  // Fotos do relatório fotográfico de cada OS do período (carregam depois da lista, que aparece sem esperar).
+  const { data: photosBySO } = useQuery({
+    queryKey: ["closing-photos", ...keyBase, from, to, orders.length],
+    queryFn: () => technicalReportService.getPhotosByServiceOrderNumbers(orders.map(o => o.serviceOrderNumber), activeUnidadeId),
+    enabled: enabled && orders.length > 0,
     staleTime: 2 * 60 * 1000,
   });
   const { data: technicians = [] } = useTechnicians();
@@ -96,8 +112,9 @@ export default function OrderClosingPage() {
         repairs: codes?.repairCodes?.[category],
       }),
       missingTracking: parts.filter(p => p.status === "usada" && !p.trackingCode).length,
+      photos: photosBySO ? (photosBySO.get(order.serviceOrderNumber) ?? []) : undefined,
     };
-  }), [orders, stopsBySO, techName, codes]);
+  }), [orders, stopsBySO, techName, codes, photosBySO]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toUpperCase();
@@ -211,7 +228,7 @@ export default function OrderClosingPage() {
 }
 
 function OrderCard({ entry, onCopy }: { entry: Entry; onCopy: (text: string, what: string) => void }) {
-  const { order, technicianName, parts, text, missingTracking } = entry;
+  const { order, technicianName, parts, text, missingTracking, photos } = entry;
   const used = parts.filter(p => p.status === "usada");
   const notUsed = parts.filter(p => p.status === "nao_usada");
 
@@ -301,7 +318,42 @@ function OrderCard({ entry, onCopy }: { entry: Entry; onCopy: (text: string, wha
             </details>
           )}
         </div>
+
+        <PhotosSection photos={photos} />
       </CardContent>
     </Card>
+  );
+}
+
+function PhotosSection({ photos }: { photos: TechnicalReportPhoto[] | undefined }) {
+  const sorted = useMemo(
+    () => [...(photos || [])].sort((a, b) =>
+      PHOTO_CATEGORY_ORDER.indexOf(a.category) - PHOTO_CATEGORY_ORDER.indexOf(b.category) || (a.order ?? 0) - (b.order ?? 0)),
+    [photos]
+  );
+
+  return (
+    <div className="grid content-start gap-2 lg:col-span-2">
+      <p className="flex items-center gap-1.5 text-sm font-medium">
+        <Camera className="h-4 w-4" /> Fotos{photos && photos.length > 0 ? ` (${photos.length})` : ""}
+      </p>
+      {photos === undefined ? (
+        <p className="text-sm text-muted-foreground">Carregando fotos...</p>
+      ) : sorted.length === 0 ? (
+        <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Sem relatório fotográfico para esta OS.</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {sorted.map(photo => (
+            <a key={photo.path || photo.url} href={photo.url} target="_blank" rel="noopener noreferrer" className="group grid gap-1" title="Abrir em tamanho original">
+              <div className="aspect-square overflow-hidden rounded-md border bg-muted">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photo.url} alt={PHOTO_CATEGORY_LABELS[photo.category] || "Foto"} loading="lazy" className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+              </div>
+              <span className="text-center text-xs text-muted-foreground">{PHOTO_CATEGORY_LABELS[photo.category] || "Foto"}</span>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

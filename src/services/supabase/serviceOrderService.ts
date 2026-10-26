@@ -70,12 +70,13 @@ export const serviceOrderService = {
     return data.map(this.mapFromDb);
   },
 
-  async getByDateRange(start: Date, end: Date): Promise<ServiceOrder[]> {
+  // unidadeId: sem ele traz as OS de todas as unidades que o usuário enxerga (o master vê todas).
+  async getByDateRange(start: Date, end: Date, unidadeId?: string | null): Promise<ServiceOrder[]> {
     // O servidor limita cada resposta a 1000 linhas: pagina pra não cortar meses grandes em silêncio.
     const step = 1000;
     const all: any[] = [];
     for (let from = 0; ; from += step) {
-      const { data, error } = await supabase
+      let query = supabase
           .from('service_orders')
           .select('*')
           .gte('date', start.toISOString())
@@ -83,6 +84,8 @@ export const serviceOrderService = {
           .order('date', { ascending: false })
           .order('id', { ascending: true })
           .range(from, from + step - 1);
+      if (unidadeId) query = query.eq('unidade_id', unidadeId);
+      const { data, error } = await query;
 
       if (error) throw error;
       all.push(...(data || []));

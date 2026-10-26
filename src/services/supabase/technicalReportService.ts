@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-import { type TechnicalReport, type TechnicalReportPhotoCategory } from "@/lib/data";
+import { type TechnicalReport, type TechnicalReportPhoto, type TechnicalReportPhotoCategory } from "@/lib/data";
 
 const BUCKET = "report-photos";
 
@@ -117,6 +117,33 @@ export const technicalReportService = {
       .map((r: any) => r.ai_score)
       .filter((v: any) => v != null)
       .map(Number);
+  },
+
+  // Fotos dos relatórios das OS informadas: nº da OS -> fotos (de todos os relatórios dela, sem repetir). Traz só as
+  // colunas necessárias (as assinaturas do relatório são pesadas) e consulta em lotes por causa do tamanho da URL.
+  async getPhotosByServiceOrderNumbers(serviceOrderNumbers: string[], unidadeId?: string | null): Promise<Map<string, TechnicalReportPhoto[]>> {
+    const result = new Map<string, TechnicalReportPhoto[]>();
+    const unique = Array.from(new Set(serviceOrderNumbers.filter(Boolean)));
+    const BATCH = 100;
+    for (let i = 0; i < unique.length; i += BATCH) {
+      let query = supabase
+        .from('technical_reports')
+        .select('service_order_number, photos, created_at')
+        .in('service_order_number', unique.slice(i, i + BATCH))
+        .order('created_at', { ascending: false });
+      if (unidadeId) query = query.eq('unidade_id', unidadeId);
+      const { data, error } = await query;
+      if (error) throw error;
+      for (const row of data || []) {
+        const list = result.get(row.service_order_number) || [];
+        const seen = new Set(list.map(p => p.path));
+        for (const photo of (row.photos || []) as TechnicalReportPhoto[]) {
+          if (photo?.url && !seen.has(photo.path)) { list.push(photo); seen.add(photo.path); }
+        }
+        result.set(row.service_order_number, list);
+      }
+    }
+    return result;
   },
 
   // Usado pra habilitar/desabilitar o botão "Ver Relatório" na lista de OSs
