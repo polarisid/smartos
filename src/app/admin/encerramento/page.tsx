@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
-import { AlertTriangle, Camera, ClipboardCheck, Copy, Download, Loader2, PackageCheck, Search } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, ClipboardCheck, Copy, Download, Loader2, PackageCheck, Search, Undo2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,8 @@ import {
 } from "@/lib/orderClosing";
 import type { ServiceOrder, TechnicalReportPhoto } from "@/lib/data";
 import { downloadPhotosZip } from "@/lib/photoZip";
+import { ToastAction } from "@/components/ui/toast";
+import { orderClosingService, type OrderClosing } from "@/services/supabase/orderClosingService";
 import { routeService } from "@/services/supabase/routeService";
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
@@ -36,6 +38,8 @@ const SERVICE_TYPE_LABELS: Record<string, string> = {
 const PAGE_SIZE = 25;
 const NONE = "all";
 
+type ClosingFilter = "pending" | "closed" | "all";
+
 type Entry = {
   order: ServiceOrder;
   technicianName: string;
@@ -44,11 +48,15 @@ type Entry = {
   missingTracking: number;
   /** undefined = ainda carregando; [] = sem relatório fotográfico. */
   photos: TechnicalReportPhoto[] | undefined;
+  /** Presente quando a OS já foi marcada como encerrada no sistema. */
+  closing: OrderClosing | undefined;
 };
 
 export default function OrderClosingPage() {
   const { toast } = useToast();
   const { activeUnidadeId, appUser } = useAuth();
+  const queryClient = useQueryClient();
+  const isMaster = appUser?.role === "master";
   const enabled = !!appUser?.uid;
   const keyBase = [activeUnidadeId, appUser?.uid];
 
@@ -56,6 +64,7 @@ export default function OrderClosingPage() {
   const [to, setTo] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [technicianId, setTechnicianId] = useState(NONE);
   const [search, setSearch] = useState("");
+  const [closingFilter, setClosingFilter] = useState<ClosingFilter>("pending");
   const [onlyFinalized, setOnlyFinalized] = useState(true);
   const [onlyWithParts, setOnlyWithParts] = useState(false);
   const [onlyMissingTracking, setOnlyMissingTracking] = useState(false);
@@ -84,6 +93,15 @@ export default function OrderClosingPage() {
     enabled: enabled && orders.length > 0,
     staleTime: 2 * 60 * 1000,
   });
+  // OS já encerradas no sistema. Se a tabela ainda não existe no banco (migração 30), a lista segue funcionando:
+  // todas aparecem como pendentes e o botão de marcar avisa o motivo.
+  const closingKey = ["closing-status", ...keyBase, from, to, orders.length];
+  const { data: closings, isError: errClosings } = useQuery({
+    queryKey: closingKey,
+    queryFn: () => orderClosingService.getByOrderIds(orders.map(o => o.id)),
+    enabled: enabled && orders.length > 0,
+    retry: false,
+  });
   const { data: technicians = [] } = useTechnicians();
   const { data: codes } = useCodes();
 
@@ -105,12 +123,15 @@ export default function OrderClosingPage() {
       }),
       missingTracking: parts.filter(p => p.status === "usada" && !p.trackingCode).length,
       photos: photosBySO ? (photosBySO.get(order.serviceOrderNumber) ?? []) : undefined,
+      closing: closings?.get(order.id),
     };
-  }), [orders, stopsBySO, techName, codes, photosBySO]);
+  }), [orders, stopsBySO, techName, codes, photosBySO, closings]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toUpperCase();
     return entries.filter(e => {
+      if (closingFilter === "pending" && e.closing) return false;
+      if (closingFilter === "closed" && !e.closing) return false;
       if (onlyFinalized && e.order.isFinalized === false) return false;
       if (technicianId !== NONE && e.order.technicianId !== technicianId) return false;
       if (q && !e.order.serviceOrderNumber.toUpperCase().includes(q)) return false;
@@ -118,13 +139,56 @@ export default function OrderClosingPage() {
       if (onlyMissingTracking && e.missingTracking === 0) return false;
       return true;
     });
-  }, [entries, onlyFinalized, technicianId, search, onlyWithParts, onlyMissingTracking]);
+  }, [entries, closingFilter, onlyFinalized, technicianId, search, onlyWithParts, onlyMissingTracking]);
 
   const totals = useMemo(() => ({
     orders: filtered.length,
     withParts: filtered.filter(e => e.parts.some(p => p.status === "usada")).length,
     missing: filtered.filter(e => e.missingTracking > 0).length,
+    pending: filtered.filter(e => !e.closing).length,
   }), [filtered]);
+
+  const setClosed = (orderId: string, closing: OrderClosing | null) => {
+    queryClient.setQueryData<Map<string, OrderClosing>>(closingKey, prev => {
+      const next = new Map(prev || []);
+      if (closing) next.set(orderId, closing); else next.delete(orderId);
+      return next;
+    });
+  };
+
+  const unmark = async (orderId: string) => {
+    try {
+      await orderClosingService.unmarkClosed(orderId);
+      setClosed(orderId, null);
+      toast({ title: "Marcação removida", description: "A OS voltou para as pendentes de encerramento." });
+    } catch (e) {
+      console.error("Erro ao desmarcar encerramento:", e);
+      toast({ variant: "destructive", title: "Não foi possível desmarcar" });
+    }
+  };
+
+  const markClosed = async (entry: Entry) => {
+    if (isMaster && !activeUnidadeId) {
+      toast({ variant: "destructive", title: "Selecione uma unidade", description: "Escolha uma unidade no seletor no topo antes de marcar a OS como encerrada." });
+      return;
+    }
+    try {
+      await orderClosingService.markClosed(entry.order.id, appUser?.name, activeUnidadeId);
+      setClosed(entry.order.id, { closedAt: new Date(), closedByName: appUser?.name });
+      toast({
+        title: `OS ${entry.order.serviceOrderNumber} marcada como encerrada`,
+        action: <ToastAction altText="Desfazer" onClick={() => void unmark(entry.order.id)}>Desfazer</ToastAction>,
+      });
+    } catch (e: any) {
+      console.error("Erro ao marcar encerramento:", e);
+      const missingTable = e?.code === "42P01" || e?.code === "PGRST205" || /service_order_closings/.test(e?.message || "");
+      toast({
+        variant: "destructive",
+        title: "Não foi possível marcar como encerrada",
+        description: missingTable ? "A tabela de encerramentos ainda não existe no banco. Aplique a migração 30_service_order_closings.sql." : undefined,
+      });
+    }
+  };
 
   const copy = async (text: string, what: string) => {
     const ok = await copyToClipboard(text);
@@ -143,7 +207,7 @@ export default function OrderClosingPage() {
       </div>
 
       <Card>
-        <CardContent className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
+        <CardContent className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-5">
           <div className="grid gap-2">
             <Label htmlFor="c-from">De</Label>
             <Input id="c-from" type="date" value={from} max={to} onChange={e => { setFrom(e.target.value); setVisible(PAGE_SIZE); }} />
@@ -151,6 +215,17 @@ export default function OrderClosingPage() {
           <div className="grid gap-2">
             <Label htmlFor="c-to">Até</Label>
             <Input id="c-to" type="date" value={to} min={from} onChange={e => { setTo(e.target.value); setVisible(PAGE_SIZE); }} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Encerramento</Label>
+            <Select value={closingFilter} onValueChange={v => { setClosingFilter(v as ClosingFilter); setVisible(PAGE_SIZE); }}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pending">Pendentes de encerramento</SelectItem>
+                <SelectItem value="closed">Já encerradas</SelectItem>
+                <SelectItem value="all">Todas</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="grid gap-2">
             <Label>Técnico</Label>
@@ -169,7 +244,7 @@ export default function OrderClosingPage() {
               <Input id="c-search" className="pl-8" value={search} onChange={e => { setSearch(e.target.value); setVisible(PAGE_SIZE); }} placeholder="Buscar" />
             </div>
           </div>
-          <div className="flex flex-wrap gap-x-6 gap-y-2 sm:col-span-2 lg:col-span-4">
+          <div className="flex flex-wrap gap-x-6 gap-y-2 sm:col-span-2 lg:col-span-5">
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={onlyFinalized} onChange={e => { setOnlyFinalized(e.target.checked); setVisible(PAGE_SIZE); }} />
               Só atendimentos finalizados
@@ -195,16 +270,24 @@ export default function OrderClosingPage() {
       ) : (
         <>
           <p className="text-sm text-muted-foreground">
-            <span className="font-semibold text-foreground">{totals.orders}</span> OS · <span className="font-semibold text-foreground">{totals.withParts}</span> com peças usadas
+            <span className="font-semibold text-foreground">{totals.orders}</span> OS · <span className="font-semibold text-foreground">{totals.pending}</span> pendentes de encerramento · <span className="font-semibold text-foreground">{totals.withParts}</span> com peças usadas
             {totals.missing > 0 && <> · <span className="font-semibold text-amber-600">{totals.missing} com rastreio pendente</span></>}
           </p>
 
+          {errClosings && (
+            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+              Não foi possível ler quais OS já foram encerradas (aplique a migração 30_service_order_closings.sql no banco). Por enquanto todas aparecem como pendentes.
+            </p>
+          )}
+
           {filtered.length === 0 ? (
-            <div className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">Nenhuma OS encontrada neste período.</div>
+            <div className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
+              {closingFilter === "pending" && entries.some(e => e.closing) ? "Nenhuma OS pendente neste período. Mude o filtro para ver as já encerradas." : "Nenhuma OS encontrada neste período."}
+            </div>
           ) : (
             <div className="flex flex-col gap-4">
               {filtered.slice(0, visible).map(e => (
-                <OrderCard key={e.order.id} entry={e} onCopy={copy} />
+                <OrderCard key={e.order.id} entry={e} onCopy={copy} onMarkClosed={() => void markClosed(e)} onUnmark={() => void unmark(e.order.id)} />
               ))}
               {filtered.length > visible && (
                 <Button variant="outline" className="self-center" onClick={() => setVisible(v => v + PAGE_SIZE)}>
@@ -219,8 +302,8 @@ export default function OrderClosingPage() {
   );
 }
 
-function OrderCard({ entry, onCopy }: { entry: Entry; onCopy: (text: string, what: string) => void }) {
-  const { order, technicianName, parts, text, missingTracking, photos } = entry;
+function OrderCard({ entry, onCopy, onMarkClosed, onUnmark }: { entry: Entry; onCopy: (text: string, what: string) => void; onMarkClosed: () => void; onUnmark: () => void }) {
+  const { order, technicianName, parts, text, missingTracking, photos, closing } = entry;
   const used = parts.filter(p => p.status === "usada");
   const notUsed = parts.filter(p => p.status === "nao_usada");
 
@@ -234,6 +317,11 @@ function OrderCard({ entry, onCopy }: { entry: Entry; onCopy: (text: string, wha
               <Copy className="h-3.5 w-3.5" />
             </Button>
             {order.isFinalized === false && <Badge variant="secondary">Pendência</Badge>}
+            {closing && (
+              <Badge className="bg-green-600/15 text-green-700 hover:bg-green-600/15 dark:text-green-400">
+                <CheckCircle2 className="mr-1 h-3 w-3" /> Encerrada em {format(closing.closedAt, "dd/MM HH:mm")}{closing.closedByName ? ` por ${closing.closedByName}` : ""}
+              </Badge>
+            )}
             {missingTracking > 0 && (
               <Badge className="bg-amber-500/15 text-amber-700 hover:bg-amber-500/15 dark:text-amber-400">
                 <AlertTriangle className="mr-1 h-3 w-3" /> {missingTracking} rastreio pendente
@@ -244,9 +332,20 @@ function OrderCard({ entry, onCopy }: { entry: Entry; onCopy: (text: string, wha
             {format(order.date, "dd/MM/yyyy HH:mm")} · {technicianName} · {order.equipmentType} · {SERVICE_TYPE_LABELS[order.serviceType] || order.serviceType}
           </CardDescription>
         </div>
-        <Button size="sm" onClick={() => onCopy(buildClosingSummary(text, parts), "Texto e peças")}>
-          <Copy className="mr-2 h-4 w-4" /> Copiar tudo
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {closing ? (
+            <Button size="sm" variant="ghost" onClick={onUnmark}>
+              <Undo2 className="mr-2 h-4 w-4" /> Desfazer encerramento
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" onClick={onMarkClosed}>
+              <CheckCircle2 className="mr-2 h-4 w-4" /> Marcar como encerrada
+            </Button>
+          )}
+          <Button size="sm" onClick={() => onCopy(buildClosingSummary(text, parts), "Texto e peças")}>
+            <Copy className="mr-2 h-4 w-4" /> Copiar tudo
+          </Button>
+        </div>
       </CardHeader>
 
       <CardContent className="grid gap-4 lg:grid-cols-2">
