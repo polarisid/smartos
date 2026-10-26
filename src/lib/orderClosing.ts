@@ -61,17 +61,21 @@ function candidateStops(order: ServiceOrder, stopsBySO: Map<string, RouteStopRef
 }
 
 /**
- * Tipo do serviço dentro do atendimento Samsung (LP, OW, VOID...): o que o técnico informou no lançamento
- * ("Tipo de reparo") ou, na falta dele, o tipo de garantia da parada na rota. Vazio quando não há nenhum.
+ * Tipo do serviço Samsung (LP, OW, VOID...): vem da planilha da rota (coluna de garantia da parada), na rota mais
+ * recente criada antes do lançamento. Só quando a OS não consta em nenhuma rota (ou a planilha não traz o tipo)
+ * usa o "Tipo de reparo" que o técnico informou no lançamento. Vazio quando não há nenhum.
  */
 export function warrantyTypeFor(order: ServiceOrder, stopsBySO: Map<string, RouteStopRef[]>): string {
-    const own = (order.samsungRepairType || "").trim();
-    if (own) return own.toUpperCase();
+    // "LP - Em garantia" / "ow" na planilha viram "LP" / "OW"; outro texto fica como veio.
+    const clean = (raw?: string) => {
+        const v = (raw || "").trim().toUpperCase();
+        return v.match(/^(LP|OW|VOID)\b/)?.[1] ?? v;
+    };
     for (const c of candidateStops(order, stopsBySO)) {
-        const w = (c.stop.warrantyType || "").trim();
-        if (w) return w.toUpperCase();
+        const w = clean(c.stop.warrantyType);
+        if (w) return w;
     }
-    return "";
+    return clean(order.samsungRepairType);
 }
 
 /**
