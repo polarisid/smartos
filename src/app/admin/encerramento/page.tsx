@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
-import { AlertTriangle, Camera, ClipboardCheck, Copy, PackageCheck, Search } from "lucide-react";
+import { AlertTriangle, Camera, ClipboardCheck, Copy, Download, Loader2, PackageCheck, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +19,8 @@ import {
   buildClosingSummary, buildServiceOrderText, closingPartsForOrder, indexStopsBySO,
   type ClosingPart,
 } from "@/lib/orderClosing";
-import type { ServiceOrder, TechnicalReportPhoto, TechnicalReportPhotoCategory } from "@/lib/data";
+import type { ServiceOrder, TechnicalReportPhoto } from "@/lib/data";
+import { downloadPhotosZip } from "@/lib/photoZip";
 import { routeService } from "@/services/supabase/routeService";
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
@@ -31,15 +32,6 @@ const SERVICE_TYPE_LABELS: Record<string, string> = {
   coleta_eco_rma: "Coleta Eco/RMA",
   instalacao_inicial: "Instalação Inicial",
 };
-
-const PHOTO_CATEGORY_LABELS: Record<TechnicalReportPhotoCategory, string> = {
-  produto_frontal: "Produto - Frontal",
-  produto_traseira: "Produto - Traseira",
-  produto_serial: "Produto - Etiqueta Serial",
-  defeito: "Defeito Apresentado",
-  pos_reparo: "Pós-Reparo",
-};
-const PHOTO_CATEGORY_ORDER = Object.keys(PHOTO_CATEGORY_LABELS) as TechnicalReportPhotoCategory[];
 
 const PAGE_SIZE = 25;
 const NONE = "all";
@@ -319,41 +311,47 @@ function OrderCard({ entry, onCopy }: { entry: Entry; onCopy: (text: string, wha
           )}
         </div>
 
-        <PhotosSection photos={photos} />
+        <PhotosSection serviceOrderNumber={order.serviceOrderNumber} photos={photos} />
       </CardContent>
     </Card>
   );
 }
 
-function PhotosSection({ photos }: { photos: TechnicalReportPhoto[] | undefined }) {
-  const sorted = useMemo(
-    () => [...(photos || [])].sort((a, b) =>
-      PHOTO_CATEGORY_ORDER.indexOf(a.category) - PHOTO_CATEGORY_ORDER.indexOf(b.category) || (a.order ?? 0) - (b.order ?? 0)),
-    [photos]
-  );
+function PhotosSection({ serviceOrderNumber, photos }: { serviceOrderNumber: string; photos: TechnicalReportPhoto[] | undefined }) {
+  const { toast } = useToast();
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const count = photos?.length ?? 0;
+
+  const download = async () => {
+    if (!photos || photos.length === 0) return;
+    setProgress({ done: 0, total: photos.length });
+    try {
+      const r = await downloadPhotosZip(serviceOrderNumber, photos, (done, total) => setProgress({ done, total }));
+      if (r.downloaded === 0) toast({ variant: "destructive", title: "Não foi possível baixar as fotos" });
+      else if (r.failed > 0) toast({ variant: "destructive", title: "ZIP baixado com falhas", description: `${r.failed} foto(s) não puderam ser baixadas e ficaram de fora.` });
+      else toast({ title: "ZIP baixado!", description: `${r.downloaded} foto(s) da OS ${serviceOrderNumber}.` });
+    } catch (e) {
+      console.error("Erro ao gerar o ZIP de fotos:", e);
+      toast({ variant: "destructive", title: "Não foi possível gerar o ZIP" });
+    } finally {
+      setProgress(null);
+    }
+  };
 
   return (
-    <div className="grid content-start gap-2 lg:col-span-2">
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 lg:col-span-2">
       <p className="flex items-center gap-1.5 text-sm font-medium">
-        <Camera className="h-4 w-4" /> Fotos{photos && photos.length > 0 ? ` (${photos.length})` : ""}
+        <Camera className="h-4 w-4" /> Fotos{count > 0 ? ` (${count})` : ""}
+        {photos === undefined && <span className="text-xs font-normal text-muted-foreground">carregando...</span>}
+        {photos !== undefined && count === 0 && <span className="text-xs font-normal text-muted-foreground">sem relatório fotográfico para esta OS</span>}
       </p>
-      {photos === undefined ? (
-        <p className="text-sm text-muted-foreground">Carregando fotos...</p>
-      ) : sorted.length === 0 ? (
-        <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Sem relatório fotográfico para esta OS.</p>
-      ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {sorted.map(photo => (
-            <a key={photo.path || photo.url} href={photo.url} target="_blank" rel="noopener noreferrer" className="group grid gap-1" title="Abrir em tamanho original">
-              <div className="aspect-square overflow-hidden rounded-md border bg-muted">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={photo.url} alt={PHOTO_CATEGORY_LABELS[photo.category] || "Foto"} loading="lazy" className="h-full w-full object-cover transition-transform group-hover:scale-105" />
-              </div>
-              <span className="text-center text-xs text-muted-foreground">{PHOTO_CATEGORY_LABELS[photo.category] || "Foto"}</span>
-            </a>
-          ))}
-        </div>
-      )}
+      <Button variant="outline" size="sm" onClick={download} disabled={count === 0 || progress !== null}>
+        {progress ? (
+          <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Baixando {progress.done}/{progress.total}</>
+        ) : (
+          <><Download className="mr-2 h-4 w-4" /> Baixar fotos (ZIP)</>
+        )}
+      </Button>
     </div>
   );
 }
