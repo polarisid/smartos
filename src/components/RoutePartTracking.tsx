@@ -12,6 +12,7 @@ import { entriesFromCodes, mergeServerCodes } from "@/lib/trackingCodes";
 import { savePartTracking, overlayPendingCodes } from "@/lib/offlineTrackingQueue";
 import { useTrackingQueue } from "@/hooks/useTrackingQueue";
 import { Save, ScanLine, Search, CloudOff } from "lucide-react";
+import { activeStops } from "@/lib/routeStops";
 
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
@@ -25,7 +26,7 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
   const { toast } = useToast();
   const [trackingCodes, setTrackingCodes] = useState<Record<string, Record<string, string>>>(() => {
     const initial: Record<string, Record<string, string>> = {};
-    route.stops.forEach(stop => {
+    activeStops(route.stops).forEach(stop => {
       initial[stop.serviceOrder] = {};
       (stop.parts || []).forEach(part => {
         initial[stop.serviceOrder][part.code] = part.trackingCode || "";
@@ -113,7 +114,7 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
     toast({ title: "Código lido com sucesso!" });
   };
 
-  const stopsWithParts = route.stops.filter(stop => stop.parts && stop.parts.length > 0);
+  const stopsWithParts = activeStops(route.stops).filter(stop => stop.parts && stop.parts.length > 0);
   const filteredStops = filterText
     ? stopsWithParts.filter(stop =>
         stop.serviceOrder.toLowerCase().includes(filterText.toLowerCase()) ||

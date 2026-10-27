@@ -15,6 +15,7 @@ import { PackageSearch, Save, ScanLine, Smartphone, Loader2, RefreshCw } from "l
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
+import { withoutReallocated } from "@/lib/routeStops";
 
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
@@ -47,7 +48,7 @@ export default function MobileConferencePage() {
             if (!response.ok) {
                 throw new Error('Falha ao buscar dados da API');
             }
-            const data: EnrichedRoute[] = await response.json();
+            const data: EnrichedRoute[] = ((await response.json()) as EnrichedRoute[]).map(withoutReallocated);
             setRoutes(data);
 
             const initialTrackingCodes: typeof trackingCodes = {};

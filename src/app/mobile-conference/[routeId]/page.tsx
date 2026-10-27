@@ -15,6 +15,7 @@ import { useTrackingQueue } from "@/hooks/useTrackingQueue";
 import { PackageSearch, Save, ScanLine, Smartphone, Loader2, RefreshCw, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
+import { withoutReallocated } from "@/lib/routeStops";
 
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
@@ -37,7 +38,8 @@ export default function MobileConferenceRoutePage() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const data = await routeService.getById(routeId);
+      const raw = await routeService.getById(routeId);
+      const data = raw ? withoutReallocated(raw) : raw;
       setRoute(data);
 
       const initialTrackingCodes: typeof trackingCodes = {};
@@ -73,7 +75,8 @@ export default function MobileConferenceRoutePage() {
 
   // Várias pessoas podem bipar a mesma rota ao mesmo tempo: o salvamento lê a rota na hora e grava
   // só os códigos que ESTA tela tem preenchidos (nunca limpa/desfaz o que outra pessoa bipou).
-  const applyServerRoute = (data: Route) => {
+  const applyServerRoute = (raw: Route) => {
+    const data = withoutReallocated(raw);
     setRoute(data);
     setTrackingCodes(prev => mergeServerCodes(prev, data));
   };

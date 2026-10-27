@@ -30,6 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { isAfter, startOfMonth, endOfMonth, isWithinInterval, getMonth, getYear, setMonth, setYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { activeStops, withoutReallocated } from "@/lib/routeStops";
 
 // jsPDF e xlsx são pesados: só baixam quando o usuário gera o PDF / a planilha.
 async function loadJsPdf() {
@@ -778,7 +779,7 @@ function OsRouteSearch() {
             routesSnapshot.forEach(route => {
                 if (route.isDraft && !includeDrafts) return;
 
-                (route.stops || []).forEach(stop => {
+                activeStops(route.stops).forEach(stop => {
                     const matchesPart = (stop.parts || []).some(
                         part =>
                             part.code?.toLowerCase().includes(term) ||
@@ -1128,7 +1129,7 @@ export default function PartSeparationPage() {
     const fetchAllData = async () => {
         setIsLoading(true);
         try {
-            const routesData = await routeService.getAll(activeUnidadeId, { includeDelivery: true });
+            const routesData = (await routeService.getAll(activeUnidadeId, { includeDelivery: true })).map(withoutReallocated);
             const cutoff30Days = subDays(new Date(), 30);
             const recentRoutes = routesData.filter(r => r.createdAt >= cutoff30Days);
             setAllRoutes(recentRoutes);
@@ -1203,7 +1204,7 @@ export default function PartSeparationPage() {
 
             // Atualiza a tela com a versão que ficou (inclui o que outras pessoas biparam)
             setAllRoutes(prevRoutes => prevRoutes.map(route =>
-                route.id === routeId ? { ...route, stops: fresh.stops } : route
+                route.id === routeId ? { ...route, stops: activeStops(fresh.stops) } : route
             ));
             setTrackingCodes(prev => ({ ...prev, [routeId]: mergeServerCodes(prev[routeId] || {}, fresh) }));
 
@@ -1228,7 +1229,7 @@ export default function PartSeparationPage() {
                 const byId = new Map(active.map(r => [r.id, r]));
                 setAllRoutes(prev => prev.map(r => {
                     const fresh = byId.get(r.id);
-                    return fresh ? { ...r, stops: fresh.stops } : r;
+                    return fresh ? { ...r, stops: activeStops(fresh.stops) } : r;
                 }));
                 setTrackingCodes(prev => {
                     const next = { ...prev };
@@ -1252,7 +1253,7 @@ export default function PartSeparationPage() {
             // Só grava o que esta tela tem preenchido, sobre a versão atual do banco: não desfaz o que outras pessoas biparam.
             const { route: fresh, written } = await routeService.patchPartTracking(routeId, entriesFromCodes(trackingCodes[routeId] || {}));
 
-            setAllRoutes(prev => prev.map(r => (r.id === routeId ? { ...r, stops: fresh.stops } : r)));
+            setAllRoutes(prev => prev.map(r => (r.id === routeId ? { ...r, stops: activeStops(fresh.stops) } : r)));
             setTrackingCodes(prev => ({ ...prev, [routeId]: mergeServerCodes(prev[routeId] || {}, fresh) }));
             toast({
                 title: "Códigos de rastreio salvos!",
