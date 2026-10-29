@@ -64,8 +64,9 @@ const parseBrDate = (text?: string): number => {
 };
 
 // Pendência lançada pelo técnico vale mais que "Programada": a OS foi visitada e não foi concluída. Só deixa de valer se a OS
-// foi reprogramada para um dia DEPOIS da pendência (aí volta a ser Programada / Com dia).
-const isPending = (r: Row) => !!r.pendingAt && !(r.day && new Date(r.day + "T23:59:59").getTime() > r.pendingAt.getTime());
+// foi reprogramada para um dia POSTERIOR ao da pendência (aí volta a ser Programada / Com dia). O mesmo dia não conta: é o
+// dia da própria visita que gerou a pendência (ex.: técnico pediu mais peça na visita programada para hoje).
+const isPending = (r: Row) => !!r.pendingAt && !(r.day && new Date(r.day + "T00:00:00").getTime() > new Date(r.pendingAt.getFullYear(), r.pendingAt.getMonth(), r.pendingAt.getDate(), 23, 59, 59, 999).getTime());
 const statusOf = (r: Row) => (r.finalizedAt ? "Finalizada" : isPending(r) ? "Pendência" : r.childName ? "Programada" : r.day ? "Com dia" : "A programar");
 
 // TAT atual: dias desde a data da solicitação até (1) a finalização, se já foi atendida; (2) o dia programado, se
