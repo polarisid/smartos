@@ -30,7 +30,7 @@ import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
 import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera, Calculator, Loader2, Building2, KeyRound, Copy, Check, Shuffle, LifeBuoy, ListChecks, Car, FileCheck2 } from "lucide-react"
 import { Logo } from "@/components/Logo"
-import { unidadeService } from "@/services/supabase/unidadeService"
+import { unidadeService, UNIDADES_CHANGED_EVENT } from "@/services/supabase/unidadeService"
 import { type Unidade } from "@/lib/data"
 
 // Atalho pra qualquer admin/master trocar a própria senha sem precisar se
@@ -153,7 +153,10 @@ function UnidadeSwitcher() {
     const [unidades, setUnidades] = React.useState<Unidade[]>([]);
 
     React.useEffect(() => {
-        unidadeService.getAll().then(setUnidades).catch(() => {});
+        const load = () => unidadeService.getAll().then(setUnidades).catch(() => {});
+        load();
+        window.addEventListener(UNIDADES_CHANGED_EVENT, load);
+        return () => window.removeEventListener(UNIDADES_CHANGED_EVENT, load);
     }, []);
 
     return (
@@ -238,6 +241,7 @@ const NAV_GROUPS = [
       { href: '/admin/technicians', label: 'Técnicos', Icon: UsersIcon, tooltip: 'Técnicos' },
       { href: '/admin/drivers', label: 'Motoristas', Icon: Truck, tooltip: 'Motoristas' },
       { href: '/admin/vehicles', label: 'Veículos e Km', Icon: Car, tooltip: 'Veículos e controle de km rodado' },
+      { href: '/admin/unidades', label: 'Unidades', Icon: Building2, tooltip: 'Unidades (só master)' },
       { href: '/admin/users', label: 'Usuários', Icon: Users, tooltip: 'Usuários' },
       { href: '/admin/codes', label: 'Códigos', Icon: Tag, tooltip: 'Códigos' },
       { href: '/admin/presets', label: 'Presets', Icon: Bookmark, tooltip: 'Presets' },
@@ -313,7 +317,7 @@ const AdminSidebar = memo(function AdminSidebar({children}: {children: React.Rea
                             </SidebarGroupLabel>
                             <SidebarGroupContent>
                                 <SidebarMenu>
-                                    {group.items.map(({ href, label, Icon, tooltip }) => (
+                                    {group.items.filter(i => i.href !== '/admin/unidades' || appUser?.role === 'master').map(({ href, label, Icon, tooltip }) => (
                                         <SidebarMenuItem key={href}>
                                             <SidebarMenuButton asChild isActive={isActive(href)} tooltip={tooltip} className="text-sidebar-foreground/60 transition-all duration-200 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground hover:translate-x-0.5 data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-foreground data-[active=true]:font-semibold rounded-lg [&[data-active=true]_svg]:text-sidebar-primary">
                                                 <Link href={href}><Icon className="w-4 h-4" /> <span>{label}</span></Link>

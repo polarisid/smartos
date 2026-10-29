@@ -26,4 +26,12 @@ export const unidadeService = {
     if (error) throw error;
     return data.id;
   },
+
+  async update(id: string, nome: string): Promise<void> {
+    const { error } = await supabase.from('unidades').update({ nome }).eq('id', id);
+    if (error) throw error;
+  },
 };
+
+// Avisa os seletores de unidade já montados (o do menu carrega a lista uma vez só).
+export const UNIDADES_CHANGED_EVENT = 'smartos:unidades-changed';
