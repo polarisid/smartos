@@ -26,6 +26,7 @@ import { useAllRoutes, useTechnicians, useDrivers } from "@/hooks/queries";
 import { routeService } from "@/services/supabase/routeService";
 import { configService } from "@/services/supabase/configService";
 import { type Route, type RouteStop } from "@/lib/data";
+import { activeStops } from "@/lib/routeStops";
 import { parseRouteText } from "@/lib/parseRouteText";
 import { optimizeRouteStops, optimizeRouteStopsAsync, describeOptimization } from "@/lib/routeOptimizer";
 import { optimizeRouteWithGeminiAI } from "@/services/aiRouteService";
@@ -217,7 +218,8 @@ function getRouteDayInfo(route: Route, day: Date) {
   const dayStrAlt = format(day, 'yyyy-MM-dd');
   const dayStrShort = format(day, 'dd/MM/yy');
 
-  const stopsForThisDay = route.stops.filter(s => {
+  const liveStops = activeStops(route.stops);
+  const stopsForThisDay = liveStops.filter(s => {
     const fvd = (s.firstVisitDate || '').trim();
     return fvd === dayStr || fvd === dayStrAlt || fvd === dayStrShort;
   });
@@ -226,7 +228,7 @@ function getRouteDayInfo(route: Route, day: Date) {
   if (route.plannedDate) dates.push(new Date(route.plannedDate));
   if (route.departureDate) dates.push(new Date(route.departureDate));
 
-  route.stops.forEach(s => {
+  liveStops.forEach(s => {
     if (s.firstVisitDate) {
       const parts = s.firstVisitDate.trim().split('/');
       if (parts.length === 3) {
@@ -259,7 +261,7 @@ function getRouteDayInfo(route: Route, day: Date) {
 
   return {
     stopsTodayCount: stopsForThisDay.length,
-    totalStopsCount: route.stops.length,
+    totalStopsCount: liveStops.length,
     isStartDay,
     isEndDay,
     isMultiDay: !isSameMinMax,
@@ -332,7 +334,7 @@ function exportWeekToExcel(routes: Route[], weekStart: Date, weekEnd: Date) {
       rowsXml += `   </Row>\n`;
 
       // 2. Data Rows
-      route.stops.forEach(stop => {
+      activeStops(route.stops).forEach(stop => {
         const p0 = stop.parts?.[0];
         const p1 = stop.parts?.[1];
         const p2 = stop.parts?.[2];
@@ -822,7 +824,7 @@ export default function PlanejamentoPage() {
     if (selectedRoute.departureDate) dates.push(new Date(selectedRoute.departureDate));
     if (selectedRoute.arrivalDate) dates.push(new Date(selectedRoute.arrivalDate));
 
-    selectedRoute.stops.forEach(s => {
+    activeStops(selectedRoute.stops).forEach(s => {
       if (s.firstVisitDate) {
         const parts = s.firstVisitDate.trim().split('/');
         if (parts.length === 3) {
@@ -863,7 +865,7 @@ export default function PlanejamentoPage() {
       const dayStrAlt = format(day, 'yyyy-MM-dd');
       const dayStrShort = format(day, 'dd/MM/yy');
 
-      const stopsForThisDay = selectedRoute.stops.filter(s => {
+      const stopsForThisDay = activeStops(selectedRoute.stops).filter(s => {
         const fvd = (s.firstVisitDate || '').trim();
         return fvd === dayStr || fvd === dayStrAlt || fvd === dayStrShort;
       });
@@ -1193,7 +1195,7 @@ export default function PlanejamentoPage() {
     total: activeAndDraftRoutesForWeek.length,
     published: activeAndDraftRoutesForWeek.filter(r => r.isActive).length,
     drafts: activeAndDraftRoutesForWeek.filter(r => r.isDraft).length,
-    totalStops: activeAndDraftRoutesForWeek.reduce((s, r) => s + r.stops.length, 0),
+    totalStops: activeAndDraftRoutesForWeek.reduce((s, r) => s + activeStops(r.stops).length, 0),
   }), [activeAndDraftRoutesForWeek]);
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1427,7 +1429,7 @@ export default function PlanejamentoPage() {
                           </div>
                           <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                             {r.technicianName && <span className="truncate">👤 {r.technicianName.split(' ')[0]}</span>}
-                            <span className="font-extrabold text-primary shrink-0">{r.stops.length} OS total</span>
+                            <span className="font-extrabold text-primary shrink-0">{activeStops(r.stops).length} OS total</span>
                           </div>
                         </div>
 
@@ -1502,7 +1504,7 @@ export default function PlanejamentoPage() {
                   )}
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Estende-se na semana de <strong className="text-foreground font-semibold">{selectedRouteSpan.formattedRange}</strong> · Total de {selectedRoute.stops.length} paradas
+                  Estende-se na semana de <strong className="text-foreground font-semibold">{selectedRouteSpan.formattedRange}</strong> · Total de {activeStops(selectedRoute.stops).length} paradas
                 </p>
               </div>
             </div>
@@ -1578,7 +1580,7 @@ export default function PlanejamentoPage() {
                 const rDate = getRouteDate(r);
                 const routeIsOnThisDay = rDate && isSameDay(rDate, day);
 
-                r.stops.forEach(s => {
+                activeStops(r.stops).forEach(s => {
                   const fvd = (s.firstVisitDate || '').trim();
                   if (fvd === dayStr || fvd === dayStrAlt || fvd === dayStrShort) {
                     dayStopsCount++;
@@ -1641,7 +1643,7 @@ export default function PlanejamentoPage() {
                       dayRoutes.map(route => {
                         const dayInfo = getRouteDayInfo(route, day);
                         const isSelected = selectedRoute?.id === route.id;
-                        const lpCount = route.stops.filter(s => s.warrantyType === 'LP').length;
+                        const lpCount = activeStops(route.stops).filter(s => s.warrantyType === 'LP').length;
                         const isFinalized = !route.isDraft && !route.isActive;
 
                         {/* ── Minimal Continuation Chip for multi-day route ── */}
@@ -1687,7 +1689,7 @@ export default function PlanejamentoPage() {
                                   </span>
                                 )}
                                 <span className="text-[9px] opacity-70">
-                                  ({route.stops.length} total)
+                                  ({activeStops(route.stops).length} total)
                                 </span>
                               </div>
                             </div>
@@ -1771,10 +1773,10 @@ export default function PlanejamentoPage() {
                                 </div>
                                 <div className="text-right shrink-0">
                                   <p className="text-lg font-black text-primary leading-none">
-                                    {dayInfo.stopsTodayCount > 0 && dayInfo.isMultiDay ? dayInfo.stopsTodayCount : route.stops.length}
+                                    {dayInfo.stopsTodayCount > 0 && dayInfo.isMultiDay ? dayInfo.stopsTodayCount : activeStops(route.stops).length}
                                   </p>
                                   <p className="text-[8px] text-muted-foreground uppercase">
-                                    {dayInfo.isMultiDay ? `par. hoje (${route.stops.length} total)` : 'paradas'}
+                                    {dayInfo.isMultiDay ? `par. hoje (${activeStops(route.stops).length} total)` : 'paradas'}
                                   </p>
                                 </div>
                               </div>
@@ -1843,7 +1845,7 @@ export default function PlanejamentoPage() {
                     // Look across ALL week routes so multi-day interior routes are included
                     const stopsForDay: { routeName: string; stop: typeof activeAndDraftRoutesForWeek[0]['stops'][0] }[] = [];
                     activeAndDraftRoutesForWeek.forEach(r => {
-                      r.stops.forEach(s => {
+                      activeStops(r.stops).forEach(s => {
                         const fvd = (s.firstVisitDate || '').trim();
                         if (fvd === dayStr || fvd === dayStrAlt || fvd === format(day, 'dd/MM/yy')) {
                           stopsForDay.push({ routeName: r.name, stop: s });
@@ -1933,7 +1935,7 @@ export default function PlanejamentoPage() {
                 </div>
                 <div className="flex flex-wrap gap-2 mt-1.5 ml-6">
                   <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                    <MapPin className="h-3 w-3" />{selectedRoute.stops.length} paradas
+                    <MapPin className="h-3 w-3" />{activeStops(selectedRoute.stops).length} paradas
                   </span>
                   {selectedRoute.technicianName && (
                     <span className="text-[11px] text-muted-foreground flex items-center gap-1">
