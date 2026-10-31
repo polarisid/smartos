@@ -37,6 +37,8 @@ import { copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { DEFAULT_PLANNING_PARAMS, simulateRoutePlan, formatClock } from "@/lib/routePlanning";
 import type { Route, RoutePart, RoutePoint, RouteStop } from "@/lib/data";
 import { routeService, RouteConflictError } from "@/services/supabase/routeService";
+import { buildOrderHistory } from "@/lib/deliveryHistory";
+import { DeliveryHistoryNotice } from "@/components/routes/DeliveryHistoryNotice";
 
 // ─── Rota de entrega ("rota mãe") ───────────────────────────────────────────────────────────────
 // Controla o envio das peças e das OS. Daqui saem rotas filhas por dia, só com as OS ainda não
@@ -159,9 +161,13 @@ export default function DeliveryRoutesPage() {
     const [newText, setNewText] = useState("");
     const [creating, setCreating] = useState(false);
     const parsed = useMemo(() => parseRouteText(newText), [newText]);
+    // Quais OS da planilha já foram em entregas anteriores (e quais peças já foram enviadas).
+    const [skipSent, setSkipSent] = useState(false);
+    const newHistory = useMemo(() => buildOrderHistory(parsed, routes), [parsed, routes]);
+    const toCreate = useMemo(() => (skipSent ? parsed.filter(st => !newHistory.get(st.serviceOrder.trim().toUpperCase())?.allPartsSent) : parsed), [parsed, skipSent, newHistory]);
 
     const handleCreate = async () => {
-        if (!newName.trim() || parsed.length === 0) {
+        if (!newName.trim() || toCreate.length === 0) {
             toast({ variant: "destructive", title: "Preencha o nome e cole as OS da planilha." });
             return;
         }
@@ -178,14 +184,14 @@ export default function DeliveryRoutesPage() {
             }
             const id = await routeService.create({
                 name: newName.trim(),
-                stops: parsed,
+                stops: toCreate,
                 kind: "delivery",
                 isActive: true,
                 isDraft: false,
                 createdAt: new Date(),
             } as Omit<Route, "id">, activeUnidadeId);
             await queryClient.invalidateQueries({ queryKey: ["delivery-routes"] });
-            toast({ title: "Rota de entrega criada", description: parsed.length + " OS importadas." });
+            toast({ title: "Rota de entrega criada", description: toCreate.length + " OS importadas." + (toCreate.length < parsed.length ? " " + (parsed.length - toCreate.length) + " ficaram de fora por já terem as peças enviadas." : "") });
             setCreateOpen(false);
             setNewName("");
             setNewText("");
@@ -281,6 +287,7 @@ export default function DeliveryRoutesPage() {
                             </Label>
                             <Textarea className="min-h-[200px] font-mono text-xs" value={newText} onChange={e => setNewText(e.target.value)} placeholder="Cole aqui o conteúdo da planilha (Ctrl+A → Ctrl+C no Excel)…" />
                         </div>
+                        <DeliveryHistoryNotice history={newHistory} skipSent={skipSent} onSkipSentChange={setSkipSent} />
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancelar</Button>
@@ -346,19 +353,29 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const [addText, setAddText] = useState("");
     const [adding, setAdding] = useState(false);
     const addParsed = useMemo(() => (addText.trim() ? parseRouteText(addText) : []), [addText]);
+    const [addSkipSent, setAddSkipSent] = useState(false);
+    // Rotas de entrega anteriores (mesma consulta da lista, compartilhada pelo cache).
+    const { data: allDeliveryRoutes = [] } = useQuery({
+        queryKey: ["delivery-routes", appUser?.uid, activeUnidadeId],
+        queryFn: () => routeService.getDeliveryRoutes(activeUnidadeId),
+        enabled: !!appUser?.uid,
+        refetchInterval: 30000,
+    });
     const addPreview = useMemo(() => {
         const existing = new Set((route?.stops || []).filter(st => !st.isReallocated).map(st => st.serviceOrder));
         const seen = new Set<string>();
-        const fresh: RouteStop[] = [];
+        const candidates: RouteStop[] = [];
         let dups = 0;
         addParsed.forEach(st => {
             if (!st.serviceOrder) return;
             if (existing.has(st.serviceOrder) || seen.has(st.serviceOrder)) { dups++; return; }
             seen.add(st.serviceOrder);
-            fresh.push(st);
+            candidates.push(st);
         });
-        return { fresh, dups };
-    }, [addParsed, route]);
+        const history = buildOrderHistory(candidates, allDeliveryRoutes, routeId);
+        const fresh = addSkipSent ? candidates.filter(st => !history.get(st.serviceOrder.trim().toUpperCase())?.allPartsSent) : candidates;
+        return { fresh, dups, history };
+    }, [addParsed, route, allDeliveryRoutes, routeId, addSkipSent]);
 
     // Peças da OS: enquanto uma peça ainda não tem rastreio (não foi enviada), dá para trocar o código, a descrição e a
     // quantidade, remover ou incluir outra. Peça com rastreio fica travada (já foi enviada).
@@ -1783,6 +1800,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                         placeholder="Cole aqui o cabeçalho e as linhas da planilha de OS…"
                         className="h-[38vh] w-full resize-none rounded-md border bg-background p-3 font-mono text-xs"
                     />
+                    <DeliveryHistoryNotice history={addPreview.history} skipSent={addSkipSent} onSkipSentChange={setAddSkipSent} />
                     {addText.trim() && (
                         <p className="rounded-md bg-muted/50 px-3 py-2 text-xs">
                             <strong>{addPreview.fresh.length}</strong> OS nova(s) para adicionar
