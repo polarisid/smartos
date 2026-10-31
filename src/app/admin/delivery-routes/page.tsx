@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Mail, Copy, FileText, Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, Users, X } from "lucide-react";
+import { Mail, FilePlus2, Copy, FileText, Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, Users, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import Link from "next/link";
@@ -1195,6 +1195,71 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         }
     };
 
+    // ── Adicionar as OS selecionadas a uma rota rascunho existente ──
+    // A rascunho que ainda não tem rota mãe passa a ser filha desta rota de entrega (aí a OS conta como Programada aqui).
+    const [draftOpen, setDraftOpen] = useState(false);
+    const [draftId, setDraftId] = useState("");
+    const [draftAdding, setDraftAdding] = useState(false);
+    const { data: draftRoutes = [], isFetching: draftsLoading } = useQuery({
+        queryKey: ["draft-routes-for-delivery", appUser?.uid, activeUnidadeId],
+        queryFn: () => routeService.getDraftRoutes(activeUnidadeId),
+        enabled: !!appUser?.uid && draftOpen,
+        staleTime: 0,
+    });
+    const draftOptions = useMemo(
+        () => draftRoutes.filter(d => d.kind !== "delivery" && d.id !== routeId && (!d.parentRouteId || d.parentRouteId === routeId)),
+        [draftRoutes, routeId]
+    );
+    const draftDayLabel = (d: Route) => (d.plannedDate ? format(new Date(d.plannedDate), "dd/MM") : "sem data");
+
+    const handleAddToDraft = async () => {
+        const target = draftOptions.find(d => d.id === draftId);
+        const picked = rows.filter(r => selected.has(r.stop.serviceOrder) && !r.finalizedAt && !r.childName);
+        if (!target || picked.length === 0) return;
+        setDraftAdding(true);
+        try {
+            const dayDate = target.plannedDate ? new Date(target.plannedDate) : null;
+            const label = dayDate ? format(dayDate, "dd/MM/yyyy") : "";
+            let added = 0;
+            for (let attempt = 0; attempt < 5; attempt++) {
+                const fresh = await routeService.getById(target.id);
+                if (!fresh) throw new Error("Rota rascunho não encontrada");
+                const have = new Set((fresh.stops || []).filter(st => !st.isReallocated).map(st => st.serviceOrder));
+                const news = picked.filter(r => !have.has(r.stop.serviceOrder));
+                const incoming = new Set(news.map(r => r.stop.serviceOrder));
+                const toAdd = news.map(r => { const { routeOrder: _drop, team: _team, ...rest } = r.stop; return { ...rest, ...(label ? { firstVisitDate: label } : {}) } as RouteStop; });
+                const stops = [...(fresh.stops || []).filter(st => !incoming.has(st.serviceOrder)), ...toAdd];
+                try {
+                    await routeService.update(target.id, { stops, ...(fresh.parentRouteId ? {} : { parentRouteId: routeId }) }, { expectedUpdatedAt: fresh.updatedAt || null });
+                    added = toAdd.length;
+                    break;
+                } catch (e) {
+                    if (e instanceof RouteConflictError && attempt < 4) continue;
+                    throw e;
+                }
+            }
+            // O dia programado da OS acompanha o dia da rascunho.
+            if (dayDate && added > 0) {
+                await routeService.patchStopFields(routeId, picked.map(r => ({ serviceOrder: r.stop.serviceOrder, fields: { plannedDay: format(dayDate, "yyyy-MM-dd") } })));
+            }
+            await queryClient.invalidateQueries({ queryKey: ["routes"] });
+            await refresh();
+            setDraftOpen(false);
+            setDraftId("");
+            setSelected(new Set());
+            const dups = picked.length - added;
+            toast({
+                title: added === 1 ? "1 OS adicionada à rota " + target.name : added + " OS adicionadas à rota " + target.name,
+                description: dups > 0 ? dups + " já estavam nela e foram ignoradas." : "Abra em Rotas para ajustar a ordem, o técnico e publicar.",
+            });
+        } catch (e: any) {
+            console.error(e);
+            toast({ variant: "destructive", title: "Não foi possível adicionar à rota", description: e?.message });
+        } finally {
+            setDraftAdding(false);
+        }
+    };
+
     // ── Divisão em equipes ──
     // Só OS que ainda podem mudar de equipe: sem finalizar e sem rota filha.
     const [teamsOpen, setTeamsOpen] = useState(false);
@@ -1599,10 +1664,44 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                         <Users className="mr-1.5 h-3.5 w-3.5" /> Mover para equipe
                     </Button>
                 </div>
+                <Button size="sm" variant="outline" disabled={selected.size === 0 || saving} onClick={() => { setDraftId(""); setDraftOpen(true); }} title="Coloca as OS selecionadas dentro de uma rota que está como rascunho">
+                    <FilePlus2 className="mr-1.5 h-3.5 w-3.5" /> Adicionar a rota rascunho
+                </Button>
                 <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={selected.size === 0 || saving} onClick={() => setRemoveList(Array.from(selected))} title="Tira as OS selecionadas da rota de entrega">
                     <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remover da rota</Button>
                 <span className="text-[11px] text-muted-foreground">Só OS não finalizadas e sem rota filha podem ser selecionadas.</span>
             </div>
+
+            <Dialog open={draftOpen} onOpenChange={o => { if (!draftAdding) setDraftOpen(o); }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Adicionar a uma rota rascunho</DialogTitle>
+                        <DialogDescription>
+                            {selected.size} OS selecionada(s) vão para a rota escolhida, com o dia dela. Rascunhos de outra rota de entrega não aparecem.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2">
+                        <Label>Rota rascunho</Label>
+                        <Select value={draftId} onValueChange={setDraftId}>
+                            <SelectTrigger><SelectValue placeholder={draftsLoading ? "Carregando…" : draftOptions.length === 0 ? "Nenhuma rota rascunho disponível" : "Escolha a rota"} /></SelectTrigger>
+                            <SelectContent>
+                                {draftOptions.map(d => (
+                                    <SelectItem key={d.id} value={d.id}>
+                                        {d.name} · {draftDayLabel(d)} · {(d.stops || []).filter(st => !st.isReallocated).length} OS{d.parentRouteId === routeId ? " · filha desta rota" : ""}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-muted-foreground">Se a rascunho ainda não tiver rota mãe, ela passa a ser filha desta rota de entrega e as OS aparecem aqui como Programadas.</p>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDraftOpen(false)} disabled={draftAdding}>Cancelar</Button>
+                        <Button onClick={handleAddToDraft} disabled={!draftId || draftAdding}>
+                            {draftAdding ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <FilePlus2 className="mr-1.5 h-3.5 w-3.5" />} Adicionar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Tabela */}
             <div className="rounded-lg border overflow-auto max-h-[70vh]">
