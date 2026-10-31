@@ -32,7 +32,7 @@ import { MultiFilter } from "@/components/MultiFilter";
 import { configService } from "@/services/supabase/configService";
 import { downloadSpreadsheet, type SheetRow } from "@/lib/spreadsheetXml";
 import { fetchDurationMatrixMin, fetchLegDistancesAndDurations, geocodeBase } from "@/lib/routeLegs";
-import { MAX_TEAMS, NO_TEAM, childRouteName, groupByTeam, splitStopsIntoTeams, teamColor, teamCounts, teamLabel, teamOf, type TeamSplit } from "@/lib/deliveryTeams";
+import { MAX_TEAMS, NO_TEAM, childRouteName, groupByTeam, splitStopsIntoTeams, teamColor, teamCounts, teamLabel as teamLabelOf, teamOf, type TeamSplit } from "@/lib/deliveryTeams";
 import { copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { DEFAULT_PLANNING_PARAMS, simulateRoutePlan, formatClock } from "@/lib/routePlanning";
 import type { Route, RoutePart, RoutePoint, RouteStop } from "@/lib/data";
@@ -306,6 +306,15 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const { toast } = useToast();
     const queryClient = useQueryClient();
     const { data: serviceOrders = [] } = useServiceOrders(2000);
+
+    // Nomes dados às equipes desta rota de entrega (vazio = "Equipe A", "Equipe B"...).
+    const { data: teamNames = {} } = useQuery({
+        queryKey: ["delivery-team-names", appUser?.uid, routeId],
+        queryFn: () => configService.getTeamNames(routeId, activeUnidadeId),
+        enabled: !!appUser?.uid,
+        staleTime: 60000,
+    });
+    const teamLabel = (t: number) => teamLabelOf(t, teamNames);
 
     const { data: route, isLoading } = useQuery({
         queryKey: ["delivery-route", appUser?.uid, routeId],
@@ -608,7 +617,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             teams: count(r => teamLabel(r.team)),
             statuses: STATUS_ORDER.map(value => ({ value, count: statusCounts.get(value) || 0 })),
         };
-    }, [rows]);
+    }, [rows, teamNames]);
 
     const currentPrefs = (): Prefs => ({
         status: [...fStatus], warranty: [...fWarranty], city: [...fCity], neighborhood: [...fNeighborhood], turn: [...fTurn],
@@ -668,7 +677,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             }
             return 0;
         });
-    }, [rows, search, fStatus, fWarranty, fCity, fNeighborhood, fTurn, fTeam, sorts]);
+    }, [rows, search, fStatus, fWarranty, fCity, fNeighborhood, fTurn, fTeam, sorts, teamNames]);
 
     const summary = useMemo(() => ({
         total: rows.length,
@@ -1215,7 +1224,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             for (let i = 0; i < prepared.length; i++) {
                 setCreateProgress("Salvando as rotas: " + (i + 1) + " de " + prepared.length);
                 await routeService.create({
-                    name: childRouteName(route.name, format(prepared[i].dayDate, "dd/MM"), prepared[i].team),
+                    name: childRouteName(route.name, format(prepared[i].dayDate, "dd/MM"), prepared[i].team, teamNames),
                     stops: optimizedDays[i],
                     routeType: route.routeType,
                     plannedDate: prepared[i].dayDate,
@@ -1316,6 +1325,31 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
 
     // ── Divisão em equipes ──
     // Só OS que ainda podem mudar de equipe: sem finalizar e sem rota filha.
+    // Dar nome às equipes (ex.: o nome do técnico), em vez de "Equipe A", "Equipe B"...
+    const [namesOpen, setNamesOpen] = useState(false);
+    const [namesDraft, setNamesDraft] = useState<Record<number, string>>({});
+    const [savingNames, setSavingNames] = useState(false);
+    const openNames = () => {
+        setNamesDraft(Object.fromEntries(Array.from({ length: MAX_TEAMS }, (_, i) => [i + 1, teamNames[i + 1] || ""])));
+        setNamesOpen(true);
+    };
+    const saveNames = async () => {
+        setSavingNames(true);
+        try {
+            const clean: Record<number, string> = {};
+            for (let t = 1; t <= MAX_TEAMS; t++) { const v = (namesDraft[t] || "").trim().slice(0, 30); if (v) clean[t] = v; }
+            await configService.setTeamNames(routeId, clean, activeUnidadeId);
+            queryClient.setQueryData(["delivery-team-names", appUser?.uid, routeId], clean);
+            setFTeam(new Set()); // o filtro guardava o nome antigo
+            setNamesOpen(false);
+            toast({ title: "Nomes das equipes salvos" });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível salvar os nomes", description: e?.message });
+        } finally {
+            setSavingNames(false);
+        }
+    };
+
     const [teamsOpen, setTeamsOpen] = useState(false);
     const [teamsCount, setTeamsCount] = useState(2);
     const [teamsScope, setTeamsScope] = useState<Row[]>([]);
@@ -1731,6 +1765,9 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     <Button size="sm" variant="outline" disabled={selected.size === 0 || saving} onClick={moveSelectedToTeam} title="Leva as OS selecionadas para a equipe escolhida">
                         <Users className="mr-1.5 h-3.5 w-3.5" /> Mover para equipe
                     </Button>
+                    <Button size="sm" variant="ghost" className="h-8 px-2" onClick={openNames} title="Dar nome às equipes (ex.: o nome do técnico)">
+                        <Pencil className="h-3.5 w-3.5" />
+                    </Button>
                 </div>
                 <Button size="sm" variant="outline" disabled={selected.size === 0 || saving} onClick={() => { setDraftId(""); setDraftOpen(true); }} title="Coloca as OS selecionadas dentro de uma rota que está como rascunho">
                     <FilePlus2 className="mr-1.5 h-3.5 w-3.5" /> Adicionar a rota rascunho
@@ -1739,6 +1776,33 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remover da rota</Button>
                 <span className="text-[11px] text-muted-foreground">Só OS não finalizadas e sem rota filha podem ser selecionadas.</span>
             </div>
+
+            <Dialog open={namesOpen} onOpenChange={o => { if (!savingNames) setNamesOpen(o); }}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Nome das equipes</DialogTitle>
+                        <DialogDescription>Use o nome do técnico ou da dupla. Deixe em branco para manter "Equipe A", "Equipe B"... O nome vale para esta rota de entrega e aparece nas rotas filhas criadas daqui para frente.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2">
+                        {Array.from({ length: MAX_TEAMS }, (_, i) => i + 1).map(t => (
+                            <div key={t} className="flex items-center gap-2">
+                                <span className="inline-block h-3 w-3 shrink-0 rounded-full" style={{ background: teamColor(t) }} />
+                                <Input
+                                    value={namesDraft[t] || ""}
+                                    maxLength={30}
+                                    placeholder={teamLabelOf(t)}
+                                    onChange={e => setNamesDraft(d => ({ ...d, [t]: e.target.value }))}
+                                    onKeyDown={e => { if (e.key === "Enter") void saveNames(); }}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setNamesOpen(false)} disabled={savingNames}>Cancelar</Button>
+                        <Button onClick={saveNames} disabled={savingNames}>{savingNames ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null} Salvar</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={draftOpen} onOpenChange={o => { if (!draftAdding) setDraftOpen(o); }}>
                 <DialogContent>

@@ -7,8 +7,12 @@ import { colorForGroup, geocodeStopsForSplit, splitIntoGroups } from "@/lib/rout
 export const MAX_TEAMS = 4;
 export const NO_TEAM = 0;
 
-export function teamLabel(team: number): string {
-    return team > 0 ? `Equipe ${String.fromCharCode(64 + team)}` : "Sem equipe";
+/** Nomes dados às equipes (número da equipe -> nome). Equipe sem nome usa "Equipe A", "Equipe B"... */
+export type TeamNames = Record<number, string>;
+
+export function teamLabel(team: number, names?: TeamNames | null): string {
+    if (team <= 0) return "Sem equipe";
+    return names?.[team]?.trim() || `Equipe ${String.fromCharCode(64 + team)}`;
 }
 
 export function teamColor(team: number): string {
@@ -31,8 +35,8 @@ export function groupByTeam<T>(items: T[], team: (item: T) => number): Array<{ t
 }
 
 /** Nome da rota filha: "<rota> — 27/10" e, havendo equipe, "<rota> — 27/10 · Equipe A". */
-export function childRouteName(routeName: string, dayLabel: string, team: number): string {
-    return `${routeName} — ${dayLabel}${team > 0 ? ` · ${teamLabel(team)}` : ""}`;
+export function childRouteName(routeName: string, dayLabel: string, team: number, names?: TeamNames | null): string {
+    return `${routeName} — ${dayLabel}${team > 0 ? ` · ${teamLabel(team, names)}` : ""}`;
 }
 
 export type TeamSplit = Map<string, number>; // nº da OS -> equipe

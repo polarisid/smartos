@@ -36,6 +36,34 @@ export const configService = {
     if (error) throw error;
   },
 
+  // Nomes das equipes de uma rota de entrega (ex.: {1: "Wagner", 2: "Breno"}). Ficam na tabela de configurações, uma linha por rota.
+  async getTeamNames(routeId: string, unidadeId?: string | null): Promise<Record<number, string>> {
+    try {
+      const { data, error } = await withUnidade(
+        supabase.from('configs').select('value').eq('id', `team_names_${routeId}`),
+        unidadeId
+      ).maybeSingle();
+      if (error) throw error;
+      const names: Record<number, string> = {};
+      Object.entries((data?.value?.names || {}) as Record<string, string>).forEach(([k, v]) => {
+        const t = Number(k);
+        if (Number.isInteger(t) && t > 0 && typeof v === 'string' && v.trim()) names[t] = v.trim();
+      });
+      return names;
+    } catch (e) {
+      console.warn("Could not fetch team names", e);
+      return {};
+    }
+  },
+
+  async setTeamNames(routeId: string, names: Record<number, string>, unidadeId?: string | null): Promise<void> {
+    const { error } = await supabase
+      .from('configs')
+      .upsert({ id: `team_names_${routeId}`, value: { names }, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
+
+    if (error) throw error;
+  },
+
   async getTextTemplate(id: string, unidadeId?: string | null): Promise<string | null> {
     const { data, error } = await withUnidade(
       supabase.from('configs').select('value').eq('id', `template_${id}`),
