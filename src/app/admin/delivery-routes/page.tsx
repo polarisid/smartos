@@ -1424,7 +1424,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         try {
             await routeService.patchStopFields(routeId, list.map(so => ({ serviceOrder: so, fields: { team: team || null, routeOrder: null } })));
             await refresh();
-            setSelected(new Set());
+            // A seleção continua: em seguida costuma-se programar o dia dessas mesmas OS.
             toast({
                 title: list.length + " OS " + (team ? "movida(s) para a " + teamLabel(team) : "sem equipe"),
                 description: "A ordem dessas OS foi limpa: use \"Otimizar ordem\" de novo para recalcular a rota da equipe.",
@@ -1463,6 +1463,16 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 return (
                     <span className="inline-flex items-center gap-1.5">
                         {r.stop.serviceOrder}
+                        {r.team > 0 && !shownColumns.some(c => c.key === "team") && (
+                            <span
+                                className="inline-flex max-w-[110px] items-center gap-1 truncate rounded-full border px-1.5 py-0 font-sans text-[10px] font-semibold"
+                                style={{ color: teamColor(r.team), borderColor: teamColor(r.team), background: teamColor(r.team) + "1a" }}
+                                title={"Equipe: " + teamLabel(r.team)}
+                            >
+                                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: teamColor(r.team) }} />
+                                <span className="truncate">{teamLabel(r.team)}</span>
+                            </span>
+                        )}
                         <button type="button" className="rounded p-0.5 text-muted-foreground/50 hover:bg-destructive/10 hover:text-destructive" title="Remover esta OS da rota de entrega" onClick={(e) => { e.stopPropagation(); setRemoveList([r.stop.serviceOrder]); }}>
                             <Trash2 className="h-3 w-3" />
                         </button>
@@ -1862,7 +1872,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                             const pad = dense ? "py-0.5" : "py-2";
                             return (
                                 <tr key={so} className={cn("border-b hover:bg-muted/50", i % 2 ? "bg-muted/20" : "", done && "!bg-emerald-50 dark:!bg-emerald-950/20", selected.has(so) && "!bg-primary/10")}>
-                                    <td className={cn("px-2 sticky left-0 z-10 bg-background", pad)}>
+                                    <td className={cn("px-2 sticky left-0 z-10 bg-background", pad)} style={r.team > 0 ? { boxShadow: "inset 3px 0 0 " + teamColor(r.team) } : undefined}>
                                         <Checkbox
                                             checked={selected.has(so)}
                                             disabled={!selectable(r)}
