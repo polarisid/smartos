@@ -868,7 +868,10 @@ function RouteForm({
         setIsReallocateOpen(true);
         setIsLoadingRoutes(true);
         try {
-            const routes = await routeService.getActiveRoutes(activeUnidadeId);
+            // Destino: rotas ativas e também rascunhos (ainda em montagem), as ativas primeiro.
+            const [active, drafts] = await Promise.all([routeService.getActiveRoutes(activeUnidadeId), routeService.getDraftRoutes(activeUnidadeId)]);
+            const seen = new Set<string>();
+            const routes = [...active, ...drafts].filter(r => r.kind !== 'delivery' && !r.isCanceled && !seen.has(r.id) && !!seen.add(r.id));
             setAvailableRoutes(routes.filter(r => r.id !== initialData?.id));
         } catch (e) {
             toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar as rotas disponíveis." });
@@ -2379,7 +2382,7 @@ function RouteForm({
                         Realocar Atendimento
                     </DialogTitle>
                     <DialogDescription>
-                        Mova a OS <span className="font-mono font-bold">{stopToReallocate?.stop.serviceOrder}</span> para outra rota ativa.
+                        Mova a OS <span className="font-mono font-bold">{stopToReallocate?.stop.serviceOrder}</span> para outra rota (ativa ou rascunho).
                         Todas as peças e rastreios serão preservados.
                     </DialogDescription>
                 </DialogHeader>
@@ -2401,7 +2404,7 @@ function RouteForm({
                                 <Loader2 className="h-4 w-4 animate-spin" /> Carregando rotas...
                             </div>
                         ) : availableRoutes.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">Nenhuma outra rota ativa disponível.</p>
+                            <p className="text-sm text-muted-foreground">Nenhuma outra rota ativa ou rascunho disponível.</p>
                         ) : (
                             <Select value={targetRouteId} onValueChange={setTargetRouteId}>
                                 <SelectTrigger>
@@ -2411,12 +2414,12 @@ function RouteForm({
                                     {availableRoutes.map(r => (
                                         <SelectItem key={r.id} value={r.id}>
                                             <div className="flex flex-col">
-                                                <span className="font-medium">{r.name}</span>
+                                                <span className="font-medium">{r.name}{r.isDraft && !r.isActive ? <span className="ml-1.5 rounded border border-amber-300 bg-amber-50 px-1 text-[10px] font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">Rascunho</span> : null}</span>
                                                 <span className="text-xs text-muted-foreground">
                                                     {r.technicianName || 'Técnico não definido'} · {(r.stops || []).filter(st => !st.isReallocated).length} paradas
                                                     {r.departureDate instanceof Date
                                                         ? ` · ${format(r.departureDate, "dd/MM", { locale: ptBR })}`
-                                                        : ''}
+                                                        : r.plannedDate ? ` · ${format(new Date(r.plannedDate), "dd/MM", { locale: ptBR })}` : ''}
                                                 </span>
                                             </div>
                                         </SelectItem>
