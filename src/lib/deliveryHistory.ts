@@ -146,3 +146,34 @@ export function buildOrderHistory(stops: RouteStop[], deliveryRoutes: Route[], e
     }
     return out;
 }
+
+/**
+ * Para telas que olham UMA rota por vez (extrato e conferência de peças): o histórico das OS dessa rota em OUTRAS rotas de
+ * entrega criadas ANTES dela. A rota mãe (a de entrega de onde a rota saiu) e as entregas mais novas não contam.
+ * O resultado é guardado por rota; crie de novo o lookup quando as rotas forem recarregadas.
+ */
+export function makeOtherDeliveryLookup(allRoutes: Route[]) {
+    const deliveries = allRoutes.filter(r => r.kind === "delivery");
+    const cache = new WeakMap<Route, Map<string, OrderHistory>>();
+    return (route: Route, serviceOrder: string): OrderHistory | undefined => {
+        let history = cache.get(route);
+        if (!history) {
+            const created = new Date(route.createdAt).getTime();
+            const earlier = deliveries.filter(d => new Date(d.createdAt).getTime() < created);
+            history = buildOrderHistory(route.stops || [], earlier, route.kind === "delivery" ? route.id : route.parentRouteId);
+            cache.set(route, history);
+        }
+        return history.get(norm(serviceOrder));
+    };
+}
+
+/** Peça da OS já enviada em outra rota de entrega (por código), ou undefined. */
+export function sentBeforeOf(history: OrderHistory | undefined, partCode: string): PartDiff | undefined {
+    const k = norm(partCode);
+    return history?.diff.find(d => d.situation === "repetida" && norm(d.code) === k);
+}
+
+/** Peças que a OS levou em outra rota de entrega e que não estão nesta rota. */
+export function extraPartsOf(history: OrderHistory | undefined): PartDiff[] {
+    return (history?.diff || []).filter(d => d.situation === "so-antes");
+}

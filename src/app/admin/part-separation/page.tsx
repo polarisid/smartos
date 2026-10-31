@@ -21,6 +21,7 @@ import { useServiceOrders } from "@/hooks/queries";
 import { matchesRouteCode, routeCode } from "@/lib/routeCode";
 import { RouteCodeTag } from "@/components/routes/RouteCodeTag";
 import { buildPriorDispatchLookup, describePriorDispatches, type PriorDispatch } from "@/lib/partDispatchHistory";
+import { makeOtherDeliveryLookup, sentBeforeOf, extraPartsOf, type OrderHistory } from "@/lib/deliveryHistory";
 import { useAuth } from "@/context/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
@@ -46,7 +47,7 @@ const ScannerDialog = dynamic(
 );
 
 
-function RouteList({ getPriorDispatches, routes, onSaveChanges, onSavePart, isSubmitting, trackingCodes, onTrackingCodeChange, onGeneratePdf, onOpenScanner, onShareLink, externalFilter, isHistory = false }: {
+function RouteList({ getPriorDispatches, getOtherDelivery, routes, onSaveChanges, onSavePart, isSubmitting, trackingCodes, onTrackingCodeChange, onGeneratePdf, onOpenScanner, onShareLink, externalFilter, isHistory = false }: {
     routes: Route[],
     onSaveChanges?: (routeId: string) => void,
     onSavePart: (routeId: string, stopServiceOrder: string, part: RoutePart) => Promise<void>,
@@ -55,6 +56,7 @@ function RouteList({ getPriorDispatches, routes, onSaveChanges, onSavePart, isSu
     onTrackingCodeChange: (routeId: string, stopServiceOrder: string, partCode: string, value: string) => void,
     onGeneratePdf: (route: Route) => void,
     getPriorDispatches: (route: Route, serviceOrder: string, partCode: string) => PriorDispatch[],
+    getOtherDelivery: (route: Route, serviceOrder: string) => OrderHistory | undefined,
     onOpenScanner: (target: { routeId: string, stopServiceOrder: string, partCode: string }) => void,
     onShareLink: (routeId: string, routeName: string) => void,
     externalFilter: string;
@@ -173,6 +175,15 @@ function RouteList({ getPriorDispatches, routes, onSaveChanges, onSavePart, isSu
                                                                                     </p>
                                                                                 );
                                                                             })()}
+                                                                        {(() => {
+                                                                            const sent = sentBeforeOf(getOtherDelivery(route, stop.serviceOrder), part.code)?.before;
+                                                                            if (!sent) return null;
+                                                                            return (
+                                                                                <p className="mt-1 inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300">
+                                                                                    JÁ ENVIADA em {sent.routeName} ({sent.routeDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}) · rastreio {sent.trackingCode}
+                                                                                </p>
+                                                                            );
+                                                                        })()}
                                                                         </div>
                                                                         <div className="text-right">
                                                                             <Label className="text-xs sm:hidden">Qtd:</Label>
@@ -216,6 +227,16 @@ function RouteList({ getPriorDispatches, routes, onSaveChanges, onSavePart, isSu
                                                     )
                                                 })}
                                             </div>
+                                        {(() => {
+                                            const extra = extraPartsOf(getOtherDelivery(route, stop.serviceOrder));
+                                            if (extra.length === 0) return null;
+                                            return (
+                                                <p className="mt-3 rounded bg-sky-50 px-2 py-1 text-[11px] text-sky-800 dark:bg-sky-950/40 dark:text-sky-300">
+                                                    <strong>Também em outra rota de entrega (não está nesta):</strong>{" "}
+                                                    {extra.map(d => d.code + (d.before ? " (" + d.before.routeName + ", rastreio " + d.before.trackingCode + ")" : "")).join("; ")}
+                                                </p>
+                                            );
+                                        })()}
                                         </div>
                                     )})}
                                     <div className="flex flex-col sm:flex-row gap-2">
@@ -1122,6 +1143,8 @@ export default function PartSeparationPage() {
     const [trackingCodes, setTrackingCodes] = useState<Record<string, Record<string, Record<string, string>>>>({}); // { routeId: { stopServiceOrder: { partCode: trackingCode } } }
     const [filterText, setFilterText] = useState("");
     const getPriorDispatches = useMemo(() => buildPriorDispatchLookup(historyRoutes, serviceOrders), [historyRoutes, serviceOrders]);
+    // O que cada OS já levou em OUTRAS rotas de entrega (peças já enviadas e peças que só foram lá).
+    const getOtherDelivery = useMemo(() => makeOtherDeliveryLookup(historyRoutes), [historyRoutes]);
     
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [scanTarget, setScanTarget] = useState<{ routeId: string, stopServiceOrder: string, partCode: string } | null>(null);
@@ -1342,15 +1365,33 @@ export default function PartSeparationPage() {
         type Row = any[];
         const tableBody: Row[] = [];
         let priorCount = 0;
+        let sentElsewhereCount = 0;
+        let extraElsewhereCount = 0;
 
         route.stops.forEach(stop => {
             if (stop.parts && stop.parts.length > 0) {
+                // O que esta OS já levou em OUTRAS rotas de entrega: peças já enviadas e peças que só foram lá.
+                const other = getOtherDelivery(route, stop.serviceOrder);
+                const extra = extraPartsOf(other);
+                const noteLines: string[] = [];
+                const sentLines = stop.parts
+                    .map(p => ({ p, d: sentBeforeOf(other, p.code)?.before }))
+                    .filter((x): x is { p: typeof x.p; d: NonNullable<typeof x.d> } => !!x.d)
+                    .map(x => `${x.p.code} (${x.d.routeName}, ${x.d.routeDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}, rastreio ${x.d.trackingCode})`);
+                if (sentLines.length > 0) noteLines.push('JÁ ENVIADA em outra rota de entrega: ' + sentLines.join('; '));
+                if (extra.length > 0) noteLines.push('Também em outra rota de entrega (não está nesta): ' + extra.map(d => d.code + (d.before ? ` (${d.before.routeName}, rastreio ${d.before.trackingCode})` : '')).join('; '));
+                const hasNote = noteLines.length > 0;
+                sentElsewhereCount += sentLines.length;
+                extraElsewhereCount += extra.length;
+                const rowSpan = stop.parts.length + (hasNote ? 1 : 0);
                 stop.parts.forEach((part, partIndex) => {
                     const trackingCode = trackingCodes[route.id]?.[stop.serviceOrder]?.[part.code] || part.trackingCode || "";
                     // Peça que já saiu para esta mesma OS em outra rota: avisa na própria célula da
                     // peça (vermelho = pode já estar separada; âmbar = saiu mas já foi usada).
                     const prior = describePriorDispatches(getPriorDispatches(route, stop.serviceOrder, part.code));
                     if (prior) priorCount++;
+                    // Já enviada em outra rota de entrega (sem "JÁ SAIU" da mesma peça): selo vermelho com a data do envio.
+                    const sentBefore = !prior ? sentBeforeOf(other, part.code)?.before : undefined;
                     // O código fica normal; a segunda linha é só espaço reservado - o selo (etiqueta
                     // colorida) é desenhado ali por didDrawCell, pra separar bem código e aviso.
                     const partCell: any = prior
@@ -1359,11 +1400,17 @@ export default function PartSeparationPage() {
                             badge: { text: prior.short, used: prior.allUsed },
                             styles: { fillColor: prior.allUsed ? [255, 251, 235] : [254, 242, 242], textColor: [ink.r, ink.g, ink.b], fontStyle: 'bold' },
                         }
-                        : part.code;
+                        : sentBefore
+                            ? {
+                                content: `${part.code}\n `,
+                                badge: { text: `JÁ ENVIADA ${sentBefore.routeDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`, used: false },
+                                styles: { fillColor: [254, 242, 242], textColor: [ink.r, ink.g, ink.b], fontStyle: 'bold' },
+                            }
+                            : part.code;
                     if (partIndex === 0) {
                         tableBody.push([
-                            { content: stop.serviceOrder, rowSpan: stop.parts.length, styles: { valign: 'middle', fontStyle: 'bold' } },
-                            { content: stop.model || '—', rowSpan: stop.parts.length, styles: { valign: 'middle' } },
+                            { content: stop.serviceOrder, rowSpan, styles: { valign: 'middle', fontStyle: 'bold' } },
+                            { content: stop.model || '—', rowSpan, styles: { valign: 'middle' } },
                             partCell,
                             { content: String(part.quantity), styles: { halign: 'center' } },
                             trackingCode || '—',
@@ -1372,6 +1419,10 @@ export default function PartSeparationPage() {
                         tableBody.push([partCell, { content: String(part.quantity), styles: { halign: 'center' } }, trackingCode || '—']);
                     }
                 });
+                // Linha de aviso embaixo das peças da OS (ocupa as colunas Peça, Qtd e Rastreio).
+                if (hasNote) {
+                    tableBody.push([{ content: noteLines.join('\n'), colSpan: 3, styles: { fontSize: 7.5, textColor: [3, 105, 161], fillColor: [240, 249, 255] } }]);
+                }
             }
         });
 
@@ -1431,6 +1482,21 @@ export default function PartSeparationPage() {
                     doc.setTextColor(ink.r, ink.g, ink.b);
                     doc.text('Vermelho = sem uso registrado (confira se já está separada antes de separar de novo).', marginX, finalY + 4.5);
                     doc.text('Âmbar = saiu antes, mas já foi usada na visita (verificar o status dessa peça).', marginX, finalY + 9);
+                }
+            }
+
+            // Legenda das peças ligadas a OUTRAS rotas de entrega (só quando há alguma).
+            if (sentElsewhereCount + extraElsewhereCount > 0) {
+                const y = ((doc as any).lastAutoTable?.finalY ?? cursorY) + 6 + (priorCount > 0 ? 14 : 0);
+                if (y < pageHeight - 24) {
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(8);
+                    doc.setTextColor(3, 105, 161);
+                    doc.text('Histórico em outras rotas de entrega:', marginX, y);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(ink.r, ink.g, ink.b);
+                    if (sentElsewhereCount > 0) doc.text(`${sentElsewhereCount} peça(s) com selo vermelho JÁ ENVIADA: tem rastreio em outra rota de entrega, confira antes de separar de novo.`, marginX, y + 4.5);
+                    if (extraElsewhereCount > 0) doc.text(`${extraElsewhereCount} peça(s) que a OS levou só em outra rota de entrega aparecem na linha azul abaixo da OS.`, marginX, y + (sentElsewhereCount > 0 ? 9 : 4.5));
                 }
             }
         } else {
@@ -1541,6 +1607,7 @@ export default function PartSeparationPage() {
                                 onTrackingCodeChange={handleTrackingCodeChange}
                                 onGeneratePdf={handleGeneratePdf}
                                 getPriorDispatches={getPriorDispatches}
+                                getOtherDelivery={getOtherDelivery}
                                 onOpenScanner={handleOpenScanner}
                                 onShareLink={handleShareLink}
                                 externalFilter={filterText}
@@ -1555,6 +1622,7 @@ export default function PartSeparationPage() {
                                 onTrackingCodeChange={handleTrackingCodeChange}
                                 onGeneratePdf={handleGeneratePdf}
                                 getPriorDispatches={getPriorDispatches}
+                                getOtherDelivery={getOtherDelivery}
                                 onOpenScanner={handleOpenScanner}
                                 onShareLink={handleShareLink}
                                 externalFilter={filterText}
