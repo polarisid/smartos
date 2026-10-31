@@ -47,6 +47,8 @@ export function buildOpenRouteIndex(routes: Route[]): Map<string, OrderLocation[
 export function findDuplicateOrders(stops: RouteStop[], index: Map<string, OrderLocation[]>, excludeRouteId?: string): DuplicateReport {
     const count = new Map<string, { count: number; consumerName: string; serviceOrder: string }>();
     for (const st of stops) {
+        // Parada realocada continua listada (riscada) na rota de origem, mas já foi para a outra rota: não é duplicidade.
+        if (st.isReallocated) continue;
         const so = norm(st.serviceOrder);
         if (!so) continue;
         const cur = count.get(so);

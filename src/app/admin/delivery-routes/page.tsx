@@ -37,7 +37,7 @@ import { copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { DEFAULT_PLANNING_PARAMS, simulateRoutePlan, formatClock } from "@/lib/routePlanning";
 import type { Route, RoutePart, RoutePoint, RouteStop } from "@/lib/data";
 import { routeService, RouteConflictError } from "@/services/supabase/routeService";
-import { buildOrderHistory } from "@/lib/deliveryHistory";
+import { buildOrderHistory, extraPartsOf, type PartSituation } from "@/lib/deliveryHistory";
 import { DeliveryHistoryNotice } from "@/components/routes/DeliveryHistoryNotice";
 import { DuplicateOrdersNotice } from "@/components/routes/DuplicateOrdersNotice";
 
@@ -851,6 +851,13 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         const childStatus = (c?: Route) => (!c ? "" : c.isCanceled ? "Cancelada" : c.isDraft ? "Rascunho" : c.isActive ? "Ativa" : "Finalizada");
         const toneOf = (st: string): SheetRow["tone"] => (st === "Finalizada" ? "green" : st === "Pendência" ? "red" : st === "Programada" ? "blue" : st === "Com dia" ? "amber" : "default");
 
+        // O que cada OS já teve em OUTRAS rotas de entrega (peças já enviadas e peças que só foram lá).
+        const fmtShip = (d: { routeName: string; routeDate: Date; trackingCode: string } | null | undefined) =>
+            (d ? " (" + d.routeName + ", " + format(d.routeDate, "dd/MM/yyyy") + ", rastreio " + d.trackingCode + ")" : "");
+        const sentElsewhere = (r: Row) => (otherOf(r)?.diff || []).filter(d => d.situation === "repetida").map(d => d.code + fmtShip(d.before));
+        const extraElsewhere = (r: Row) => extraPartsOf(otherOf(r)).map(d => d.code + fmtShip(d.before));
+        const SITUATION_LABEL: Record<PartSituation, string> = { repetida: "Já enviada", nova: "Nova", "sem-rastreio": "Sem rastreio antes", "so-antes": "Só em outra rota" };
+
         const ordered = [...rows].sort((a, b) =>
             (a.day || "9999").localeCompare(b.day || "9999") ||
             (a.stop.routeOrder ?? 999999) - (b.stop.routeOrder ?? 999999) ||
@@ -872,6 +879,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     parts.map(p => p.code + (p.quantity > 1 ? " x" + p.quantity : "")).join(" | "),
                     parts.length, parts.filter(p => (p.trackingCode || "").trim()).length,
                     parts.filter(p => (p.trackingCode || "").trim()).map(p => p.code + ": " + p.trackingCode).join(" | "),
+                    sentElsewhere(r).join(" | "), extraElsewhere(r).join(" | "),
                 ],
             };
         });
@@ -880,19 +888,32 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             const st = statusOf(r);
             return (r.stop.parts || []).map(p => {
                 const tracked = (p.trackingCode || "").trim();
+                const before = otherOf(r)?.diff.find(d => d.situation === "repetida" && d.code.trim().toUpperCase() === (p.code || "").trim().toUpperCase())?.before;
                 return {
-                    tone: tracked ? "green" as const : "default" as const,
+                    tone: before ? "red" as const : tracked ? "green" as const : "default" as const,
                     values: [
                         /^\d+$/.test(r.stop.serviceOrder) ? Number(r.stop.serviceOrder) : r.stop.serviceOrder,
                         r.stop.consumerName || "", r.stop.city || "", r.stop.neighborhood || "",
                         p.code, p.description || "", p.quantity || 1,
                         tracked ? "Enviada" : "Sem rastreio", tracked,
                         st, fmtDay(r.day), r.childName || "",
+                        before ? "Sim" : "", before ? before.routeName + " · " + format(before.routeDate, "dd/MM/yyyy") + " · rastreio " + before.trackingCode : "",
                     ],
                 };
             });
         });
 
+        const otherRows: SheetRow[] = ordered.flatMap(r => (otherOf(r)?.diff || []).map(d => ({
+            tone: d.situation === "repetida" ? "red" as const : d.situation === "so-antes" ? "blue" as const : d.situation === "sem-rastreio" ? "amber" as const : "green" as const,
+            values: [
+                /^\d+$/.test(r.stop.serviceOrder) ? Number(r.stop.serviceOrder) : r.stop.serviceOrder,
+                r.stop.consumerName || "", d.code, d.description || "", SITUATION_LABEL[d.situation], d.newQty ?? "",
+                d.before?.routeName || d.unsentIn?.routeName || "", d.before ? format(d.before.routeDate, "dd/MM/yyyy") : d.unsentIn ? format(d.unsentIn.routeDate, "dd/MM/yyyy") : "",
+                d.before?.trackingCode || "", d.before?.quantity ?? "",
+            ],
+        })));
+        const repeatedTotal = rows.reduce((a, r) => a + sentElsewhere(r).length, 0);
+        const extraOsCount = rows.filter(r => extraElsewhere(r).length > 0).length;
         const totalParts = rows.reduce((a, r) => a + r.partsTotal, 0);
         const trackedParts = rows.reduce((a, r) => a + r.partsTracked, 0);
         const count = (name: string) => rows.filter(r => statusOf(r) === name).length;
@@ -913,6 +934,8 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             { values: ["Peças no total", totalParts] },
             { tone: "green", values: ["Peças com rastreio (enviadas)", trackedParts] },
             { values: ["Peças sem rastreio", totalParts - trackedParts] },
+            { tone: "red", values: ["Peças já enviadas em outra rota de entrega", repeatedTotal] },
+            { tone: "blue", values: ["OS com peças só em outra rota de entrega", extraOsCount] },
             ...Array.from(byDay.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([day, n]) => ({ values: ["OS programadas em " + fmtDay(day), n] }) as SheetRow),
         ];
 
@@ -923,15 +946,23 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     "OS Nro.", "ASC Job No.", "Cliente", "Cidade", "Bairro", "UF", "CEP", "Modelo", "Turno", "TAT", "TAT atual (dias)", "Data Solicitação", "1st Visit Date", "TS", "OW/LP",
                     "Situação", "Dia programado", "Ordem", "Rota dos dias", "Situação da rota", "Técnico", "Finalizada em", "Pendência em",
                     "Peças", "Qtd peças", "Peças com rastreio", "Rastreios",
+                    "Já enviadas em outra rota de entrega", "Só em outra rota de entrega",
                 ],
                 rows: osRows,
-                widths: [14, 16, 26, 16, 18, 10, 11, 18, 7, 6, 10, 13, 13, 6, 7, 13, 13, 7, 30, 12, 14, 16, 16, 40, 8, 10, 40],
+                widths: [14, 16, 26, 16, 18, 10, 11, 18, 7, 6, 10, 13, 13, 6, 7, 13, 13, 7, 30, 12, 14, 16, 16, 40, 8, 10, 40, 50, 50],
             },
             {
-                name: "Peças", headers: ["OS Nro.", "Cliente", "Cidade", "Bairro", "Código da peça", "Descrição", "Qtd", "Envio", "Rastreio", "Situação da OS", "Dia programado", "Rota dos dias"],
+                name: "Peças", headers: ["OS Nro.", "Cliente", "Cidade", "Bairro", "Código da peça", "Descrição", "Qtd", "Envio", "Rastreio", "Situação da OS", "Dia programado", "Rota dos dias", "Já enviada em outra rota?", "Envio anterior"],
                 rows: partRows,
-                widths: [14, 26, 16, 18, 18, 36, 6, 12, 22, 13, 13, 30],
+                widths: [14, 26, 16, 18, 18, 36, 6, 12, 22, 13, 13, 30, 14, 50],
             },
+            // Comparação peça a peça com as outras rotas de entrega (só as OS que já tiveram entrega antes).
+            ...(otherRows.length > 0 ? [{
+                name: "Outras entregas",
+                headers: ["OS Nro.", "Cliente", "Código da peça", "Descrição", "Situação", "Qtd agora", "Rota anterior", "Data", "Rastreio anterior", "Qtd anterior"],
+                rows: otherRows,
+                widths: [14, 26, 18, 36, 18, 9, 30, 12, 22, 10],
+            }] : []),
         ]);
         toast({ title: "Planilha exportada", description: rows.length + " OS e " + partRows.length + " peças, com a situação de cada uma." });
     };
