@@ -23,6 +23,7 @@ import {
   X, Route as RouteIcon, ArrowLeftRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DuplicateOrdersNotice } from "@/components/routes/DuplicateOrdersNotice";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { useTechnicians, useDrivers, useServiceOrders } from "@/hooks/queries";
@@ -802,6 +803,7 @@ export function RouteCreationWizard({ open, onOpenChange, initialRoute, onComple
                         value={pasteText}
                         onChange={e => handlePasteChange(e.target.value)}
                       />
+                      <DuplicateOrdersNotice stops={stops} excludeRouteId={initialRoute?.id} />
                       {stops.length > 0 && (
                         <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20 p-2 max-h-[45vh] overflow-y-auto space-y-0.5">
                           {stops.map((s, i) => (

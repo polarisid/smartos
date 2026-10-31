@@ -43,6 +43,7 @@ import { fetchLegDistancesAndDurations, fetchDurationMatrixMin } from "@/lib/rou
 import { routeCode, matchesRouteCode, matchesRouteQuery } from "@/lib/routeCode";
 import { reconstructRouteText } from "@/lib/routeText";
 import { RouteCodeTag } from "@/components/routes/RouteCodeTag";
+import { DuplicateOrdersNotice } from "@/components/routes/DuplicateOrdersNotice";
 import { formatLegTempo, copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -1465,6 +1466,7 @@ function RouteForm({
                             onChange={(e) => handleRouteTextChange(e.target.value)}
                             rows={16}
                         />
+                        <DuplicateOrdersNotice stops={parsedStops} excludeRouteId={initialData?.id} />
                         <p className="text-xs text-muted-foreground">
                             O cabeçalho da planilha deve ser incluído no texto.
                         </p>
@@ -2252,6 +2254,7 @@ function RouteForm({
                         placeholder="Cole aqui as linhas da planilha das novas paradas..."
                         className="min-h-[90px] font-mono text-xs"
                     />
+                    <DuplicateOrdersNotice stops={appendPreview.parsed} excludeRouteId={initialData?.id} />
 
                     {appendText.trim() && (
                         <div className="rounded-md border bg-muted/30 p-2.5 space-y-2">

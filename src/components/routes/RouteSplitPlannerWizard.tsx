@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, ArrowLeft, Wand2, Plus, CheckCircle2, GripVertical, X, Trash2, Minus, Route as RouteIcon, Rocket, ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DuplicateOrdersNotice } from "@/components/routes/DuplicateOrdersNotice";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { routeService } from "@/services/supabase/routeService";
@@ -478,6 +479,7 @@ export function RouteSplitPlannerWizard({ open, onOpenChange, onCompleted }: Pro
                   value={pasteText}
                   onChange={e => handlePasteChange(e.target.value)}
                 />
+                <DuplicateOrdersNotice stops={stops} />
               </div>
             </div>
           ) : (

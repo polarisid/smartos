@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { RouteCreationWizard } from "@/components/routes/RouteCreationWizard";
 import { cn } from "@/lib/utils";
+import { DuplicateOrdersNotice } from "@/components/routes/DuplicateOrdersNotice";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComp } from "@/components/ui/calendar";
 
@@ -2304,6 +2305,7 @@ export default function PlanejamentoPage() {
                 value={editText}
                 onChange={e => handleEditTextChange(e.target.value)}
               />
+              <DuplicateOrdersNotice stops={editParsedPreview} excludeRouteId={editingRoute?.id} />
               {editParsedPreview.length > 0 && (
                 <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-955/20 p-2">
                   <div className="flex items-center justify-between mb-1.5">
