@@ -270,7 +270,7 @@ export default function DeliveryRoutesPage() {
             </AlertDialog>
 
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Nova Rota de Entrega</DialogTitle>
                         <DialogDescription>Cole a planilha de OS (com o cabeçalho). Ela serve só para controle; as rotas dos técnicos saem dela por dia.</DialogDescription>
@@ -285,7 +285,7 @@ export default function DeliveryRoutesPage() {
                                 Planilha de OS *
                                 {parsed.length > 0 && <span className="ml-2 text-xs font-normal text-emerald-600">✓ {parsed.length} OS detectadas</span>}
                             </Label>
-                            <Textarea className="min-h-[200px] font-mono text-xs" value={newText} onChange={e => setNewText(e.target.value)} placeholder="Cole aqui o conteúdo da planilha (Ctrl+A → Ctrl+C no Excel)…" />
+                            <Textarea className="min-h-[140px] max-h-[22vh] font-mono text-xs" value={newText} onChange={e => setNewText(e.target.value)} placeholder="Cole aqui o conteúdo da planilha (Ctrl+A → Ctrl+C no Excel)…" />
                         </div>
                         <DeliveryHistoryNotice history={newHistory} skipSent={skipSent} onSkipSentChange={setSkipSent} />
                     </div>
@@ -1789,7 +1789,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
 
             {/* Criar rotas filhas */}
             <Dialog open={addOpen} onOpenChange={(o) => { if (!o && !adding) setAddOpen(false); }}>
-                <DialogContent className="max-w-3xl">
+                <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Adicionar OS à rota de entrega</DialogTitle>
                         <DialogDescription>Cole as linhas da planilha (com o cabeçalho). As OS novas entram como "A programar"; as que já estão na rota são ignoradas.</DialogDescription>
@@ -1798,7 +1798,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                         value={addText}
                         onChange={e => setAddText(e.target.value)}
                         placeholder="Cole aqui o cabeçalho e as linhas da planilha de OS…"
-                        className="h-[38vh] w-full resize-none rounded-md border bg-background p-3 font-mono text-xs"
+                        className="h-[22vh] w-full resize-none rounded-md border bg-background p-3 font-mono text-xs"
                     />
                     <DeliveryHistoryNotice history={addPreview.history} skipSent={addSkipSent} onSkipSentChange={setAddSkipSent} />
                     {addText.trim() && (
