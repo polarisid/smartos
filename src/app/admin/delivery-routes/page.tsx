@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Mail, FilePlus2, Copy, FileText, Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, Users, X } from "lucide-react";
+import { Mail, Repeat2, FilePlus2, Copy, FileText, Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, Users, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import Link from "next/link";
@@ -39,6 +39,7 @@ import type { Route, RoutePart, RoutePoint, RouteStop } from "@/lib/data";
 import { routeService, RouteConflictError } from "@/services/supabase/routeService";
 import { buildOrderHistory } from "@/lib/deliveryHistory";
 import { DeliveryHistoryNotice } from "@/components/routes/DeliveryHistoryNotice";
+import { DuplicateOrdersNotice } from "@/components/routes/DuplicateOrdersNotice";
 
 // ─── Rota de entrega ("rota mãe") ───────────────────────────────────────────────────────────────
 // Controla o envio das peças e das OS. Daqui saem rotas filhas por dia, só com as OS ainda não
@@ -287,6 +288,7 @@ export default function DeliveryRoutesPage() {
                             </Label>
                             <Textarea className="min-h-[140px] max-h-[22vh] font-mono text-xs" value={newText} onChange={e => setNewText(e.target.value)} placeholder="Cole aqui o conteúdo da planilha (Ctrl+A → Ctrl+C no Excel)…" />
                         </div>
+                        <DuplicateOrdersNotice stops={parsed} />
                         <DeliveryHistoryNotice history={newHistory} skipSent={skipSent} onSkipSentChange={setSkipSent} />
                     </div>
                     <DialogFooter>
@@ -585,6 +587,10 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             };
         });
     }, [route, serviceOrders, children]);
+
+    // O que as OS desta rota já tiveram em OUTRAS rotas de entrega: peças já enviadas (repetidas) e peças que só foram lá.
+    const otherHistory = useMemo(() => buildOrderHistory(rows.map(r => r.stop), allDeliveryRoutes, routeId), [rows, allDeliveryRoutes, routeId]);
+    const otherOf = (r: Row) => otherHistory.get((r.stop.serviceOrder || "").trim().toUpperCase());
 
     const options = useMemo(() => {
         const count = (f: (r: Row) => string) => {
@@ -1422,16 +1428,30 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     <span className="font-mono text-[10px] inline-flex flex-wrap gap-x-1.5 max-w-[260px] whitespace-normal">
                         {(r.stop.parts || []).map(p => {
                             const tracked = (p.trackingCode || "").trim() !== "";
+                            const before = otherOf(r)?.diff.find(d => d.situation === "repetida" && d.code.trim().toUpperCase() === (p.code || "").trim().toUpperCase())?.before;
                             return (
                                 <span
                                     key={p.code}
-                                    className={cn("inline-flex items-center gap-0.5", tracked ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")}
-                                    title={(p.description || "") + (tracked ? " — rastreio " + p.trackingCode : " — sem rastreio")}
+                                    className={cn("inline-flex items-center gap-0.5", before ? "text-red-700 dark:text-red-400 font-semibold" : tracked ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")}
+                                    title={(p.description || "") + (tracked ? " — rastreio " + p.trackingCode : " — sem rastreio") + (before ? "\nJÁ ENVIADA em " + before.routeName + " (" + format(before.routeDate, "dd/MM/yyyy") + ") · rastreio " + before.trackingCode : "")}
                                 >
-                                    {tracked ? <CheckCircle2 className="h-2.5 w-2.5" /> : null}{p.code}{p.quantity > 1 ? " x" + p.quantity : ""}
+                                    {before ? <Repeat2 className="h-2.5 w-2.5" /> : tracked ? <CheckCircle2 className="h-2.5 w-2.5" /> : null}{p.code}{p.quantity > 1 ? " x" + p.quantity : ""}
                                 </span>
                             );
                         })}
+                        {(() => {
+                            // Peças que a OS já levou em OUTRA rota de entrega e que não estão nesta.
+                            const extra = (otherOf(r)?.diff || []).filter(d => d.situation === "so-antes");
+                            if (extra.length === 0) return null;
+                            return (
+                                <span
+                                    className="inline-flex items-center rounded border border-sky-300 bg-sky-50 px-1 text-[10px] font-sans font-medium text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300"
+                                    title={"Em outra rota de entrega esta OS também levou:\n" + extra.map(d => "• " + d.code + (d.description ? " (" + d.description + ")" : "") + " — " + (d.before?.routeName || "") + (d.before ? " · rastreio " + d.before.trackingCode : "")).join("\n")}
+                                >
+                                    +{extra.length} em outra rota
+                                </span>
+                            );
+                        })()}
                         {!r.finalizedAt && (
                             <button type="button" className="inline-flex items-center rounded border px-1 text-[10px] text-primary hover:bg-primary/10" title="Alterar as peças desta OS (as que ainda não têm rastreio)" onClick={() => openParts(r)}>
                                 <Pencil className="h-2.5 w-2.5" />
@@ -1800,6 +1820,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                         placeholder="Cole aqui o cabeçalho e as linhas da planilha de OS…"
                         className="h-[22vh] w-full resize-none rounded-md border bg-background p-3 font-mono text-xs"
                     />
+                    <DuplicateOrdersNotice stops={addParsed} />
                     <DeliveryHistoryNotice history={addPreview.history} skipSent={addSkipSent} onSkipSentChange={setAddSkipSent} />
                     {addText.trim() && (
                         <p className="rounded-md bg-muted/50 px-3 py-2 text-xs">
