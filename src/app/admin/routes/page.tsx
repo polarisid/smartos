@@ -26,7 +26,8 @@ import { useRoutePresence } from "@/hooks/useRoutePresence";
 import { mergeStops, mergeRouteFields, sameValue } from "@/lib/routeMerge";
 import { driverService } from "@/services/supabase/driverService";
 import { useToast } from "@/hooks/use-toast";
-import { useTechnicians, useServiceOrders } from "@/hooks/queries";
+import { useTechnicians, useServiceOrders, useActiveRoutes, useDraftRoutes } from "@/hooks/queries";
+import { buildOpenRouteIndex } from "@/lib/duplicateOrders";
 import { useAuth } from "@/context/AuthContext";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Route, type RouteStop, type ServiceOrder, type Technician, type RoutePart, type Driver, type RoutePoint } from "@/lib/data";
@@ -248,6 +249,10 @@ function RouteForm({
     const isMaster = appUser?.role === 'master';
     // Semana ISO atual (ex: "W27") - só entra no nome se a pessoa clicar no botão ao lado do campo.
     const currentWeekLabel = `W${String(getISOWeek(new Date())).padStart(2, "0")}`;
+    // Em quais outras rotas abertas (ativas ou rascunho) cada OS da lista já está.
+    const { data: openActive = [] } = useActiveRoutes();
+    const { data: openDrafts = [] } = useDraftRoutes();
+    const openRouteIndex = useMemo(() => buildOpenRouteIndex([...openActive, ...openDrafts]), [openActive, openDrafts]);
     const [routeName, setRouteName] = useState("");
     const [routeText, setRouteText] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1648,6 +1653,7 @@ function RouteForm({
                             const isExpanded = expandedStops.has(stop.serviceOrder);
                             const partsCount = stop.parts?.length || 0;
                             const location = [stop.city, stop.neighborhood].filter(Boolean).join(' · ');
+                            const inOtherRoutes = (openRouteIndex.get((stop.serviceOrder || '').trim().toUpperCase()) || []).filter(l => l.routeId !== initialData?.id);
 
                             if (stop.isReallocated) {
                                 return (
@@ -1744,6 +1750,18 @@ function RouteForm({
                                                 {location || 'Sem localização'}
                                             </span>
                                         </div>
+
+                                        {inOtherRoutes.length > 0 && (
+                                            <span
+                                                className="shrink-0 inline-flex max-w-[210px] flex-col rounded-md border border-red-300 bg-red-50 px-2 py-0.5 leading-tight text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+                                                title={"Esta OS também está em:\n" + inOtherRoutes.map(l => "• " + l.routeName + " (" + (l.status === 'ativa' ? 'ativa' : 'rascunho') + (l.date ? " · " + format(l.date, "dd/MM") : "") + (l.technicianName ? " · " + l.technicianName : "") + ")").join("\n")}
+                                            >
+                                                <span className="text-[10px] font-bold uppercase tracking-wide">Também em outra rota</span>
+                                                <span className="truncate text-[10px]">
+                                                    {inOtherRoutes[0].routeName} ({inOtherRoutes[0].status === 'ativa' ? 'ativa' : 'rascunho'}){inOtherRoutes.length > 1 ? " +" + (inOtherRoutes.length - 1) : ""}
+                                                </span>
+                                            </span>
+                                        )}
 
                                         {doneInThisRoute && (
                                             <span
