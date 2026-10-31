@@ -261,6 +261,30 @@ export const routeService = {
       .eq('id', id);
 
     if (error) throw error;
+
+    // A exclusão já valeu; se a rota mãe não puder ser atualizada agora, não faz a exclusão parecer falha.
+    if (route?.parentRouteId) {
+      try { await this.releaseChildDays(route); } catch (e) { console.warn('Não foi possível liberar os dias da rota de entrega', e); }
+    }
+  },
+
+  /**
+   * Rota filha excluída: as OS que estavam nela voltam a ficar SEM dia programado na rota de entrega (mãe), a programar de
+   * novo. OS que continuam em outra rota filha ativa da mesma mãe mantêm o dia.
+   */
+  async releaseChildDays(child: Route): Promise<void> {
+    if (!child.parentRouteId) return;
+    const parent = await this.getById(child.parentRouteId);
+    if (!parent || parent.kind !== 'delivery') return;
+    const stillScheduled = new Set<string>();
+    (await this.getChildRoutes(parent.id))
+      .filter(c => c.id !== child.id && !c.isCanceled)
+      .forEach(c => (c.stops || []).filter(s => !s.isReallocated).forEach(s => stillScheduled.add(s.serviceOrder)));
+    const hasDay = new Set((parent.stops || []).filter(s => s.plannedDay).map(s => s.serviceOrder));
+    const release = (child.stops || [])
+      .filter(s => !s.isReallocated && !stillScheduled.has(s.serviceOrder) && hasDay.has(s.serviceOrder))
+      .map(s => ({ serviceOrder: s.serviceOrder, fields: { plannedDay: null } }));
+    if (release.length > 0) await this.patchStopFields(parent.id, release);
   },
 
   // Exclui uma ROTA DE ENTREGA (a remove() comum recusa rotas ativas). As rotas filhas já criadas continuam,

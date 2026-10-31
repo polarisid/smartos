@@ -1174,6 +1174,8 @@ export default function PlanejamentoPage() {
     try {
       await routeService.remove(routeToDelete.id);
       await queryClient.invalidateQueries({ queryKey: ['routes', 'draft'] });
+      queryClient.invalidateQueries({ queryKey: ['delivery-route'] });
+      queryClient.invalidateQueries({ queryKey: ['delivery-children'] });
       if (selectedRoute?.id === routeToDelete.id) setSelectedRoute(null);
       toast({ title: "Rascunho excluído." });
     } catch (e: any) {

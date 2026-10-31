@@ -2850,6 +2850,8 @@ export default function RoutesPage() {
         if (!routeToDelete) return;
         try {
             await routeService.remove(routeToDelete.id);
+            queryClient.invalidateQueries({ queryKey: ["delivery-route"] });
+            queryClient.invalidateQueries({ queryKey: ["delivery-children"] });
             toast({ title: "Rascunho excluído permanentemente." });
             setIsDeleteDraftDialogOpen(false);
             setRouteToDelete(null);
