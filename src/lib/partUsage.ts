@@ -32,6 +32,22 @@ export function borrowedFromOrder(rawItem: string): string | null {
     return rawItem.match(BORROWED_TAG)?.[1] ?? null;
 }
 
+/**
+ * Linha das peças no texto gerado para o técnico. Sem peça de outra OS continua "Peça Trocada: X"; com ela vira
+ * "Peças usadas: X, BN96-55108A (usada da OS: 46656565)", deixando explícito de onde a peça saiu.
+ */
+export function replacedPartTextLine(replacedPart?: string): string {
+    const raw = (replacedPart || "").trim();
+    if (!raw) return "";
+    const items = raw.split(",").map(i => i.trim()).filter(Boolean);
+    if (!items.some(i => borrowedFromOrder(i))) return `- **Peça Trocada:** ${raw}`;
+    const shown = items.map(i => {
+        const from = borrowedFromOrder(i);
+        return from ? i.replace(BORROWED_TAG, "").trim() + ` (usada da OS: ${from})` : i;
+    });
+    return `- **Peças usadas:** ${shown.join(", ")}`;
+}
+
 export type LentPart = { toOrder: string; quantity: number; date: Date };
 
 /**

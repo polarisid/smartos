@@ -89,7 +89,7 @@ import { useFormV2, FormV2Switch, OsTicket, FinalizeChoice, PendingReasonChips }
 import { useTechnicians, usePresets, useCodes, useCodeUsageCounts, useActiveRoutes, useChecklists, useVisitTemplate } from "@/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { BorrowedPartsSection } from "@/components/BorrowedPartsSection";
-import { formatBorrowedPart, type BorrowedPart } from "@/lib/partUsage";
+import { formatBorrowedPart, replacedPartTextLine, type BorrowedPart } from "@/lib/partUsage";
 
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
@@ -1123,7 +1123,7 @@ const { toast } = useToast();
     }
 
     const optionalParts = [
-        data.replacedPart ? `- **Peça Trocada:** ${data.replacedPart}` : '',
+        replacedPartTextLine(data.replacedPart),
         (data.samsungRepairType === 'LP' || currentRouteStop?.warrantyType === 'LP')
           ? (data.samsungLpSurveyPerformed
               ? `- **Pesquisa de Satisfação LP:** Realizada${data.samsungLpSurveyRating !== undefined ? ` (Nota: ${data.samsungLpSurveyRating}/10)` : ''}`

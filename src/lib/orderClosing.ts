@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import type { CodeItem, Route, RoutePart, RouteStop, ServiceOrder } from "@/lib/data";
-import { borrowedFromOrder } from "@/lib/partUsage";
+import { borrowedFromOrder, replacedPartTextLine } from "@/lib/partUsage";
 
 // Encerramento de ordens: junta, para cada OS lançada, as peças (com o rastreio da rota) e o texto do técnico.
 
@@ -223,7 +223,7 @@ export function buildServiceOrderText(order: ServiceOrder, ctx: OrderTextContext
 
     const lp = splitLpSurvey(order.observations);
     const optional = [
-        order.replacedPart ? `- **Peça Trocada:** ${order.replacedPart}` : "",
+        replacedPartTextLine(order.replacedPart),
         lp.lpLine,
         lp.observations ? `- **Observações:** ${lp.observations}` : "",
     ].filter(Boolean);

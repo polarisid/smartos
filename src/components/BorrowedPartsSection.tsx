@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowRightLeft, Check, ChevronDown, Minus, Plus, Trash2 } from "lucide-react";
+import { ArrowRightLeft, Check, ChevronDown, ChevronsUpDown, Minus, Plus, Trash2 } from "lucide-react";
 import type { Route, RouteStop } from "@/lib/data";
 import { formatBorrowedPart, lentFromOrder, type BorrowedPart } from "@/lib/partUsage";
 import { useServiceOrders } from "@/hooks/queries";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -30,6 +31,7 @@ export function BorrowedPartsSection({ routes, technicianId, currentOrder, value
     const { data: serviceOrders = [] } = useServiceOrders(2000);
     const [open, setOpen] = useState(false);
     const [fromOrder, setFromOrder] = useState("");
+    const [pickerOpen, setPickerOpen] = useState(false);
     const [qtyByCode, setQtyByCode] = useState<Record<string, number>>({});
 
     const sources = useMemo<Source[]>(() => {
@@ -118,16 +120,37 @@ export function BorrowedPartsSection({ routes, technicianId, currentOrder, value
                         <>
                             <div className="space-y-1">
                                 <p className="text-xs font-semibold">De qual OS saiu a peça?</p>
-                                <Select value={fromOrder} onValueChange={v => { setFromOrder(v); setQtyByCode({}); }}>
-                                    <SelectTrigger><SelectValue placeholder="Escolha a OS de origem" /></SelectTrigger>
-                                    <SelectContent>
-                                        {sources.map(s => (
-                                            <SelectItem key={s.stop.serviceOrder} value={s.stop.serviceOrder}>
-                                                {s.stop.serviceOrder}{s.stop.consumerName ? " · " + s.stop.consumerName : ""} ({s.stop.parts.length} peça{s.stop.parts.length > 1 ? "s" : ""})
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button type="button" variant="outline" role="combobox" aria-expanded={pickerOpen} className="w-full justify-between font-normal">
+                                            <span className="truncate">
+                                                {source ? source.stop.serviceOrder + (source.stop.consumerName ? " · " + source.stop.consumerName : "") : "Digite ou escolha a OS de origem"}
+                                            </span>
+                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                                        <Command>
+                                            <CommandInput placeholder="Digite o número da OS ou o nome do cliente" inputMode="numeric" />
+                                            <CommandList>
+                                                <CommandEmpty>Nenhuma OS com peças nas suas rotas.</CommandEmpty>
+                                                <CommandGroup>
+                                                    {sources.map(s => (
+                                                        <CommandItem
+                                                            key={s.stop.serviceOrder}
+                                                            value={s.stop.serviceOrder + " " + (s.stop.consumerName || "")}
+                                                            onSelect={() => { setFromOrder(s.stop.serviceOrder); setQtyByCode({}); setPickerOpen(false); }}
+                                                        >
+                                                            <span className="truncate">
+                                                                {s.stop.serviceOrder}{s.stop.consumerName ? " · " + s.stop.consumerName : ""} ({s.stop.parts.length} peça{s.stop.parts.length > 1 ? "s" : ""})
+                                                            </span>
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
                             </div>
 
                             {source && (
