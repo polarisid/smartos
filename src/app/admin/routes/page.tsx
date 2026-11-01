@@ -2814,6 +2814,21 @@ export default function RoutesPage() {
 
     // Busca uma OS dentro das rotas listadas (respeita o filtro "só ativas") - útil pra achar
     // rapidamente em qual rota uma OS específica está sem abrir uma por uma.
+    // Data e hora planejadas da OS numa rota: rota de entrega = dia programado; as demais = dia da rota (planejada ou
+    // de saída). A hora é o horário previsto gravado pelo modo planejamento, quando houver.
+    const plannedLabelOf = (route: Route, stop: RouteStop) => {
+        const eta = (stop.etaStart || "").trim();
+        let date = "";
+        if (stop.plannedDay) date = format(new Date(stop.plannedDay + "T12:00:00"), "dd/MM/yyyy");
+        else if (eta && stop.firstVisitDate) date = stop.firstVisitDate; // gravada junto do horário pelo planejamento
+        else {
+            const d = route.plannedDate || route.departureDate;
+            if (d) date = format(new Date(d), "dd/MM/yyyy");
+        }
+        if (!date && !eta) return "Sem data planejada";
+        return "Planejada: " + [date, eta ? "às " + eta : ""].filter(Boolean).join(" ");
+    };
+
     const routeSearchResults = useMemo(() => {
         const term = routeSearchTerm.trim();
         if (!term) return [];
@@ -3499,8 +3514,9 @@ ${rowsXml}  </Table>
                                                 <Badge variant="outline" className="border-sky-300 bg-sky-100 px-1.5 py-0 text-[9px] text-sky-800 dark:bg-sky-950 dark:text-sky-300">Rota de entrega</Badge>
                                             </p>
                                             <p className="truncate text-xs text-muted-foreground">
-                                                {route.name} · {stop.city}{stop.plannedDay ? " · dia " + format(new Date(stop.plannedDay + "T12:00:00"), "dd/MM") : " · sem dia programado"}
+                                                {route.name} · {stop.city}
                                             </p>
+                                            <p className="text-xs font-medium text-sky-800 dark:text-sky-300">{plannedLabelOf(route, stop)}</p>
                                             <div className="mt-0.5"><RouteCodeTag route={route} /></div>
                                         </div>
                                         <Button size="sm" variant="outline" className="shrink-0" asChild>
@@ -3538,6 +3554,7 @@ ${rowsXml}  </Table>
                                             </p>
                                         )}
                                         <p className="text-xs text-muted-foreground truncate">{route.isDraft && <span className="mr-1 rounded border border-amber-300 bg-amber-50 px-1 text-[9px] font-bold uppercase text-amber-800">Rascunho</span>}{route.name} · {stop.city}</p>
+                                        <p className="text-xs font-medium text-foreground/80">{plannedLabelOf(route, stop)}</p>
                                     </div>
                                     <Button
                                         size="sm"
