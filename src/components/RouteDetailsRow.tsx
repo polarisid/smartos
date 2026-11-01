@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import type { ServiceOrder, RouteStop } from "@/lib/data";
 import { Badge } from "@/components/ui/badge";
 import { copyToClipboard } from "@/lib/clipboard";
+import { lentFromOrder, lentNotice } from "@/lib/partUsage";
 
 export function RouteDetailsRow({ 
     stop, 
@@ -113,11 +114,15 @@ export function RouteDetailsRow({
                     <TableCell>
                         {stop.parts && stop.parts.length > 0 ? (
                             <div>
-                                {stop.parts.map((part, pIndex) => (
-                                    <div key={pIndex} className="font-mono text-xs">
-                                        {part.code} (x{part.quantity})
-                                    </div>
-                                ))}
+                                {stop.parts.map((part, pIndex) => {
+                                    const lent = lentNotice(lentFromOrder(stop.serviceOrder, part.code, serviceOrders, routeCreatedAt));
+                                    return (
+                                        <div key={pIndex} className="font-mono text-xs">
+                                            {part.code} (x{part.quantity})
+                                            {lent && <span className="ml-1 font-sans text-[10px] font-semibold text-sky-700 dark:text-sky-300">· {lent}</span>}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         ) : (
                             <span className="text-xs text-muted-foreground">N/A</span>

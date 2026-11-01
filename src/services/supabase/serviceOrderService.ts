@@ -2,7 +2,7 @@ import { supabase } from "@/lib/supabase";
 import { type ServiceOrder } from "@/lib/data";
 
 export const serviceOrderService = {
-  async getPaginated(pageSize: number = 10, offset: number = 0, statusFilter?: 'abertas' | 'fechadas'): Promise<{ orders: ServiceOrder[], lastDoc: any, hasMore: boolean }> {
+  async getPaginated(pageSize: number = 10, offset: number = 0, statusFilter?: 'abertas' | 'fechadas', unidadeId?: string | null): Promise<{ orders: ServiceOrder[], lastDoc: any, hasMore: boolean }> {
     let query = supabase
       .from('service_orders')
       .select('*', { count: 'exact' })
@@ -14,6 +14,7 @@ export const serviceOrderService = {
       query = query.eq('is_finalized', true);
     }
 
+    if (unidadeId) query = query.eq('unidade_id', unidadeId);
     query = query.range(offset, offset + pageSize - 1);
 
     const { data, count, error } = await query;
@@ -33,12 +34,21 @@ export const serviceOrderService = {
   },
 
   async getRecentOrders(limitCount: number = 5, unidadeId?: string | null): Promise<ServiceOrder[]> {
-    let query = supabase.from('service_orders').select('*').order('date', { ascending: false }).limit(limitCount);
-    if (unidadeId) query = query.eq('unidade_id', unidadeId);
-    const { data, error } = await query;
+    // O servidor limita cada resposta a 1000 linhas: pedir .limit(2000) devolvia só 1000 em silêncio.
+    // Pagina até completar `limitCount` (ou acabarem as OS).
+    const step = 1000;
+    const all: any[] = [];
+    for (let from = 0; from < limitCount; from += step) {
+      const to = Math.min(from + step, limitCount) - 1;
+      let query = supabase.from('service_orders').select('*').order('date', { ascending: false }).order('id', { ascending: true }).range(from, to);
+      if (unidadeId) query = query.eq('unidade_id', unidadeId);
+      const { data, error } = await query;
 
-    if (error) throw error;
-    return data.map(this.mapFromDb);
+      if (error) throw error;
+      all.push(...(data || []));
+      if (!data || data.length < to - from + 1) break;
+    }
+    return all.map(this.mapFromDb);
   },
 
   async getOrdersSince(daysAgo: number): Promise<ServiceOrder[]> {
@@ -252,16 +262,33 @@ export const serviceOrderService = {
     if (error) throw error;
   },
 
-  async searchByNumber(prefix: string): Promise<ServiceOrder[]> {
-    const { data, error } = await supabase
+  async searchByNumber(prefix: string, unidadeId?: string | null): Promise<ServiceOrder[]> {
+    let query = supabase
       .from('service_orders')
       .select('*')
       .ilike('service_order_number', `${prefix}%`)
       .order('date', { ascending: false })
       .limit(20);
+    if (unidadeId) query = query.eq('unidade_id', unidadeId);
+    const { data, error } = await query;
 
     if (error) throw error;
     return data.map(this.mapFromDb);
+  },
+
+  // OS lançadas com peça "de outra OS" (marca "[da OS N]" em peça trocada): serve para a OS de origem mostrar o que cedeu.
+  async getBorrowingOrders(unidadeId?: string | null): Promise<ServiceOrder[]> {
+    let query = supabase
+      .from('service_orders')
+      .select('*')
+      .ilike('replaced_part', '%[da OS %')
+      .order('date', { ascending: false })
+      .limit(1000);
+    if (unidadeId) query = query.eq('unidade_id', unidadeId);
+    const { data, error } = await query;
+
+    if (error) throw error;
+    return (data || []).map(this.mapFromDb);
   },
 
   async getByNumbers(numbers: string[]): Promise<ServiceOrder[]> {

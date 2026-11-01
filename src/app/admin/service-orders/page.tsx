@@ -42,6 +42,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { useTechnicians } from "@/hooks/queries";
+import { useAuth } from "@/context/AuthContext";
 
 const PAGE_SIZE = 20;
 
@@ -76,6 +77,8 @@ export default function ServiceOrdersPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: technicians } = useTechnicians();
+  // Master com uma unidade escolhida no seletor do topo vê só as OS dela (sem escolha, vê todas).
+  const { activeUnidadeId } = useAuth();
 
   // Data state
   const [serviceOrders, setServiceOrders] = useState<(ServiceOrder & { technicianName?: string })[]>([]);
@@ -131,7 +134,7 @@ export default function ServiceOrdersPage() {
   const loadMonthlyReport = useCallback(async (month: Date) => {
     setReportLoading(true);
     try {
-      const orders = await serviceOrderService.getByDateRange(startOfMonth(month), endOfMonth(month));
+      const orders = await serviceOrderService.getByDateRange(startOfMonth(month), endOfMonth(month), activeUnidadeId);
       setReportOrders(orders);
     } catch (e) {
       console.error("Erro ao carregar relatório mensal:", e);
@@ -139,7 +142,7 @@ export default function ServiceOrdersPage() {
     } finally {
       setReportLoading(false);
     }
-  }, [toast]);
+  }, [toast, activeUnidadeId]);
 
   const openMonthlyReport = () => {
     const m = startOfMonth(new Date());
@@ -230,7 +233,7 @@ export default function ServiceOrdersPage() {
   const loadInitialOrders = useCallback(async (map: Record<string, string>) => {
     setIsLoading(true);
     try {
-      const data = await serviceOrderService.getPaginated(PAGE_SIZE);
+      const data = await serviceOrderService.getPaginated(PAGE_SIZE, 0, undefined, activeUnidadeId);
       const orders = data.orders.map(o => ({
           ...o,
           technicianName: map[o.technicianId] || "N/A",
@@ -244,18 +247,18 @@ export default function ServiceOrdersPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [toast, loadReportedFlags]);
+  }, [toast, loadReportedFlags, activeUnidadeId]);
 
   useEffect(() => {
     loadInitialOrders(techMap);
-  }, [techMap]);
+  }, [techMap, activeUnidadeId]);
 
   // --- LOAD MORE (pagination) ---
   const handleLoadMore = async () => {
     if (!lastDoc || isLoadingMore) return;
     setIsLoadingMore(true);
     try {
-      const data = await serviceOrderService.getPaginated(PAGE_SIZE, lastDoc);
+      const data = await serviceOrderService.getPaginated(PAGE_SIZE, lastDoc, undefined, activeUnidadeId);
       const newOrders = data.orders.map(o => ({
           ...o,
           technicianName: techMap[o.technicianId] || "N/A",
@@ -283,7 +286,7 @@ export default function ServiceOrdersPage() {
     setIsSearching(true);
     try {
       // Search by OS number (exact prefix match using Firestore range query)
-      const results = await serviceOrderService.searchByNumber(term);
+      const results = await serviceOrderService.searchByNumber(term, activeUnidadeId);
       const mappedResults = results.map(o => ({
           ...o,
           technicianName: techMap[o.technicianId] || "N/A",

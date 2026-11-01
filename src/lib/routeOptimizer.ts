@@ -2087,6 +2087,10 @@ function getStopCoordinates(stop: RouteStop): PointCoord {
  * Synchronous fallback optimization based on Haversine distance matrix with 2-Opt and Or-Opt refinement
  */
 export function optimizeRouteStopsSync(stops: RouteStop[], originCity: string = "Aracaju"): RouteStop[] {
+  // OS realocada para outra rota não é visitada nesta: fica fora do circuito e vai para o fim da lista.
+  if (stops?.some(s => s.isReallocated)) {
+    return [...optimizeRouteStopsSync(stops.filter(s => !s.isReallocated), originCity), ...stops.filter(s => s.isReallocated)];
+  }
   if (!stops || stops.length <= 1) return stops;
 
   const baseCoords = getCityCoordinates(originCity) || { lat: -10.9142, lng: -37.0545 };
@@ -2208,6 +2212,11 @@ export async function optimizeRouteStopsAsync(
   // base; só com a saída, termina na base; só com a chegada, sai da base.
   endpoints?: { start?: RoutePoint | null; end?: RoutePoint | null }
 ): Promise<{ stops: RouteStop[]; summary: string; totalDrivingMinutes: number }> {
+  // OS realocada para outra rota não é visitada nesta: fica fora do circuito e vai para o fim da lista.
+  if (stops?.some(s => s.isReallocated)) {
+    const result = await optimizeRouteStopsAsync(stops.filter(s => !s.isReallocated), originCity, unidadeId, endpoints);
+    return { ...result, stops: [...result.stops, ...stops.filter(s => s.isReallocated)] };
+  }
   if (!stops || stops.length <= 1) {
     return { stops, summary: "Poucas paradas para otimização.", totalDrivingMinutes: 0 };
   }

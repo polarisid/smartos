@@ -2905,6 +2905,10 @@ export default function RoutesPage() {
         if (!selectedRoute) return;
         try {
             await routeService.update(selectedRoute.id, { isActive: false, isCanceled: true });
+            // Rota filha cancelada: as OS dela voltam a ficar sem dia na rota de entrega (como na exclusão).
+            if (selectedRoute.parentRouteId) {
+                try { await routeService.releaseChildDays(selectedRoute); } catch (e) { console.warn("Não foi possível liberar os dias da rota de entrega", e); }
+            }
             toast({ title: "Rota cancelada com sucesso!" });
             setIsCancelDialogOpen(false);
             setSelectedRoute(null);

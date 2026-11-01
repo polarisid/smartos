@@ -40,6 +40,7 @@ import {
 import { RouteCreationWizard } from "@/components/routes/RouteCreationWizard";
 import { cn } from "@/lib/utils";
 import { DuplicateOrdersNotice } from "@/components/routes/DuplicateOrdersNotice";
+import { buildOpenRouteIndex } from "@/lib/duplicateOrders";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComp } from "@/components/ui/calendar";
 
@@ -505,6 +506,8 @@ export default function PlanejamentoPage() {
   };
   const queryClient = useQueryClient();
   const { data: allRoutes = [], isLoading } = useAllRoutes();
+  // OS -> rotas abertas (ativas/rascunho) que a levam: base do aviso "Também em outra rota" nas paradas.
+  const openRouteIndex = useMemo(() => buildOpenRouteIndex(allRoutes), [allRoutes]);
   const { data: technicians = [] } = useTechnicians();
   const { data: drivers = [] } = useDrivers();
 
@@ -2009,6 +2012,19 @@ export default function PlanejamentoPage() {
                         </td>
                         <td className="px-3 py-2">
                           <span className="font-mono text-[11px] font-bold bg-muted/50 px-1.5 py-0.5 rounded">{stop.serviceOrder}</span>
+                          {(() => {
+                            if (stop.isReallocated) return null;
+                            const others = (openRouteIndex.get((stop.serviceOrder || "").trim().toUpperCase()) || []).filter(l => l.routeId !== selectedRoute.id);
+                            if (others.length === 0) return null;
+                            return (
+                              <p
+                                className="mt-0.5 max-w-[150px] rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold leading-tight text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                                title={others.map(l => l.routeName + " (" + (l.status === "ativa" ? "ativa" : "rascunho") + ")").join("\n")}
+                              >
+                                Também em outra rota: {others.map(l => l.routeName).join(", ")}
+                              </p>
+                            );
+                          })()}
                         </td>
                         <td className="px-3 py-2">
                           <p className="font-medium leading-tight max-w-[140px]">{stop.consumerName}</p>

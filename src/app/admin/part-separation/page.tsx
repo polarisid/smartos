@@ -15,7 +15,7 @@ import { routeService } from "@/services/supabase/routeService";
 import { type Route, type RouteStop, type RoutePart, type Technician, type ServiceOrder } from "@/lib/data";
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { entriesFromCodes, mergeServerCodes } from "@/lib/trackingCodes";
-import { borrowedFromOrder, lentFromOrder, partUsageInStop } from "@/lib/partUsage";
+import { borrowedFromOrder, lentFromOrder, lentNotice, partUsageInStop } from "@/lib/partUsage";
 import { Printer, Smartphone, Table as TableIcon, Activity, CheckCircle2, AlertCircle, FileBarChart2, Search, ChevronDown, PackageSearch, Save, FileDown, CheckCircle, ScanLine, Copy, Loader2, Route as RouteIcon, XCircle, Share2 } from "lucide-react";
 import { useServiceOrders } from "@/hooks/queries";
 import { matchesRouteCode, routeCode } from "@/lib/routeCode";
@@ -784,7 +784,7 @@ function OsRouteSearch() {
     const { activeUnidadeId } = useAuth();
     const [searchTerm, setSearchTerm] = useState("");
     const [isSearching, setIsSearching] = useState(false);
-    const [results, setResults] = useState<{ route: Route; stop: RouteStop; osStatus: string; usedPartsSet: Set<string>; pendingReason?: string; pendingObservations?: string }[]>([]);
+    const [results, setResults] = useState<{ route: Route; stop: RouteStop; osStatus: string; usedPartsSet: Set<string>; lentByCode?: Record<string, string>; pendingReason?: string; pendingObservations?: string }[]>([]);
     const [searched, setSearched] = useState(false);
     // Rascunhos (rotas ainda não publicadas) ficam fora da busca; dá para incluí-los, e aí aparecem avisados como rascunho.
     const [includeDrafts, setIncludeDrafts] = useState(false);
@@ -830,6 +830,8 @@ function OsRouteSearch() {
             if (found.length > 0) {
                 const osNumbers = [...new Set(found.map(f => f.stop.serviceOrder))];
                 const ordersSnapshot = await serviceOrderService.getByNumbers(osNumbers);
+                // Peças que esta OS cedeu para outras (lançamentos "[da OS N]"); se falhar, só some o aviso.
+                const borrowingOrders = await serviceOrderService.getBorrowingOrders(activeUnidadeId).catch(() => [] as ServiceOrder[]);
 
                 // Guardar TODAS as ServiceOrders por número (pode haver múltiplas para o mesmo número em rotas diferentes)
                 const osListMap = new Map<string, ServiceOrder[]>();
@@ -904,10 +906,17 @@ function OsRouteSearch() {
                         });
                     }
 
+                    const lentByCode: Record<string, string> = {};
+                    (f.stop.parts || []).forEach(part => {
+                        const notice = lentNotice(lentFromOrder(f.stop.serviceOrder, part.code, borrowingOrders, routeDate));
+                        if (notice) lentByCode[part.code.toUpperCase()] = notice;
+                    });
+
                     return {
                         ...f,
                         osStatus,
                         usedPartsSet: usedSet,
+                        lentByCode,
                         pendingReason: relatedOs?.isFinalized === false ? (relatedOs.pendingReason || undefined) : undefined,
                         pendingObservations: relatedOs?.isFinalized === false ? (relatedOs.observations || undefined) : undefined,
                     };
@@ -1070,6 +1079,7 @@ function OsRouteSearch() {
                                                 <TableBody>
                                                     {r.stop.parts.map(part => {
                                                         const isUsed = r.usedPartsSet.has(part.code.toUpperCase());
+                                                        const lentNote = r.lentByCode?.[part.code.toUpperCase()];
                                                         return (
                                                             <TableRow key={part.code}>
                                                                 <TableCell className="font-mono text-xs py-2">{part.code}</TableCell>
@@ -1085,6 +1095,7 @@ function OsRouteSearch() {
                                                                             Nova
                                                                         </Badge>
                                                                     )}
+                                                                    {lentNote && <p className="mt-1 text-[10px] font-semibold text-sky-700 dark:text-sky-300">{lentNote}</p>}
                                                                 </TableCell>
                                                                 <TableCell className="py-2">
                                                                     {part.trackingCode ? (

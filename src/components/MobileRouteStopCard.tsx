@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import type { ServiceOrder, RouteStop } from "@/lib/data";
 import { copyToClipboard } from "@/lib/clipboard";
 import { stateToUF } from "@/lib/brStates";
+import { lentFromOrder, lentNotice } from "@/lib/partUsage";
 
 export function MobileRouteStopCard({ 
     stop, 
@@ -177,12 +178,16 @@ export function MobileRouteStopCard({
                 {stop.parts && stop.parts.length > 0 && (
                     <div>
                         <div className="flex flex-wrap gap-1">
-                            {stop.parts.map((part, pIndex) => (
-                                <div key={pIndex} className="bg-background border shadow-sm rounded px-1.5 py-0.5 max-w-full">
-                                    <div className="font-mono text-[10px] font-bold">{part.code} <span className="text-primary ml-1 opacity-80">x{part.quantity}</span></div>
-                                    {part.description && <div className="text-[9px] leading-tight text-muted-foreground break-words">{part.description}</div>}
-                                </div>
-                            ))}
+                            {stop.parts.map((part, pIndex) => {
+                                const lent = lentNotice(lentFromOrder(stop.serviceOrder, part.code, serviceOrders, routeCreatedAt));
+                                return (
+                                    <div key={pIndex} className={cn("bg-background border shadow-sm rounded px-1.5 py-0.5 max-w-full", lent && "border-sky-300 bg-sky-50 dark:bg-sky-950/30")}>
+                                        <div className="font-mono text-[10px] font-bold">{part.code} <span className="text-primary ml-1 opacity-80">x{part.quantity}</span></div>
+                                        {part.description && <div className="text-[9px] leading-tight text-muted-foreground break-words">{part.description}</div>}
+                                        {lent && <div className="text-[9px] font-semibold leading-tight text-sky-700 dark:text-sky-300 break-words">{lent}</div>}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 )}

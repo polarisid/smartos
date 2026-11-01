@@ -75,8 +75,8 @@ export default function ProducaoPage() {
   // Produção da unidade inteira no mês (a RLS já limita à unidade): dela saem o ranking e a
   // comparação com o mês anterior; as listas abaixo são só as OS do técnico escolhido.
   const monthQuery = (m: Date) => ({
-    queryKey: ["producao-equipe", appUser?.uid, m.toISOString()],
-    queryFn: () => serviceOrderService.getByDateRange(startOfMonth(m), endOfMonth(m)),
+    queryKey: ["producao-equipe", appUser?.uid, activeUnidadeId, m.toISOString()],
+    queryFn: () => serviceOrderService.getByDateRange(startOfMonth(m), endOfMonth(m), activeUnidadeId),
     enabled: !!technicianId,
     staleTime: 60 * 1000,
   });

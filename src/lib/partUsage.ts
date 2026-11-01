@@ -50,6 +50,12 @@ export function replacedPartTextLine(replacedPart?: string): string {
 
 export type LentPart = { toOrder: string; quantity: number; date: Date };
 
+/** "cedida para a OS 222 (x1), OS 333 (x2)" -- aviso na OS de origem; vazio quando a peça não foi cedida. */
+export function lentNotice(lent: LentPart[]): string {
+    if (lent.length === 0) return "";
+    return "cedida para a " + lent.map(l => `OS ${l.toOrder}${l.quantity > 1 ? ` (x${l.quantity})` : ""}`).join(", ");
+}
+
 /**
  * Quanto da peça `partCode` da OS `sourceOrder` já foi cedido para outras OS (lançamentos finalizados depois da rota
  * criada, cujo "peça trocada" traz "[da OS sourceOrder]").
