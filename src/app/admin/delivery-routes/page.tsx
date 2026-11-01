@@ -36,7 +36,7 @@ import { fetchDurationMatrixMin, fetchLegDistancesAndDurations, geocodeBase } fr
 import { MAX_TEAMS, NO_TEAM, childRouteName, groupByTeam, splitStopsIntoTeams, teamColor, teamCounts, teamLabel as teamLabelOf, teamOf, type TeamSplit } from "@/lib/deliveryTeams";
 import { copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { DEFAULT_PLANNING_PARAMS, simulateRoutePlan, formatClock } from "@/lib/routePlanning";
-import type { Route, RoutePart, RoutePoint, RouteStop } from "@/lib/data";
+import type { Route, RoutePart, RoutePoint, RouteStop, ServiceOrder } from "@/lib/data";
 import { routeService, RouteConflictError } from "@/services/supabase/routeService";
 import { buildOrderHistory, extraPartsOf, type PartSituation } from "@/lib/deliveryHistory";
 import { DeliveryHistoryNotice } from "@/components/routes/DeliveryHistoryNotice";
@@ -137,6 +137,34 @@ export default function DeliveryRoutesPage() {
         enabled: !!appUser?.uid,
         refetchInterval: 30000,
     });
+
+    // Progresso de cada rota de entrega: OS finalizadas e com pendência (mesma leitura da tela da rota: o último
+    // lançamento da OS depois da solicitação, ou da criação da rota quando a planilha não traz a data).
+    const { data: allOrders = [] } = useServiceOrders(2000);
+    const progressByRoute = useMemo(() => {
+        const byNumber = new Map<string, ServiceOrder[]>();
+        allOrders.forEach(os => {
+            if (os.ignoreInRoute) return;
+            const list = byNumber.get(os.serviceOrderNumber);
+            if (list) list.push(os); else byNumber.set(os.serviceOrderNumber, [os]);
+        });
+        const out = new Map<string, { total: number; done: number; pending: number }>();
+        routes.forEach(r => {
+            const createdMs = new Date(r.createdAt).getTime();
+            let total = 0, done = 0, pending = 0;
+            (r.stops || []).filter(st => !st.isReallocated).forEach(st => {
+                total++;
+                const sinceMs = parseBrDate(st.requestDate) || createdMs;
+                const list = byNumber.get(st.serviceOrder) || [];
+                let last: ServiceOrder | null = null;
+                for (const os of list) if (os.date.getTime() >= sinceMs && (!last || os.date.getTime() > last.date.getTime())) last = os;
+                if (!last) return;
+                if (last.isFinalized === false) pending++; else done++;
+            });
+            out.set(r.id, { total, done, pending });
+        });
+        return out;
+    }, [routes, allOrders]);
 
     // ── Excluir rota de entrega ──
     const [toDelete, setToDelete] = useState<Route | null>(null);
@@ -245,8 +273,25 @@ export default function DeliveryRoutesPage() {
                                 </div>
                                 <CardDescription>Criada em {format(new Date(r.createdAt), "dd/MM/yyyy")} · {r.stops.length} OS</CardDescription>
                             </CardHeader>
-                            <CardContent className="text-xs text-muted-foreground">
-                                {r.stops.filter(s => s.plannedDay).length} com dia programado
+                            <CardContent className="space-y-2 text-xs text-muted-foreground">
+                                <p>{r.stops.filter(s => s.plannedDay).length} com dia programado</p>
+                                {(() => {
+                                    const pr = progressByRoute.get(r.id);
+                                    if (!pr || pr.total === 0) return null;
+                                    const pct = (n: number) => (n / pr.total) * 100;
+                                    return (
+                                        <div title={pr.done + " finalizadas, " + pr.pending + " com pendência, " + (pr.total - pr.done - pr.pending) + " sem lançamento"}>
+                                            <div className="mb-1 flex items-center justify-between gap-2">
+                                                <span className="font-medium text-foreground">{pr.done} de {pr.total} finalizadas</span>
+                                                <span className="tabular-nums">{Math.round(pct(pr.done))}%{pr.pending > 0 ? " · " + pr.pending + " pendente" + (pr.pending > 1 ? "s" : "") : ""}</span>
+                                            </div>
+                                            <div className="flex h-2 overflow-hidden rounded-full bg-muted">
+                                                <div className="h-full bg-emerald-500 transition-all" style={{ width: pct(pr.done) + "%" }} />
+                                                <div className="h-full bg-red-400 transition-all" style={{ width: pct(pr.pending) + "%" }} />
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
                             </CardContent>
                         </Card>
                     ))}
