@@ -160,9 +160,9 @@ export default function AtendimentosPage() {
         const out: Item[] = [];
         const now = Date.now();
         byOrder.forEach((entries, so) => {
-            const primary = [...entries].sort((a, b) =>
-                kindRank[kindOf(a.route)] - kindRank[kindOf(b.route)] || dateMs(b.route.createdAt) - dateMs(a.route.createdAt))[0];
-            const routeKind = kindOf(primary.route);
+            const byPriority = (a: Entry, b: Entry) =>
+                kindRank[kindOf(a.route)] - kindRank[kindOf(b.route)] || dateMs(b.route.createdAt) - dateMs(a.route.createdAt);
+            let primary = [...entries].sort(byPriority)[0];
             const deliveryEntry = entries.find(e => e.route.kind === "delivery");
 
             const requestMs = parseBr(primary.stop.requestDate) || parseBr(deliveryEntry?.stop.requestDate);
@@ -172,6 +172,14 @@ export default function AtendimentosPage() {
             const finalizedAt = last && last.isFinalized !== false ? last.date : null;
             // Pendência vale até a OS ser reprogramada para um dia depois dela.
             const pendingAtRaw = last && last.isFinalized === false ? last.date : null;
+
+            // OS com pendência já foi reposta em uma rota criada depois dela: a rota nova é a tentativa
+            // atual, mesmo que a antiga (onde ficou pendente) ainda esteja ativa.
+            if (pendingAtRaw) {
+                const newer = entries.filter(e => kindOf(e.route) !== "Rota finalizada" && dateMs(e.route.createdAt) > pendingAtRaw.getTime());
+                if (newer.length) primary = newer.sort(byPriority)[0];
+            }
+            const routeKind = kindOf(primary.route);
 
             const plannedMs = deliveryEntry?.stop.plannedDay
                 ? new Date(deliveryEntry.stop.plannedDay + "T12:00:00").getTime()
