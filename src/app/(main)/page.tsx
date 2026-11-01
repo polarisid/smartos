@@ -88,6 +88,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useFormV2, FormV2Switch, OsTicket, FinalizeChoice, PendingReasonChips } from "@/components/form/FormV2";
 import { useTechnicians, usePresets, useCodes, useCodeUsageCounts, useActiveRoutes, useChecklists, useVisitTemplate } from "@/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
+import { BorrowedPartsSection } from "@/components/BorrowedPartsSection";
+import { formatBorrowedPart, type BorrowedPart } from "@/lib/partUsage";
 
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
@@ -685,6 +687,8 @@ export default function OsFormPage() {
   const [currentRouteStop, setCurrentRouteStop] = useState<RouteStop | null>(null);
   const [partsStatus, setPartsStatus] = useState<Record<string, 'used' | 'not_used' | null>>({});
   const [partsUsedQuantity, setPartsUsedQuantity] = useState<Record<string, number>>({});
+  // Peças de OUTRA OS da rota que o técnico usou nesta OS ("Usei peça de outra OS").
+  const [borrowedParts, setBorrowedParts] = useState<BorrowedPart[]>([]);
   const [checklistData, setChecklistData] = useState<Record<string, string | boolean>>({});
 const { toast } = useToast();
   const [currentStep, setCurrentStep] = useState(1);
@@ -1014,6 +1018,7 @@ const { toast } = useToast();
                 setPartsUsedQuantity({});
             }
             setValue("replacedPart", "");
+            setBorrowedParts([]);
             setOsIsSaved(false);
             previousOsRef.current = watchedServiceOrderNumber;
         }
@@ -1029,18 +1034,21 @@ const { toast } = useToast();
   }, [watchedServiceOrderNumber, activeRoutes, setValue, currentRouteStop, form]);
   
   useEffect(() => {
-    const replacedPartText = (currentRouteStop?.parts || [])
-        .filter((p: { code: string; quantity: number }) => partsStatus[p.code] === 'used')
-        .map((p: { code: string; quantity: number }) => {
-            const usedQty = partsUsedQuantity[p.code] || p.quantity;
-            return usedQty > 1 ? `${p.code} (x${usedQty})` : p.code;
-        })
-        .join(', ');
+    const replacedPartText = [
+        ...(currentRouteStop?.parts || [])
+            .filter((p: { code: string; quantity: number }) => partsStatus[p.code] === 'used')
+            .map((p: { code: string; quantity: number }) => {
+                const usedQty = partsUsedQuantity[p.code] || p.quantity;
+                return usedQty > 1 ? `${p.code} (x${usedQty})` : p.code;
+            }),
+        // Atendimento não finalizado não usa peça: as de outra OS só entram quando finalizado.
+        ...(watchedIsFinalized !== false ? borrowedParts.map(formatBorrowedPart) : []),
+    ].join(', ');
     
     if (form.getValues("replacedPart") !== replacedPartText) {
         setValue("replacedPart", replacedPartText);
     }
-  }, [partsStatus, partsUsedQuantity, currentRouteStop, setValue, form]);
+  }, [partsStatus, partsUsedQuantity, borrowedParts, watchedIsFinalized, currentRouteStop, setValue, form]);
 
   // Atendimento não finalizado ⇒ nenhuma peça foi usada. Marca automaticamente todas
   // as peças da parada como "não usadas". Roda quando o técnico desmarca "Finalizado"
@@ -1252,6 +1260,7 @@ const { toast } = useToast();
     setChecklistData({});
     setCurrentStep(1);
     setPartsUsedQuantity({});
+    setBorrowedParts([]);
   }
 
   const handleNewOS = () => {
@@ -1739,6 +1748,16 @@ const { toast } = useToast();
                                                                 </div>
                                                             )}
                                                         </div>
+                                                    )}
+
+                                                    {form.watch('isFinalized') && (
+                                                        <BorrowedPartsSection
+                                                            routes={activeRoutes}
+                                                            technicianId={form.watch('technician')}
+                                                            currentOrder={watchedServiceOrderNumber || ""}
+                                                            value={borrowedParts}
+                                                            onChange={setBorrowedParts}
+                                                        />
                                                     )}
                                                 </div>
                                             )}

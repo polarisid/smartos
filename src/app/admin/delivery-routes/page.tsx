@@ -31,6 +31,7 @@ import { RouteCodeTag } from "@/components/routes/RouteCodeTag";
 import { MultiFilter } from "@/components/MultiFilter";
 import { configService } from "@/services/supabase/configService";
 import { downloadSpreadsheet, type SheetRow } from "@/lib/spreadsheetXml";
+import { lentFromOrder, partUsageInStop } from "@/lib/partUsage";
 import { fetchDurationMatrixMin, fetchLegDistancesAndDurations, geocodeBase } from "@/lib/routeLegs";
 import { MAX_TEAMS, NO_TEAM, childRouteName, groupByTeam, splitStopsIntoTeams, teamColor, teamCounts, teamLabel as teamLabelOf, teamOf, type TeamSplit } from "@/lib/deliveryTeams";
 import { copyRouteEmailToClipboard } from "@/lib/emailExport";
@@ -849,7 +850,10 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
 
     // Exporta a planilha de entrega inteira (ignora filtros): OS com situação e acompanhamento, uma aba só de peças
     // com rastreio e um resumo. Linhas coloridas pela situação.
-    const handleExportSheet = () => {
+    // Opção da exportação: incluir o que volta da rota (peças usadas, novas não usadas e novas com defeito).
+    const [exportOpen, setExportOpen] = useState(false);
+    const [exportReturns, setExportReturns] = useState(true);
+    const handleExportSheet = (withReturns: boolean) => {
         if (!route || rows.length === 0) {
             toast({ title: "Nada para exportar", description: "Esta rota de entrega não tem OS." });
             return;
@@ -865,6 +869,26 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             (d ? " (" + d.routeName + ", " + format(d.routeDate, "dd/MM/yyyy") + ", rastreio " + d.trackingCode + ")" : "");
         const sentElsewhere = (r: Row) => (otherOf(r)?.diff || []).filter(d => d.situation === "repetida").map(d => d.code + fmtShip(d.before));
         const extraElsewhere = (r: Row) => extraPartsOf(otherOf(r)).map(d => d.code + fmtShip(d.before));
+        // Retorno da peça: usada (consta em "peça trocada" de uma OS lançada), nova com defeito (pendência),
+        // nova (não usada, volta ao estoque) ou sem lançamento (a OS ainda não foi atendida depois da rota criada).
+        // "cedida" = o técnico usou a peça numa OUTRA OS da rota ("Usei peça de outra OS"); conta como usada.
+        type PartReturn = "usada" | "cedida" | "defeito" | "nova" | "aguardando";
+        const RETURN_LABEL: Record<PartReturn, string> = { usada: "Usada", cedida: "Usada em outra OS", defeito: "Nova com defeito", nova: "Nova (não usada)", aguardando: "Sem lançamento" };
+        const routeCreated = new Date(route.createdAt);
+        const attended = (so: string) => serviceOrders.some(os => os.serviceOrderNumber === so && !os.ignoreInRoute && os.date.getTime() > routeCreated.getTime());
+        const returnOf = (r: Row, code: string): PartReturn => {
+            if (!attended(r.stop.serviceOrder)) return "aguardando";
+            const u = partUsageInStop(r.stop.serviceOrder, code, serviceOrders, routeCreated);
+            if (u.defective) return "defeito";
+            if (u.used) return "usada";
+            return lentTo(r, code) ? "cedida" : "nova";
+        };
+        const lentTo = (r: Row, code: string) =>
+            [...new Set(lentFromOrder(r.stop.serviceOrder, code, serviceOrders, routeCreated).map(l => l.toOrder))].join(", ");
+        // Na coluna das usadas entram também as usadas em outra OS, com o destino.
+        const partsReturning = (r: Row, kind: PartReturn) => (r.stop.parts || [])
+            .filter(p => { const k = returnOf(r, p.code); return k === kind || (kind === "usada" && k === "cedida"); })
+            .map(p => p.code + (p.quantity > 1 ? " x" + p.quantity : "") + (returnOf(r, p.code) === "cedida" ? " (usada na OS " + lentTo(r, p.code) + ")" : ""));
         const SITUATION_LABEL: Record<PartSituation, string> = { repetida: "Já enviada", nova: "Nova", "sem-rastreio": "Sem rastreio antes", "so-antes": "Só em outra rota" };
 
         const ordered = [...rows].sort((a, b) =>
@@ -889,6 +913,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     parts.length, parts.filter(p => (p.trackingCode || "").trim()).length,
                     parts.filter(p => (p.trackingCode || "").trim()).map(p => p.code + ": " + p.trackingCode).join(" | "),
                     sentElsewhere(r).join(" | "), extraElsewhere(r).join(" | "),
+                    ...(withReturns ? [partsReturning(r, "usada").join(" | "), partsReturning(r, "nova").join(" | "), partsReturning(r, "defeito").join(" | ")] : []),
                 ],
             };
         });
@@ -907,6 +932,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                         tracked ? "Enviada" : "Sem rastreio", tracked,
                         st, fmtDay(r.day), r.childName || "",
                         before ? "Sim" : "", before ? before.routeName + " · " + format(before.routeDate, "dd/MM/yyyy") + " · rastreio " + before.trackingCode : "",
+                        ...(withReturns ? [RETURN_LABEL[returnOf(r, p.code)]] : []),
                     ],
                 };
             });
@@ -921,6 +947,25 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 d.before?.trackingCode || "", d.before?.quantity ?? "",
             ],
         })));
+        const returnTone: Record<PartReturn, SheetRow["tone"]> = { usada: "amber", cedida: "amber", defeito: "red", nova: "green", aguardando: "default" };
+        const returnRank: Record<PartReturn, number> = { usada: 0, cedida: 1, defeito: 2, nova: 3, aguardando: 4 };
+        const returnItems = withReturns
+            ? ordered.flatMap(r => (r.stop.parts || []).map(p => ({ r, p, ret: returnOf(r, p.code) })))
+                .sort((a, b) => returnRank[a.ret] - returnRank[b.ret])
+            : [];
+        const returnRows: SheetRow[] = returnItems
+                .map(({ r, p, ret }) => ({
+                    tone: returnTone[ret],
+                    values: [
+                        RETURN_LABEL[ret] + (ret === "cedida" ? " (OS " + lentTo(r, p.code) + ")" : ""),
+                        /^\d+$/.test(r.stop.serviceOrder) ? Number(r.stop.serviceOrder) : r.stop.serviceOrder,
+                        r.stop.consumerName || "", r.stop.city || "", r.stop.neighborhood || "",
+                        p.code, p.description || "", p.quantity || 1,
+                        (p.trackingCode || "").trim() ? "Enviada" : "Sem rastreio", (p.trackingCode || "").trim(),
+                        statusOf(r), r.childName || "",
+                    ],
+                }));
+        const returnCount = (k: PartReturn) => returnItems.filter(x => x.ret === k).length;
         const repeatedTotal = rows.reduce((a, r) => a + sentElsewhere(r).length, 0);
         const extraOsCount = rows.filter(r => extraElsewhere(r).length > 0).length;
         const totalParts = rows.reduce((a, r) => a + r.partsTotal, 0);
@@ -945,6 +990,13 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             { values: ["Peças sem rastreio", totalParts - trackedParts] },
             { tone: "red", values: ["Peças já enviadas em outra rota de entrega", repeatedTotal] },
             { tone: "blue", values: ["OS com peças só em outra rota de entrega", extraOsCount] },
+            ...(withReturns ? [
+                { tone: "amber", values: ["Peças usadas (retornam)", returnCount("usada") + returnCount("cedida")] },
+                { tone: "amber", values: ["  das quais usadas em outra OS da rota", returnCount("cedida")] },
+                { tone: "green", values: ["Peças novas não usadas (retornam)", returnCount("nova")] },
+                { tone: "red", values: ["Peças novas com defeito", returnCount("defeito")] },
+                { values: ["Peças de OS ainda sem lançamento", returnCount("aguardando")] },
+            ] as SheetRow[] : []),
             ...Array.from(byDay.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([day, n]) => ({ values: ["OS programadas em " + fmtDay(day), n] }) as SheetRow),
         ];
 
@@ -956,15 +1008,23 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     "Situação", "Dia programado", "Ordem", "Rota dos dias", "Situação da rota", "Técnico", "Finalizada em", "Pendência em",
                     "Peças", "Qtd peças", "Peças com rastreio", "Rastreios",
                     "Já enviadas em outra rota de entrega", "Só em outra rota de entrega",
+                    ...(withReturns ? ["Peças usadas (retorno)", "Peças novas não usadas (retorno)", "Peças novas com defeito"] : []),
                 ],
                 rows: osRows,
-                widths: [14, 16, 26, 16, 18, 10, 11, 18, 7, 6, 10, 13, 13, 6, 7, 13, 13, 7, 30, 12, 14, 16, 16, 40, 8, 10, 40, 50, 50],
+                widths: [14, 16, 26, 16, 18, 10, 11, 18, 7, 6, 10, 13, 13, 6, 7, 13, 13, 7, 30, 12, 14, 16, 16, 40, 8, 10, 40, 50, 50, ...(withReturns ? [34, 34, 34] : [])],
             },
             {
-                name: "Peças", headers: ["OS Nro.", "Cliente", "Cidade", "Bairro", "Código da peça", "Descrição", "Qtd", "Envio", "Rastreio", "Situação da OS", "Dia programado", "Rota dos dias", "Já enviada em outra rota?", "Envio anterior"],
+                name: "Peças", headers: ["OS Nro.", "Cliente", "Cidade", "Bairro", "Código da peça", "Descrição", "Qtd", "Envio", "Rastreio", "Situação da OS", "Dia programado", "Rota dos dias", "Já enviada em outra rota?", "Envio anterior", ...(withReturns ? ["Retorno da peça"] : [])],
                 rows: partRows,
-                widths: [14, 26, 16, 18, 18, 36, 6, 12, 22, 13, 13, 30, 14, 50],
+                widths: [14, 26, 16, 18, 18, 36, 6, 12, 22, 13, 13, 30, 14, 50, ...(withReturns ? [18] : [])],
             },
+            // O que volta desta rota: peças usadas, novas não usadas e novas com defeito, uma linha por peça.
+            ...(withReturns && returnRows.length > 0 ? [{
+                name: "Retorno de peças",
+                headers: ["Retorno", "OS Nro.", "Cliente", "Cidade", "Bairro", "Código da peça", "Descrição", "Qtd", "Envio", "Rastreio", "Situação da OS", "Rota dos dias"],
+                rows: returnRows,
+                widths: [18, 14, 26, 16, 18, 18, 36, 6, 12, 22, 13, 30],
+            }] : []),
             // Comparação peça a peça com as outras rotas de entrega (só as OS que já tiveram entrega antes).
             ...(otherRows.length > 0 ? [{
                 name: "Outras entregas",
@@ -973,7 +1033,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 widths: [14, 26, 18, 36, 18, 9, 30, 12, 22, 10],
             }] : []),
         ]);
-        toast({ title: "Planilha exportada", description: rows.length + " OS e " + partRows.length + " peças, com a situação de cada uma." });
+        toast({ title: "Planilha exportada", description: rows.length + " OS e " + partRows.length + " peças, com a situação de cada uma." + (withReturns ? " Inclui o retorno das peças." : "") });
     };
 
     const routeTextValue = useMemo(() => reconstructRouteText((route?.stops || []).filter(st => !st.isReallocated)), [route]);
@@ -1584,7 +1644,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     <Button variant="outline" onClick={() => setTextOpen(true)} title="Mostra o texto da rota no formato da planilha, para copiar">
                         <FileText className="mr-2 h-4 w-4" /> Texto da rota
                     </Button>
-                    <Button variant="outline" onClick={handleExportSheet} title="Baixa a planilha completa: OS, peças com rastreio, datas e situação de cada uma">
+                    <Button variant="outline" onClick={() => setExportOpen(true)} title="Baixa a planilha completa: OS, peças com rastreio, datas e situação de cada uma">
                         <Download className="mr-2 h-4 w-4" /> Exportar planilha
                     </Button>
                     <Button variant="outline" onClick={handleSyncTracking} disabled={syncing || children.length === 0} title="Copia rastreios entre esta rota e as rotas filhas">
@@ -1786,6 +1846,28 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remover da rota</Button>
                 <span className="text-[11px] text-muted-foreground">Só OS não finalizadas e sem rota filha podem ser selecionadas.</span>
             </div>
+
+            <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Exportar planilha</DialogTitle>
+                        <DialogDescription>Baixa a planilha completa desta rota de entrega: OS, peças com rastreio, datas e situação de cada uma.</DialogDescription>
+                    </DialogHeader>
+                    <label className="flex cursor-pointer items-start gap-2.5 rounded-md border p-3">
+                        <Checkbox className="mt-0.5" checked={exportReturns} onCheckedChange={v => setExportReturns(v === true)} />
+                        <span className="text-sm">
+                            <span className="font-medium">Incluir peças usadas e novas que retornam</span>
+                            <span className="mt-0.5 block text-xs text-muted-foreground">
+                                Mostra, por OS e por peça, o que volta desta rota: peça usada, nova não usada e nova com defeito, com a aba &quot;Retorno de peças&quot; e os totais no resumo. Considera só as OS já lançadas depois da criação da rota.
+                            </span>
+                        </span>
+                    </label>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setExportOpen(false)}>Cancelar</Button>
+                        <Button onClick={() => { setExportOpen(false); handleExportSheet(exportReturns); }}><Download className="mr-1.5 h-3.5 w-3.5" /> Exportar</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={namesOpen} onOpenChange={o => { if (!savingNames) setNamesOpen(o); }}>
                 <DialogContent className="max-w-md">

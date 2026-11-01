@@ -1,12 +1,16 @@
 import { format } from "date-fns";
 import type { CodeItem, Route, RoutePart, RouteStop, ServiceOrder } from "@/lib/data";
+import { borrowedFromOrder } from "@/lib/partUsage";
 
 // Encerramento de ordens: junta, para cada OS lançada, as peças (com o rastreio da rota) e o texto do técnico.
 
 const norm = (s?: string) => (s || "").trim().toUpperCase();
 
-/** "DC93-00350B (x2), DC96-01574B" -> [{ code: "DC93-00350B", quantity: 2 }, { code: "DC96-01574B", quantity: 1 }] */
-export function parseReplacedParts(replacedPart?: string): Array<{ code: string; quantity: number }> {
+/**
+ * "DC93-00350B (x2), DC96-01574B" -> [{ code: "DC93-00350B", quantity: 2 }, { code: "DC96-01574B", quantity: 1 }]
+ * Peça que veio de outra OS ("DC93-00350B [da OS 123]") traz `fromOrder` com o número da OS de origem.
+ */
+export function parseReplacedParts(replacedPart?: string): Array<{ code: string; quantity: number; fromOrder?: string }> {
     return (replacedPart || "")
         .split(",")
         .map(raw => raw.trim())
@@ -14,9 +18,12 @@ export function parseReplacedParts(replacedPart?: string): Array<{ code: string;
             const code = raw.match(/^([a-zA-Z0-9-]+)/)?.[0];
             if (!code) return null;
             const qty = raw.match(/\(\s*x\s*(\d+)\s*\)/i)?.[1];
-            return { code: norm(code), quantity: qty ? Math.max(1, Number(qty)) : 1 };
+            const part: { code: string; quantity: number; fromOrder?: string } = { code: norm(code), quantity: qty ? Math.max(1, Number(qty)) : 1 };
+            const from = borrowedFromOrder(raw);
+            if (from) part.fromOrder = from;
+            return part;
         })
-        .filter((p): p is { code: string; quantity: number } => !!p);
+        .filter((p): p is { code: string; quantity: number; fromOrder?: string } => p !== null);
 }
 
 export type ClosingPartStatus = "usada" | "nao_usada";
@@ -32,6 +39,8 @@ export type ClosingPart = {
     fromRoute: boolean;
     /** Peça nova com defeito (pendência lançada pelo técnico). */
     defective: boolean;
+    /** Número da OS da qual o técnico pegou a peça ("Usei peça de outra OS"). Ausente = peça da própria OS. */
+    borrowedFrom?: string;
 };
 
 export type RouteStopRef = { route: Route; stop: RouteStop };
@@ -87,7 +96,8 @@ export function warrantyTypeFor(order: ServiceOrder, stopsBySO: Map<string, Rout
 export function closingPartsForOrder(order: ServiceOrder, stopsBySO: Map<string, RouteStopRef[]>): ClosingPart[] {
     const candidates = candidateStops(order, stopsBySO);
 
-    const used = new Map(parseReplacedParts(order.replacedPart).map(p => [p.code, p.quantity]));
+    const parsed = parseReplacedParts(order.replacedPart);
+    const used = new Map(parsed.filter(p => !p.fromOrder).map(p => [p.code, p.quantity]));
     const defectiveText = norm(order.pendingReason).includes("PEÇA NOVA COM DEFEITO") ? norm(order.pendingReason) : "";
 
     const tracking = new Map<string, string>();
@@ -116,6 +126,23 @@ export function closingPartsForOrder(order: ServiceOrder, stopsBySO: Map<string,
     used.forEach((quantity, code) => {
         if (inRoute.has(code)) return;
         out.push({ code, description: "", quantity, status: "usada", trackingCode: tracking.get(code), fromRoute: false, defective: false });
+    });
+
+    // Peças pegas de outra OS: descrição e rastreio vêm da parada de origem.
+    parsed.filter(p => p.fromOrder).forEach(p => {
+        const sourcePart = (stopsBySO.get(p.fromOrder!) || [])
+            .flatMap(c => c.stop.parts || [])
+            .find(sp => norm(sp.code) === p.code && ((sp.trackingCode || "").trim() || sp.description));
+        out.push({
+            code: p.code,
+            description: sourcePart?.description || "",
+            quantity: p.quantity,
+            status: "usada",
+            trackingCode: (sourcePart?.trackingCode || "").trim() || tracking.get(p.code),
+            fromRoute: false,
+            defective: false,
+            borrowedFrom: p.fromOrder,
+        });
     });
 
     // Usadas primeiro, depois as não usadas.
@@ -208,7 +235,7 @@ export function buildServiceOrderText(order: ServiceOrder, ctx: OrderTextContext
 export function buildClosingSummary(text: string, parts: ClosingPart[]): string {
     const used = parts.filter(p => p.status === "usada");
     if (used.length === 0) return text;
-    const lines = used.map(p => `- ${p.code}${p.description ? ` - ${p.description}` : ""} (x${p.quantity}) — rastreio: ${p.trackingCode || "não informado"}`);
+    const lines = used.map(p => `- ${p.code}${p.description ? ` - ${p.description}` : ""} (x${p.quantity})${p.borrowedFrom ? ` — da OS ${p.borrowedFrom}` : ""} — rastreio: ${p.trackingCode || "não informado"}`);
     return `${text}\n\n**Peças usadas e rastreio:**\n${lines.join("\n")}`;
 }
 

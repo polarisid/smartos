@@ -6,9 +6,60 @@ const norm = (s?: string) => (s || "").trim().toUpperCase();
 function codesIn(replacedPart?: string): string[] {
     return (replacedPart || "")
         .split(",")
+        .filter(raw => !borrowedFromOrder(raw)) // peça que veio de outra OS não é a peça desta parada
         .map(raw => raw.trim().match(/^([a-zA-Z0-9-]+)/)?.[0])
         .filter((c): c is string => !!c)
         .map(norm);
+}
+
+// ── Peça usada de OUTRA OS ──────────────────────────────────────────────────────────────────────────────────────
+// O técnico pode usar, numa OS, uma peça que foi enviada para outra OS da rota dele (ex.: peça compatível). O
+// lançamento grava isso no próprio "peça trocada", sem coluna nova: "DC93-00350B (x2) [da OS 4176757974]".
+// A OS de origem descobre que cedeu a peça procurando essa marca nos lançamentos das outras OS.
+
+/** Peça que o técnico usou numa OS e que veio de outra OS. */
+export type BorrowedPart = { fromOrder: string; code: string; description?: string; quantity: number };
+
+const BORROWED_TAG = /\[\s*da\s+OS\s+([a-zA-Z0-9-]+)\s*\]/i;
+
+/** "DC93-00350B (x2) [da OS 123]" -- texto gravado em "peça trocada" para uma peça cedida por outra OS. */
+export function formatBorrowedPart(b: BorrowedPart): string {
+    return `${b.code}${b.quantity > 1 ? ` (x${b.quantity})` : ""} [da OS ${b.fromOrder}]`;
+}
+
+/** Número da OS de origem de um item de "peça trocada" ("... [da OS 123]"), ou null quando a peça é da própria OS. */
+export function borrowedFromOrder(rawItem: string): string | null {
+    return rawItem.match(BORROWED_TAG)?.[1] ?? null;
+}
+
+export type LentPart = { toOrder: string; quantity: number; date: Date };
+
+/**
+ * Quanto da peça `partCode` da OS `sourceOrder` já foi cedido para outras OS (lançamentos finalizados depois da rota
+ * criada, cujo "peça trocada" traz "[da OS sourceOrder]").
+ */
+export function lentFromOrder(
+    sourceOrder: string,
+    partCode: string,
+    serviceOrders: ServiceOrder[],
+    routeCreatedAt: Date
+): LentPart[] {
+    const code = norm(partCode);
+    const source = norm(sourceOrder);
+    const out: LentPart[] = [];
+    for (const os of serviceOrders) {
+        if (os.serviceOrderNumber === sourceOrder || os.ignoreInRoute || os.isFinalized === false || !os.replacedPart) continue;
+        if (!(os.date.getTime() > routeCreatedAt.getTime())) continue;
+        for (const raw of os.replacedPart.split(",")) {
+            const item = raw.trim();
+            const from = borrowedFromOrder(item);
+            if (!from || norm(from) !== source) continue;
+            if (norm(item.match(/^([a-zA-Z0-9-]+)/)?.[0]) !== code) continue;
+            const qty = item.match(/\(\s*x\s*(\d+)\s*\)/i)?.[1];
+            out.push({ toOrder: os.serviceOrderNumber, quantity: qty ? Math.max(1, Number(qty)) : 1, date: os.date });
+        }
+    }
+    return out;
 }
 
 /**

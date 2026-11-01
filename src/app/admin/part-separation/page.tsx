@@ -15,7 +15,7 @@ import { routeService } from "@/services/supabase/routeService";
 import { type Route, type RouteStop, type RoutePart, type Technician, type ServiceOrder } from "@/lib/data";
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { entriesFromCodes, mergeServerCodes } from "@/lib/trackingCodes";
-import { partUsageInStop } from "@/lib/partUsage";
+import { borrowedFromOrder, lentFromOrder, partUsageInStop } from "@/lib/partUsage";
 import { Printer, Smartphone, Table as TableIcon, Activity, CheckCircle2, AlertCircle, FileBarChart2, Search, ChevronDown, PackageSearch, Save, FileDown, CheckCircle, ScanLine, Copy, Loader2, Route as RouteIcon, XCircle, Share2 } from "lucide-react";
 import { useServiceOrders } from "@/hooks/queries";
 import { matchesRouteCode, routeCode } from "@/lib/routeCode";
@@ -603,9 +603,14 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                     // Mesma leitura da tela de resumo: olha todas as OS lançadas para a parada depois da
                     // criação da rota (a mais recente pode ser uma visita sem peça e escondia o uso).
                     const { used: isUsed, defective: isDefective } = partUsageInStop(stop.serviceOrder, part.code, serviceOrders, createdAtDate);
-                    const status = isDefective ? "Defeito" : isUsed ? "Usada" : "Nova";
+                    // Peça que o técnico usou em OUTRA OS da rota ("Usei peça de outra OS"): sai como usada, com o destino.
+                    const lent = lentFromOrder(stop.serviceOrder, part.code, serviceOrders, createdAtDate);
+                    const lentQty = lent.reduce((a, l) => a + l.quantity, 0);
+                    const lentTo = [...new Set(lent.map(l => l.toOrder))].join(", ");
+                    const lentAll = !isUsed && !isDefective && lentQty > 0 && lentQty >= (part.quantity || 1);
+                    const status = isDefective ? "Defeito" : isUsed ? "Usada" : lentAll ? "Usada na OS " + lentTo : lentQty > 0 ? "Nova (" + lentQty + " usada na OS " + lentTo + ")" : "Nova";
                     if (isDefective) defectiveCount++;
-                    else if (isUsed) usedCount++;
+                    else if (isUsed || lentAll) usedCount++;
                     totalItems += part.quantity || 0;
 
                     tableBody.push([
@@ -657,7 +662,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                         1: { cellWidth: 30 },
                         3: { cellWidth: 12, halign: 'center' },
                         4: { cellWidth: 28 },
-                        5: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
+                        5: { cellWidth: 24, halign: 'center', fontStyle: 'bold' },
                     },
                     // Realça as peças usadas (âmbar) pra facilitar a conferência de retorno
                     didParseCell: (data: any) => {
@@ -665,7 +670,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                             if (data.cell.raw === 'Defeito') {
                                 data.cell.styles.textColor = [185, 28, 28];
                                 data.cell.styles.fillColor = [254, 226, 226];
-                            } else if (data.cell.raw === 'Usada') {
+                            } else if (typeof data.cell.raw === 'string' && data.cell.raw.startsWith('Usada')) {
                                 data.cell.styles.textColor = [180, 83, 9];
                                 data.cell.styles.fillColor = [254, 243, 199];
                             } else {
@@ -893,6 +898,7 @@ function OsRouteSearch() {
                     const usedSet = new Set<string>();
                     if (relatedOs?.replacedPart) {
                         relatedOs.replacedPart.split(',').forEach(raw => {
+                            if (borrowedFromOrder(raw)) return; // peça que veio de outra OS não é a desta parada
                             const codeMatch = raw.trim().match(/^([a-zA-Z0-9-]+)/);
                             if (codeMatch) usedSet.add(codeMatch[0].toUpperCase());
                         });

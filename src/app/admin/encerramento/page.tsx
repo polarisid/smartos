@@ -451,7 +451,7 @@ function OrderCard({ entry, onCopy, onMarkClosed, onUnmark }: { entry: Entry; on
                   <TableRow key={p.code}>
                     <TableCell>
                       <p className="font-mono text-sm">{p.code}</p>
-                      <p className="text-xs text-muted-foreground">{p.description || (p.fromRoute ? "" : "Fora das peças da rota")}</p>
+                      <p className="text-xs text-muted-foreground">{p.borrowedFrom ? "Da OS " + p.borrowedFrom + (p.description ? " · " + p.description : "") : (p.description || (p.fromRoute ? "" : "Fora das peças da rota"))}</p>
                       {p.defective && <p className="text-xs font-semibold text-destructive">Peça nova com defeito</p>}
                     </TableCell>
                     <TableCell className="text-right">{p.quantity}</TableCell>
