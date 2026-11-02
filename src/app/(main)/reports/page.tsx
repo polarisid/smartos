@@ -520,11 +520,11 @@ function ReportsPageInner() {
   const completedCount = requiredCategories.filter(cat => photos.some(p => p.category === cat)).length;
 
   return (
-    <div className="max-w-3xl mx-auto p-4 md:p-8 space-y-4">
+    <div className="max-w-3xl mx-auto p-3 md:p-8 space-y-3 md:space-y-4">
       {/* Container oculto usado pela html5-qrcode para decodificar o barcode da foto do serial */}
       <div id="serial-barcode-reader" className="hidden" aria-hidden="true" />
       <Card>
-        <CardHeader>
+        <CardHeader className="space-y-1 p-4 md:space-y-1.5 md:p-6">
           <CardTitle className="flex items-center gap-2"><Camera className="h-5 w-5" /> Relatório</CardTitle>
           <CardDescription>
             {reportType === "visita"
@@ -543,7 +543,7 @@ function ReportsPageInner() {
             <span className="text-xs font-medium text-muted-foreground shrink-0">{completedCount}/{requiredCategories.length} fotos</span>
           </div>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-4 p-4 pt-0 md:space-y-6 md:p-6 md:pt-0 [&_input]:h-10 [&_button[role=combobox]]:h-10 md:[&_input]:h-10 md:[&_button[role=combobox]]:h-10">
           <div className="space-y-1.5">
             <Label>Tipo de Relatório</Label>
             <div className="grid grid-cols-2 gap-2">
@@ -564,7 +564,7 @@ function ReportsPageInner() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
             <div className="space-y-1.5">
               <Label>Nº da OS</Label>
               <div className="flex gap-2">
@@ -604,7 +604,7 @@ function ReportsPageInner() {
               Fotos do Produto
               {isReadingLabel && <span className="inline-flex items-center gap-1 text-primary normal-case font-normal"><Loader2 className="h-3 w-3 animate-spin" /> lendo etiqueta...</span>}
             </Label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-2 md:gap-3">
               {PRODUCT_SLOTS.map(slot => {
                 const photo = photos.find(p => p.category === slot.category);
                 const isSerialSlot = slot.category === "produto_serial";
@@ -630,7 +630,7 @@ function ReportsPageInner() {
                         </div>
                       )}
                     </label>
-                    <p className="text-xs text-center font-medium">{slot.label}</p>
+                    <p className="text-[11px] md:text-xs text-center font-medium leading-tight">{slot.label}</p>
                   </div>
                 );
               })}
@@ -661,7 +661,7 @@ function ReportsPageInner() {
               <Textarea
                 value={repairDescription}
                 onChange={e => setRepairDescription(e.target.value)}
-                rows={4}
+                rows={3}
                 placeholder="Descreva o que foi feito no reparo (diagnóstico, peças trocadas, procedimento) ou o que foi observado no atendimento."
               />
             </div>
@@ -669,7 +669,7 @@ function ReportsPageInner() {
 
           <div className="space-y-1.5">
             <Label>Observações</Label>
-            <Textarea value={observations} onChange={e => setObservations(e.target.value)} rows={4} placeholder="Recomendações, orientações ao cliente, etc." />
+            <Textarea value={observations} onChange={e => setObservations(e.target.value)} rows={3} placeholder="Recomendações, orientações ao cliente, etc." />
           </div>
 
           <div className="space-y-1.5 pt-2 border-t">
@@ -778,7 +778,7 @@ function PhotoCategorySection({
   return (
     <div className="space-y-2">
       <Label className="text-sm font-bold uppercase tracking-wide text-muted-foreground">{title}</Label>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2 md:gap-3">
         {photos.map(photo => (
           <div key={photo.id} className="relative aspect-video rounded-lg overflow-hidden border bg-muted/30">
             <img src={photo.previewUrl} alt={title} className="w-full h-full object-contain" />
