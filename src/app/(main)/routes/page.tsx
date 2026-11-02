@@ -246,7 +246,10 @@ export default function RoutesPage() {
                                         {isOwnRoute && <Badge className="text-[10px] px-1.5 py-0 font-bold">Sua rota</Badge>}
                                     </CardTitle>
                                     <CardDescription className="text-xs md:text-sm">
-                                        Técnico responsável: <span className="font-medium text-foreground">{route.technicianName}</span>
+                                        Técnico: <span className="font-medium text-foreground">{route.technicianName}</span>
+                                        {(route.driverName || "").trim() && !["—", "-", "a definir"].includes((route.driverName || "").trim().toLowerCase()) && (
+                                            <> · Auxiliar: <span className="font-medium text-foreground">{route.driverName}</span></>
+                                        )}
                                     </CardDescription>
                                 </div>
                                 <div className="flex gap-2 flex-wrap items-center">
