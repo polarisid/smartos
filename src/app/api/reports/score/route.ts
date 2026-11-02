@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { supabase } from '@/lib/supabase';
+import { productPhotoLabel } from '@/lib/productLine';
 
 const apiKey = process.env.GEMINI_API_KEY;
 
@@ -51,7 +52,7 @@ export async function POST(req: Request) {
       NÃO penalize a nota por categorias de foto ausentes (ex: faltar foto da traseira) — avalie apenas a
       legibilidade e a clareza de evidência das fotos que FORAM enviadas.
 
-      Categorias recebidas nesta avaliação: ${fetchedPhotos.map(p => CATEGORY_LABELS[p.category] || p.category).join(', ')}
+      Categorias recebidas nesta avaliação: ${fetchedPhotos.map(p => CATEGORY_LABELS[p.category] || (p.category.startsWith('produto_') ? 'Produto - ' + productPhotoLabel(p.category) : p.category)).join(', ')}
 
       Seja justo e direto. Escreva o feedback em português, em no máximo 2 frases curtas, citando o motivo da nota.
 

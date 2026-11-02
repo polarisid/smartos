@@ -30,6 +30,7 @@ import { Camera, Loader2, Search, ExternalLink, ImageIcon, Download, FolderDown,
 import { technicalReportService } from "@/services/supabase/technicalReportService";
 import { type TechnicalReport, type TechnicalReportPhotoCategory } from "@/lib/data";
 import { format } from "date-fns";
+import { isProductPhotoCategory, productPhotoLabel } from "@/lib/productLine";
 
 const CATEGORY_LABELS: Record<TechnicalReportPhotoCategory, string> = {
   produto_frontal: "Produto - Frontal",
@@ -38,6 +39,10 @@ const CATEGORY_LABELS: Record<TechnicalReportPhotoCategory, string> = {
   defeito: "Defeito Apresentado",
   pos_reparo: "Pós-Reparo",
 };
+
+// Fotos do produto com nome próprio (configuradas por linha) caem no "Produto - <nome>".
+const categoryLabel = (category: TechnicalReportPhotoCategory, label?: string) =>
+  CATEGORY_LABELS[category] || (isProductPhotoCategory(category) ? `Produto - ${productPhotoLabel(category, label)}` : category);
 
 const PAGE_SIZE = 20;
 
@@ -99,7 +104,8 @@ const CATEGORY_FILENAME_LABELS: Record<TechnicalReportPhotoCategory, string> = {
 
 function photoFilename(report: TechnicalReport, category: TechnicalReportPhotoCategory, url: string, index: number) {
   const ext = url.split(".").pop()?.split("?")[0] || "jpg";
-  const label = CATEGORY_FILENAME_LABELS[category] + (index > 0 ? `_${index + 1}` : "");
+  const base = CATEGORY_FILENAME_LABELS[category] || category.replace(/^produto_/, "").toUpperCase();
+  const label = base + (index > 0 ? `_${index + 1}` : "");
   return `${report.serviceOrderNumber}_${label}.${ext}`;
 }
 
@@ -251,6 +257,11 @@ export default function AdminReportsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="flex justify-end">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/admin/reports/fotos"><ImageIcon className="mr-2 h-4 w-4" /> Fotos por linha de produto</Link>
+            </Button>
+          </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -362,9 +373,9 @@ export default function AdminReportsPage() {
                 .map((photo, idx) => (
                   <div key={photo.path} className="space-y-1.5">
                     <div className="aspect-video rounded-md border bg-muted/30 overflow-hidden">
-                      <img src={photo.url} alt={CATEGORY_LABELS[photo.category]} className="w-full h-full object-contain" />
+                      <img src={photo.url} alt={categoryLabel(photo.category, photo.label)} className="w-full h-full object-contain" />
                     </div>
-                    <p className="text-xs font-medium text-center">{CATEGORY_LABELS[photo.category]}</p>
+                    <p className="text-xs font-medium text-center">{categoryLabel(photo.category, photo.label)}</p>
                     <Button
                       variant="outline"
                       size="sm"

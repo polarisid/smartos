@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import SignatureCanvas from "react-signature-canvas";
 import { SignaturePad } from "@/components/SignaturePad";
@@ -11,7 +11,16 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useTechnicians, useActiveRoutes, useChecklists, useCodes } from "@/hooks/queries";
+import { useTechnicians, useActiveRoutes, useChecklists, useCodes, useProductPhotoConfig } from "@/hooks/queries";
+import {
+  DEFAULT_PRODUCT_PHOTO_CONFIG,
+  DEFAULT_PRODUCT_SLOTS,
+  PRODUCT_LINE_LABELS,
+  isProductPhotoCategory,
+  productLineFromModel,
+  productPhotoLabel,
+  type ProductPhotoSlot,
+} from "@/lib/productLine";
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { useAuth } from "@/context/AuthContext";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
@@ -25,6 +34,8 @@ import { Camera, Loader2, Plus, Trash2, Download, Search, ScanLine, ClipboardLis
 type LocalPhoto = {
   id: string;
   category: TechnicalReportPhotoCategory;
+  /** Nome da foto do produto na configuração (ex.: "Foto do cabo"). */
+  label?: string;
   file?: File;
   previewUrl: string;
   url?: string;
@@ -32,24 +43,14 @@ type LocalPhoto = {
   order: number;
 };
 
-const PRODUCT_SLOTS: { category: TechnicalReportPhotoCategory; label: string }[] = [
-  { category: "produto_frontal", label: "Frontal" },
-  { category: "produto_traseira", label: "Traseira" },
-  { category: "produto_serial", label: "Serial" },
-];
-
-const REQUIRED_CATEGORIES: TechnicalReportPhotoCategory[] = [
-  "produto_frontal",
-  "produto_traseira",
-  "produto_serial",
-  "defeito",
-  "pos_reparo",
-];
-
-// Numa visita (sem reparo concluído), não faz sentido cobrar foto do
-// pós-reparo nem descrição do que foi feito.
-function requiredCategoriesFor(reportType: TechnicalReportType): TechnicalReportPhotoCategory[] {
-  return reportType === "visita" ? REQUIRED_CATEGORIES.filter(c => c !== "pos_reparo") : REQUIRED_CATEGORIES;
+// Fotos obrigatórias: as do produto marcadas como obrigatórias na configuração da linha + defeito (+ pós-reparo no reparo).
+// Numa visita (sem reparo concluído), não faz sentido cobrar foto do pós-reparo nem descrição do que foi feito.
+function requiredCategoriesFor(reportType: TechnicalReportType, productSlots: ProductPhotoSlot[]): TechnicalReportPhotoCategory[] {
+  return [
+    ...productSlots.filter(slot => slot.required).map(slot => slot.key),
+    "defeito",
+    ...(reportType === "visita" ? [] : ["pos_reparo"]),
+  ];
 }
 
 export default function ReportsPage() {
@@ -73,11 +74,26 @@ function ReportsPageInner() {
   const [technicianId, setTechnicianId] = useState("");
   const [consumerName, setConsumerName] = useState("");
   const [productModel, setProductModel] = useState("");
+  // A linha do produto (máquina de lavar, TV...) vem da 1ª letra do modelo e define quais fotos do produto são pedidas.
+  const { data: photoConfig = DEFAULT_PRODUCT_PHOTO_CONFIG } = useProductPhotoConfig();
+  const productLine = productLineFromModel(productModel);
+  const configuredSlots = productLine ? photoConfig[productLine] : DEFAULT_PRODUCT_SLOTS;
   const [serialNumber, setSerialNumber] = useState("");
   const [repairDescription, setRepairDescription] = useState("");
   const [observations, setObservations] = useState("");
   const [checklistTemplateId, setChecklistTemplateId] = useState("");
   const [photos, setPhotos] = useState<LocalPhoto[]>([]);
+  // Fotos já tiradas que não fazem parte da linha atual (o modelo mudou, ou é um relatório antigo) continuam na tela: nada se perde.
+  const productSlots = useMemo<ProductPhotoSlot[]>(() => {
+    const known = new Set(configuredSlots.map(slot => slot.key));
+    const extra: ProductPhotoSlot[] = [];
+    photos.forEach(p => {
+      if (isProductPhotoCategory(p.category) && !known.has(p.category) && !extra.some(e => e.key === p.category)) {
+        extra.push({ key: p.category, label: productPhotoLabel(p.category, p.label), required: false });
+      }
+    });
+    return [...configuredSlots, ...extra];
+  }, [configuredSlots, photos]);
   const [savedReportId, setSavedReportId] = useState<string | null>(null);
   const [savedReportCreatedAt, setSavedReportCreatedAt] = useState<Date | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -200,7 +216,9 @@ function ReportsPageInner() {
       const existing = prev.find(p => p.category === category);
       if (existing && !existing.url) URL.revokeObjectURL(existing.previewUrl);
       const next = prev.filter(p => p.category !== category);
-      return [...next, { id: crypto.randomUUID(), category, file, previewUrl: URL.createObjectURL(file), order: 0 }];
+      const slotIndex = productSlots.findIndex(slot => slot.key === category);
+      const label = slotIndex >= 0 ? productSlots[slotIndex].label : undefined;
+      return [...next, { id: crypto.randomUUID(), category, ...(label ? { label } : {}), file, previewUrl: URL.createObjectURL(file), order: Math.max(slotIndex, 0) }];
     });
 
     if (category === "produto_serial") {
@@ -346,6 +364,7 @@ function ReportsPageInner() {
         (report.photos || []).map(p => ({
           id: crypto.randomUUID(),
           category: p.category,
+          label: p.label,
           previewUrl: p.url,
           url: p.url,
           path: p.path,
@@ -431,8 +450,8 @@ function ReportsPageInner() {
     try {
       const pendingPhotos: PendingReportPhoto[] = photos.map(p =>
         p.url && p.path
-          ? { category: p.category, order: p.order, url: p.url, path: p.path }
-          : { category: p.category, order: p.order, file: p.file! }
+          ? { category: p.category, label: p.label, order: p.order, url: p.url, path: p.path }
+          : { category: p.category, label: p.label, order: p.order, file: p.file! }
       );
       // Primeiro garante que nada se perde: fica gravado no aparelho até o servidor confirmar.
       // Se o aparelho não conseguir guardar (ex.: falha do banco local no Android), com internet
@@ -448,7 +467,7 @@ function ReportsPageInner() {
         createdAt: savedReportCreatedAt || new Date(),
         updatedAt: new Date(),
         ...basePayload,
-        photos: photos.map(p => ({ category: p.category, order: p.order, url: p.url || p.previewUrl, path: p.path || `local-${p.id}` })),
+        photos: photos.map(p => ({ category: p.category, ...(p.label ? { label: p.label } : {}), order: p.order, url: p.url || p.previewUrl, path: p.path || `local-${p.id}` })),
       };
       let pdfFailed = false;
       setIsDownloadingPdf(true);
@@ -516,7 +535,7 @@ function ReportsPageInner() {
   const multiPhotos = (category: TechnicalReportPhotoCategory) =>
     photos.filter(p => p.category === category);
 
-  const requiredCategories = requiredCategoriesFor(reportType);
+  const requiredCategories = requiredCategoriesFor(reportType, productSlots);
   const completedCount = requiredCategories.filter(cat => photos.some(p => p.category === cat)).length;
 
   return (
@@ -592,6 +611,7 @@ function ReportsPageInner() {
             <div className="space-y-1.5">
               <Label>Modelo do Produto</Label>
               <Input value={productModel} onChange={e => setProductModel(e.target.value)} placeholder="Ex: Samsung QN55..." />
+              {productLine && <p className="text-xs text-muted-foreground">Linha: <span className="font-semibold text-foreground">{PRODUCT_LINE_LABELS[productLine]}</span></p>}
             </div>
             <div className="space-y-1.5">
               <Label>Número de Série</Label>
@@ -599,23 +619,23 @@ function ReportsPageInner() {
             </div>
           </div>
 
-          <div className="space-y-2">
+          <div className={productSlots.length === 0 ? "hidden" : "space-y-2"}>
             <Label className="text-sm font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
               Fotos do Produto
               {isReadingLabel && <span className="inline-flex items-center gap-1 text-primary normal-case font-normal"><Loader2 className="h-3 w-3 animate-spin" /> lendo etiqueta...</span>}
             </Label>
             <div className="grid grid-cols-3 gap-2 md:gap-3">
-              {PRODUCT_SLOTS.map(slot => {
-                const photo = photos.find(p => p.category === slot.category);
-                const isSerialSlot = slot.category === "produto_serial";
+              {productSlots.map(slot => {
+                const photo = photos.find(p => p.category === slot.key);
+                const isSerialSlot = slot.key === "produto_serial";
                 return (
-                  <div key={slot.category} className="space-y-1.5">
+                  <div key={slot.key} className="space-y-1.5">
                     <label className="block aspect-video rounded-lg border-2 border-dashed border-muted-foreground/30 overflow-hidden relative cursor-pointer hover:border-primary/50 transition-colors bg-muted/30">
                       <input
                         type="file"
                         accept="image/*"
                         className="hidden"
-                        onChange={e => handleSlotFile(slot.category, e.target.files)}
+                        onChange={e => handleSlotFile(slot.key, e.target.files)}
                       />
                       {photo ? (
                         <img src={photo.previewUrl} alt={slot.label} className="w-full h-full object-contain" />

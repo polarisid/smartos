@@ -8,8 +8,8 @@ const DB_NAME = "smartos-offline";
 const STORE_NAME = "pending-reports";
 
 export type PendingReportPhoto =
-  | { category: TechnicalReportPhotoCategory; order: number; file: File } // precisa subir no flush
-  | { category: TechnicalReportPhotoCategory; order: number; url: string; path: string }; // já tinha sido enviada antes (edição de relatório existente)
+  | { category: TechnicalReportPhotoCategory; label?: string; order: number; file: File } // precisa subir no flush
+  | { category: TechnicalReportPhotoCategory; label?: string; order: number; url: string; path: string }; // já tinha sido enviada antes (edição de relatório existente)
 
 export type PendingReportPayload = Omit<TechnicalReport, "id" | "createdAt" | "updatedAt" | "photos">;
 
@@ -61,7 +61,7 @@ export function subscribe(callback: Listener): () => void {
 // esse problema. Ao ler, volta a ser File - o resto do app não percebe a diferença.
 type StoredPhoto =
   | PendingReportPhoto
-  | { category: TechnicalReportPhotoCategory; order: number; data: ArrayBuffer; name: string; type: string; lastModified: number };
+  | { category: TechnicalReportPhotoCategory; label?: string; order: number; data: ArrayBuffer; name: string; type: string; lastModified: number };
 type StoredReport = Omit<PendingReport, "photos"> & { photos: StoredPhoto[] };
 
 async function serializePhotos(photos: PendingReportPhoto[]): Promise<StoredPhoto[]> {
@@ -74,7 +74,7 @@ async function serializePhotos(photos: PendingReportPhoto[]): Promise<StoredPhot
     } catch {
       throw new Error("Uma das fotos não pôde ser lida pelo aparelho (pode ter sido apagada da memória). Remova a foto com problema e tire de novo.");
     }
-    out.push({ category: p.category, order: p.order, data, name: p.file.name, type: p.file.type, lastModified: p.file.lastModified });
+    out.push({ category: p.category, label: p.label, order: p.order, data, name: p.file.name, type: p.file.type, lastModified: p.file.lastModified });
   }
   return out;
 }
@@ -82,7 +82,7 @@ async function serializePhotos(photos: PendingReportPhoto[]): Promise<StoredPhot
 function deserializePhotos(photos: StoredPhoto[]): PendingReportPhoto[] {
   return photos.map((p) =>
     "data" in p
-      ? { category: p.category, order: p.order, file: new File([p.data], p.name, { type: p.type, lastModified: p.lastModified }) }
+      ? { category: p.category, label: p.label, order: p.order, file: new File([p.data], p.name, { type: p.type, lastModified: p.lastModified }) }
       : p
   );
 }
@@ -238,9 +238,9 @@ async function sendReportItem(
   const uploadedPhotos = item.photos.map((p, idx) => {
     if ("file" in p) {
       const r = results.get(String(idx))!;
-      return { category: p.category, url: r.url, path: r.path, order: p.order };
+      return { category: p.category, ...(p.label ? { label: p.label } : {}), url: r.url, path: r.path, order: p.order };
     }
-    return { category: p.category, url: p.url, path: p.path, order: p.order };
+    return { category: p.category, ...(p.label ? { label: p.label } : {}), url: p.url, path: p.path, order: p.order };
   });
 
   setSyncState({ step: "saving", progress: undefined });
@@ -316,7 +316,7 @@ export async function flushQueue(): Promise<FlushResult> {
             void updatePending(item.localId, (r) => {
               const original = r.photos[idx];
               if (original && ("file" in original || "data" in original)) {
-                r.photos[idx] = { category: original.category, order: original.order, url: up.url, path: up.path };
+                r.photos[idx] = { category: original.category, label: original.label, order: original.order, url: up.url, path: up.path };
               }
             });
           },

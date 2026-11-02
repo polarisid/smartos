@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
 import { type TechnicalReport, type TechnicalReportPhoto, type TechnicalReportPhotoCategory } from "@/lib/data";
-import { buildAndDownloadPdf, rotateToLandscapeCanvas, PRODUCT_LABELS } from "@/lib/technicalReportPdf";
+import { buildAndDownloadPdf, rotateToLandscapeCanvas } from "@/lib/technicalReportPdf";
+import { productPhotosOf, productPhotoLabel } from "@/lib/productLine";
 import { Button } from "@/components/ui/button";
 import { Loader2, Download, ScanLine, AlertTriangle, Wrench, MessageSquare, ClipboardList } from "lucide-react";
 import { format } from "date-fns";
@@ -56,7 +57,7 @@ export default function ReportViewPage() {
     );
   }
 
-  const productPhotos = ["produto_frontal", "produto_traseira", "produto_serial"] as TechnicalReportPhotoCategory[];
+  const productPhotos = productPhotosOf(report.photos);
   const defectPhotos = report.photos.filter(p => p.category === "defeito").sort((a, b) => a.order - b.order);
   const repairPhotos = report.photos.filter(p => p.category === "pos_reparo").sort((a, b) => a.order - b.order);
 
@@ -86,14 +87,12 @@ export default function ReportViewPage() {
           <InfoField label="Série" value={report.serialNumber} mono />
         </div>
 
-        {productPhotos.some(cat => report.photos.some(p => p.category === cat)) && (
+        {productPhotos.length > 0 && (
           <ReportSection title="Fotos do Produto" icon={ScanLine}>
-            <div className="flex gap-4">
-              {productPhotos.map(cat => {
-                const photo = report.photos.find(p => p.category === cat);
-                if (!photo) return null;
-                return <PhotoCard key={cat} photo={photo} label={PRODUCT_LABELS[cat]} className="flex-1" />;
-              })}
+            <div className="flex flex-wrap gap-4">
+              {productPhotos.map((photo, i) => (
+                <PhotoCard key={photo.path || i} photo={photo} label={productPhotoLabel(photo.category, photo.label)} className="min-w-[30%] flex-1" />
+              ))}
             </div>
           </ReportSection>
         )}

@@ -10,6 +10,7 @@ import type jsPDF from "jspdf";
 import type { PDFFont } from "pdf-lib";
 import { checklistService } from "@/services/supabase/checklistService";
 import { type TechnicalReport, type TechnicalReportPhoto, type TechnicalReportPhotoCategory, type ChecklistTemplate } from "@/lib/data";
+import { productPhotosOf, productPhotoLabel } from "@/lib/productLine";
 import { format } from "date-fns";
 
 export const PRODUCT_LABELS: Record<string, string> = {
@@ -402,10 +403,8 @@ export async function buildAndDownloadPdf(report: TechnicalReport, opts?: { loca
   );
   y += 4;
 
-  const productCats = ["produto_frontal", "produto_traseira", "produto_serial"] as TechnicalReportPhotoCategory[];
-  const productPhotosList = productCats
-    .map(cat => report.photos.find(p => p.category === cat))
-    .filter((p): p is TechnicalReportPhoto => !!p && loadedByPath.has(p.path));
+  // Fotos do produto: as pedidas para a linha do produto (frontal/traseira/serial ou as configuradas no admin).
+  const productPhotosList = productPhotosOf(report.photos).filter(p => loadedByPath.has(p.path));
 
   if (productPhotosList.length > 0) {
     y = ensureSpace(pdf, y, 6, margin, pageHeight);
@@ -415,7 +414,7 @@ export async function buildAndDownloadPdf(report: TechnicalReport, opts?: { loca
       margin,
       y,
       contentWidth,
-      productPhotosList.map(p => ({ loaded: loadedByPath.get(p.path)!, label: PRODUCT_LABELS[p.category] })),
+      productPhotosList.map(p => ({ loaded: loadedByPath.get(p.path)!, label: productPhotoLabel(p.category, p.label) })),
       3,
       margin,
       pageHeight

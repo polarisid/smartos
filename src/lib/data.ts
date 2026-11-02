@@ -393,10 +393,13 @@ export type ChecklistTemplate = {
   category?: string;
 }
 
-export type TechnicalReportPhotoCategory = 'produto_frontal' | 'produto_traseira' | 'produto_serial' | 'defeito' | 'pos_reparo';
+// Fotos do produto podem ter chaves próprias ("produto_<nome>"), definidas por linha de produto na configuração do admin.
+export type TechnicalReportPhotoCategory = 'produto_frontal' | 'produto_traseira' | 'produto_serial' | 'defeito' | 'pos_reparo' | (string & {});
 
 export type TechnicalReportPhoto = {
   category: TechnicalReportPhotoCategory;
+  /** Nome da foto do produto como estava na configuração quando foi tirada (ex.: "Foto do cabo"). */
+  label?: string;
   url: string;
   path: string;
   order: number;

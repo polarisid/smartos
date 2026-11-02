@@ -3,6 +3,7 @@ import type { TravelCostParams, PartCostParams, RepairCenterInfo } from "@/lib/d
 import { DEFAULT_TRAVEL_COST_PARAMS } from "@/lib/travelCost";
 import { DEFAULT_PART_COST_PARAMS } from "@/lib/partCost";
 import { DEFAULT_PLANNING_PARAMS, type PlanningParams } from "@/lib/routePlanning";
+import { normalizeProductPhotoConfig, type ProductPhotoConfig } from "@/lib/productLine";
 
 export type TechGoals = { cleaningsPerMonth: number; approvedBudgetsPerMonth: number };
 export const DEFAULT_TECH_GOALS: TechGoals = { cleaningsPerMonth: 0, approvedBudgetsPerMonth: 0 };
@@ -18,6 +19,28 @@ function withUnidade<T extends Record<string, any>>(query: any, unidadeId?: stri
 }
 
 export const configService = {
+  // Fotos do produto pedidas no relatório, por linha de produto (máquina de lavar, TV...). Sempre completo.
+  async getProductPhotoConfig(unidadeId?: string | null): Promise<ProductPhotoConfig> {
+    try {
+      const { data, error } = await withUnidade(
+        supabase.from('configs').select('value').eq('id', 'product_photos'),
+        unidadeId
+      ).maybeSingle();
+      if (!error && data?.value) return normalizeProductPhotoConfig(data.value);
+    } catch (e) {
+      console.warn("Could not fetch product photo config from Supabase", e);
+    }
+    return normalizeProductPhotoConfig(null);
+  },
+
+  async setProductPhotoConfig(config: ProductPhotoConfig, unidadeId?: string | null): Promise<void> {
+    const { error } = await supabase
+      .from('configs')
+      .upsert({ id: 'product_photos', value: config, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
+
+    if (error) throw error;
+  },
+
   async getWebhookUrl(unidadeId?: string | null): Promise<string | null> {
     const { data, error } = await withUnidade(
       supabase.from('configs').select('value').eq('id', 'webhook'),

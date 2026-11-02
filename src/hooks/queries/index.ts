@@ -68,6 +68,15 @@ export function useBorrowingOrders() {
   });
 }
 
+export function useProductPhotoConfig() {
+  const { activeUnidadeId, appUser } = useAuth();
+  return useQuery({
+    queryKey: ['product-photo-config', activeUnidadeId, appUser?.uid],
+    queryFn: () => configService.getProductPhotoConfig(activeUnidadeId),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useActiveRoutes() {
   const { activeUnidadeId, appUser } = useAuth();
   return useQuery({
