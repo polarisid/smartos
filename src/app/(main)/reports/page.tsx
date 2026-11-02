@@ -520,11 +520,11 @@ function ReportsPageInner() {
   const completedCount = requiredCategories.filter(cat => photos.some(p => p.category === cat)).length;
 
   return (
-    <div className="max-w-3xl mx-auto p-3 md:p-8 space-y-3 md:space-y-4">
+    <div className="-mx-2 max-w-3xl space-y-3 p-0 md:mx-auto md:p-8 md:space-y-4">
       {/* Container oculto usado pela html5-qrcode para decodificar o barcode da foto do serial */}
       <div id="serial-barcode-reader" className="hidden" aria-hidden="true" />
-      <Card>
-        <CardHeader className="space-y-1 p-4 md:space-y-1.5 md:p-6">
+      <Card className="rounded-none border-0 bg-transparent shadow-none md:rounded-xl md:border md:bg-card/70 md:shadow-sm">
+        <CardHeader className="space-y-1 px-1 py-3 md:space-y-1.5 md:p-6">
           <CardTitle className="flex items-center gap-2"><Camera className="h-5 w-5" /> Relatório</CardTitle>
           <CardDescription>
             {reportType === "visita"
@@ -543,7 +543,7 @@ function ReportsPageInner() {
             <span className="text-xs font-medium text-muted-foreground shrink-0">{completedCount}/{requiredCategories.length} fotos</span>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4 p-4 pt-0 md:space-y-6 md:p-6 md:pt-0 [&_input]:h-10 [&_button[role=combobox]]:h-10 md:[&_input]:h-10 md:[&_button[role=combobox]]:h-10">
+        <CardContent className="space-y-4 px-1 pb-3 pt-0 md:space-y-6 md:p-6 md:pt-0 [&_input]:h-10 [&_button[role=combobox]]:h-10 md:[&_input]:h-10 md:[&_button[role=combobox]]:h-10">
           <div className="space-y-1.5">
             <Label>Tipo de Relatório</Label>
             <div className="grid grid-cols-2 gap-2">
