@@ -107,6 +107,10 @@ export const SignaturePad = forwardRef<SignatureCanvas, SignaturePadProps>(
         ref={setRefs}
         penColor={penColor}
         onEnd={onEnd}
+        // A lib limpa o canvas a cada "resize" da janela (padrão clearOnResize=true). No celular, rolar a página
+        // recolhe a barra de endereço e dispara esse resize: a assinatura sumia. O ajuste de tamanho de verdade
+        // (rotação, teclado) fica por conta do ResizeObserver acima, que preserva o traço.
+        clearOnResize={false}
         canvasProps={{ className: `signature-canvas ${canvasClassName}`, style: { touchAction: "none" } }}
       />
     );
