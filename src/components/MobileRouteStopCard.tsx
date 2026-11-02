@@ -17,6 +17,31 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { stateToUF } from "@/lib/brStates";
 import { lentFromOrder, lentNotice } from "@/lib/partUsage";
 
+const PART_DESCRIPTION_PREVIEW = 30;
+
+// Peça da parada: a descrição aparece cortada em 30 caracteres; tocar na peça mostra a descrição inteira (e recolhe de novo).
+function PartChip({ part, lent }: { part: RouteStop["parts"][number]; lent: string }) {
+    const [expanded, setExpanded] = useState(false);
+    const description = part.description || "";
+    const isLong = description.length > PART_DESCRIPTION_PREVIEW;
+    const shown = isLong && !expanded ? description.slice(0, PART_DESCRIPTION_PREVIEW).trimEnd() + "…" : description;
+    const className = cn(
+        "bg-background border shadow-sm rounded px-1.5 py-0.5 max-w-full text-left",
+        lent && "border-sky-300 bg-sky-50 dark:bg-sky-950/30",
+        isLong && "cursor-pointer active:bg-muted/60"
+    );
+    const body = (
+        <>
+            <div className="font-mono text-[10px] font-bold">{part.code} <span className="text-primary ml-1 opacity-80">x{part.quantity}</span></div>
+            {description && <div className="text-[9px] leading-tight text-muted-foreground break-words">{shown}{isLong && <span className="ml-1 font-semibold text-primary">{expanded ? "ver menos" : "ver mais"}</span>}</div>}
+            {lent && <div className="text-[9px] font-semibold leading-tight text-sky-700 dark:text-sky-300 break-words">{lent}</div>}
+        </>
+    );
+    return isLong
+        ? <button type="button" aria-expanded={expanded} onClick={() => setExpanded(e => !e)} className={className}>{body}</button>
+        : <div className={className}>{body}</div>;
+}
+
 export function MobileRouteStopCard({ 
     stop, 
     index, 
@@ -157,7 +182,6 @@ export function MobileRouteStopCard({
                         <p className="text-[9px] uppercase font-bold text-muted-foreground">Local</p>
                         <p className="text-[13px] font-bold leading-tight break-words">{cityLine || "—"}</p>
                         {stop.neighborhood && <p className="text-xs font-semibold leading-tight break-words text-foreground/90">{stop.neighborhood}</p>}
-                        {stop.zipCode && <p className="text-[10px] font-mono text-muted-foreground">CEP {stop.zipCode}</p>}
                     </div>
                     <div className="min-w-0">
                         <p className="text-[9px] uppercase font-bold text-muted-foreground">Produto</p>
@@ -180,13 +204,7 @@ export function MobileRouteStopCard({
                         <div className="flex flex-wrap gap-1">
                             {stop.parts.map((part, pIndex) => {
                                 const lent = lentNotice(lentFromOrder(stop.serviceOrder, part.code, serviceOrders, routeCreatedAt));
-                                return (
-                                    <div key={pIndex} className={cn("bg-background border shadow-sm rounded px-1.5 py-0.5 max-w-full", lent && "border-sky-300 bg-sky-50 dark:bg-sky-950/30")}>
-                                        <div className="font-mono text-[10px] font-bold">{part.code} <span className="text-primary ml-1 opacity-80">x{part.quantity}</span></div>
-                                        {part.description && <div className="text-[9px] leading-tight text-muted-foreground break-words">{part.description}</div>}
-                                        {lent && <div className="text-[9px] font-semibold leading-tight text-sky-700 dark:text-sky-300 break-words">{lent}</div>}
-                                    </div>
-                                );
+                                return <PartChip key={pIndex} part={part} lent={lent} />;
                             })}
                         </div>
                     </div>
@@ -237,6 +255,7 @@ export function MobileRouteStopCard({
                         )}
                         <div className="grid grid-cols-2 gap-3 text-xs">
                             {stop.productType && <div className="col-span-2"><p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Descrição do produto:</p><p className="font-medium break-words">{stop.productType}</p></div>}
+                            {stop.zipCode && <div><p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">CEP:</p><p className="font-mono font-medium">{stop.zipCode}</p></div>}
                             {stop.tat && <div><p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">TAT:</p><p className="font-medium">{stop.tat}</p></div>}
                             {stop.requestDate && <div><p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Solicitada em:</p><p className="font-medium">{stop.requestDate}</p></div>}
                             {stop.replacedPart && <div className="col-span-2"><p className="font-bold text-[10px] uppercase text-muted-foreground mb-0.5">Peça trocada:</p><p className="font-medium break-words">{stop.replacedPart}</p></div>}
