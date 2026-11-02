@@ -21,18 +21,28 @@ export function Sidebar() {
   const [open, setOpen] = useState(false);
   const isAdminOrMaster = appUser?.role === 'admin' || appUser?.role === 'master';
 
-  // A barra inferior some enquanto o técnico digita, para não ocupar a tela junto com o teclado.
+  // A barra inferior some só quando o TECLADO está aberto (a área visível encolhe), para não dividir a tela com ele.
+  // Foco num campo não basta: o formulário foca o campo da etapa sozinho e o teclado nem sempre abre.
   const [typing, setTyping] = useState(false);
   useEffect(() => {
-    const isTextField = (t: EventTarget | null) =>
-      t instanceof HTMLElement &&
-      (t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "file"].includes((t as HTMLInputElement).type)));
-    const onIn = (e: FocusEvent) => { if (isTextField(e.target)) setTyping(true); };
-    const onOut = () => setTyping(false);
-    window.addEventListener("focusin", onIn);
-    window.addEventListener("focusout", onOut);
-    return () => { window.removeEventListener("focusin", onIn); window.removeEventListener("focusout", onOut); };
+    const vv = window.visualViewport;
+    if (!vv) return;
+    let base = Math.max(window.innerHeight, vv.height);
+    const update = () => {
+      if (vv.scale > 1.01) { setTyping(false); return; } // zoom de pinça também encolhe a área visível
+      base = Math.max(base, window.innerHeight, vv.height);
+      setTyping(vv.height < base - 150);
+    };
+    const onOrientation = () => { base = 0; setTimeout(update, 300); };
+    vv.addEventListener("resize", update);
+    window.addEventListener("orientationchange", onOrientation);
+    return () => { vv.removeEventListener("resize", update); window.removeEventListener("orientationchange", onOrientation); };
   }, []);
+  // Quem tem barra fixa embaixo (ex.: Voltar/Salvar do lançamento) acompanha a altura da barra de navegação.
+  useEffect(() => {
+    document.documentElement.style.setProperty("--bottom-nav-h", typing ? "0rem" : "3.5rem");
+    return () => { document.documentElement.style.removeProperty("--bottom-nav-h"); };
+  }, [typing]);
 
   const handleLogout = async () => {
     try {

@@ -2033,7 +2033,7 @@ const { toast } = useToast();
                                                 </div>
                                             )}
 
-                                            <div className={cn("flex gap-3 pt-4 border-t mt-4", formV2 && "fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 mt-0 bg-background/95 px-4 pt-3 pb-3 backdrop-blur md:static md:z-auto md:mt-4 md:bg-transparent md:px-0 md:pb-0 md:pt-4 md:backdrop-blur-none")}>
+                                            <div className={cn("flex gap-3 pt-4 border-t mt-4", formV2 && "fixed inset-x-0 bottom-[calc(var(--bottom-nav-h,3.5rem)_+_env(safe-area-inset-bottom))] z-40 mt-0 bg-background/95 px-4 pt-3 pb-3 backdrop-blur md:static md:z-auto md:mt-4 md:bg-transparent md:px-0 md:pb-0 md:pt-4 md:backdrop-blur-none")}>
                                                 {currentStep > 1 && (
                                                     <Button type="button" variant="outline" onClick={handlePrevStep} className="flex-1 h-12 font-medium text-base shadow-none">
                                                         Voltar

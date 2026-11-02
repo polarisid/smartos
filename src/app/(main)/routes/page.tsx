@@ -240,12 +240,12 @@ export default function RoutesPage() {
                         <CardHeader className="bg-muted/30">
                             <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div>
-                                    <CardTitle className="flex items-center gap-2 text-primary">
-                                        <RouteIcon className="w-5 h-5" /> Rota: {route.name} <RouteCodeTag route={route} />
+                                    <CardTitle className="flex flex-wrap items-center gap-x-2 gap-y-1 text-base leading-tight text-primary md:text-2xl">
+                                        <RouteIcon className="h-4 w-4 shrink-0 md:h-5 md:w-5" /> <span className="min-w-0 break-words">Rota: {route.name}</span> <RouteCodeTag route={route} className="shrink-0 whitespace-nowrap" />
                                         {pinnedRouteId === route.id && <Pin className="w-4 h-4 text-primary fill-primary/20" />}
                                         {isOwnRoute && <Badge className="text-[10px] px-1.5 py-0 font-bold">Sua rota</Badge>}
                                     </CardTitle>
-                                    <CardDescription>
+                                    <CardDescription className="text-xs md:text-sm">
                                         Técnico responsável: <span className="font-medium text-foreground">{route.technicianName}</span>
                                     </CardDescription>
                                 </div>
@@ -317,11 +317,12 @@ export default function RoutesPage() {
                                 <p className="text-xs text-muted-foreground text-right">{completedStopsCount} de {totalStops} paradas concluídas</p>
                             </div>
 
+                            <div className="grid grid-cols-3 gap-2 md:flex md:flex-wrap">
                             <Dialog>
                                 <DialogTrigger asChild>
-                                    <Button variant="outline" className="w-full md:w-auto mt-2">
-                                        <Eye className="mr-2 h-4 w-4" />
-                                        Ver Detalhes da Rota
+                                    <Button variant="outline" className={cn("h-auto flex-col gap-1 px-1 py-2.5 text-xs font-semibold md:h-10 md:flex-row md:gap-2 md:px-4 md:py-2 md:text-sm", "border-primary/30 bg-primary/5 text-primary hover:bg-primary/10")}>
+                                        <Eye className="h-5 w-5 md:h-4 md:w-4" />
+                                        <span className="md:hidden">Detalhes</span><span className="hidden md:inline">Ver Detalhes da Rota</span>
                                     </Button>
                                 </DialogTrigger>
                                 <DialogContent className="w-[100vw] max-w-none md:max-w-6xl md:w-full max-h-[100dvh] rounded-none md:rounded-lg p-2 md:p-6 gap-2 md:gap-4 bg-muted md:bg-background">
@@ -418,9 +419,9 @@ export default function RoutesPage() {
                             {allStops.length > 0 && (
                                 <Dialog>
                                     <DialogTrigger asChild>
-                                        <Button variant="outline" className="w-full md:w-auto mt-2 md:ml-2">
-                                            <MapPin className="mr-2 h-4 w-4" />
-                                            Ver Mapa
+                                        <Button variant="outline" className="h-auto flex-col gap-1 px-1 py-2.5 text-xs font-semibold md:h-10 md:flex-row md:gap-2 md:px-4 md:py-2 md:text-sm">
+                                            <MapPin className="h-5 w-5 md:h-4 md:w-4" />
+                                            <span className="md:hidden">Mapa</span><span className="hidden md:inline">Ver Mapa</span>
                                         </Button>
                                     </DialogTrigger>
                                     <DialogContent className="max-w-6xl w-[95vw] md:w-full p-2 md:p-6 bg-muted md:bg-background">
@@ -450,8 +451,8 @@ export default function RoutesPage() {
                             {allStops.length > 0 && (
                                 <Dialog>
                                     <DialogTrigger asChild>
-                                        <Button variant="outline" className="w-full md:w-auto mt-2 md:ml-2">
-                                            <Clock className="mr-2 h-4 w-4" />
+                                        <Button variant="outline" className="h-auto flex-col gap-1 px-1 py-2.5 text-xs font-semibold md:h-10 md:flex-row md:gap-2 md:px-4 md:py-2 md:text-sm">
+                                            <Clock className="h-5 w-5 md:h-4 md:w-4" />
                                             Previsão
                                         </Button>
                                     </DialogTrigger>
@@ -475,11 +476,11 @@ export default function RoutesPage() {
                                         <Button
                                             variant="outline"
                                             className={cn(
-                                                "w-full md:w-auto mt-2 md:ml-2",
+                                                "h-auto flex-col gap-1 px-1 py-2.5 text-xs font-semibold md:h-10 md:flex-row md:gap-2 md:px-4 md:py-2 md:text-sm", "col-span-3 flex-row gap-2 py-2.5 md:col-span-1",
                                                 areAllPartsTracked && "bg-green-100 border-green-300 text-green-800 hover:bg-green-200 dark:bg-green-900/50 dark:border-green-800 dark:text-green-300 dark:hover:bg-green-900/70"
                                             )}
                                         >
-                                            {areAllPartsTracked ? <CheckCircle2 className="mr-2 h-4 w-4" /> : <PackageSearch className="mr-2 h-4 w-4" />}
+                                            {areAllPartsTracked ? <CheckCircle2 className="h-4 w-4" /> : <PackageSearch className="h-4 w-4" />}
                                             Rastreios de Peças
                                         </Button>
                                     </DialogTrigger>
@@ -499,6 +500,7 @@ export default function RoutesPage() {
                                     </DialogContent>
                                 </Dialog>
                             )}
+                        </div>
                         </CardContent>
                     </Card>
                 );
