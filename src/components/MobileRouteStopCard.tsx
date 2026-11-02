@@ -17,9 +17,9 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { stateToUF } from "@/lib/brStates";
 import { lentFromOrder, lentNotice } from "@/lib/partUsage";
 
-const PART_DESCRIPTION_PREVIEW = 30;
+const PART_DESCRIPTION_PREVIEW = 25;
 
-// Peça da parada: a descrição aparece cortada em 30 caracteres; tocar na peça mostra a descrição inteira (e recolhe de novo).
+// Peça da parada: a descrição aparece cortada em 25 caracteres; tocar na peça mostra a descrição inteira (e recolhe de novo).
 function PartChip({ part, lent }: { part: RouteStop["parts"][number]; lent: string }) {
     const [expanded, setExpanded] = useState(false);
     const description = part.description || "";
