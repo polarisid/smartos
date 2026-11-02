@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ChevronDown, MessageSquare, XCircle, Calendar, MapPin, History, Wrench } from "lucide-react";
+import { ChevronDown, MessageSquare, XCircle, Calendar, MapPin, History, Wrench, Copy } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import type { ServiceOrder, RouteStop } from "@/lib/data";
@@ -160,7 +160,18 @@ export function MobileRouteStopCard({
                                 </button>
                             )}
                         </div>
-                        <p className={cn("font-mono font-black text-base tracking-tight text-foreground leading-none", (isCompleted || stop.isReallocated) && "line-through opacity-60")}>{stop.serviceOrder}</p>
+                        <button
+                            type="button"
+                            title="Toque para copiar o número da OS"
+                            aria-label={"Copiar OS " + stop.serviceOrder}
+                            onClick={async () => {
+                                if (await copyToClipboard(stop.serviceOrder)) toast({ title: "OS copiada", description: stop.serviceOrder });
+                            }}
+                            className="flex items-center gap-2 text-left active:opacity-70"
+                        >
+                            <span className={cn("font-mono font-black text-base tracking-tight text-foreground leading-none", (isCompleted || stop.isReallocated) && "line-through opacity-60")}>{stop.serviceOrder}</span>
+                            <Copy className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        </button>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="flex flex-col items-end gap-1">
