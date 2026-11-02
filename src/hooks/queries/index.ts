@@ -73,7 +73,10 @@ export function useProductPhotoConfig() {
   return useQuery({
     queryKey: ['product-photo-config', activeUnidadeId, appUser?.uid],
     queryFn: () => configService.getProductPhotoConfig(activeUnidadeId),
-    staleTime: 5 * 60 * 1000,
+    // Quem configura espera ver o efeito na hora: busca de novo a cada abertura da tela e ao voltar para o app.
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 

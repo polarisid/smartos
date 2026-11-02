@@ -21,16 +21,15 @@ function withUnidade<T extends Record<string, any>>(query: any, unidadeId?: stri
 export const configService = {
   // Fotos do produto pedidas no relatório, por linha de produto (máquina de lavar, TV...). Sempre completo.
   async getProductPhotoConfig(unidadeId?: string | null): Promise<ProductPhotoConfig> {
-    try {
-      const { data, error } = await withUnidade(
-        supabase.from('configs').select('value').eq('id', 'product_photos'),
-        unidadeId
-      ).maybeSingle();
-      if (!error && data?.value) return normalizeProductPhotoConfig(data.value);
-    } catch (e) {
-      console.warn("Could not fetch product photo config from Supabase", e);
-    }
-    return normalizeProductPhotoConfig(null);
+    // Erro de rede/servidor NÃO vira "padrão": a consulta falha e o app segue com a última configuração guardada
+    // (senão uma falha de sinal apagava a lista configurada no aparelho). Só "nada salvo ainda" devolve o padrão.
+    // Sem unidade informada (ex.: master sem unidade escolhida) vale a configuração gravada mais recentemente.
+    const { data, error } = await withUnidade(
+      supabase.from('configs').select('value').eq('id', 'product_photos').order('updated_at', { ascending: false }).limit(1),
+      unidadeId
+    ).maybeSingle();
+    if (error) throw error;
+    return normalizeProductPhotoConfig(data?.value);
   },
 
   async setProductPhotoConfig(config: ProductPhotoConfig, unidadeId?: string | null): Promise<void> {
