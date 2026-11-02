@@ -678,6 +678,9 @@ export default function RouteMap({
                                         <p><strong>Rota:</strong> {item.route.name}</p>
                                         {item.route.technicianName && <p><strong>Téc:</strong> {item.route.technicianName}</p>}
                                         <p><strong>Turno/Produto:</strong> {item.stop.turn} • {item.stop.productType}</p>
+                                        {item.stop.model && <p><strong>Modelo:</strong> {item.stop.model}</p>}
+                                        {item.stop.warrantyType && <p><strong>Garantia:</strong> {item.stop.warrantyType}</p>}
+                                        {item.stop.tat && <p><strong>TAT:</strong> {item.stop.tat}</p>}
                                     </div>
                                     <div className="mt-2 text-center text-xs font-bold rounded-md py-1 bg-slate-100">
                                         {item.status === 'completed' ? <span className="text-emerald-600">Finalizado</span> : item.status === 'pending' ? <span className="text-yellow-600">Com Pendência</span> : <span className="text-blue-600">A Fazer</span>}
