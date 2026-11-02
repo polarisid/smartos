@@ -101,10 +101,21 @@ export default function ProductPhotosConfigPage() {
 
     setIsSaving(true);
     try {
-      await configService.setProductPhotoConfig(config, isMaster ? activeUnidadeId : undefined);
+      const unidade = isMaster ? activeUnidadeId : undefined;
+      await configService.setProductPhotoConfig(config, unidade);
+      // Confere lendo de volta: se gravou mas não consegue ler (outra unidade, permissão), os técnicos também não vão ver.
+      const readBack = await configService.getProductPhotoConfig(unidade);
+      if (JSON.stringify(readBack) !== JSON.stringify(config)) {
+        toast({
+          variant: "destructive",
+          title: "Salvou, mas a leitura não confere",
+          description: "O que foi gravado não voltou igual na consulta. Veja se a unidade escolhida no topo é a dos técnicos.",
+        });
+        return;
+      }
       await queryClient.invalidateQueries({ queryKey: ["product-photo-config"] });
       setDraft(toDraft(config));
-      toast({ title: "Fotos salvas!", description: "Os técnicos passam a ver essa lista no próximo relatório." });
+      toast({ title: "Fotos salvas!", description: isMaster ? "Vale para a unidade escolhida no topo. Os técnicos dela veem essa lista no próximo relatório." : "Os técnicos passam a ver essa lista no próximo relatório." });
     } catch (e: any) {
       toast({ variant: "destructive", title: "Erro ao salvar", description: e?.message });
     } finally {

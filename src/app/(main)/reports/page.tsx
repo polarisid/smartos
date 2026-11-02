@@ -75,7 +75,7 @@ function ReportsPageInner() {
   const [consumerName, setConsumerName] = useState("");
   const [productModel, setProductModel] = useState("");
   // A linha do produto (máquina de lavar, TV...) vem da 1ª letra do modelo e define quais fotos do produto são pedidas.
-  const { data: photoConfig = DEFAULT_PRODUCT_PHOTO_CONFIG } = useProductPhotoConfig();
+  const { data: photoConfig = DEFAULT_PRODUCT_PHOTO_CONFIG, isError: photoConfigError } = useProductPhotoConfig();
   const productLine = productLineFromModel(productModel);
   const configuredSlots = productLine ? photoConfig[productLine] : DEFAULT_PRODUCT_SLOTS;
   const [serialNumber, setSerialNumber] = useState("");
@@ -624,6 +624,14 @@ function ReportsPageInner() {
               Fotos do Produto
               {isReadingLabel && <span className="inline-flex items-center gap-1 text-primary normal-case font-normal"><Loader2 className="h-3 w-3 animate-spin" /> lendo etiqueta...</span>}
             </Label>
+            {/* De onde veio a lista de fotos: ajuda a achar o motivo quando ela não é a configurada no admin. */}
+            <p className="text-[11px] leading-tight text-muted-foreground">
+              {photoConfigError
+                ? "Não foi possível ler a configuração de fotos agora (usando a última guardada ou a padrão)."
+                : configuredSlots === DEFAULT_PRODUCT_SLOTS
+                  ? "Lista padrão: não há fotos configuradas para esta linha nesta unidade."
+                  : `Lista configurada para ${productLine ? PRODUCT_LINE_LABELS[productLine] : "esta linha"}.`}
+            </p>
             <div className="grid grid-cols-3 gap-2 md:gap-3">
               {productSlots.map(slot => {
                 const photo = photos.find(p => p.category === slot.key);
