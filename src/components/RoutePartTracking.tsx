@@ -11,8 +11,19 @@ import { routeService } from "@/services/supabase/routeService";
 import { entriesFromCodes, mergeServerCodes } from "@/lib/trackingCodes";
 import { savePartTracking, overlayPendingCodes } from "@/lib/offlineTrackingQueue";
 import { useTrackingQueue } from "@/hooks/useTrackingQueue";
-import { Save, ScanLine, Search, CloudOff } from "lucide-react";
+import { Save, ScanLine, Search, CloudOff, CheckCircle2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { activeStops } from "@/lib/routeStops";
+
+// Códigos de rastreio que já estão gravados na rota (servidor), por OS e peça.
+function savedCodesOf(route: Route): Record<string, Record<string, string>> {
+  const saved: Record<string, Record<string, string>> = {};
+  activeStops(route.stops).forEach(stop => {
+    saved[stop.serviceOrder] = {};
+    (stop.parts || []).forEach(part => { saved[stop.serviceOrder][part.code] = (part.trackingCode || "").trim(); });
+  });
+  return saved;
+}
 
 const ScannerDialog = dynamic(
   () => import('@/components/ScannerDialog').then(mod => mod.ScannerDialog),
@@ -35,6 +46,9 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
     // O que foi bipado sem internet e ainda não subiu volta preenchido, mesmo depois de recarregar a página.
     return overlayPendingCodes(route.id, initial);
   });
+  // O que já está salvo na rota: a peça só fica verde se o código na tela é igual ao salvo (mexeu e não salvou = não é verde).
+  const [savedCodes, setSavedCodes] = useState(() => savedCodesOf(route));
+  useEffect(() => { setSavedCodes(savedCodesOf(route)); }, [route]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [filterText, setFilterText] = useState("");
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -48,7 +62,10 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
       if (document.hidden || !navigator.onLine) return;
       try {
         const data = await routeService.getById(route.id);
-        if (data) setTrackingCodes(prev => mergeServerCodes(prev, data));
+        if (data) {
+          setTrackingCodes(prev => mergeServerCodes(prev, data));
+          setSavedCodes(savedCodesOf(data));
+        }
       } catch { /* sem sinal: tenta no próximo ciclo */ }
     }, 8000);
     return () => clearInterval(timer);
@@ -70,7 +87,10 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
         toast({ title: "Guardado no aparelho", description: `Sem conexão: o rastreio da peça ${partCode} será enviado sozinho quando a internet voltar.` });
         return;
       }
-      if (fresh) setTrackingCodes(prev => mergeServerCodes(prev, fresh));
+      if (fresh) {
+        setTrackingCodes(prev => mergeServerCodes(prev, fresh));
+        setSavedCodes(savedCodesOf(fresh));
+      }
       toast({ title: "Código de rastreio salvo!", description: `Rastreio para a peça ${partCode} salvo.` });
       onSaved?.();
     } catch (error) {
@@ -89,7 +109,10 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
         toast({ title: "Guardado no aparelho", description: "Sem conexão: os rastreios serão enviados sozinhos quando a internet voltar." });
         return;
       }
-      if (fresh) setTrackingCodes(prev => mergeServerCodes(prev, fresh));
+      if (fresh) {
+        setTrackingCodes(prev => mergeServerCodes(prev, fresh));
+        setSavedCodes(savedCodesOf(fresh));
+      }
       toast({ title: "Códigos de rastreio salvos!", description: written > 0 ? `${written} peça(s) da rota "${route.name}" atualizada(s).` : "Nada novo para salvar." });
       onSaved?.();
     } catch (error) {
@@ -112,6 +135,11 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
     setIsScannerOpen(false);
     setScanTarget(null);
     toast({ title: "Código lido com sucesso!" });
+  };
+
+  const isPartSaved = (stopServiceOrder: string, partCode: string) => {
+    const typed = (trackingCodes[stopServiceOrder]?.[partCode] || "").trim();
+    return !!typed && savedCodes[stopServiceOrder]?.[partCode] === typed;
   };
 
   const stopsWithParts = activeStops(route.stops).filter(stop => stop.parts && stop.parts.length > 0);
@@ -161,21 +189,30 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
           </p>
         ) : (
           filteredStops.map(stop => (
-            <div key={stop.serviceOrder} className="border p-3 rounded-lg bg-background">
+            <div
+              key={stop.serviceOrder}
+              className={cn("border p-3 rounded-lg bg-background", stop.parts.every(p => isPartSaved(stop.serviceOrder, p.code)) && "border-green-400 dark:border-green-800")}
+            >
               <div className="flex flex-wrap items-baseline gap-x-4">
                 <h3 className="font-semibold text-lg">{stop.serviceOrder}</h3>
                 <p className="text-sm text-muted-foreground">{stop.model}</p>
               </div>
               <p className="text-sm text-muted-foreground mb-4">{stop.consumerName}</p>
               <div className="space-y-4">
-                {stop.parts.map(part => (
-                  <div key={part.code} className="border-t pt-4">
+                {stop.parts.map(part => {
+                  const saved = isPartSaved(stop.serviceOrder, part.code);
+                  return (
+                  <div key={part.code} className={cn("border-t pt-4", saved && "rounded-md border border-green-300 bg-green-50 p-2 dark:border-green-900 dark:bg-green-950/30")}>
                     <div className="space-y-1 mb-2">
-                      <p className="font-mono">{part.code}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-mono">{part.code}</p>
+                        {saved && <span className="flex shrink-0 items-center gap-1 text-xs font-semibold text-green-700 dark:text-green-400"><CheckCircle2 className="h-4 w-4" /> Salvo</span>}
+                      </div>
                       <p className="text-xs text-muted-foreground">{part.description} (x{part.quantity})</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <Input
+                        className={saved ? "border-green-400 bg-white dark:bg-background" : undefined}
                         placeholder="Insira o cód. de rastreio"
                         value={trackingCodes[stop.serviceOrder]?.[part.code] || ''}
                         onChange={(e) => handleTrackingCodeChange(stop.serviceOrder, part.code, e.target.value)}
@@ -188,7 +225,8 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
                       </Button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))
