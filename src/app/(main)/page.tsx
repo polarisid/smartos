@@ -1324,7 +1324,7 @@ const { toast } = useToast();
   return (
     <div className="max-w-7xl mx-auto w-full animate-in fade-in ease-out duration-300">
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-            <Card className="w-full border-none shadow-none bg-transparent md:glass-card md:border-solid md:shadow-xl overflow-visible">
+            <Card className="w-full border-none shadow-none bg-transparent backdrop-blur-none md:backdrop-blur-xl md:glass-card md:border-solid md:shadow-xl overflow-visible">
                 <CardHeader className="px-1 pt-0 pb-3 md:p-6 space-y-4 md:bg-primary/5 md:border-b md:border-border/40 md:rounded-t-xl">
                     <div>
                                         <CardTitle className="text-[22px] md:text-2xl tracking-tight leading-none">Lançamento Rápido de OS</CardTitle>

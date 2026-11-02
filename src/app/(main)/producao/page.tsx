@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { addMonths, differenceInCalendarDays, endOfMonth, format, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { AlertCircle, BadgeCheck, ChevronLeft, ChevronRight, Medal, Sparkles, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { AlertCircle, BadgeCheck, CheckCircle2, ChevronLeft, ChevronRight, Clock, Medal, Sparkles, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { configService } from "@/services/supabase/configService";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +55,32 @@ function OrderCard({ os, showValue }: { os: ServiceOrder; showValue?: boolean })
   );
 }
 
+// Linha compacta de um lançamento: número, quando, situação (finalizada/pendência) e o que foi feito.
+function RecentOrderRow({ os }: { os: ServiceOrder }) {
+  const pending = os.isFinalized === false;
+  return (
+    <div className="flex items-start justify-between gap-3 px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="font-mono text-sm font-semibold">{os.serviceOrderNumber}</p>
+        <p className="text-xs text-muted-foreground">
+          {format(os.date, "dd/MM 'às' HH:mm")} · {SERVICE_TYPE_LABELS[os.serviceType] || os.serviceType}
+        </p>
+        {pending && os.pendingReason && <p className="mt-0.5 line-clamp-2 text-xs text-amber-700 dark:text-amber-400">{os.pendingReason}</p>}
+        {!pending && os.replacedPart && <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">Peça: {os.replacedPart}</p>}
+      </div>
+      {pending ? (
+        <Badge variant="outline" className="shrink-0 gap-1 border-amber-300 bg-amber-50 text-[10px] text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+          <Clock className="h-3 w-3" /> Pendência
+        </Badge>
+      ) : (
+        <Badge variant="outline" className="shrink-0 gap-1 border-green-300 bg-green-50 text-[10px] text-green-700 dark:bg-green-900/20 dark:text-green-400">
+          <CheckCircle2 className="h-3 w-3" /> Finalizada
+        </Badge>
+      )}
+    </div>
+  );
+}
+
 function EmptyState({ text }: { text: string }) {
   return (
     <div className="text-center py-10 text-sm text-muted-foreground border border-dashed rounded-lg">{text}</div>
@@ -87,6 +113,14 @@ export default function ProducaoPage() {
     queryFn: () => configService.getTechGoals(activeUnidadeId),
     enabled: !!appUser?.uid,
     staleTime: 5 * 60 * 1000,
+  });
+
+  // Últimos lançamentos do técnico, de qualquer mês (não dependem do mês escolhido acima).
+  const { data: recentOrders = [], isLoading: loadingRecent } = useQuery({
+    queryKey: ["producao-recentes", technicianId, activeUnidadeId],
+    queryFn: () => serviceOrderService.getRecentByTechnician(technicianId, 7, activeUnidadeId),
+    enabled: !!technicianId,
+    staleTime: 60 * 1000,
   });
 
   const orders = useMemo(() => teamOrders.filter(os => os.technicianId === technicianId), [teamOrders, technicianId]);
@@ -244,6 +278,21 @@ export default function ProducaoPage() {
               </div>
             );
           })()}
+
+          <div className="space-y-2">
+            <p className="text-sm font-semibold">Últimos lançamentos</p>
+            {loadingRecent ? (
+              <Skeleton className="h-40 w-full" />
+            ) : recentOrders.length === 0 ? (
+              <EmptyState text="Nenhum lançamento ainda." />
+            ) : (
+              <Card>
+                <CardContent className="divide-y p-0">
+                  {recentOrders.map(os => <RecentOrderRow key={os.id} os={os} />)}
+                </CardContent>
+              </Card>
+            )}
+          </div>
 
           <Tabs defaultValue="limpezas">
             <TabsList className="grid w-full grid-cols-2">

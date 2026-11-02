@@ -51,6 +51,21 @@ export const serviceOrderService = {
     return all.map(this.mapFromDb);
   },
 
+  // Últimas OS lançadas por um técnico, de qualquer mês (tela "Minha Produção").
+  async getRecentByTechnician(technicianId: string, limitCount: number = 7, unidadeId?: string | null): Promise<ServiceOrder[]> {
+    let query = supabase
+      .from('service_orders')
+      .select('*')
+      .eq('technician_id', technicianId)
+      .order('date', { ascending: false })
+      .limit(limitCount);
+    if (unidadeId) query = query.eq('unidade_id', unidadeId);
+    const { data, error } = await query;
+
+    if (error) throw error;
+    return (data || []).map(this.mapFromDb);
+  },
+
   async getOrdersSince(daysAgo: number): Promise<ServiceOrder[]> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - daysAgo);

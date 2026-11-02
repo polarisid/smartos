@@ -286,7 +286,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     <NotificationsProvider>
       <div className="min-h-screen flex flex-col md:flex-row bg-background">
         <Sidebar />
-        <main className="flex-1 flex flex-col w-full min-h-screen pt-[64px] pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pt-0 md:pb-0 overflow-x-hidden relative">
+        <main className="flex-1 flex flex-col w-full min-h-screen pt-[64px] pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pt-0 md:pb-0 overflow-x-clip relative">
             <Suspense fallback={null}>
                 <PermissionErrorDisplay />
             </Suspense>
