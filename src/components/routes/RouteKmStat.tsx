@@ -11,7 +11,7 @@ import type { Route, ServiceOrder } from "@/lib/data";
 
 /**
  * Km da rota: total estimado (saída → paradas → chegada, pelas estradas) e quanto já foi percorrido, contando os
- * trechos até a última parada atendida (OS lançada depois da criação da rota). Usa a mesma consulta da Previsão
+ * trechos até a última parada atendida (OS lançada depois da criação da rota); com todas atendidas, conta a rota inteira (volta incluída). Usa a mesma consulta da Previsão
  * (mesma chave de cache): o cálculo é feito uma vez e a Previsão reaproveita.
  */
 export function useRouteKm(route: Route, serviceOrders: ServiceOrder[]) {
@@ -31,12 +31,17 @@ export function useRouteKm(route: Route, serviceOrders: ServiceOrder[]) {
         const totalKm = data.km.reduce((a, b) => a + (b || 0), 0);
         const created = (route.createdAt instanceof Date ? route.createdAt : new Date(route.createdAt as any)).getTime();
         let lastAttended = -1;
+        let attendedCount = 0;
         activeStops.forEach((stop, i) => {
             const attended = serviceOrders.some(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && os.date.getTime() >= created);
-            if (attended) lastAttended = i;
+            if (attended) { lastAttended = i; attendedCount++; }
         });
-        // km[i] = trecho que chega à parada i (o 0 sai da base); o último trecho é a volta e só conta depois de tudo atendido.
-        const traveledKm = lastAttended < 0 ? 0 : data.km.slice(0, lastAttended + 1).reduce((a, b) => a + (b || 0), 0);
+        // km[i] = trecho que chega à parada i (o 0 sai da base); o último trecho é a volta à base/chegada.
+        // Todas as paradas atendidas = rota cumprida: conta o total, volta incluída.
+        const allAttended = activeStops.length > 0 && attendedCount === activeStops.length;
+        const traveledKm = allAttended
+            ? totalKm
+            : lastAttended < 0 ? 0 : data.km.slice(0, lastAttended + 1).reduce((a, b) => a + (b || 0), 0);
         return { totalKm, traveledKm, isLoading };
     }, [data, isLoading, activeStops, serviceOrders, route.createdAt]);
 }
