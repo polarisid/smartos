@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useRouter, usePathname } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { Suspense } from "react";
 import { PermissionErrorDisplay } from "@/components/PermissionErrorDisplay";
 import { useAuth } from "@/context/AuthContext";
-import { Loader2, CloudUpload, AlertCircle } from "lucide-react";
+import { Loader2, CloudUpload, AlertCircle, FileEdit } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { subscribe, subscribeSync, flushQueue, type PendingReport, type SyncState } from "@/lib/offlineReportQueue";
 import { useToast } from "@/hooks/use-toast";
@@ -17,6 +18,8 @@ import { PushPrompt } from "@/components/PushPrompt";
 import { ConnectionDiagnostics } from "@/components/ConnectionDiagnostics";
 import { warmOfflinePages } from "@/lib/offlinePages";
 import { useTrackingQueue } from "@/hooks/useTrackingQueue";
+import { flushTrackingQueue } from "@/lib/offlineTrackingQueue";
+import { flushVehicleQueue } from "@/lib/offlineVehicleQueue";
 import { useVehicleQueue } from "@/hooks/useVehicleQueue";
 import { useQueryClient } from "@tanstack/react-query";
 import { QueryCachePersistence } from "@/components/QueryCachePersistence";
@@ -181,7 +184,10 @@ function TrackingQueueNotice() {
   return (
     <div className="border-b border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm px-4 py-2 flex items-center gap-2">
       <CloudUpload className="h-4 w-4 shrink-0" />
-      {pending} código(s) de rastreio guardado(s) no aparelho — serão enviados sozinhos quando houver internet.
+      <span className="flex-1">{pending} código(s) de rastreio guardado(s) no aparelho — serão enviados sozinhos quando houver internet.</span>
+      <Button variant="ghost" size="sm" className="h-7 shrink-0 hover:bg-black/5 dark:hover:bg-white/10" onClick={() => { void flushTrackingQueue(); }}>
+        Enviar agora
+      </Button>
     </div>
   );
 }
@@ -201,7 +207,44 @@ function VehicleQueueNotice() {
   return (
     <div className="border-b border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm px-4 py-2 flex items-center gap-2">
       <CloudUpload className="h-4 w-4 shrink-0" />
-      {pending} registro(s) de km/abastecimento guardado(s) no aparelho — serão enviados sozinhos quando houver internet.
+      <span className="flex-1">{pending} registro(s) de km/abastecimento guardado(s) no aparelho — serão enviados sozinhos quando houver internet.</span>
+      <Button variant="ghost" size="sm" className="h-7 shrink-0 hover:bg-black/5 dark:hover:bg-white/10" onClick={() => { void flushVehicleQueue(); }}>
+        Enviar agora
+      </Button>
+    </div>
+  );
+}
+
+// OS começada no lançamento e ainda não salva: aparece nas outras telas para o técnico não esquecer dela.
+// O lançamento guarda o rascunho no aparelho ('serviceOrderFormData') e marca a OS salva em 'serviceOrderSavedNumber'.
+function DraftOrderNotice() {
+  const pathname = usePathname();
+  const [draft, setDraft] = useState<string | null>(null);
+
+  useEffect(() => {
+    const read = () => {
+      try {
+        const raw = localStorage.getItem("serviceOrderFormData");
+        const number = raw ? String(JSON.parse(raw)?.serviceOrderNumber || "").trim() : "";
+        const saved = localStorage.getItem("serviceOrderSavedNumber");
+        setDraft(number && number !== saved ? number : null);
+      } catch {
+        setDraft(null);
+      }
+    };
+    read();
+    window.addEventListener("storage", read);
+    return () => window.removeEventListener("storage", read);
+  }, [pathname]);
+
+  if (!draft || pathname === "/") return null;
+  return (
+    <div className="border-b border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300 text-sm px-4 py-2 flex items-center gap-2">
+      <FileEdit className="h-4 w-4 shrink-0" />
+      <span className="flex-1">OS <strong>{draft}</strong> em andamento — ainda não foi salva.</span>
+      <Button asChild variant="ghost" size="sm" className="h-7 shrink-0 hover:bg-black/5 dark:hover:bg-white/10">
+        <Link href="/">Continuar</Link>
+      </Button>
     </div>
   );
 }
@@ -243,14 +286,18 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     <NotificationsProvider>
       <div className="min-h-screen flex flex-col md:flex-row bg-background">
         <Sidebar />
-        <main className="flex-1 flex flex-col w-full min-h-screen pt-[64px] md:pt-0 overflow-x-hidden relative">
+        <main className="flex-1 flex flex-col w-full min-h-screen pt-[64px] pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pt-0 md:pb-0 overflow-x-hidden relative">
             <Suspense fallback={null}>
                 <PermissionErrorDisplay />
             </Suspense>
             <QueryCachePersistence />
-            <OfflineQueueBanner />
-            <TrackingQueueNotice />
-            <VehicleQueueNotice />
+            {/* Avisos de envio e de OS em andamento ficam presos no topo: continuam visíveis ao rolar a tela. */}
+            <div className="sticky top-[64px] md:top-0 z-30 bg-background shadow-sm empty:hidden">
+              <OfflineQueueBanner />
+              <TrackingQueueNotice />
+              <VehicleQueueNotice />
+              <DraftOrderNotice />
+            </div>
             <PushPrompt />
             <div className="flex-1 w-full p-4 md:p-8">
                {children}

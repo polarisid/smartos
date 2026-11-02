@@ -867,6 +867,14 @@ const { toast } = useToast();
       localStorage.setItem('checklistFormData', JSON.stringify(checklistData));
   }, [checklistData]);
 
+  // Marca a OS já salva: o aviso "OS em andamento" das outras telas só aparece para OS ainda não salva.
+  useEffect(() => {
+      if (!osIsSaved) return;
+      const saved = String(form.getValues('serviceOrderNumber') || '').trim();
+      if (saved) { try { localStorage.setItem('serviceOrderSavedNumber', saved); } catch { /* sem armazenamento: só não esconde o aviso */ } }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [osIsSaved]);
+
   const watchedServiceType = form.watch("serviceType");
   const watchedEquipmentType = form.watch("equipmentType");
 
@@ -1343,7 +1351,11 @@ const { toast } = useToast();
                                             const isSkipped = s.step === 3 && watchedIsFinalized === false;
                                             return (
                                                 <div key={s.step} className={cn("flex items-center flex-1 last:flex-initial", isSkipped && "opacity-40")}>
-                                                    <div className="flex items-center">
+                                                    <div
+                                                        className={cn("flex items-center", s.step < currentStep && !isSkipped && "cursor-pointer")}
+                                                        title={s.step < currentStep && !isSkipped ? "Voltar para " + s.title : undefined}
+                                                        onClick={() => { if (s.step < currentStep && !isSkipped) setCurrentStep(s.step); }}
+                                                    >
                                                         <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 transition-all shrink-0 ${
                                                             isActive ? 'border-primary bg-primary text-primary-foreground shadow-sm scale-105' :
                                                             isCompleted && !isSkipped ? 'border-primary bg-transparent text-primary' :
@@ -2021,7 +2033,7 @@ const { toast } = useToast();
                                                 </div>
                                             )}
 
-                                            <div className={cn("flex gap-3 pt-4 border-t mt-4", formV2 && "fixed inset-x-0 bottom-0 z-40 mt-0 bg-background/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur md:static md:z-auto md:mt-4 md:bg-transparent md:px-0 md:pb-0 md:pt-4 md:backdrop-blur-none")}>
+                                            <div className={cn("flex gap-3 pt-4 border-t mt-4", formV2 && "fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 mt-0 bg-background/95 px-4 pt-3 pb-3 backdrop-blur md:static md:z-auto md:mt-4 md:bg-transparent md:px-0 md:pb-0 md:pt-4 md:backdrop-blur-none")}>
                                                 {currentStep > 1 && (
                                                     <Button type="button" variant="outline" onClick={handlePrevStep} className="flex-1 h-12 font-medium text-base shadow-none">
                                                         Voltar

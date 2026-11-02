@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { ArrowRightLeft, Check, ChevronDown, ChevronsUpDown, Minus, Plus, Trash2 } from "lucide-react";
 import type { Route, RouteStop } from "@/lib/data";
 import { formatBorrowedPart, lentFromOrder, type BorrowedPart } from "@/lib/partUsage";
-import { useServiceOrders } from "@/hooks/queries";
+import { useBorrowingOrders } from "@/hooks/queries";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -28,7 +28,7 @@ type Source = { route: Route; stop: RouteStop };
  * "CÓDIGO (xN) [da OS 123]" em "peça trocada" e a OS de origem passa a constar como "cedida" nos relatórios.
  */
 export function BorrowedPartsSection({ routes, technicianId, currentOrder, value, onChange }: Props) {
-    const { data: serviceOrders = [] } = useServiceOrders(2000);
+    const { data: serviceOrders = [] } = useBorrowingOrders();
     const [open, setOpen] = useState(false);
     const [fromOrder, setFromOrder] = useState("");
     const [pickerOpen, setPickerOpen] = useState(false);

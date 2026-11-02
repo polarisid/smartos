@@ -36,6 +36,38 @@ export function useServiceOrders(limit?: number) {
   });
 }
 
+// Pequeno hash para a chave de cache não carregar a lista inteira de números.
+function hashNumbers(sorted: string[]): string {
+  let h = 5381;
+  for (const n of sorted) for (let i = 0; i < n.length; i++) h = ((h << 5) + h + n.charCodeAt(i)) | 0;
+  return `${sorted.length}:${h}`;
+}
+
+/**
+ * Só as OS lançadas para os números informados (as paradas das rotas na tela), em vez das N mais recentes da unidade.
+ * A chave começa com 'service-orders': quem invalida esse prefixo (ex.: previsão da rota) atualiza esta também.
+ */
+export function useServiceOrdersByNumbers(numbers: string[]) {
+  const { activeUnidadeId, appUser } = useAuth();
+  const sorted = Array.from(new Set(numbers.filter(Boolean))).sort();
+  return useQuery({
+    queryKey: ['service-orders', 'by-numbers', hashNumbers(sorted), activeUnidadeId, appUser?.uid],
+    queryFn: () => serviceOrderService.getByNumbers(sorted),
+    enabled: sorted.length > 0,
+    staleTime: 1 * 60 * 1000,
+  });
+}
+
+/** OS lançadas com peça "de outra OS": é só o que precisa para saber o quanto cada OS de origem cedeu. */
+export function useBorrowingOrders() {
+  const { activeUnidadeId, appUser } = useAuth();
+  return useQuery({
+    queryKey: ['service-orders', 'borrowing', activeUnidadeId, appUser?.uid],
+    queryFn: () => serviceOrderService.getBorrowingOrders(activeUnidadeId),
+    staleTime: 1 * 60 * 1000,
+  });
+}
+
 export function useActiveRoutes() {
   const { activeUnidadeId, appUser } = useAuth();
   return useQuery({

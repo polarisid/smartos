@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { format, differenceInDays, isAfter } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { useActiveRoutes, useServiceOrders, useVisitTemplate } from "@/hooks/queries";
+import { useActiveRoutes, useServiceOrdersByNumbers, useBorrowingOrders, useVisitTemplate } from "@/hooks/queries";
 import { useAuth } from "@/context/AuthContext";
 import { AlertCircle, PackageSearch } from "lucide-react";
 
@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Collapsible } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Table, TableHeader, TableRow, TableHead, TableBody } from "@/components/ui/table";
 import { MobileRouteStopCard } from "@/components/MobileRouteStopCard";
 import { RouteDetailsRow } from "@/components/RouteDetailsRow";
@@ -25,13 +27,25 @@ import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 
 import { Map as RouteIcon, Calendar, Sun, MapPin, Car, Eye, Filter, CheckCircle2, Clock, LayoutList, Pin, PinOff, History } from "lucide-react";
-import type { Route, RouteStop } from "@/lib/data";
+import type { Route, RouteStop, ServiceOrder } from "@/lib/data";
+
+type StopFilter = "todas" | "todo" | "pending" | "completed";
 
 const RouteMap = dynamic(() => import("@/components/RouteMap"), { ssr: false });
 export default function RoutesPage() {
     const routesQuery = useActiveRoutes();
     const { data: activeRoutes = [], isError: errRoutes, isLoading: loadingRoutes } = routesQuery;
-    const { data: serviceOrders = [], isError: errSo, isLoading: loadingSo } = useServiceOrders(2000);
+    // Só as OS das paradas das rotas na tela (histórico completo de cada número), em vez das 2000 mais recentes da unidade.
+    const stopNumbers = useMemo(() => activeRoutes.flatMap(r => (r.stops || []).map(s => s.serviceOrder)), [activeRoutes]);
+    const soQuery = useServiceOrdersByNumbers(stopNumbers);
+    const borrowingQuery = useBorrowingOrders(); // quanto cada OS cedeu de peça a outra (aviso "cedida" nos cartões)
+    const errSo = soQuery.isError;
+    const loadingSo = soQuery.isLoading;
+    const serviceOrders = useMemo<ServiceOrder[]>(() => {
+        const byId = new Map<string, ServiceOrder>();
+        for (const os of [...(soQuery.data || []), ...(borrowingQuery.data || [])]) byId.set(os.id, os);
+        return Array.from(byId.values());
+    }, [soQuery.data, borrowingQuery.data]);
     const { data: visitTemplate = "", isError: errTemplate, isLoading: loadingTemplate } = useVisitTemplate();
 
     const dataFetchError = errRoutes || errSo || errTemplate;
@@ -57,6 +71,8 @@ export default function RoutesPage() {
     const [blockedOrders, setBlockedOrders] = useState<Record<string, string>>({});
     const [isBlocksLoaded, setIsBlocksLoaded] = useState(false);
     const [pinnedRouteId, setPinnedRouteId] = useState<string | null>(null);
+    // Filtro da lista de paradas, por rota: o técnico olha só o que falta fazer ou o que ficou pendente.
+    const [stopFilters, setStopFilters] = useState<Record<string, StopFilter>>({});
 
     useEffect(() => {
         try {
@@ -142,30 +158,36 @@ export default function RoutesPage() {
 
     if (isLoading) {
         return (
-            <div className="w-full animate-in fade-in ease-out duration-300">
-                <h2 className="text-2xl font-bold tracking-tight mb-6">Rotas Ativas</h2>
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2"><RouteIcon /> Buscando Rotas...</CardTitle>
-                    </CardHeader>
-                    <CardContent className="text-center py-10 text-muted-foreground">
-                        <p>Aguarde enquanto as rotas são carregadas.</p>
-                    </CardContent>
-                </Card>
+            <div className="w-full animate-in fade-in ease-out duration-300 space-y-4" aria-busy="true">
+                <h2 className="text-2xl font-bold tracking-tight">Rotas Ativas da Equipe</h2>
+                {[0, 1].map(i => (
+                    <Card key={i} className="shadow-sm">
+                        <CardHeader className="bg-muted/30 space-y-2">
+                            <Skeleton className="h-5 w-2/3" />
+                            <Skeleton className="h-3 w-1/3" />
+                        </CardHeader>
+                        <CardContent className="space-y-4 p-4 md:p-6">
+                            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                                {[0, 1, 2, 3].map(k => <Skeleton key={k} className="h-10 w-full" />)}
+                            </div>
+                            <Skeleton className="h-2 w-full" />
+                            <Skeleton className="h-10 w-full md:w-48" />
+                        </CardContent>
+                    </Card>
+                ))}
             </div>
         );
     }
 
     if (activeRoutes.length === 0) {
         return (
-            <div className="w-full animate-in fade-in ease-out duration-300">
-                <h2 className="text-2xl font-bold tracking-tight mb-6">Rotas Ativas</h2>
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2"><RouteIcon /> Nenhuma Rota</CardTitle>
-                        <CardDescription>Não há rotas ativas para a equipe no momento.</CardDescription>
-                    </CardHeader>
-                </Card>
+            <div className="w-full animate-in fade-in ease-out duration-300 space-y-4">
+                <h2 className="text-2xl font-bold tracking-tight">Rotas Ativas da Equipe</h2>
+                <EmptyState
+                    icon={RouteIcon}
+                    title="Nenhuma rota ativa"
+                    description="Quando o administrador publicar uma rota para a equipe, ela aparece aqui."
+                />
             </div>
         );
     }
@@ -192,7 +214,13 @@ export default function RoutesPage() {
                 const completedStopsCount = countedStops.filter(stop => isStopAttended(stop, routeCreated)).length;
                 const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
 
-                const filteredStops = route.stops || [];
+                const allStops = route.stops || [];
+                const stopFilter: StopFilter = stopFilters[route.id] || "todas";
+                const statusCounts = { todo: 0, pending: 0, completed: 0 };
+                countedStops.forEach(stop => { statusCounts[stopMapStatus(stop, routeCreated)]++; });
+                const filteredStops = stopFilter === "todas"
+                    ? allStops
+                    : allStops.filter(stop => !stop.isReallocated && stopMapStatus(stop, routeCreated) === stopFilter);
                 const filteredCount = filteredStops.length;
                 const pendingCount = totalStops - completedStopsCount;
                 const doneCount = completedStopsCount;
@@ -310,11 +338,31 @@ export default function RoutesPage() {
                                             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-violet-100 border border-violet-300 flex items-center justify-center"><History className="w-2 h-2 text-violet-600" /></div><span>Já Visitada</span></div>
                                         </div>
                                     </DialogHeader>
-                                    <div className="max-h-[calc(100dvh-7.5rem)] md:max-h-[70vh] overflow-y-auto">
+                                    <div className="flex flex-wrap gap-1.5 px-1">
+                                        {([
+                                            ["todas", "Todas", allStops.length],
+                                            ["todo", "A fazer", statusCounts.todo],
+                                            ["pending", "Pendentes", statusCounts.pending],
+                                            ["completed", "Concluídas", statusCounts.completed],
+                                        ] as const).map(([key, label, n]) => (
+                                            <button
+                                                key={key}
+                                                type="button"
+                                                onClick={() => setStopFilters(prev => ({ ...prev, [route.id]: key }))}
+                                                className={cn(
+                                                    "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
+                                                    stopFilter === key ? "border-primary bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"
+                                                )}
+                                            >
+                                                {label} <span className="opacity-80">{n}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="max-h-[calc(100dvh-10rem)] md:max-h-[70vh] overflow-y-auto">
                                         {filteredStops.length === 0 ? (
                                             <div className="py-12 text-center text-muted-foreground">
-                                                <p className="font-medium">Nenhuma OS encontrada</p>
-                                                <p className="text-sm mt-1">Nenhuma ordem de serviço planejada para esta rota.</p>
+                                                <p className="font-medium">{allStops.length > 0 ? "Nenhuma parada neste filtro" : "Nenhuma OS encontrada"}</p>
+                                                <p className="text-sm mt-1">{allStops.length > 0 ? "Toque em \"Todas\" para ver as demais paradas." : "Nenhuma ordem de serviço planejada para esta rota."}</p>
                                             </div>
                                         ) : (
                                             <>
@@ -367,7 +415,7 @@ export default function RoutesPage() {
                                 </DialogContent>
                             </Dialog>
 
-                            {filteredStops.length > 0 && (
+                            {allStops.length > 0 && (
                                 <Dialog>
                                     <DialogTrigger asChild>
                                         <Button variant="outline" className="w-full md:w-auto mt-2 md:ml-2">
@@ -390,7 +438,7 @@ export default function RoutesPage() {
                                         <div className="h-[65vh] rounded-lg overflow-hidden">
                                             <RouteMap
                                                 routes={[route]}
-                                                activeStops={filteredStops.map(stop => ({ stop, route, status: stopMapStatus(stop, routeCreated) }))}
+                                                activeStops={allStops.map(stop => ({ stop, route, status: stopMapStatus(stop, routeCreated) }))}
                                                 showPolyline
                                                 height="100%"
                                             />
@@ -399,7 +447,7 @@ export default function RoutesPage() {
                                 </Dialog>
                             )}
 
-                            {filteredStops.length > 0 && (
+                            {allStops.length > 0 && (
                                 <Dialog>
                                     <DialogTrigger asChild>
                                         <Button variant="outline" className="w-full md:w-auto mt-2 md:ml-2">

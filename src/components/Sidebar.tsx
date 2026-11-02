@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Logo } from "@/components/Logo";
 import { useAuth } from "@/context/AuthContext";
 import { NotificationBell } from "@/components/NotificationBell";
+import { cn } from "@/lib/utils";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -19,6 +20,19 @@ export function Sidebar() {
   const [installPromptEvent, setInstallPromptEvent] = useState<any>(null);
   const [open, setOpen] = useState(false);
   const isAdminOrMaster = appUser?.role === 'admin' || appUser?.role === 'master';
+
+  // A barra inferior some enquanto o técnico digita, para não ocupar a tela junto com o teclado.
+  const [typing, setTyping] = useState(false);
+  useEffect(() => {
+    const isTextField = (t: EventTarget | null) =>
+      t instanceof HTMLElement &&
+      (t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "file"].includes((t as HTMLInputElement).type)));
+    const onIn = (e: FocusEvent) => { if (isTextField(e.target)) setTyping(true); };
+    const onOut = () => setTyping(false);
+    window.addEventListener("focusin", onIn);
+    window.addEventListener("focusout", onOut);
+    return () => { window.removeEventListener("focusin", onIn); window.removeEventListener("focusout", onOut); };
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -75,6 +89,20 @@ export function Sidebar() {
     },
   ];
   const routes = groups.flatMap(g => g.items);
+
+  // O que o técnico usa o dia todo fica a um toque; o resto continua no menu ("Mais").
+  const quickItems = [
+    { href: "/", label: "Lançar", icon: Wrench },
+    { href: "/routes", label: "Rotas", icon: Map },
+    { href: "/producao", label: "Produção", icon: ClipboardCheck },
+  ];
+  const goTo = (e: React.MouseEvent, href: string) => {
+    // Sem internet o roteador do Next não busca a tela: navega direto, e o aparelho abre a cópia guardada.
+    if (typeof navigator !== "undefined" && !navigator.onLine && href !== pathname) {
+      e.preventDefault();
+      window.location.href = href;
+    }
+  };
 
   const SidebarContent = ({ withBell = false }: { withBell?: boolean }) => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground border-r border-sidebar-border w-64 p-4 md:p-6">
@@ -167,6 +195,36 @@ export function Sidebar() {
       <aside className="hidden md:block h-screen sticky top-0 z-40">
         <SidebarContent withBell />
       </aside>
+
+      <nav
+        aria-label="Navegação principal"
+        className={cn(
+          "md:hidden fixed inset-x-0 bottom-0 z-40 border-t border-sidebar-border bg-sidebar text-sidebar-foreground pb-[env(safe-area-inset-bottom)] transition-transform duration-200",
+          typing && "translate-y-full"
+        )}
+      >
+        <div className="grid h-14 grid-cols-4">
+          {quickItems.map(item => {
+            const active = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={(e) => goTo(e, item.href)}
+                aria-current={active ? "page" : undefined}
+                className={cn("flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold", active ? "text-sidebar-primary" : "text-sidebar-foreground/60")}
+              >
+                <item.icon className="h-5 w-5" />
+                {item.label}
+              </Link>
+            );
+          })}
+          <button type="button" onClick={() => setOpen(true)} className="flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold text-sidebar-foreground/60">
+            <Menu className="h-5 w-5" />
+            Mais
+          </button>
+        </div>
+      </nav>
 
       <div className="md:hidden fixed top-0 w-full z-50 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 py-3 flex justify-between items-center shadow-sm">
          <Logo size={26} withWordmark wordmarkClassName="text-lg text-sidebar-foreground" />

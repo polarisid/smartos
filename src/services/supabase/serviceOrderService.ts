@@ -291,15 +291,24 @@ export const serviceOrderService = {
     return (data || []).map(this.mapFromDb);
   },
 
+  // Em lotes: o filtro .in() vai na URL, e uma lista grande de números estoura o tamanho dela.
   async getByNumbers(numbers: string[]): Promise<ServiceOrder[]> {
-    if (numbers.length === 0) return [];
-    const { data, error } = await supabase
-      .from('service_orders')
-      .select('*')
-      .in('service_order_number', numbers);
+    const unique = Array.from(new Set(numbers.filter(Boolean)));
+    if (unique.length === 0) return [];
+    const batch = 100;
+    const rows: any[] = [];
+    for (let i = 0; i < unique.length; i += batch) {
+      const { data, error } = await supabase
+        .from('service_orders')
+        .select('*')
+        .in('service_order_number', unique.slice(i, i + batch))
+        .order('date', { ascending: false })
+        .limit(1000);
 
-    if (error) throw error;
-    return data.map(this.mapFromDb);
+      if (error) throw error;
+      rows.push(...(data || []));
+    }
+    return rows.map(this.mapFromDb);
   },
 
   // Helpers to map between DB snake_case and app camelCase
