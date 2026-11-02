@@ -23,6 +23,7 @@ import { RouteLivePlan } from "@/components/routes/RouteLivePlan";
 import { HelpTip } from "@/components/HelpTip";
 import { RouteCodeTag } from "@/components/routes/RouteCodeTag";
 import { RoutePartTracking } from "@/components/RoutePartTracking";
+import { RouteKmStat, RouteKmProgress } from "@/components/routes/RouteKmStat";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 
@@ -241,7 +242,7 @@ export default function RoutesPage() {
                             <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div>
                                     <CardTitle className="flex flex-wrap items-center gap-x-2 gap-y-1 text-base leading-tight text-primary md:text-2xl">
-                                        <RouteIcon className="h-4 w-4 shrink-0 md:h-5 md:w-5" /> <span className="min-w-0 break-words">Rota: {route.name}</span> <RouteCodeTag route={route} className="shrink-0 whitespace-nowrap" />
+                                        <RouteIcon className="h-4 w-4 shrink-0 md:h-5 md:w-5" /> <span className="min-w-0 break-words">{route.name}</span> <RouteCodeTag route={route} className="shrink-0 whitespace-nowrap" />
                                         {pinnedRouteId === route.id && <Pin className="w-4 h-4 text-primary fill-primary/20" />}
                                         {isOwnRoute && <Badge className="text-[10px] px-1.5 py-0 font-bold">Sua rota</Badge>}
                                     </CardTitle>
@@ -304,6 +305,7 @@ export default function RoutesPage() {
                                         <p className="font-semibold capitalize">{route.routeType}</p>
                                     </div>
                                 </div>
+                                <RouteKmStat route={route} serviceOrders={serviceOrders} />
                                 {route.licensePlate && (
                                     <div className="flex items-center gap-2">
                                         <Car className="h-4 w-4 text-muted-foreground" />
@@ -318,6 +320,7 @@ export default function RoutesPage() {
                             <div className="space-y-2">
                                 <Progress value={progress} className="h-2" />
                                 <p className="text-xs text-muted-foreground text-right">{completedStopsCount} de {totalStops} paradas concluídas</p>
+                                <RouteKmProgress route={route} serviceOrders={serviceOrders} />
                             </div>
 
                             <div className="grid grid-cols-3 gap-2 md:flex md:flex-wrap">
