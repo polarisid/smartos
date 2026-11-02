@@ -11,7 +11,7 @@ import { routeService } from "@/services/supabase/routeService";
 import { entriesFromCodes, mergeServerCodes } from "@/lib/trackingCodes";
 import { savePartTracking } from "@/lib/offlineTrackingQueue";
 import { useTrackingQueue } from "@/hooks/useTrackingQueue";
-import { PackageSearch, Save, ScanLine, Smartphone, Loader2, RefreshCw } from "lucide-react";
+import { PackageSearch, Save, ScanLine, Smartphone, Loader2, RefreshCw, CheckCircle } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
@@ -174,10 +174,13 @@ export default function MobileConferencePage() {
                                     </CardDescription>
                                 </CardHeader>
                                 <CardContent className="space-y-4">
-                                    {route.stops.filter(stop => stop.parts && stop.parts.length > 0).map(stop => (
-                                         <div key={stop.serviceOrder} className="border p-3 rounded-lg bg-background">
+                                    {route.stops.filter(stop => stop.parts && stop.parts.length > 0).map(stop => {
+                                        // OS fica verde quando todas as peças dela já têm código de rastreio.
+                                        const allTracked = stop.parts.every(p => (trackingCodes[route.id]?.[stop.serviceOrder]?.[p.code] || "").trim() !== "");
+                                        return (
+                                         <div key={stop.serviceOrder} className={cn("border p-3 rounded-lg", allTracked ? "border-green-400 bg-green-100/60 dark:border-green-800 dark:bg-green-900/30" : "bg-background")}>
                                              <div className="flex flex-wrap items-baseline gap-x-4">
-                                                <h3 className="font-semibold text-lg">{stop.serviceOrder}</h3>
+                                                <h3 className="flex items-center gap-1.5 font-semibold text-lg">{allTracked && <CheckCircle className="h-5 w-5 text-green-600" aria-label="Todas as peças com rastreio" />}{stop.serviceOrder}</h3>
                                                 <p className="text-sm text-muted-foreground">{stop.model}</p>
                                             </div>
                                             <p className="text-sm text-muted-foreground mb-4">{stop.consumerName}</p>
@@ -205,7 +208,8 @@ export default function MobileConferencePage() {
                                                 ))}
                                             </div>
                                          </div>
-                                    ))}
+                                        );
+                                    })}
                                 </CardContent>
                             </Card>
                         ))

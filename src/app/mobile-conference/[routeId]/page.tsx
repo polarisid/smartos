@@ -12,7 +12,7 @@ import { routeService } from "@/services/supabase/routeService";
 import { entriesFromCodes, mergeServerCodes } from "@/lib/trackingCodes";
 import { savePartTracking } from "@/lib/offlineTrackingQueue";
 import { useTrackingQueue } from "@/hooks/useTrackingQueue";
-import { PackageSearch, Save, ScanLine, Smartphone, Loader2, RefreshCw, Search } from "lucide-react";
+import { PackageSearch, Save, ScanLine, Smartphone, Loader2, RefreshCw, Search, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import { withoutReallocated } from "@/lib/routeStops";
@@ -218,10 +218,13 @@ export default function MobileConferenceRoutePage() {
                       : "Nenhuma peça encontrada para esse filtro."}
                   </p>
                 ) : (
-                  filteredStops.map(stop => (
-                    <div key={stop.serviceOrder} className="border p-3 rounded-lg bg-background">
+                  filteredStops.map(stop => {
+                    // OS fica verde quando todas as peças dela já têm código de rastreio.
+                    const allTracked = stop.parts.length > 0 && stop.parts.every(p => (trackingCodes[stop.serviceOrder]?.[p.code] || "").trim() !== "");
+                    return (
+                    <div key={stop.serviceOrder} className={cn("border p-3 rounded-lg", allTracked ? "border-green-400 bg-green-100/60 dark:border-green-800 dark:bg-green-900/30" : "bg-background")}>
                       <div className="flex flex-wrap items-baseline gap-x-4">
-                        <h3 className="font-semibold text-lg">{stop.serviceOrder}</h3>
+                        <h3 className="flex items-center gap-1.5 font-semibold text-lg">{allTracked && <CheckCircle className="h-5 w-5 text-green-600" aria-label="Todas as peças com rastreio" />}{stop.serviceOrder}</h3>
                         <p className="text-sm text-muted-foreground">{stop.model}</p>
                       </div>
                       <p className="text-sm text-muted-foreground mb-4">{stop.consumerName}</p>
@@ -249,7 +252,8 @@ export default function MobileConferenceRoutePage() {
                         ))}
                       </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </CardContent>
             </Card>
