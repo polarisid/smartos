@@ -85,7 +85,7 @@ import { SignaturePad } from '@/components/SignaturePad';
 import dynamic from "next/dynamic";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-import { useFormV2, FormV2Switch, OsTicket, FinalizeChoice, PendingReasonChips } from "@/components/form/FormV2";
+import { OsTicket, FinalizeChoice, PendingReasonChips } from "@/components/form/FormV2";
 import { useTechnicians, usePresets, useCodes, useCodeUsageCounts, useActiveRoutes, useChecklists, useVisitTemplate } from "@/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { BorrowedPartsSection } from "@/components/BorrowedPartsSection";
@@ -693,8 +693,6 @@ export default function OsFormPage() {
 const { toast } = useToast();
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 4;
-  // Formulário novo em teste (desligado por padrão; dá para voltar ao atual a qualquer momento).
-  const [formV2, setFormV2] = useFormV2();
   const STEP_TITLES = ["Básico", "Status", "Detalhes", "Fim"];
   const stepContentRef = useRef<HTMLDivElement>(null);
 
@@ -1322,76 +1320,26 @@ const { toast } = useToast();
   }
 
   return (
-    <div className="max-w-7xl mx-auto w-full animate-in fade-in ease-out duration-300">
+    <div className="-mx-2 max-w-7xl md:mx-auto md:w-full animate-in fade-in ease-out duration-300">
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
             <Card className="w-full border-none shadow-none bg-transparent backdrop-blur-none md:backdrop-blur-xl md:glass-card md:border-solid md:shadow-xl overflow-visible">
-                <CardHeader className="px-1 pt-0 pb-3 md:p-6 space-y-4 md:bg-primary/5 md:border-b md:border-border/40 md:rounded-t-xl">
+                <CardHeader className="px-1 pt-0 pb-2 md:p-6 space-y-2 md:space-y-4 md:bg-primary/5 md:border-b md:border-border/40 md:rounded-t-xl">
                     <div>
-                                        <CardTitle className="text-[22px] md:text-2xl tracking-tight leading-none">Lançamento Rápido de OS</CardTitle>
-                                        <CardDescription className="text-xs md:text-sm mt-1 leading-tight text-muted-foreground/80 md:text-muted-foreground">
+                                        <CardTitle className="text-xl md:text-2xl tracking-tight leading-none">Lançamento de OS</CardTitle>
+                                        <CardDescription className="hidden md:block text-sm mt-1 leading-tight text-muted-foreground">
                                             Preencha os campos abaixo para gerar o texto da ordem de serviço.
                                         </CardDescription>
                                     </div>
-                                    <FormV2Switch enabled={formV2} onChange={setFormV2} />
-                                    {formV2 ? (
-                                        <OsTicket os={watchedServiceOrderNumber || ""} stop={currentRouteStop} step={currentStep} totalSteps={totalSteps} stepTitle={STEP_TITLES[currentStep - 1]} />
-                                    ) : (
-                                    <>
-                                    <div className="flex items-center justify-between w-full max-w-md mt-4">
-                                        {[
-                                            { step: 1, title: 'Básico', icon: User },
-                                            { step: 2, title: 'Status', icon: Package },
-                                            { step: 3, title: 'Detalhes', icon: Wrench },
-                                            { step: 4, title: 'Fim', icon: CheckCircle }
-                                        ].map((s, index) => {
-                                            const Icon = s.icon;
-                                            const isActive = currentStep === s.step;
-                                            const isCompleted = currentStep > s.step;
-                                            // "Detalhes" é pulado quando o atendimento não é finalizado.
-                                            const isSkipped = s.step === 3 && watchedIsFinalized === false;
-                                            return (
-                                                <div key={s.step} className={cn("flex items-center flex-1 last:flex-initial", isSkipped && "opacity-40")}>
-                                                    <div
-                                                        className={cn("flex items-center", s.step < currentStep && !isSkipped && "cursor-pointer")}
-                                                        title={s.step < currentStep && !isSkipped ? "Voltar para " + s.title : undefined}
-                                                        onClick={() => { if (s.step < currentStep && !isSkipped) setCurrentStep(s.step); }}
-                                                    >
-                                                        <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 transition-all shrink-0 ${
-                                                            isActive ? 'border-primary bg-primary text-primary-foreground shadow-sm scale-105' :
-                                                            isCompleted && !isSkipped ? 'border-primary bg-transparent text-primary' :
-                                                            'border-muted bg-transparent text-muted-foreground'
-                                                        }`}>
-                                                            <Icon className="h-4 w-4" />
-                                                        </div>
-                                                        <span className={cn(
-                                                            "ml-2 text-sm font-semibold transition-all whitespace-nowrap",
-                                                            isActive ? "text-foreground inline" : "text-muted-foreground hidden md:inline"
-                                                        )}>
-                                                            {s.title}{isSkipped && <span className="ml-1 text-[10px] font-normal">(pulado)</span>}
-                                                        </span>
-                                                    </div>
-                                                    {index < 3 && (
-                                                        <div className={cn(
-                                                            "flex-1 h-[2px] mx-2 min-w-[0.75rem] transition-colors duration-300",
-                                                            isCompleted ? 'bg-primary' : 'bg-muted'
-                                                        )} />
-                                                    )}
-                                                </div>
-                                            )
-                                        })}
-                                    </div>
-                                    <Progress value={(currentStep / totalSteps) * 100} className="h-1 max-w-md" />
-                                    </>
-                                    )}
+                                    <OsTicket os={watchedServiceOrderNumber || ""} stop={currentRouteStop} step={currentStep} totalSteps={totalSteps} stepTitle={STEP_TITLES[currentStep - 1]} />
                                 </CardHeader>
-                                <CardContent className="px-1 md:px-6">
+                                <CardContent className="px-1 md:px-6 [&_input:not([type=checkbox])]:h-10 [&_button[role=combobox]]:h-10">
                                     <Form {...form}>
                                         <form 
                                             onSubmit={(e) => e.preventDefault()} 
-                                            className="space-y-4 md:space-y-5"
+                                            className="space-y-3 md:space-y-5"
                                         >
                                             {currentStep === 1 && (
-                                                <div ref={stepContentRef} className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
+                                                <div ref={stepContentRef} className="space-y-3 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
                                                     <FormField control={form.control} name="equipmentType" render={({ field }) => (
                                                          <FormItem className="space-y-2">
                                                              <FormLabel>Tipo de Aparelho</FormLabel>
@@ -1401,7 +1349,7 @@ const { toast } = useToast();
                                                                          type="button"
                                                                          variant={field.value === "TV/AV" ? "default" : "outline"}
                                                                          className={cn(
-                                                                             "h-14 flex items-center justify-center gap-2 border text-sm font-semibold transition-all duration-150 rounded-lg w-full active:scale-95",
+                                                                             "h-12 md:h-14 flex items-center justify-center gap-2 border text-sm font-semibold transition-all duration-150 rounded-lg w-full active:scale-95",
                                                                              field.value === "TV/AV"
                                                                                  ? "border-primary bg-primary text-primary-foreground shadow-sm scale-[1.02]"
                                                                                  : "border-input bg-background hover:bg-accent hover:text-accent-foreground"
@@ -1415,7 +1363,7 @@ const { toast } = useToast();
                                                                          type="button"
                                                                          variant={field.value === "DA" ? "default" : "outline"}
                                                                          className={cn(
-                                                                             "h-14 flex items-center justify-center gap-2 border text-sm font-semibold transition-all duration-150 rounded-lg w-full active:scale-95",
+                                                                             "h-12 md:h-14 flex items-center justify-center gap-2 border text-sm font-semibold transition-all duration-150 rounded-lg w-full active:scale-95",
                                                                              field.value === "DA"
                                                                                  ? "border-primary bg-primary text-primary-foreground shadow-sm scale-[1.02]"
                                                                                  : "border-input bg-background hover:bg-accent hover:text-accent-foreground"
@@ -1490,30 +1438,12 @@ const { toast } = useToast();
                                             )}
 
                                             {currentStep === 2 && (
-                                                <div ref={stepContentRef} className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
+                                                <div ref={stepContentRef} className="space-y-3 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
                                                     <div className="grid grid-cols-1 gap-4 items-start rounded-lg border p-4 bg-slate-50/50 dark:bg-slate-900/50">
-                                                        {formV2 ? (
-                                                            <FormField control={form.control} name="isFinalized" render={({ field }) => (
+                                                        <FormField control={form.control} name="isFinalized" render={({ field }) => (
                                                                 <FormItem><FinalizeChoice value={!!field.value} onChange={field.onChange} /></FormItem>
                                                             )}/>
-                                                        ) : (
-                                                            <FormField control={form.control} name="isFinalized" render={({ field }) => (
-                                                            <FormItem className="flex flex-row items-center justify-between">
-                                                                <div className="space-y-0.5 mt-1">
-                                                                    <FormLabel className="text-base text-slate-700 dark:text-slate-200">Atendimento Finalizado?</FormLabel>
-                                                                    <div className="text-xs text-muted-foreground">Desmarque caso precise de mais peças, reagendamento ou peça com defeito</div>
-                                                                </div>
-                                                                <FormControl>
-                                                                    <Switch
-                                                                        checked={field.value}
-                                                                        onCheckedChange={field.onChange}
-                                                                    />
-                                                                </FormControl>
-                                                            </FormItem>
-                                                        )}/>
-                                                        )}
                                                         {!form.watch('isFinalized') && (
-                                                            formV2 ? (
                                                             <FormField control={form.control} name="pendingReason" render={({ field }) => (
                                                                 <FormItem className="animate-in fade-in slide-in-from-top-2">
                                                                     <PendingReasonChips
@@ -1530,24 +1460,6 @@ const { toast } = useToast();
                                                                     <FormMessage />
                                                                 </FormItem>
                                                             )}/>
-                                                        ) : (
-                                                            <FormField control={form.control} name="pendingReason" render={({ field }) => (
-                                                                <FormItem className="animate-in fade-in slide-in-from-top-2">
-                                                                    <FormLabel className="text-red-600 dark:text-red-400">Motivo da Pendência</FormLabel>
-                                                                    <Select onValueChange={field.onChange} value={field.value}>
-                                                                        <FormControl><SelectTrigger className="border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20"><SelectValue placeholder="Selecione o motivo..." /></SelectTrigger></FormControl>
-                                                                        <SelectContent>
-                                                                            <SelectItem value="Peça nova com defeito">Peça nova com defeito</SelectItem>
-                                                                            <SelectItem value="Repedido">Repedido</SelectItem>
-                                                                            <SelectItem value="Remarcação">Remarcação</SelectItem>
-                                                                            <SelectItem value="Ausente">Ausente / Cliente não estava</SelectItem>
-                                                                            <SelectItem value="Outro">Outro</SelectItem>
-                                                                        </SelectContent>
-                                                                    </Select>
-                                                                    <FormMessage />
-                                                                </FormItem>
-                                                            )}/>
-                                                        )
                                                         )}
                                                         {!form.watch('isFinalized') && form.watch('pendingReason') === 'Peça nova com defeito' && (
                                                             <FormField control={form.control} name="defectivePart" render={({ field }) => (
@@ -1775,7 +1687,7 @@ const { toast } = useToast();
                                             )}
 
                                             {currentStep === 3 && (
-                                                <div ref={stepContentRef} className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
+                                                <div ref={stepContentRef} className="space-y-3 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
                                                     <FormField control={form.control} name="serviceType" render={({ field }) => (
                                                         <FormItem>
                                                             <FormLabel>Tipo de Atendimento</FormLabel>
@@ -1995,7 +1907,7 @@ const { toast } = useToast();
                                             )}
 
                                             {currentStep === 4 && (
-                                                <div ref={stepContentRef} className="space-y-4 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
+                                                <div ref={stepContentRef} className="space-y-3 md:space-y-5 animate-in slide-in-from-right-4 fade-in duration-300">
                                                     {showReplacedPart && (
                                                         <FormField control={form.control} name="replacedPart" render={({ field }) => (
                                                             <FormItem>
@@ -2033,7 +1945,7 @@ const { toast } = useToast();
                                                 </div>
                                             )}
 
-                                            <div className={cn("flex gap-3 pt-4 border-t mt-4", formV2 && "fixed inset-x-0 bottom-[calc(var(--bottom-nav-h,3.5rem)_+_env(safe-area-inset-bottom))] z-40 mt-0 bg-background/95 px-4 pt-3 pb-3 backdrop-blur md:static md:z-auto md:mt-4 md:bg-transparent md:px-0 md:pb-0 md:pt-4 md:backdrop-blur-none")}>
+                                            <div className={cn("flex gap-3 pt-4 border-t mt-4", "fixed inset-x-0 bottom-[calc(var(--bottom-nav-h,3.5rem)_+_env(safe-area-inset-bottom))] z-40 mt-0 bg-background/95 px-4 pt-3 pb-3 backdrop-blur md:static md:z-auto md:mt-4 md:bg-transparent md:px-0 md:pb-0 md:pt-4 md:backdrop-blur-none")}>
                                                 {currentStep > 1 && (
                                                     <Button type="button" variant="outline" onClick={handlePrevStep} className="flex-1 h-12 font-medium text-base shadow-none">
                                                         Voltar
@@ -2058,7 +1970,7 @@ const { toast } = useToast();
                                                     </Button>
                                                 )}
                                             </div>
-{formV2 && <div className="h-20 md:hidden" aria-hidden />}
+<div className="h-20 md:hidden" aria-hidden />
 </form>
                                     </Form>
                                 </CardContent>

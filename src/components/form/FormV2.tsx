@@ -1,66 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { CheckCircle, AlertTriangle, Search, ListChecks, FlaskConical, Undo2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CheckCircle, AlertTriangle, Search, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { Route, RouteStop } from "@/lib/data";
 
-// Formulário novo do técnico: é o padrão. Quem preferir pode voltar ao formulário antigo no botão do topo
-// (ou abrindo a tela com ?novo=0) e voltar ao novo com ?novo=1. A escolha fica guardada só neste aparelho.
-const KEY = "smartos_form_v2";
-const OFF = "off";
-
-export function useFormV2(): [boolean, (v: boolean) => void] {
-    const [enabled, setEnabled] = useState(true);
-    useEffect(() => {
-        try {
-            const q = new URLSearchParams(window.location.search).get("novo");
-            if (q === "0") localStorage.setItem(KEY, OFF);
-            if (q === "1") localStorage.removeItem(KEY);
-            setEnabled(localStorage.getItem(KEY) !== OFF);
-        } catch { /* sem armazenamento: fica no formulário novo */ }
-    }, []);
-    const set = (v: boolean) => {
-        setEnabled(v);
-        try { if (v) localStorage.removeItem(KEY); else localStorage.setItem(KEY, OFF); } catch { /* ok */ }
-    };
-    return [enabled, set];
-}
-
-export function FormV2Switch({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
-    if (!enabled) {
-        return (
-            <button
-                type="button"
-                onClick={() => onChange(true)}
-                className="inline-flex items-center gap-1.5 self-start rounded-full border border-dashed border-primary/40 px-3 py-1 text-[11px] font-semibold text-primary hover:bg-primary/5 transition-colors"
-            >
-                <FlaskConical className="h-3.5 w-3.5" /> Usar o formulário novo
-            </button>
-        );
-    }
-    return (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs">
-            <FlaskConical className="h-3.5 w-3.5 text-primary shrink-0" />
-            <span className="font-semibold text-primary">Formulário novo</span>
-            <button type="button" onClick={() => onChange(false)} className="ml-auto inline-flex items-center gap-1 font-semibold text-muted-foreground hover:text-foreground">
-                <Undo2 className="h-3.5 w-3.5" /> Usar o formulário antigo
-            </button>
-        </div>
-    );
-}
-
 /** Etiqueta da OS: o número fica sempre à vista, em fonte de máquina, com o que já se sabe da parada. */
 export function OsTicket({ os, stop, step, totalSteps, stepTitle }: { os: string; stop: RouteStop | null; step: number; totalSteps: number; stepTitle: string }) {
     return (
-        <div className="relative overflow-hidden rounded-xl border bg-card px-4 py-3">
+        <div className="relative overflow-hidden rounded-xl border bg-card px-3 py-2 md:px-4 md:py-3">
             <span className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden />
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Ordem de serviço</p>
-                    <p className={cn("font-mono text-xl font-bold tracking-tight leading-tight", !os && "text-muted-foreground/50")}>{os || "— — — —"}</p>
+                    <p className={cn("font-mono text-lg md:text-xl font-bold tracking-tight leading-tight", !os && "text-muted-foreground/50")}>{os || "— — — —"}</p>
                     {stop && (
                         <p className="mt-0.5 text-xs text-muted-foreground break-words">
                             {[stop.city, stop.neighborhood].filter(Boolean).join(" · ")}{stop.model ? ` · ${stop.model}` : ""}
@@ -72,7 +27,7 @@ export function OsTicket({ os, stop, step, totalSteps, stepTitle }: { os: string
                     <p className="text-[11px] font-semibold text-muted-foreground">{stepTitle}</p>
                 </div>
             </div>
-            <div className="mt-2 flex gap-1" aria-hidden>
+            <div className="mt-1.5 md:mt-2 flex gap-1" aria-hidden>
                 {Array.from({ length: totalSteps }).map((_, i) => (
                     <span key={i} className={cn("h-1 flex-1 rounded-full transition-colors", i < step ? "bg-primary" : "bg-muted")} />
                 ))}
