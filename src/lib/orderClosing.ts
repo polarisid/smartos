@@ -15,7 +15,7 @@ export function parseReplacedParts(replacedPart?: string): Array<{ code: string;
         .split(",")
         .map(raw => raw.trim())
         .map(raw => {
-            const code = raw.match(/^([a-zA-Z0-9-]+)/)?.[0];
+            const code = raw.match(/^([a-zA-Z0-9/-]+)/)?.[0];
             if (!code) return null;
             const qty = raw.match(/\(\s*x\s*(\d+)\s*\)/i)?.[1];
             const part: { code: string; quantity: number; fromOrder?: string } = { code: norm(code), quantity: qty ? Math.max(1, Number(qty)) : 1 };

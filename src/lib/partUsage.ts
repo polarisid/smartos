@@ -7,7 +7,7 @@ function codesIn(replacedPart?: string): string[] {
     return (replacedPart || "")
         .split(",")
         .filter(raw => !borrowedFromOrder(raw)) // peça que veio de outra OS não é a peça desta parada
-        .map(raw => raw.trim().match(/^([a-zA-Z0-9-]+)/)?.[0])
+        .map(raw => raw.trim().match(/^([a-zA-Z0-9/-]+)/)?.[0])
         .filter((c): c is string => !!c)
         .map(norm);
 }
@@ -76,7 +76,7 @@ export function lentFromOrder(
             const item = raw.trim();
             const from = borrowedFromOrder(item);
             if (!from || norm(from) !== source) continue;
-            if (norm(item.match(/^([a-zA-Z0-9-]+)/)?.[0]) !== code) continue;
+            if (norm(item.match(/^([a-zA-Z0-9/-]+)/)?.[0]) !== code) continue;
             const qty = item.match(/\(\s*x\s*(\d+)\s*\)/i)?.[1];
             out.push({ toOrder: os.serviceOrderNumber, quantity: qty ? Math.max(1, Number(qty)) : 1, date: os.date });
         }

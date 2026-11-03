@@ -286,7 +286,7 @@ function MonthlyPartsSummary({ serviceOrders, routes }: { serviceOrders: Service
             if (os.replacedPart) {
                 const parts = os.replacedPart.split(',').map(p => p.trim()).filter(Boolean);
                 parts.forEach(partCodeRaw => {
-                    const partCodeMatch = partCodeRaw.match(/^([a-zA-Z0-9-]+)/);
+                    const partCodeMatch = partCodeRaw.match(/^([a-zA-Z0-9/-]+)/);
                     const partCode = partCodeMatch ? partCodeMatch[0] : partCodeRaw;
 
                     const osData = osDataMap.get(os.serviceOrderNumber) || {};
@@ -460,7 +460,7 @@ function PartsSummary({ routes, serviceOrders }: { routes: Route[], serviceOrder
                 ) {
                     const partsUsedInOS = os.replacedPart.split(',').map(p => p.trim());
                     partsUsedInOS.forEach(partCodeRaw => {
-                        const partCodeMatch = partCodeRaw.match(/^([a-zA-Z0-9-]+)/);
+                        const partCodeMatch = partCodeRaw.match(/^([a-zA-Z0-9/-]+)/);
                         const partCode = partCodeMatch ? partCodeMatch[0] : partCodeRaw;
 
                         if (usedParts[partCode]) {
@@ -901,7 +901,7 @@ function OsRouteSearch() {
                     if (relatedOs?.replacedPart) {
                         relatedOs.replacedPart.split(',').forEach(raw => {
                             if (borrowedFromOrder(raw)) return; // peça que veio de outra OS não é a desta parada
-                            const codeMatch = raw.trim().match(/^([a-zA-Z0-9-]+)/);
+                            const codeMatch = raw.trim().match(/^([a-zA-Z0-9/-]+)/);
                             if (codeMatch) usedSet.add(codeMatch[0].toUpperCase());
                         });
                     }

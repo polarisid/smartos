@@ -137,6 +137,10 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
     toast({ title: "Código lido com sucesso!" });
   };
 
+  // OS completa: todas as peças dela já têm código de rastreio na tela (mesmo critério da conferência do admin e do link mobile).
+  const isStopTracked = (stop: { serviceOrder: string; parts: { code: string }[] }) =>
+    stop.parts.length > 0 && stop.parts.every(p => (trackingCodes[stop.serviceOrder]?.[p.code] || "").trim() !== "");
+
   const isPartSaved = (stopServiceOrder: string, partCode: string) => {
     const typed = (trackingCodes[stopServiceOrder]?.[partCode] || "").trim();
     return !!typed && savedCodes[stopServiceOrder]?.[partCode] === typed;
@@ -191,10 +195,10 @@ export function RoutePartTracking({ route, onSaved }: { route: Route; onSaved?: 
           filteredStops.map(stop => (
             <div
               key={stop.serviceOrder}
-              className={cn("border p-3 rounded-lg bg-background", stop.parts.every(p => isPartSaved(stop.serviceOrder, p.code)) && "border-green-400 dark:border-green-800")}
+              className={cn("border p-3 rounded-lg", isStopTracked(stop) ? "border-green-400 bg-green-100/60 dark:border-green-800 dark:bg-green-900/30" : "bg-background")}
             >
               <div className="flex flex-wrap items-baseline gap-x-4">
-                <h3 className="font-semibold text-lg">{stop.serviceOrder}</h3>
+                <h3 className="flex items-center gap-1.5 font-semibold text-lg">{isStopTracked(stop) && <CheckCircle2 className="h-5 w-5 text-green-600" aria-label="Todas as peças com rastreio" />}{stop.serviceOrder}</h3>
                 <p className="text-sm text-muted-foreground">{stop.model}</p>
               </div>
               <p className="text-sm text-muted-foreground mb-4">{stop.consumerName}</p>

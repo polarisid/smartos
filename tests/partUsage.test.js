@@ -41,6 +41,13 @@ test("partUsageInStop ignora peça emprestada com o mesmo código", () => {
     assert.deepStrictEqual(partUsageInStop("222", "BN44-1", list, created), { used: true, defective: false });
 });
 
+test("partUsageInStop reconhece código com barra (MSV4A1AL1R/TSJ)", () => {
+    const list = [os("222", "MSV4A1AL1R/TSJ")];
+    assert.deepStrictEqual(partUsageInStop("222", "MSV4A1AL1R/TSJ", list, created), { used: true, defective: false });
+    const lent = lentFromOrder("111", "MSV4A1AL1R/TSJ", [os("333", "MSV4A1AL1R/TSJ [da OS 111]")], created);
+    assert.strictEqual(lent.length, 1);
+});
+
 test("partUsageInStop marca defeito de peça nova", () => {
     const list = [os("222", "", { isFinalized: false, pendingReason: "Peça nova com defeito: BN44-1" })];
     assert.deepStrictEqual(partUsageInStop("222", "BN44-1", list, created), { used: false, defective: true });
