@@ -72,7 +72,11 @@ const parseBrDate = (text?: string): number => {
 // foi reprogramada para um dia POSTERIOR ao da pendência (aí volta a ser Programada / Com dia). O mesmo dia não conta: é o
 // dia da própria visita que gerou a pendência (ex.: técnico pediu mais peça na visita programada para hoje).
 const isPending = (r: Row) => !!r.pendingAt && !(r.day && new Date(r.day + "T00:00:00").getTime() > new Date(r.pendingAt.getFullYear(), r.pendingAt.getMonth(), r.pendingAt.getDate(), 23, 59, 59, 999).getTime());
-const statusOf = (r: Row) => (r.finalizedAt ? "Finalizada" : isPending(r) ? "Pendência" : r.childName ? "Programada" : r.day ? "Com dia" : "A programar");
+// Atrasada = o dia programado já passou e a OS não foi finalizada nem visitada (com pendência) depois da programação.
+const todayKey = () => format(new Date(), "yyyy-MM-dd");
+const isLate = (r: Row) => !r.finalizedAt && !isPending(r) && !!r.day && r.day < todayKey();
+const daysLate = (r: Row) => Math.max(1, Math.round((new Date(todayKey() + "T12:00:00").getTime() - new Date(r.day + "T12:00:00").getTime()) / (24 * 60 * 60 * 1000)));
+const statusOf = (r: Row) => (r.finalizedAt ? "Finalizada" : isPending(r) ? "Pendência" : isLate(r) ? "Atrasada" : r.childName ? "Programada" : r.day ? "Com dia" : "A programar");
 
 // TAT atual: dias desde a data da solicitação até (1) a finalização, se já foi atendida; (2) o dia programado, se
 // está programada; (3) hoje, se ainda não tem dia. Devolve também até quando foi contado, para explicar na tela.
@@ -108,7 +112,7 @@ const COLUMNS: Array<{ key: SortKey; label: string; value: (r: Row) => string | 
     { key: "warranty", label: "OW/LP", value: r => r.stop.warrantyType || "" },
 ];
 
-const STATUS_ORDER = ["A programar", "Com dia", "Programada", "Pendência", "Finalizada"];
+const STATUS_ORDER = ["A programar", "Com dia", "Programada", "Atrasada", "Pendência", "Finalizada"];
 
 // Colunas que podem ser escondidas (SO, Dia e Situação ficam sempre).
 const TOGGLEABLE_COLUMNS: Array<{ key: string; label: string }> = [
@@ -818,6 +822,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         finalized: rows.filter(r => r.finalizedAt).length,
         scheduled: rows.filter(r => statusOf(r) === "Programada").length,
         pending: rows.filter(r => statusOf(r) === "Pendência").length,
+        late: rows.filter(r => statusOf(r) === "Atrasada").length,
         withDay: rows.filter(r => statusOf(r) === "Com dia").length,
         open: rows.filter(r => statusOf(r) === "A programar").length,
         parts: rows.reduce((a, r) => a + r.partsTotal, 0),
@@ -995,7 +1000,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         const fmtDay = (day: string) => (day ? format(new Date(day + "T12:00:00"), "dd/MM/yyyy") : "");
         const childOf = (name: string | null) => (name ? children.find(c => c.name === name) : undefined);
         const childStatus = (c?: Route) => (!c ? "" : c.isCanceled ? "Cancelada" : c.isDraft ? "Rascunho" : c.isActive ? "Ativa" : "Finalizada");
-        const toneOf = (st: string): SheetRow["tone"] => (st === "Finalizada" ? "green" : st === "Pendência" ? "red" : st === "Programada" ? "blue" : st === "Com dia" ? "amber" : "default");
+        const toneOf = (st: string): SheetRow["tone"] => (st === "Finalizada" ? "green" : st === "Pendência" || st === "Atrasada" ? "red" : st === "Programada" ? "blue" : st === "Com dia" ? "amber" : "default");
 
         // O que cada OS já teve em OUTRAS rotas de entrega (peças já enviadas e peças que só foram lá).
         const fmtShip = (d: { routeName: string; routeDate: Date; trackingCode: string } | null | undefined) =>
@@ -1107,6 +1112,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             { values: ["OS na rota", rows.length] },
             { tone: "green", values: ["Finalizadas", count("Finalizada")] },
             { tone: "red", values: ["Com pendência", count("Pendência")] },
+            { tone: "red", values: ["Atrasadas (dia programado passou)", count("Atrasada")] },
             { tone: "blue", values: ["Programadas (em rota dos dias)", count("Programada")] },
             { tone: "amber", values: ["Com dia, sem rota", count("Com dia")] },
             { values: ["A programar", count("A programar")] },
@@ -1629,11 +1635,13 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         const cls = st === "Finalizada" ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
             : st === "Programada" ? "border-blue-300 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
             : st === "Pendência" ? "border-red-300 bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
+            : st === "Atrasada" ? "border-orange-400 bg-orange-100 font-semibold text-orange-800 dark:bg-orange-950/50 dark:text-orange-300"
             : st === "Com dia" ? "border-violet-300 bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
             : "text-muted-foreground";
         return (
             <div className="flex flex-col items-start gap-0.5">
                 <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 whitespace-nowrap", cls, st === "Pendência" && r.pendingNote && "cursor-help")} title={st === "Pendência" && r.pendingNote ? "Pendência lançada pelo técnico\n" + r.pendingNote : undefined}>{st}</Badge>
+                {st === "Atrasada" && <span className="text-[10px] font-medium text-orange-700 dark:text-orange-300" title={"Programada para " + format(new Date(r.day + "T12:00:00"), "dd/MM/yyyy")}>há {daysLate(r)} dia{daysLate(r) > 1 ? "s" : ""}</span>}
                 {r.finalizedAt && <span className="text-[10px] text-muted-foreground tabular-nums">{format(r.finalizedAt, "dd/MM HH:mm")}</span>}
                 {!r.finalizedAt && r.pendingAt && <span className={cn("text-[10px] text-muted-foreground tabular-nums", r.pendingNote && "cursor-help")} title={r.pendingNote || undefined}>{format(r.pendingAt, "dd/MM HH:mm")}</span>}
                 {r.childName && <span className="text-[10px] text-muted-foreground max-w-[150px] truncate" title={r.childName}>{r.childName}</span>}
@@ -1723,14 +1731,14 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 return selectable(r) ? (
                     <Input
                         type="date"
-                        className="h-6 w-[112px] text-[10px] px-1"
+                        className={cn("h-6 w-[112px] text-[10px] px-1", isLate(r) && "border-orange-400 bg-orange-50 font-semibold text-orange-700")}
                         value={r.day}
                         onChange={e => setDays([so], e.target.value)}
                         title={r.day ? format(new Date(r.day + "T12:00:00"), "EEEE", { locale: ptBR }) : "Definir o dia"}
                     />
                 ) : (
                     <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                        <span className="text-muted-foreground">{r.day ? format(new Date(r.day + "T12:00:00"), "dd/MM") : "—"}</span>
+                        <span className={isLate(r) ? "font-semibold text-orange-700 dark:text-orange-300" : "text-muted-foreground"}>{r.day ? format(new Date(r.day + "T12:00:00"), "dd/MM") : "—"}</span>
                         {!r.finalizedAt && r.childName && (
                             <button type="button" className="rounded border px-1 py-0 text-[10px] font-semibold text-primary hover:bg-primary/10" title="Mover esta OS para outro dia ou outra rota (cliente desistiu, remarcou...)" onClick={() => openReprogram(r)}>
                                 Reprogramar
@@ -1794,11 +1802,12 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
+            <div className="grid grid-cols-2 md:grid-cols-8 gap-2">
                 {[
                     { label: "OS na rota", value: summary.total },
                     { label: "Finalizadas", value: summary.finalized },
                     { label: "Programadas (rota filha)", value: summary.scheduled },
+                    { label: "Atrasadas", value: summary.late },
                     { label: "Pendência", value: summary.pending },
                     { label: "Com dia, sem rota", value: summary.withDay },
                     { label: "A programar", value: summary.open },
