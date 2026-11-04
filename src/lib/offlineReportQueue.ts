@@ -11,7 +11,10 @@ export type PendingReportPhoto =
   | { category: TechnicalReportPhotoCategory; label?: string; order: number; file: File } // precisa subir no flush
   | { category: TechnicalReportPhotoCategory; label?: string; order: number; url: string; path: string }; // já tinha sido enviada antes (edição de relatório existente)
 
-export type PendingReportPayload = Omit<TechnicalReport, "id" | "createdAt" | "updatedAt" | "photos">;
+export type PendingReportPayload = Omit<TechnicalReport, "id" | "createdAt" | "updatedAt" | "photos"> & {
+  /** Só para master (sem unidade própria): unidade escolhida no seletor, gravada no relatório novo. */
+  unidadeId?: string | null;
+};
 
 export type PendingReport = {
   localId: string;
@@ -244,15 +247,29 @@ async function sendReportItem(
   });
 
   setSyncState({ step: "saving", progress: undefined });
-  const fullPayload = { ...item.payload, photos: uploadedPhotos };
+  const { unidadeId, ...payloadFields } = item.payload;
+  const fullPayload = { ...payloadFields, photos: uploadedPhotos };
 
   let id = item.existingReportId;
   if (id) {
     await withTimeout(technicalReportService.update(id, fullPayload), 60000, "O servidor demorou demais para responder.");
   } else {
-    id = await withTimeout(technicalReportService.create(fullPayload as any), 60000, "O servidor demorou demais para responder.");
+    id = await withTimeout(technicalReportService.create(fullPayload as any, unidadeId), 60000, "O servidor demorou demais para responder.");
     // Já criado: se algo falhar depois, a próxima rodada atualiza este relatório em vez de duplicar.
     await hooks.onCreated?.(id);
+  }
+
+  // Só dá o relatório como enviado depois de LER de volta o que o servidor guardou: se não voltou (permissão, unidade)
+  // ou voltou sem as fotos, continua na fila com o erro em vez de sumir do aviso sem estar no banco.
+  const saved = await withTimeout(technicalReportService.getById(id), 30000, "O servidor demorou demais para confirmar o envio.");
+  const savedPaths = new Set((saved?.photos || []).map((p) => p.path));
+  const missing = uploadedPhotos.filter((p) => !savedPaths.has(p.path)).length;
+  if (!saved || missing > 0) {
+    throw new Error(
+      !saved
+        ? "O servidor aceitou o relatório mas ele não aparece na consulta (permissão ou unidade). Avise o administrador."
+        : `O servidor guardou o relatório sem ${missing} foto(s). Vai tentar de novo.`
+    );
   }
 
   if (uploadedPhotos.length > 0) {

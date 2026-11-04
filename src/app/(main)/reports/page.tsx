@@ -107,7 +107,7 @@ function ReportsPageInner() {
   // O técnico logado já vem selecionado em "Técnico Responsável" (o id do técnico
   // é o mesmo do login) - antes começava vazio e o relatório ficava sem técnico
   // se ele esquecesse de escolher. Continua dando pra trocar (ex.: parceiro de rota).
-  const { appUser } = useAuth();
+  const { appUser, activeUnidadeId } = useAuth();
   useEffect(() => {
     if (technicianId || !appUser) return;
     if (technicians.some(t => t.id === appUser.uid)) setTechnicianId(appUser.uid);
@@ -458,7 +458,7 @@ function ReportsPageInner() {
       // envia direto - o técnico não perde o relatório por causa disso.
       // Salvar nunca falha por causa do aparelho: se não der pra gravar no banco local, o relatório
       // fica na memória desta aba e o envio em segundo plano segue igual (aviso abaixo).
-      const queued = await queueReport(basePayload, pendingPhotos, savedReportId || undefined);
+      const queued = await queueReport({ ...basePayload, ...(appUser?.role === "master" && activeUnidadeId ? { unidadeId: activeUnidadeId } : {}) }, pendingPhotos, savedReportId || undefined);
       const memoryOnly = queued.where === "memory";
 
       // PDF na hora, com as fotos locais (blob) - não depende de rede.

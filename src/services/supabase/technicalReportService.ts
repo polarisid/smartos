@@ -159,8 +159,11 @@ export const technicalReportService = {
     return new Set((data || []).map((row: any) => row.service_order_number));
   },
 
-  async create(data: Omit<TechnicalReport, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+  // unidadeId: master não tem unidade própria (a trigger do banco não preenche), então sem ela o relatório
+  // ficaria sem unidade e invisível para os admins/técnicos da unidade.
+  async create(data: Omit<TechnicalReport, 'id' | 'createdAt' | 'updatedAt'>, unidadeId?: string | null): Promise<string> {
     const dbData = this.mapToDb(data);
+    if (unidadeId) dbData.unidade_id = unidadeId;
     const { data: newDoc, error } = await supabase
       .from('technical_reports')
       .insert(dbData)
@@ -174,12 +177,15 @@ export const technicalReportService = {
   async update(id: string, data: Partial<TechnicalReport>): Promise<void> {
     const dbData = this.mapToDb(data);
     dbData.updated_at = new Date().toISOString();
-    const { error } = await supabase
+    const { data: rows, error } = await supabase
       .from('technical_reports')
       .update(dbData)
-      .eq('id', id);
+      .eq('id', id)
+      .select('id');
 
     if (error) throw error;
+    // O banco não dá erro quando a permissão esconde a linha: simplesmente não altera nada.
+    if (!rows || rows.length === 0) throw new Error('O relatório não foi encontrado ou você não tem permissão para alterá-lo.');
   },
 
   async remove(id: string): Promise<void> {
