@@ -89,6 +89,16 @@ export function useActiveRoutes() {
   });
 }
 
+// Rotas de entrega da unidade: só para saber o que cada OS já levou em outras rotas de entrega (aviso nos cartões das paradas).
+export function useDeliveryRoutes() {
+  const { activeUnidadeId, appUser } = useAuth();
+  return useQuery({
+    queryKey: ['routes', 'delivery', activeUnidadeId, appUser?.uid],
+    queryFn: () => routeService.getDeliveryRoutes(activeUnidadeId),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useDraftRoutes() {
   const { activeUnidadeId, appUser } = useAuth();
   return useQuery({

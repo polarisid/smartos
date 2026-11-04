@@ -14,18 +14,23 @@ import type { ServiceOrder, RouteStop } from "@/lib/data";
 import { Badge } from "@/components/ui/badge";
 import { copyToClipboard } from "@/lib/clipboard";
 import { lentFromOrder, lentNotice } from "@/lib/partUsage";
+import { extraPartsOf, sentBeforeOf, type OrderHistory } from "@/lib/deliveryHistory";
+import { OtherDeliveryNotice } from "@/components/routes/OtherDeliveryNotice";
 
 export function RouteDetailsRow({ 
     stop, 
     index, 
     serviceOrders, 
     routeCreatedAt, 
+    otherDelivery,
     visitTemplate = '' 
 }: { 
     stop: RouteStop, 
     index: number, 
     serviceOrders: ServiceOrder[], 
     routeCreatedAt: Date,
+    /** O que a OS já levou em outras rotas de entrega (peça já enviada / peça que só foi lá). */
+    otherDelivery?: OrderHistory,
     visitTemplate?: string
 }) {
     const { toast } = useToast();
@@ -120,9 +125,13 @@ export function RouteDetailsRow({
                                         <div key={pIndex} className="font-mono text-xs">
                                             {part.code} (x{part.quantity})
                                             {lent && <span className="ml-1 font-sans text-[10px] font-semibold text-sky-700 dark:text-sky-300">· {lent}</span>}
+                                            {sentBeforeOf(otherDelivery, part.code) && <span className="ml-1 font-sans text-[10px] font-semibold text-red-700 dark:text-red-300">· já enviada em outra rota</span>}
                                         </div>
                                     );
                                 })}
+                                {extraPartsOf(otherDelivery).length > 0 && (
+                                    <div className="font-sans text-[10px] font-semibold text-sky-700 dark:text-sky-300">+ {extraPartsOf(otherDelivery).length} peça(s) em outra rota de entrega</div>
+                                )}
                             </div>
                         ) : (
                             <span className="text-xs text-muted-foreground">N/A</span>
@@ -183,6 +192,7 @@ export function RouteDetailsRow({
                                     {stop.firstVisitDate || "Sem data"} {stop.turn ? `- ${stop.turn}` : ''}
                                 </p>
                             </div>
+                            <OtherDeliveryNotice history={otherDelivery} parts={stop.parts || []} />
                             {isPending && (
                                 <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-2 space-y-1">
                                     <p className="font-semibold text-xs text-red-700 dark:text-red-400 mb-1">Registro do Técnico (Pendência):</p>

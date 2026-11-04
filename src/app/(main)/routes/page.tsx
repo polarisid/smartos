@@ -4,7 +4,8 @@ import { useState, useEffect, useMemo } from "react";
 import { format, differenceInDays, isAfter } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { useActiveRoutes, useServiceOrdersByNumbers, useBorrowingOrders, useVisitTemplate } from "@/hooks/queries";
+import { useActiveRoutes, useDeliveryRoutes, useServiceOrdersByNumbers, useBorrowingOrders, useVisitTemplate } from "@/hooks/queries";
+import { makeOtherDeliveryLookup } from "@/lib/deliveryHistory";
 import { useAuth } from "@/context/AuthContext";
 import { AlertCircle, PackageSearch } from "lucide-react";
 
@@ -40,6 +41,9 @@ export default function RoutesPage() {
     const stopNumbers = useMemo(() => activeRoutes.flatMap(r => (r.stops || []).map(s => s.serviceOrder)), [activeRoutes]);
     const soQuery = useServiceOrdersByNumbers(stopNumbers);
     const borrowingQuery = useBorrowingOrders(); // quanto cada OS cedeu de peça a outra (aviso "cedida" nos cartões)
+    // O que cada OS já levou em OUTRAS rotas de entrega (peça já enviada / peça que só foi lá): aviso nos cartões.
+    const { data: deliveryRoutes } = useDeliveryRoutes();
+    const getOtherDelivery = useMemo(() => makeOtherDeliveryLookup(deliveryRoutes || []), [deliveryRoutes]);
     const errSo = soQuery.isError;
     const loadingSo = soQuery.isLoading;
     const serviceOrders = useMemo<ServiceOrder[]>(() => {
@@ -381,6 +385,7 @@ export default function RoutesPage() {
                                                             index={index}
                                                             serviceOrders={serviceOrders}
                                                             routeCreatedAt={(route.createdAt as Date)}
+                                                            otherDelivery={getOtherDelivery(route, stop.serviceOrder)}
                                                             visitTemplate={visitTemplate}
                                                             blockedOrders={blockedOrders}
                                                             onBlock={handleBlock}
@@ -409,6 +414,7 @@ export default function RoutesPage() {
                                                                         index={index}
                                                                         serviceOrders={serviceOrders}
                                                                         routeCreatedAt={(route.createdAt as Date)}
+                                                                        otherDelivery={getOtherDelivery(route, stop.serviceOrder)}
                                                                         visitTemplate={visitTemplate}
                                                                     />
                                                                 </Collapsible>

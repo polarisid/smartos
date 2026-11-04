@@ -16,6 +16,8 @@ import type { ServiceOrder, RouteStop } from "@/lib/data";
 import { copyToClipboard } from "@/lib/clipboard";
 import { stateToUF } from "@/lib/brStates";
 import { lentFromOrder, lentNotice } from "@/lib/partUsage";
+import type { OrderHistory } from "@/lib/deliveryHistory";
+import { OtherDeliveryNotice } from "@/components/routes/OtherDeliveryNotice";
 
 const PART_DESCRIPTION_PREVIEW = 20;
 
@@ -47,6 +49,7 @@ export function MobileRouteStopCard({
     index, 
     serviceOrders, 
     routeCreatedAt, 
+    otherDelivery,
     visitTemplate, 
     blockedOrders, 
     onBlock, 
@@ -56,6 +59,8 @@ export function MobileRouteStopCard({
     index: number, 
     serviceOrders: ServiceOrder[], 
     routeCreatedAt: Date,
+    /** O que a OS já levou em outras rotas de entrega (peça já enviada / peça que só foi lá). */
+    otherDelivery?: OrderHistory,
     visitTemplate: string,
     blockedOrders: Record<string, string>,
     onBlock: (serviceOrder: string, reason: string) => void,
@@ -220,6 +225,8 @@ export function MobileRouteStopCard({
                         </div>
                     </div>
                 )}
+
+                <OtherDeliveryNotice history={otherDelivery} parts={stop.parts || []} />
 
                 <div className="flex gap-2">
                     <Button
