@@ -8,6 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
+import { quoteService } from "@/services/supabase/quoteService";
+import { useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
+import { ToastAction } from "@/components/ui/toast";
 import type { RepairCenterInfo } from "@/lib/data";
 import { FileText, User, CreditCard, Plus, Trash2, Loader2, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 
@@ -54,6 +59,10 @@ export function QuoteBuilder({
   partSuggestions: { description: string; value: number }[];
 }) {
   const { toast } = useToast();
+  const { activeUnidadeId, appUser } = useAuth();
+  const queryClient = useQueryClient();
+  // Guarda o orçamento no controle (Orçamentos): aprovado/reprovado, vínculo com a OS e pagamentos.
+  const [saveQuote, setSaveQuote] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -119,6 +128,7 @@ export function QuoteBuilder({
     setIsGenerating(true);
     try {
       const { buildAndDownloadQuotePdf } = await import("@/lib/quotePdf");
+      const pdfItems = computedItems.map(i => ({ code: i.code || undefined, description: i.description, value: i.value, quantity: i.quantity, kind: i.kind }));
       await buildAndDownloadQuotePdf({
         repairCenter,
         osNumber: osNumber.trim() || undefined,
@@ -127,9 +137,32 @@ export function QuoteBuilder({
         clientCpf: clientCpf.trim(),
         symptom, accessory, defectFound, serviceDescription, observations,
         completionTime,
-        items: computedItems.map(i => ({ code: i.code || undefined, description: i.description, value: i.value, quantity: i.quantity, kind: i.kind })),
+        items: pdfItems,
         discount,
       });
+      if (saveQuote) {
+        // O PDF já foi baixado: se salvar falhar, avisa mas não perde o PDF.
+        try {
+          await quoteService.create({
+            osNumber: osNumber.trim() || undefined,
+            clientName: clientName.trim(),
+            clientCpf: clientCpf.trim(),
+            clientNumber: clientNumber.trim() || undefined,
+            totalAmount: grandTotal,
+            createdByName: appUser?.name || undefined,
+            snapshot: { symptom, accessory, defectFound, serviceDescription, observations, completionTime, items: pdfItems, discount },
+          }, activeUnidadeId);
+          queryClient.invalidateQueries({ queryKey: ["quotes"] });
+          toast({
+            title: "Orçamento gerado e salvo",
+            description: osNumber.trim() ? `Vinculado à OS ${osNumber.trim()}. Marque aprovado/reprovado e os pagamentos em Orçamentos.` : "Marque aprovado/reprovado e os pagamentos em Orçamentos.",
+            action: <ToastAction altText="Abrir Orçamentos" asChild><Link href="/admin/quotes">Abrir</Link></ToastAction>,
+          });
+        } catch (saveError: any) {
+          console.error("Falha ao salvar orçamento", saveError);
+          toast({ variant: "destructive", title: "PDF baixado, mas o orçamento NÃO foi salvo no controle", description: saveError?.message || "Verifique a conexão e a migration 32_quotes.sql." });
+        }
+      }
     } catch (e: any) {
       console.error(e);
       toast({ variant: "destructive", title: "Erro ao gerar orçamento", description: e?.message });
@@ -148,7 +181,7 @@ export function QuoteBuilder({
           <div>
             <CardTitle className="text-base flex items-center gap-2"><FileText className="h-4 w-4" /> Gerar Orçamento (PDF)</CardTitle>
             <CardDescription className="text-xs mt-1">
-              Segue o template padrão Samsung. Nada aqui é salvo, só vai para o PDF.
+              Segue o template padrão Samsung. Ao gerar, o orçamento fica salvo em Orçamentos (aprovação, vínculo com a OS e pagamentos).
             </CardDescription>
           </div>
           <Button type="button" variant="ghost" size="sm" className="gap-1.5 shrink-0" onClick={e => { e.stopPropagation(); setIsExpanded(v => !v); }}>
@@ -168,7 +201,7 @@ export function QuoteBuilder({
             <Input value={clientCpf} onChange={e => setClientCpf(e.target.value)} placeholder="000.000.000-00" />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Nº da OS</Label>
+            <Label className="text-xs">Nº da OS (vincula)</Label>
             <Input value={osNumber} onChange={e => setOsNumber(e.target.value)} placeholder="Opcional" />
           </div>
           <div className="space-y-1.5">
@@ -311,10 +344,16 @@ export function QuoteBuilder({
           <div className="flex justify-between border-t pt-1 mt-1"><span className="font-bold">Total</span><span className="font-bold text-primary text-base">{brl(grandTotal)}</span></div>
         </div>
 
-        <Button onClick={handleGenerate} disabled={isGenerating} className="gap-2">
-          {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-          Gerar Orçamento em PDF
-        </Button>
+        <div className="flex flex-wrap items-center gap-4">
+          <Button onClick={handleGenerate} disabled={isGenerating} className="gap-2">
+            {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+            Gerar Orçamento em PDF
+          </Button>
+          <div className="flex items-center gap-2">
+            <Checkbox id="save-quote" checked={saveQuote} onCheckedChange={c => setSaveQuote(c === true)} />
+            <Label htmlFor="save-quote" className="text-xs font-medium cursor-pointer">Salvar em Orçamentos (controle de aprovação e pagamentos)</Label>
+          </div>
+        </div>
       </CardContent>
       )}
     </Card>

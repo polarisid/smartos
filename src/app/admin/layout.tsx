@@ -28,7 +28,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
-import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera, Calculator, Loader2, Building2, KeyRound, Copy, Check, Shuffle, LifeBuoy, ListChecks, Car, FileCheck2 } from "lucide-react"
+import { LayoutGrid, Users as UsersIcon, Tag, LogOut, ClipboardCheck, Bookmark, History, Target, Route, ClipboardList, PackageSearch, FileMinus, Users, Truck, BarChart2, Activity, CalendarDays, Settings, Camera, Calculator, Loader2, Building2, KeyRound, Copy, Check, Shuffle, LifeBuoy, ListChecks, Car, FileCheck2, Wallet } from "lucide-react"
 import { Logo } from "@/components/Logo"
 import { unidadeService, UNIDADES_CHANGED_EVENT } from "@/services/supabase/unidadeService"
 import { type Unidade } from "@/lib/data"
@@ -230,6 +230,7 @@ const NAV_GROUPS = [
       { href: '/admin/planejamento', label: 'Planejamento', Icon: CalendarDays, tooltip: 'Planejamento de Rotas' },
       { href: '/admin/part-separation', label: 'Conferência de Peças', Icon: PackageSearch, tooltip: 'Conferência de Peças' },
       { href: '/admin/cost-calculator', label: 'Calculadora de Custo', Icon: Calculator, tooltip: 'Calculadora de Custo de Deslocamento' },
+      { href: '/admin/quotes', label: 'Orçamentos', Icon: Wallet, tooltip: 'Orçamentos: aprovação, vínculo com a OS e pagamentos' },
       { href: '/admin/checklists', label: 'Checklists', Icon: ClipboardList, tooltip: 'Checklists' },
       { href: '/admin/reports', label: 'Relatórios Fotográficos', Icon: Camera, tooltip: 'Relatórios Fotográficos' },
       { href: '/admin/returns', label: 'Retornos', Icon: History, tooltip: 'Retornos' },
