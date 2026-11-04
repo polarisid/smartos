@@ -152,7 +152,11 @@ export default function AdminReportsPage() {
     try {
       const r = await downloadPhotosFromPdfs(files);
       if (r.photos === 0) {
-        toast({ variant: "destructive", title: "Nenhuma foto encontrada", description: "Esses PDFs não têm fotos em JPEG (só PDFs de relatório gerados pelo app)." });
+        toast({
+          variant: "destructive",
+          title: "Nenhuma foto encontrada",
+          description: "Não há fotos dentro " + (files.length > 1 ? "desses PDFs" : "desse PDF") + ": ele foi gerado sem as fotos (ou não é um PDF de relatório do app).",
+        });
       } else {
         toast({
           title: `${r.photos} foto(s) extraída(s) de ${r.pdfs - r.withoutPhotos.length} PDF(s)`,

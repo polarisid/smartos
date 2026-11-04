@@ -470,11 +470,13 @@ function ReportsPageInner() {
         photos: photos.map(p => ({ category: p.category, ...(p.label ? { label: p.label } : {}), order: p.order, url: p.url || p.previewUrl, path: p.path || `local-${p.id}` })),
       };
       let pdfFailed = false;
+      let photosMissingInPdf = 0;
       setIsDownloadingPdf(true);
       try {
-        await buildAndDownloadPdf(localReport, {
+        const built = await buildAndDownloadPdf(localReport, {
           localPhotoUrls: Object.fromEntries(photos.map(p => [p.path || `local-${p.id}`, p.previewUrl])),
         });
+        photosMissingInPdf = built.failedPhotos;
       } catch (pdfError) {
         console.error("Falha ao gerar PDF", pdfError);
         pdfFailed = true;
@@ -485,6 +487,13 @@ function ReportsPageInner() {
       // Libera o formulário e manda pro servidor em segundo plano.
       resetForm();
       void flushQueue();
+      if (photosMissingInPdf > 0) {
+        toast({
+          variant: "destructive",
+          title: `${photosMissingInPdf} foto(s) ficaram de fora do PDF`,
+          description: "O PDF baixado está incompleto. As fotos seguem para o sistema; gere o PDF de novo depois em Meus Relatórios.",
+        });
+      }
       toast({
         title: pdfFailed ? "Relatório guardado (PDF não gerado)" : "Relatório salvo e PDF baixado",
         description: memoryOnly

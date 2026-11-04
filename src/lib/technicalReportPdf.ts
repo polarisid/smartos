@@ -370,14 +370,17 @@ async function mergePdfBytes(reportBytes: ArrayBuffer, checklistBytes: Uint8Arra
 // localPhotoUrls: mapa path -> URL local (blob) das fotos que o aparelho ainda
 // tem em memória. Usa essa cópia em vez de baixar a foto de novo do servidor -
 // instantâneo, funciona sem rede e era a maior parte da demora do PDF.
-export async function buildAndDownloadPdf(report: TechnicalReport, opts?: { localPhotoUrls?: Record<string, string> }): Promise<void> {
+// Devolve quantas fotos não puderam ser carregadas (ficam de fora do PDF) para quem chamou avisar o técnico.
+export async function buildAndDownloadPdf(report: TechnicalReport, opts?: { localPhotoUrls?: Record<string, string> }): Promise<{ failedPhotos: number }> {
   const { default: JsPdfCtor } = await import("jspdf");
 
   const results = await Promise.allSettled(report.photos.map(p => loadImageForPdf(opts?.localPhotoUrls?.[p.path] || p.url)));
   const loadedByPath = new Map<string, LoadedImage>();
+  let failedPhotos = 0;
   report.photos.forEach((p, i) => {
     const r = results[i];
     if (r.status === "fulfilled") loadedByPath.set(p.path, r.value);
+    else { failedPhotos++; console.warn("Foto não entrou no PDF:", p.category, r.reason); }
   });
 
   const pdf = new JsPdfCtor("p", "mm", "a4");
@@ -473,4 +476,5 @@ export async function buildAndDownloadPdf(report: TechnicalReport, opts?: { loca
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(link.href);
+  return { failedPhotos };
 }
