@@ -86,6 +86,26 @@ export const configService = {
     if (error) throw error;
   },
 
+  // Rotas de entrega concluídas: id da rota -> quando foi concluída (ISO). Fica fora da rota de propósito: o "ativa /
+  // finalizada" da própria rota muda como as outras telas leem o período de lançamento das OS dela.
+  async getDeliveryDone(unidadeId?: string | null): Promise<Record<string, string>> {
+    const { data, error } = await withUnidade(supabase.from('configs').select('id, value').like('id', 'delivery_done_%'), unidadeId);
+    if (error) throw error;
+    const out: Record<string, string> = {};
+    (data || []).forEach((row: any) => {
+      if (row?.value?.done === true) out[String(row.id).replace('delivery_done_', '')] = String(row.value.at || '');
+    });
+    return out;
+  },
+
+  async setDeliveryDone(routeId: string, done: boolean, unidadeId?: string | null): Promise<void> {
+    const { error } = await supabase
+      .from('configs')
+      .upsert({ id: `delivery_done_${routeId}`, value: { done, at: done ? new Date().toISOString() : null }, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
+
+    if (error) throw error;
+  },
+
   async getTextTemplate(id: string, unidadeId?: string | null): Promise<string | null> {
     const { data, error } = await withUnidade(
       supabase.from('configs').select('value').eq('id', `template_${id}`),

@@ -276,6 +276,10 @@ export type RoutePart = {
     description: string;
     quantity: number;
     trackingCode?: string;
+    /** Rota de entrega: peça não usada que foi dada a outra OS (número da OS de destino). */
+    reallocatedTo?: string;
+    /** Rota de entrega: peças que esta OS recebeu de outras OS (OS de origem e quantidade). */
+    receivedFrom?: Array<{ order: string; quantity: number }>;
 }
 
 export type RouteStop = {

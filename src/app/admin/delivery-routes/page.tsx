@@ -31,7 +31,8 @@ import { RouteCodeTag } from "@/components/routes/RouteCodeTag";
 import { MultiFilter } from "@/components/MultiFilter";
 import { configService } from "@/services/supabase/configService";
 import { downloadSpreadsheet, type SheetRow } from "@/lib/spreadsheetXml";
-import { lentFromOrder, partUsageInStop } from "@/lib/partUsage";
+import { markReallocated, PART_RETURN_LABEL, partReturnOf, receivePart, undoReceive, unmarkReallocated, type PartReturn } from "@/lib/partRealloc";
+import { DeliveryPartsControl } from "@/components/routes/DeliveryPartsControl";
 import { fetchDurationMatrixMin, fetchLegDistancesAndDurations, geocodeBase } from "@/lib/routeLegs";
 import { MAX_TEAMS, NO_TEAM, childRouteName, groupByTeam, splitStopsIntoTeams, teamColor, teamCounts, teamLabel as teamLabelOf, teamOf, type TeamSplit } from "@/lib/deliveryTeams";
 import { copyRouteEmailToClipboard } from "@/lib/emailExport";
@@ -166,6 +167,16 @@ export default function DeliveryRoutesPage() {
         return out;
     }, [routes, allOrders]);
 
+    // Rotas concluídas saem da lista de abertas (marca guardada em configs, ver getDeliveryDone).
+    const { data: doneMap = {} } = useQuery({
+        queryKey: ["delivery-done", appUser?.uid, activeUnidadeId],
+        queryFn: () => configService.getDeliveryDone(activeUnidadeId),
+        enabled: !!appUser?.uid,
+    });
+    const [listFilter, setListFilter] = useState<"abertas" | "concluidas" | "todas">("abertas");
+    const doneCount = routes.filter(r => doneMap[r.id]).length;
+    const shownRoutes = routes.filter(r => (listFilter === "todas" ? true : listFilter === "concluidas" ? !!doneMap[r.id] : !doneMap[r.id]));
+
     // ── Excluir rota de entrega ──
     const [toDelete, setToDelete] = useState<Route | null>(null);
     const [deleting, setDeleting] = useState(false);
@@ -250,17 +261,28 @@ export default function DeliveryRoutesPage() {
                 <Button onClick={() => setCreateOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> Nova Rota de Entrega</Button>
             </div>
 
+            {routes.length > 0 && (
+                <div className="flex gap-1.5">
+                    {([["abertas", "Abertas", routes.length - doneCount], ["concluidas", "Concluídas", doneCount], ["todas", "Todas", routes.length]] as const).map(([key, label, n]) => (
+                        <Button key={key} size="sm" variant={listFilter === key ? "default" : "outline"} className="h-8 text-xs" onClick={() => setListFilter(key)}>
+                            {label} <span className="ml-1.5 tabular-nums opacity-70">{n}</span>
+                        </Button>
+                    ))}
+                </div>
+            )}
+
             {loadingRoutes ? (
                 <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Carregando…</p>
             ) : routes.length === 0 ? (
                 <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">Nenhuma rota de entrega ainda. Crie a primeira colando a planilha de OS.</CardContent></Card>
             ) : (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {routes.map(r => (
-                        <Card key={r.id} className="cursor-pointer hover:border-primary transition-colors" onClick={() => setSelectedId(r.id)}>
+                    {shownRoutes.length === 0 && <p className="col-span-full py-8 text-center text-sm text-muted-foreground">Nenhuma rota {listFilter === "concluidas" ? "concluída" : "aberta"}.</p>}
+                    {shownRoutes.map(r => (
+                        <Card key={r.id} className={cn("cursor-pointer hover:border-primary transition-colors", doneMap[r.id] && "border-emerald-300 bg-emerald-50/40 dark:border-emerald-900 dark:bg-emerald-950/10")} onClick={() => setSelectedId(r.id)}>
                             <CardHeader className="pb-2">
                                 <div className="flex items-start justify-between gap-2">
-                                    <CardTitle className="text-base">{r.name}</CardTitle>
+                                    <CardTitle className="text-base">{r.name}{doneMap[r.id] && <Badge className="ml-2 bg-emerald-600 text-[10px] text-white hover:bg-emerald-600">Concluída</Badge>}</CardTitle>
                                     <Button
                                         variant="ghost"
                                         size="icon"
@@ -457,7 +479,8 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             const originals = partsRow.stop.parts || [];
             const newParts: RoutePart[] = live.map(d => {
                 if (d.tracking) return originals.find(p => p.code === d.origCode) as RoutePart;
-                return { code: d.code.trim(), description: d.description.trim(), quantity: Math.max(1, Number(d.quantity) || 1) };
+                const orig = originals.find(p => p.code === d.origCode);
+                return { ...(orig || {}), code: d.code.trim(), description: d.description.trim(), quantity: Math.max(1, Number(d.quantity) || 1) };
             });
             await routeService.patchStopFields(routeId, [{ serviceOrder: so, fields: { parts: newParts } }]);
 
@@ -612,6 +635,71 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         } catch (e: any) {
             toast({ variant: "destructive", title: "Não foi possível excluir", description: e?.message });
             setDeleting(false);
+        }
+    };
+
+    // Concluir a rota de entrega: marca à parte (não mexe em "ativa/finalizada" da rota, que outras telas leem).
+    const [tab, setTab] = useState<"os" | "pecas">("os");
+    const { data: doneMap = {} } = useQuery({
+        queryKey: ["delivery-done", appUser?.uid, activeUnidadeId],
+        queryFn: () => configService.getDeliveryDone(activeUnidadeId),
+        enabled: !!appUser?.uid,
+    });
+    const isDone = !!doneMap[routeId];
+    const [togglingDone, setTogglingDone] = useState(false);
+    const handleToggleDone = async () => {
+        if (appUser?.role === "master" && !activeUnidadeId) {
+            toast({ variant: "destructive", title: "Selecione uma unidade", description: "Escolha uma unidade no seletor no topo antes de concluir." });
+            return;
+        }
+        setTogglingDone(true);
+        try {
+            await configService.setDeliveryDone(routeId, !isDone, activeUnidadeId);
+            await queryClient.invalidateQueries({ queryKey: ["delivery-done"] });
+            toast({ title: isDone ? "Rota de entrega reaberta" : "Rota de entrega concluída", description: route?.name });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível atualizar", description: e?.message });
+        } finally {
+            setTogglingDone(false);
+        }
+    };
+
+    // Altera as peças de uma OS na rota de entrega e nas rotas filhas que a levam (sempre sobre a versão atual de cada rota).
+    const editPartsOf = async (so: string, fn: (parts: RoutePart[]) => RoutePart[]) => {
+        const targets = [routeId, ...children.filter(c => !c.isCanceled && (c.stops || []).some(cs => cs.serviceOrder === so && !cs.isReallocated)).map(c => c.id)];
+        for (const rid of targets) {
+            const fresh = await routeService.getById(rid);
+            const st = (fresh?.stops || []).find(x => x.serviceOrder === so && !x.isReallocated);
+            if (!fresh || !st) continue;
+            await routeService.patchStopFields(rid, [{ serviceOrder: so, fields: { parts: fn(st.parts || []) } }]);
+        }
+    };
+    const handleReallocatePart = async (fromOrder: string, code: string, toOrder: string) => {
+        try {
+            const fresh = await routeService.getById(routeId);
+            const part = (fresh?.stops || []).find(x => x.serviceOrder === fromOrder && !x.isReallocated)?.parts?.find(p => p.code === code);
+            if (!part || part.reallocatedTo) {
+                toast({ variant: "destructive", title: "Esta peça já foi realocada", description: "Atualize a tela e confira." });
+                return;
+            }
+            await editPartsOf(fromOrder, parts => markReallocated(parts, code, toOrder));
+            await editPartsOf(toOrder, parts => receivePart(parts, part, fromOrder));
+            await queryClient.invalidateQueries({ queryKey: ["routes"] });
+            await refresh();
+            toast({ title: "Peça realocada", description: code + ": OS " + fromOrder + " → OS " + toOrder });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível realocar", description: e?.message });
+        }
+    };
+    const handleUndoReallocate = async (fromOrder: string, code: string, toOrder: string) => {
+        try {
+            await editPartsOf(fromOrder, parts => unmarkReallocated(parts, code));
+            await editPartsOf(toOrder, parts => undoReceive(parts, code, fromOrder));
+            await queryClient.invalidateQueries({ queryKey: ["routes"] });
+            await refresh();
+            toast({ title: "Realocação desfeita", description: code + " voltou para a OS " + fromOrder });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível desfazer", description: e?.message });
         }
     };
 
@@ -917,19 +1005,11 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         // Retorno da peça: usada (consta em "peça trocada" de uma OS lançada), nova com defeito (pendência),
         // nova (não usada, volta ao estoque) ou sem lançamento (a OS ainda não foi atendida depois da rota criada).
         // "cedida" = o técnico usou a peça numa OUTRA OS da rota ("Usei peça de outra OS"); conta como usada.
-        type PartReturn = "usada" | "cedida" | "defeito" | "nova" | "aguardando";
-        const RETURN_LABEL: Record<PartReturn, string> = { usada: "Usada", cedida: "Usada em outra OS", defeito: "Nova com defeito", nova: "Nova (não usada)", aguardando: "Sem lançamento" };
+        const RETURN_LABEL = PART_RETURN_LABEL;
         const routeCreated = new Date(route.createdAt);
-        const attended = (so: string) => serviceOrders.some(os => os.serviceOrderNumber === so && !os.ignoreInRoute && os.date.getTime() > routeCreated.getTime());
-        const returnOf = (r: Row, code: string): PartReturn => {
-            if (!attended(r.stop.serviceOrder)) return "aguardando";
-            const u = partUsageInStop(r.stop.serviceOrder, code, serviceOrders, routeCreated);
-            if (u.defective) return "defeito";
-            if (u.used) return "usada";
-            return lentTo(r, code) ? "cedida" : "nova";
-        };
-        const lentTo = (r: Row, code: string) =>
-            [...new Set(lentFromOrder(r.stop.serviceOrder, code, serviceOrders, routeCreated).map(l => l.toOrder))].join(", ");
+        const partOf = (r: Row, code: string) => (r.stop.parts || []).find(p => p.code === code) as RoutePart;
+        const returnOf = (r: Row, code: string): PartReturn => partReturnOf(r.stop, partOf(r, code), serviceOrders, routeCreated).kind;
+        const lentTo = (r: Row, code: string) => partReturnOf(r.stop, partOf(r, code), serviceOrders, routeCreated).lentTo;
         // Na coluna das usadas entram também as usadas em outra OS, com o destino.
         const partsReturning = (r: Row, kind: PartReturn) => (r.stop.parts || [])
             .filter(p => { const k = returnOf(r, p.code); return k === kind || (kind === "usada" && k === "cedida"); })
@@ -992,8 +1072,8 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 d.before?.trackingCode || "", d.before?.quantity ?? "",
             ],
         })));
-        const returnTone: Record<PartReturn, SheetRow["tone"]> = { usada: "amber", cedida: "amber", defeito: "red", nova: "green", aguardando: "default" };
-        const returnRank: Record<PartReturn, number> = { usada: 0, cedida: 1, defeito: 2, nova: 3, aguardando: 4 };
+        const returnTone: Record<PartReturn, SheetRow["tone"]> = { usada: "amber", cedida: "amber", defeito: "red", nova: "green", aguardando: "default", realocada: "blue" };
+        const returnRank: Record<PartReturn, number> = { usada: 0, cedida: 1, defeito: 2, nova: 3, realocada: 4, aguardando: 5 };
         const returnItems = withReturns
             ? ordered.flatMap(r => (r.stop.parts || []).map(p => ({ r, p, ret: returnOf(r, p.code) })))
                 .sort((a, b) => returnRank[a.ret] - returnRank[b.ret])
@@ -1672,13 +1752,23 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 <div className="flex items-center gap-3">
                     <Button variant="outline" size="sm" onClick={onBack}><ArrowLeft className="mr-1.5 h-4 w-4" /> Rotas de Entrega</Button>
                     <div>
-                        <h1 className="text-xl font-bold flex items-center gap-2"><Truck className="h-5 w-5" /> {route.name} <RouteCodeTag route={route} /></h1>
+                        <h1 className="text-xl font-bold flex items-center gap-2"><Truck className="h-5 w-5" /> {route.name} <RouteCodeTag route={route} />{isDone && <Badge className="bg-emerald-600 text-white hover:bg-emerald-600"><CheckCircle2 className="mr-1 h-3 w-3" /> Concluída</Badge>}</h1>
                         <p className="text-xs text-muted-foreground">Criada em {format(new Date(route.createdAt), "dd/MM/yyyy")} · rota de controle (não vai para os técnicos)</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
                     <Button variant="outline" size="icon" className="text-muted-foreground hover:text-destructive" title="Excluir esta rota de entrega" onClick={() => setConfirmDelete(true)}>
                         <Trash2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                        variant={isDone ? "outline" : "default"}
+                        className={isDone ? "" : "bg-emerald-600 hover:bg-emerald-700"}
+                        onClick={handleToggleDone}
+                        disabled={togglingDone}
+                        title={isDone ? "Volta a rota para a lista de abertas" : "Marca esta rota de entrega como concluída (sai da lista de abertas)"}
+                    >
+                        {togglingDone ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : isDone ? <RefreshCw className="mr-2 h-4 w-4" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                        {isDone ? "Reabrir rota" : "Concluir rota"}
                     </Button>
                     <Button variant="outline" onClick={() => setAddOpen(true)} title="Cola mais OS da planilha nesta rota de entrega">
                         <PlusCircle className="mr-2 h-4 w-4" /> Adicionar OS
@@ -1749,6 +1839,20 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 </div>
             )}
 
+            <div className="flex gap-1 border-b">
+                {([["os", "OS"], ["pecas", "Peças (usadas e não usadas)"]] as const).map(([key, label]) => (
+                    <button
+                        key={key}
+                        type="button"
+                        onClick={() => setTab(key)}
+                        className={cn("-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors", tab === key ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}
+                    >
+                        {label}
+                    </button>
+                ))}
+            </div>
+
+            {tab === "os" && (<>
             {/* Filtros */}
             <div className="rounded-lg border p-2.5 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
@@ -1891,6 +1995,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remover da rota</Button>
                 <span className="text-[11px] text-muted-foreground">Só OS não finalizadas e sem rota filha podem ser selecionadas.</span>
             </div>
+            </>)}
 
             <Dialog open={exportOpen} onOpenChange={setExportOpen}>
                 <DialogContent className="max-w-md">
@@ -1973,6 +2078,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             </Dialog>
 
             {/* Tabela */}
+            {tab === "os" && (
             <div className="rounded-lg border overflow-auto max-h-[70vh]">
                 <table className={cn("w-full border-collapse", dense ? "text-[11px]" : "text-xs")}>
                     <thead className="sticky top-0 z-20 bg-slate-900 text-white">
@@ -2020,6 +2126,22 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     </tbody>
                 </table>
             </div>
+            )}
+
+            {tab === "pecas" && (
+                <>
+                    {isDone && <p className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">Rota concluída: o controle fica só para consulta. Reabra a rota para realocar peças.</p>}
+                    <DeliveryPartsControl
+                        stops={rows.map(r => r.stop)}
+                        serviceOrders={serviceOrders}
+                        routeCreated={new Date(route.createdAt)}
+                        finalizedOrders={new Set(rows.filter(r => r.finalizedAt).map(r => r.stop.serviceOrder))}
+                        readOnly={isDone}
+                        onReallocate={handleReallocatePart}
+                        onUndo={handleUndoReallocate}
+                    />
+                </>
+            )}
 
             <AlertDialog open={confirmDelete} onOpenChange={(o) => { if (!deleting) setConfirmDelete(o); }}>
                 <AlertDialogContent>
