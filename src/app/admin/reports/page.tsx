@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -31,6 +31,7 @@ import { technicalReportService } from "@/services/supabase/technicalReportServi
 import { type TechnicalReport, type TechnicalReportPhotoCategory } from "@/lib/data";
 import { format } from "date-fns";
 import { isProductPhotoCategory, productPhotoLabel } from "@/lib/productLine";
+import { downloadPhotosFromPdfs } from "@/lib/pdfImages";
 
 const CATEGORY_LABELS: Record<TechnicalReportPhotoCategory, string> = {
   produto_frontal: "Produto - Frontal",
@@ -140,6 +141,30 @@ async function downloadAllPhotos(report: TechnicalReport) {
 
 export default function AdminReportsPage() {
   const { toast } = useToast();
+
+  // Extrair as fotos de PDFs de relatório (ex.: o técnico mandou o PDF e o envio ao sistema não chegou a concluir).
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const handleExtractPdfs = async (list: FileList | null) => {
+    const files = Array.from(list || []);
+    if (files.length === 0) return;
+    setIsExtracting(true);
+    try {
+      const r = await downloadPhotosFromPdfs(files);
+      if (r.photos === 0) {
+        toast({ variant: "destructive", title: "Nenhuma foto encontrada", description: "Esses PDFs não têm fotos em JPEG (só PDFs de relatório gerados pelo app)." });
+      } else {
+        toast({
+          title: `${r.photos} foto(s) extraída(s) de ${r.pdfs - r.withoutPhotos.length} PDF(s)`,
+          description: r.withoutPhotos.length > 0 ? `Sem fotos: ${r.withoutPhotos.join(", ")}` : "O ZIP foi baixado.",
+        });
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Não foi possível extrair as fotos", description: e?.message });
+    } finally {
+      setIsExtracting(false);
+    }
+  };
   const [reports, setReports] = useState<TechnicalReport[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -257,7 +282,11 @@ export default function AdminReportsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex justify-end">
+          <div className="flex flex-wrap justify-end gap-2">
+            <input ref={pdfInputRef} type="file" accept="application/pdf,.pdf" multiple className="hidden" onChange={e => { void handleExtractPdfs(e.target.files); e.target.value = ""; }} />
+            <Button variant="outline" size="sm" disabled={isExtracting} onClick={() => pdfInputRef.current?.click()} title="Escolha PDFs de relatório (ex.: enviados pelo técnico) e baixe as fotos de dentro deles em um ZIP">
+              {isExtracting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FolderDown className="mr-2 h-4 w-4" />} Extrair fotos de PDF
+            </Button>
             <Button asChild variant="outline" size="sm">
               <Link href="/admin/reports/fotos"><ImageIcon className="mr-2 h-4 w-4" /> Fotos por linha de produto</Link>
             </Button>
