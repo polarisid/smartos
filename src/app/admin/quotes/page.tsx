@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { CheckCircle2, FileDown, Link2, Loader2, Plus, Search, Trash2, Undo2, Wallet, XCircle } from "lucide-react";
+import { CheckCircle2, FileDown, Link2, Loader2, Plus, Search, Trash2, Undo2, Wallet, XCircle, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,6 +57,7 @@ export default function QuotesPage() {
   const [linkingId, setLinkingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [quickOpen, setQuickOpen] = useState(false);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["quotes"] });
   const paying = quotes.find(q => q.id === payingId) || null;
@@ -137,11 +138,14 @@ export default function QuotesPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="flex items-center gap-2 text-2xl font-bold tracking-tight"><Wallet className="h-6 w-6" /> Orçamentos</h2>
-        <p className="text-sm text-muted-foreground">
-          Orçamentos gerados na Calculadora de Custo. Marque aprovado ou reprovado, vincule à OS e controle o que já foi pago e o que falta pagar.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="flex items-center gap-2 text-2xl font-bold tracking-tight"><Wallet className="h-6 w-6" /> Orçamentos</h2>
+          <p className="text-sm text-muted-foreground">
+            Orçamentos gerados na Calculadora de Custo. Marque aprovado ou reprovado, vincule à OS e controle o que já foi pago e o que falta pagar.
+          </p>
+        </div>
+        <Button className="gap-1.5" onClick={() => setQuickOpen(true)}><Zap className="h-4 w-4" /> Lançamento rápido</Button>
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
@@ -209,6 +213,7 @@ export default function QuotesPage() {
                         <TableCell className="whitespace-nowrap text-xs">{format(q.createdAt, "dd/MM/yyyy")}</TableCell>
                         <TableCell>
                           <div className="font-medium">{q.clientName}</div>
+                          {q.snapshot.quick && <div className="text-[11px] text-sky-700 dark:text-sky-300">⚡ {q.snapshot.items[0]?.description || "Lançamento rápido"}</div>}
                           {q.clientCpf && <div className="text-[11px] text-muted-foreground">{q.clientCpf}</div>}
                         </TableCell>
                         <TableCell>
@@ -261,9 +266,11 @@ export default function QuotesPage() {
                                 <Wallet className="h-3.5 w-3.5" /> Pagamentos
                               </Button>
                             )}
-                            <Button size="sm" variant="ghost" disabled={busy} onClick={() => downloadPdf(q)} title="Baixar o PDF">
-                              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
-                            </Button>
+                            {!q.snapshot.quick && (
+                              <Button size="sm" variant="ghost" disabled={busy} onClick={() => downloadPdf(q)} title="Baixar o PDF">
+                                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
+                              </Button>
+                            )}
                             <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => setDeletingId(q.id)} title="Apagar">
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
@@ -278,6 +285,14 @@ export default function QuotesPage() {
           )}
         </CardContent>
       </Card>
+
+      <QuickDialog
+        open={quickOpen}
+        onClose={() => setQuickOpen(false)}
+        byName={appUser?.name}
+        unidadeId={activeUnidadeId}
+        onSaved={() => { setQuickOpen(false); void refresh(); }}
+      />
 
       <PaymentsDialog
         quote={paying}
@@ -400,6 +415,111 @@ function PaymentsDialog({ quote, onClose, byName, onSave }: {
           </div>
         )}
         <DialogFooter><Button variant="outline" onClick={onClose}>Fechar</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const QUICK_DESCRIPTIONS = ["Taxa de visita", "Sinal / entrada", "Peça", "Mão de obra", "Outro"];
+
+// Lançamento rápido: cobrança avulsa (ex.: taxa de visita) sem montar orçamento. Já nasce aprovada e,
+// se o cliente já pagou, com o pagamento lançado - o mesmo controle de pago/falta pagar dos orçamentos.
+function QuickDialog({ open, onClose, byName, unidadeId, onSaved }: {
+  open: boolean; onClose: () => void; byName?: string; unidadeId?: string | null; onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [client, setClient] = useState("");
+  const [os, setOs] = useState("");
+  const [description, setDescription] = useState("Taxa de visita");
+  const [amountText, setAmountText] = useState("");
+  const [received, setReceived] = useState(true);
+  const [method, setMethod] = useState<string>("PIX");
+  const [date, setDate] = useState(todayKey());
+  const [saving, setSaving] = useState(false);
+
+  const reset = () => { setClient(""); setOs(""); setDescription("Taxa de visita"); setAmountText(""); setReceived(true); setMethod("PIX"); setDate(todayKey()); };
+
+  const save = async () => {
+    const amount = parseMoney(amountText);
+    if (!client.trim()) { toast({ variant: "destructive", title: "Informe o cliente." }); return; }
+    if (!(amount > 0)) { toast({ variant: "destructive", title: "Informe um valor maior que zero." }); return; }
+    let payments: Quote["payments"] = [];
+    if (received) {
+      const result = addPayment(amount, [], { amount, method, date, byName });
+      if (!result.ok) { toast({ variant: "destructive", title: "Pagamento não registrado", description: result.error }); return; }
+      payments = result.payments;
+    }
+    setSaving(true);
+    try {
+      await quoteService.create({
+        osNumber: os.trim() || undefined,
+        clientName: client.trim(),
+        totalAmount: amount,
+        createdByName: byName,
+        status: "aprovado",
+        payments,
+        snapshot: { quick: true, discount: 0, items: [{ description: description.trim() || "Lançamento rápido", value: amount, quantity: 1, kind: "servico" }] },
+      }, unidadeId);
+      toast({ title: received ? "Pagamento lançado" : "Cobrança lançada (falta receber)" });
+      reset();
+      onSaved();
+    } catch (e: any) {
+      console.error(e);
+      toast({ variant: "destructive", title: "Não foi possível salvar", description: e?.message || "Tente de novo." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={o => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Lançamento rápido</DialogTitle>
+          <DialogDescription>Cobrança avulsa, como a taxa de visita, sem montar orçamento. Entra como aprovada e já controla pago e falta pagar.</DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="col-span-2 space-y-1">
+            <Label className="text-xs">Cliente *</Label>
+            <Input autoFocus value={client} onChange={e => setClient(e.target.value)} placeholder="Nome do cliente" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Nº da OS (opcional)</Label>
+            <Input value={os} onChange={e => setOs(e.target.value)} placeholder="Vincula à OS" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Valor (R$) *</Label>
+            <Input value={amountText} onChange={e => setAmountText(e.target.value.replace(/[^\d.,]/g, ""))} placeholder="0,00" inputMode="decimal" />
+          </div>
+          <div className="col-span-2 space-y-1">
+            <Label className="text-xs">Descrição</Label>
+            <Input list="quick-descriptions" value={description} onChange={e => setDescription(e.target.value)} />
+            <datalist id="quick-descriptions">{QUICK_DESCRIPTIONS.map(d => <option key={d} value={d} />)}</datalist>
+          </div>
+          <label className="col-span-2 flex cursor-pointer items-center gap-2 text-sm">
+            <input type="checkbox" checked={received} onChange={e => setReceived(e.target.checked)} className="h-4 w-4" />
+            Já foi recebido (desmarque para deixar como falta pagar)
+          </label>
+          {received && (
+            <>
+              <div className="space-y-1">
+                <Label className="text-xs">Forma</Label>
+                <Select value={method} onValueChange={setMethod}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Data</Label>
+                <Input type="date" value={date} max={todayKey()} onChange={e => setDate(e.target.value)} />
+              </div>
+            </>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button disabled={saving} className="gap-1.5" onClick={save}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Lançar</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

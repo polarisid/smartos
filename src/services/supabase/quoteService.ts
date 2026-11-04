@@ -12,6 +12,8 @@ export type QuoteSnapshot = {
   completionTime?: string;
   items: QuoteItem[];
   discount: number;
+  /** Lançamento rápido (ex.: taxa de visita): sem orçamento formal, não tem PDF. */
+  quick?: boolean;
 };
 
 export type Quote = {
@@ -39,6 +41,9 @@ export type NewQuote = {
   totalAmount: number;
   snapshot: QuoteSnapshot;
   createdByName?: string;
+  /** Lançamento rápido já nasce aprovado e, se já recebido, com o pagamento lançado. */
+  status?: QuoteStatus;
+  payments?: QuotePayment[];
 };
 
 const fromRow = (r: any): Quote => ({
@@ -79,6 +84,10 @@ export const quoteService = {
         total_amount: input.totalAmount,
         created_by_name: input.createdByName || null,
         data: input.snapshot,
+        ...(input.status && input.status !== "pendente"
+          ? { status: input.status, decided_at: new Date().toISOString(), decided_by_name: input.createdByName || null }
+          : {}),
+        ...(input.payments?.length ? { payments: input.payments } : {}),
         ...(unidadeId ? { unidade_id: unidadeId } : {}),
       } as any)
       .select("*")
