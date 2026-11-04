@@ -98,7 +98,7 @@ function OfflineQueueBanner() {
     if (!result || result.at === lastToastAt.current) return;
     lastToastAt.current = result.at;
     if (result.sent > 0) {
-      toast({ title: result.sent > 1 ? `${result.sent} relatórios enviados!` : "Relatório enviado com sucesso!", description: result.failed > 0 ? "Ainda há relatórios pendentes." : undefined });
+      toast({ title: result.sent > 1 ? `${result.sent} relatórios enviados!` : "Relatório enviado com sucesso!", description: [result.photos ? `${result.photos} foto(s) confirmada(s) no servidor.` : "", result.failed > 0 ? "Ainda há relatórios pendentes." : ""].filter(Boolean).join(" ") || undefined });
     }
   }, [sync.lastResult, toast]);
 

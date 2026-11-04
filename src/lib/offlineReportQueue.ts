@@ -183,7 +183,7 @@ export type SyncState = {
   step?: "uploading" | "saving";
   progress?: UploadProgress;
   /** Resultado da última rodada (para toast de sucesso/erro). */
-  lastResult?: { at: number; sent: number; failed: number; error?: string };
+  lastResult?: { at: number; sent: number; failed: number; error?: string; photos?: number };
 };
 
 let syncState: SyncState = { isFlushing: false };
@@ -306,6 +306,7 @@ export async function flushQueue(): Promise<FlushResult> {
   isFlushing = true;
 
   let sent = 0;
+  let sentPhotos = 0;
   let failed = 0;
   let error: string | undefined;
   try {
@@ -345,6 +346,7 @@ export async function flushQueue(): Promise<FlushResult> {
         await removePending(item.localId);
         await notifyListeners();
         sent++;
+        sentPhotos += item.photos.length;
       } catch (e: any) {
         failed++;
         error = e?.message || "Erro desconhecido";
@@ -365,7 +367,7 @@ export async function flushQueue(): Promise<FlushResult> {
       position: undefined,
       step: undefined,
       progress: undefined,
-      ...(sent > 0 || failed > 0 ? { lastResult: { at: Date.now(), sent, failed, error } } : {}),
+      ...(sent > 0 || failed > 0 ? { lastResult: { at: Date.now(), sent, failed, error, photos: sentPhotos } } : {}),
     });
   }
 }

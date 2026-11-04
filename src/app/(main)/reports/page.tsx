@@ -427,6 +427,14 @@ function ReportsPageInner() {
       return;
     }
 
+    // Sem as fotos obrigatórias não dá para dar baixa na OS: confirma antes de seguir (continua possível, ex.: foto impossível de tirar).
+    const missingRequired = requiredCategories.filter(cat => !photos.some(p => p.category === cat));
+    if (missingRequired.length > 0) {
+      const labelOf = (cat: string) => cat === "defeito" ? "Defeito apresentado" : cat === "pos_reparo" ? "Pós-reparo" : (productSlots.find(s => s.key === cat)?.label || productPhotoLabel(cat));
+      const proceed = window.confirm(`Faltam ${missingRequired.length} foto(s) obrigatória(s): ${missingRequired.map(labelOf).join(", ")}.\n\nSem elas não dá para dar baixa nesta OS. Salvar mesmo assim?`);
+      if (!proceed) return;
+    }
+
     const technician = technicians.find(t => t.id === technicianId);
     const signatureEmpty = clientSignatureRef.current?.isEmpty() ?? true;
     const drawnSignature = signatureEmpty ? undefined : clientSignatureRef.current!.toDataURL("image/png");

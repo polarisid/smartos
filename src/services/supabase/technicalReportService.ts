@@ -131,7 +131,8 @@ export const technicalReportService = {
         .select('service_order_number, photos, created_at')
         .in('service_order_number', unique.slice(i, i + BATCH))
         .order('created_at', { ascending: false });
-      if (unidadeId) query = query.eq('unidade_id', unidadeId);
+      // Relatórios sem unidade (criados por master antes de a unidade ser gravada) também valem: a busca é pelo nº da OS.
+      if (unidadeId) query = query.or(`unidade_id.eq.${unidadeId},unidade_id.is.null`);
       const { data, error } = await query;
       if (error) throw error;
       for (const row of data || []) {
