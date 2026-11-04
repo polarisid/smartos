@@ -31,7 +31,7 @@ const TAT_ALERT = 10;
 const PAGE = 100;
 const PREFS_KEY = "smartos_atendimentos_prefs";
 
-const STATUS_ORDER = ["A programar", "Com dia", "Rascunho", "Em rota", "Sem lançamento", "Pendência", "Finalizada"];
+const STATUS_ORDER = ["A programar", "Com dia", "Rascunho", "Em rota", "Atrasada", "Sem lançamento", "Pendência", "Finalizada"];
 type RouteKind = "Rota ativa" | "Rascunho" | "Rota de entrega" | "Rota finalizada";
 
 type Item = {
@@ -107,6 +107,7 @@ const statusBadge = (st: string, note?: string) => {
     const cls =
         st === "Finalizada" ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
         : st === "Pendência" ? "border-red-300 bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
+        : st === "Atrasada" ? "border-orange-400 bg-orange-100 font-semibold text-orange-800 dark:bg-orange-950/50 dark:text-orange-300"
         : st === "Em rota" ? "border-blue-300 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
         : st === "Com dia" || st === "Rascunho" ? "border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
         : "text-muted-foreground";
@@ -190,6 +191,8 @@ export default function AtendimentosPage() {
             let status: string;
             if (finalizedAt) status = "Finalizada";
             else if (pendingAt) status = "Pendência";
+            // Atrasada: tinha dia previsto, o dia passou e a OS não foi atendida (nem visitada com pendência).
+            else if (routeKind !== "Rota finalizada" && plannedDay && plannedDay < toDayKey(now)) status = "Atrasada";
             else if (routeKind === "Rota ativa") status = "Em rota";
             else if (routeKind === "Rascunho") status = "Rascunho";
             else if (routeKind === "Rota de entrega") status = plannedDay ? "Com dia" : "A programar";
@@ -317,7 +320,7 @@ export default function AtendimentosPage() {
     const handleExport = () => {
         if (visible.length === 0) { toast({ title: "Nada para exportar" }); return; }
         const fmt = (ms: number) => (ms ? format(new Date(ms), "dd/MM/yyyy") : "");
-        const toneOf = (st: string): SheetRow["tone"] => (st === "Finalizada" ? "green" : st === "Pendência" ? "red" : st === "Em rota" ? "blue" : st === "Com dia" || st === "Rascunho" ? "amber" : "default");
+        const toneOf = (st: string): SheetRow["tone"] => (st === "Finalizada" ? "green" : st === "Pendência" || st === "Atrasada" ? "red" : st === "Em rota" ? "blue" : st === "Com dia" || st === "Rascunho" ? "amber" : "default");
         const rows: SheetRow[] = visible.map(i => ({
             tone: toneOf(i.status),
             values: [
@@ -342,7 +345,7 @@ export default function AtendimentosPage() {
         const c = (st: string) => visible.filter(i => i.status === st).length;
         const proj = visible.filter(i => i.tatProjected !== null);
         return {
-            total: visible.length, emRota: c("Em rota"), comDia: c("Com dia") + c("Rascunho"), aProgramar: c("A programar"), pendencia: c("Pendência"), finalizada: c("Finalizada"),
+            total: visible.length, emRota: c("Em rota"), comDia: c("Com dia") + c("Rascunho"), aProgramar: c("A programar"), pendencia: c("Pendência"), atrasada: c("Atrasada"), finalizada: c("Finalizada"),
             alerta: visible.filter(i => !i.finalizedAt && (i.tatProjected ?? i.tatNow ?? 0) >= TAT_ALERT).length,
             projMedio: proj.length ? Math.round(proj.reduce((a, i) => a + (i.tatProjected || 0), 0) / proj.length) : null,
         };
@@ -353,9 +356,18 @@ export default function AtendimentosPage() {
             case "uf": return stateToUF(i.stop.state);
             case "request": return i.requestMs ? format(new Date(i.requestMs), "dd/MM/yyyy") : "—";
             case "tatNow": return <span className={cn("tabular-nums", i.finalizedAt ? "" : tatClass(i.tatNow))} title={i.finalizedAt ? "Dias da solicitação até a finalização" : "Dias da solicitação até hoje"}>{i.tatNow ?? "—"}</span>;
-            case "planned": return i.plannedDay ? format(new Date(i.plannedDay + "T12:00:00"), "dd/MM/yyyy") : <span className="text-muted-foreground">—</span>;
+            case "planned": return i.plannedDay ? <span className={i.status === "Atrasada" ? "font-semibold text-orange-700 dark:text-orange-300" : undefined}>{format(new Date(i.plannedDay + "T12:00:00"), "dd/MM/yyyy")}</span> : <span className="text-muted-foreground">—</span>;
             case "tatProj": return <span className={cn("tabular-nums", tatClass(i.tatProjected))} title="Dias da solicitação até o dia previsto de atendimento">{i.tatProjected ?? "—"}</span>;
-            case "status": return statusBadge(i.status, i.pendingNote);
+            case "status": {
+                if (i.status !== "Atrasada") return statusBadge(i.status, i.pendingNote);
+                const late = Math.max(1, daysBetween(new Date(i.plannedDay + "T12:00:00").getTime(), Date.now()));
+                return (
+                    <div className="flex flex-col items-start gap-0.5">
+                        {statusBadge(i.status)}
+                        <span className="text-[10px] font-medium text-orange-700 dark:text-orange-300" title={"Previsto para " + format(new Date(i.plannedDay + "T12:00:00"), "dd/MM/yyyy")}>há {late} dia{late > 1 ? "s" : ""}</span>
+                    </div>
+                );
+            }
             case "route": return (
                 <div className="flex flex-col items-start gap-0.5">
                     <span className="max-w-[260px] truncate" title={i.route.name}>{i.route.name}</span>
@@ -389,12 +401,13 @@ export default function AtendimentosPage() {
                 <Button variant="outline" onClick={handleExport}><Download className="mr-2 h-4 w-4" /> Exportar planilha</Button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-8">
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-5 lg:grid-cols-9">
                 {[
                     { label: "Atendimentos", value: summary.total },
                     { label: "Em rota", value: summary.emRota },
                     { label: "Com dia / rascunho", value: summary.comDia },
                     { label: "A programar", value: summary.aProgramar },
+                    { label: "Atrasadas", value: summary.atrasada },
                     { label: "Pendência", value: summary.pendencia },
                     { label: "Finalizadas", value: summary.finalizada },
                     { label: "TAT projetado médio", value: summary.projMedio === null ? "—" : summary.projMedio + " d" },
