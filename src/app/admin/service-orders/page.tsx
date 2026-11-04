@@ -62,8 +62,36 @@ const formSchema = z.object({
   productCollectedOrInstalled: z.string().optional(),
   cleaningPerformed: z.boolean().optional(),
   samsungLpSurveyPerformed: z.boolean().optional(),
+  // Atendimento finalizado ou pendência (motivo + detalhe, no mesmo formato do lançamento do técnico).
+  isFinalized: z.boolean().optional(),
+  pendingKind: z.string().optional(),
+  pendingDetail: z.string().optional(),
 });
 type FormValues = z.infer<typeof formSchema>;
+
+const PENDING_KINDS: Array<{ value: string; label: string; detailLabel?: string; detailPlaceholder?: string }> = [
+  { value: "Peça nova com defeito", label: "Peça nova com defeito", detailLabel: "Qual peça está com defeito?", detailPlaceholder: "Código da peça" },
+  { value: "Repedido", label: "Repedido", detailLabel: "Qual peça repedir?", detailPlaceholder: "Código da peça" },
+  { value: "Remarcação", label: "Remarcação" },
+  { value: "Ausente", label: "Ausente / cliente não estava" },
+  { value: "Outro", label: "Outro", detailLabel: "Descreva o motivo", detailPlaceholder: "Ex.: cliente pediu para voltar na sexta" },
+];
+
+// "Repedido (BN44-1)" -> { kind: "Repedido", detail: "BN44-1" }. Texto que não segue o padrão vira "Outro" com o texto todo.
+function parsePendingReason(raw?: string): { kind: string; detail: string } {
+  const text = (raw || "").trim();
+  if (!text) return { kind: "", detail: "" };
+  for (const k of PENDING_KINDS) {
+    if (text === k.value) return { kind: k.value, detail: "" };
+    if (text.startsWith(k.value + " (") && text.endsWith(")")) return { kind: k.value, detail: text.slice(k.value.length + 2, -1).trim() };
+  }
+  return { kind: "Outro", detail: text };
+}
+
+function buildPendingReason(kind: string, detail?: string): string {
+  const d = (detail || "").trim();
+  return d && PENDING_KINDS.find(k => k.value === kind)?.detailLabel ? `${kind} (${d})` : kind;
+}
 
 const serviceTypeLabels: Record<string, string> = {
   reparo_samsung: "Reparo Samsung",
@@ -330,6 +358,9 @@ export default function ServiceOrdersPage() {
       productCollectedOrInstalled: order.productCollectedOrInstalled || "",
       cleaningPerformed: order.cleaningPerformed || false,
       samsungLpSurveyPerformed: isSurveyYes,
+      isFinalized: order.isFinalized !== false,
+      pendingKind: parsePendingReason(order.pendingReason).kind,
+      pendingDetail: parsePendingReason(order.pendingReason).detail,
     });
     setIsFormDialogOpen(true);
   };
@@ -361,6 +392,16 @@ export default function ServiceOrdersPage() {
 
   const handleSave = async (data: FormValues) => {
     if (!selectedOrder) return;
+    const { isFinalized: finalizedValue, pendingKind, pendingDetail, ...fields } = data;
+    const finalized = finalizedValue !== false;
+    if (!finalized && !pendingKind) {
+      toast({ variant: "destructive", title: "Informe o motivo da pendência." });
+      return;
+    }
+    if (!finalized && pendingKind === "Outro" && !(pendingDetail || "").trim()) {
+      toast({ variant: "destructive", title: "Descreva o motivo da pendência." });
+      return;
+    }
     setIsSubmitting(true);
     try {
       const finalObs = (data.samsungRepairType === 'LP' && data.samsungLpSurveyPerformed)
@@ -368,7 +409,9 @@ export default function ServiceOrdersPage() {
         : data.observations || '';
 
       const updatedData: Partial<ServiceOrder> = {
-        ...data,
+        ...fields,
+        isFinalized: finalized,
+        pendingReason: finalized ? "" : buildPendingReason(pendingKind || "", pendingDetail),
         equipmentType: data.equipmentType as "TV/AV" | "DA",
         serviceType: data.serviceType as any,
         samsungBudgetValue: data.samsungBudgetValue ? parseFloat(data.samsungBudgetValue) : 0,
@@ -376,6 +419,9 @@ export default function ServiceOrdersPage() {
       };
       await serviceOrderService.update(selectedOrder.id, updatedData);
       setServiceOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, ...updatedData, technicianName: o.technicianName } : o));
+      // A situação (finalizada/pendência) alimenta o progresso das rotas e as demais listas de OS.
+      queryClient.invalidateQueries({ queryKey: ["service-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["routes"] });
       toast({ title: "OS atualizada com sucesso!" });
       setIsFormDialogOpen(false);
     } catch (e) {
@@ -526,6 +572,11 @@ export default function ServiceOrdersPage() {
                               {serviceTypeLabels[order.serviceType] || order.serviceType}
                               {order.samsungRepairType ? ` - ${order.samsungRepairType}` : ''}
                             </span>
+                            {order.isFinalized === false && (
+                              <Badge variant="outline" className="border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300 text-[10px] px-1.5 py-0 whitespace-normal text-left" title="Atendimento não finalizado">
+                                Pendência{order.pendingReason ? `: ${order.pendingReason}` : ""}
+                              </Badge>
+                            )}
                             {order.ignoreInRoute && (
                               <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300 text-[10px] px-1.5 py-0" title="Registro mantido, mas não conta como atendimento na rota">
                                 Fora da rota
@@ -744,6 +795,35 @@ export default function ServiceOrdersPage() {
                 </div>
               </>
             ) : null}
+
+            <div className={cn("space-y-3 rounded-lg border p-4", form.watch('isFinalized') === false && "border-amber-300 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/20")}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <Label htmlFor="admin-finalized" className="font-semibold">Atendimento finalizado?</Label>
+                  <p className="text-xs text-muted-foreground">Desmarque para registrar como atendimento não finalizado (pendência).</p>
+                </div>
+                <Switch id="admin-finalized" checked={form.watch('isFinalized') !== false} onCheckedChange={(c) => form.setValue('isFinalized', c)} />
+              </div>
+              {form.watch('isFinalized') === false && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label className="text-amber-700 dark:text-amber-300">Motivo da pendência</Label>
+                    <Select value={form.watch('pendingKind') || undefined} onValueChange={(v) => form.setValue('pendingKind', v)}>
+                      <SelectTrigger><SelectValue placeholder="Selecione o motivo..." /></SelectTrigger>
+                      <SelectContent>
+                        {PENDING_KINDS.map(k => <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {PENDING_KINDS.find(k => k.value === form.watch('pendingKind'))?.detailLabel && (
+                    <div className="space-y-2">
+                      <Label>{PENDING_KINDS.find(k => k.value === form.watch('pendingKind'))?.detailLabel}</Label>
+                      <Input placeholder={PENDING_KINDS.find(k => k.value === form.watch('pendingKind'))?.detailPlaceholder} {...form.register('pendingDetail')} />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="space-y-2">
               <Label>Peça Trocada (Opcional)</Label>
