@@ -61,14 +61,53 @@ function normalizeToJpegCanvas(img: HTMLImageElement): string | null {
 
 type LoadedImage = { dataUrl: string; format: "JPEG" | "PNG" | "WEBP"; width: number; height: number };
 
+// Plano B quando o fetch() falha (CORS/cache do navegador): carrega direto como <img>, só serve se o servidor permitir ler os pixels.
+function loadImageDirect(url: string): Promise<LoadedImage> {
+  return new Promise((resolve, reject) => {
+    const el = new window.Image();
+    if (!url.startsWith("blob:") && !url.startsWith("data:")) el.crossOrigin = "anonymous";
+    el.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = el.naturalWidth;
+        canvas.height = el.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("canvas indisponível");
+        ctx.drawImage(el, 0, 0);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.96);
+        if (!dataUrl || dataUrl === "data:,") throw new Error("canvas vazio");
+        resolve({ dataUrl, format: "JPEG", width: el.naturalWidth, height: el.naturalHeight });
+      } catch (e) { reject(e); }
+    };
+    el.onerror = () => reject(new Error("não foi possível abrir a imagem"));
+    el.src = url;
+  });
+}
+
 async function loadImageForPdf(url: string): Promise<LoadedImage> {
+  try {
+    return await loadImageViaFetch(url);
+  } catch (first) {
+    // uma segunda chance (sinal oscilando) e depois o plano B
+    try {
+      await new Promise(r => setTimeout(r, 600));
+      return await loadImageViaFetch(url);
+    } catch {
+      try { return await loadImageDirect(url); } catch { throw first; }
+    }
+  }
+}
+
+async function loadImageViaFetch(url: string): Promise<LoadedImage> {
   // cache: 'no-store' é necessário: a mesma URL da foto já foi carregada como
   // <img> em algum ponto (thumbnail do formulário, visualização do relatório)
   // antes de gerar o PDF - reaproveitar essa entrada do cache do navegador
   // num fetch() pode falhar a checagem de CORS mesmo com o servidor mandando
   // os headers certos (mesma causa do download de fotos falhar às vezes).
   const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`foto indisponível (HTTP ${res.status})`);
   const blob = await res.blob();
+  if (blob.size === 0) throw new Error("foto vazia");
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
@@ -405,6 +444,18 @@ export async function buildAndDownloadPdf(report: TechnicalReport, opts?: { loca
     contentWidth
   );
   y += 4;
+
+  // PDF incompleto precisa ser óbvio mesmo depois de enviado por WhatsApp: marca em vermelho no topo.
+  if (failedPhotos > 0) {
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(10);
+    pdf.setTextColor(200, 30, 30);
+    const warn = pdf.splitTextToSize(`ATENÇÃO: ${failedPhotos} de ${report.photos.length} foto(s) não puderam ser incluídas neste PDF. Gere o PDF novamente em Meus Relatórios.`, contentWidth) as string[];
+    pdf.text(warn, margin, y + 3);
+    y += warn.length * 5 + 4;
+    pdf.setTextColor(0, 0, 0);
+    pdf.setFont("helvetica", "normal");
+  }
 
   // Fotos do produto: as pedidas para a linha do produto (frontal/traseira/serial ou as configuradas no admin).
   const productPhotosList = productPhotosOf(report.photos).filter(p => loadedByPath.has(p.path));

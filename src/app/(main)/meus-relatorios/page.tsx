@@ -68,7 +68,10 @@ export default function MeusRelatoriosPage() {
   const downloadSent = async (report: TechnicalReport) => {
     setDownloadingId(report.id);
     try {
-      await buildAndDownloadPdf(report);
+      const built = await buildAndDownloadPdf(report);
+      if (built.failedPhotos > 0) {
+        toast({ variant: "destructive", title: `${built.failedPhotos} foto(s) ficaram de fora do PDF`, description: "O PDF baixado está incompleto. Verifique a conexão e baixe de novo." });
+      }
     } catch (e) {
       console.error("Falha ao gerar PDF", e);
       toast({ variant: "destructive", title: "Erro ao gerar o PDF", description: "Verifique a conexão e tente de novo." });
@@ -93,10 +96,13 @@ export default function MeusRelatoriosPage() {
         }
         return { category: p.category, order: p.order, url: p.url, path: p.path };
       });
-      await buildAndDownloadPdf(
+      const built = await buildAndDownloadPdf(
         { id: item.existingReportId || "pendente", createdAt: new Date(item.createdAt), updatedAt: new Date(), ...item.payload, photos },
         { localPhotoUrls }
       );
+      if (built.failedPhotos > 0) {
+        toast({ variant: "destructive", title: `${built.failedPhotos} foto(s) ficaram de fora do PDF`, description: "O PDF baixado está incompleto." });
+      }
     } catch (e) {
       console.error("Falha ao gerar PDF", e);
       toast({ variant: "destructive", title: "Erro ao gerar o PDF" });

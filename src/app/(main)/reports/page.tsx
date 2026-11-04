@@ -199,10 +199,19 @@ function ReportsPageInner() {
   // Agora TODA foto é otimizada (≤2048px, ~1,5MB) ao ser escolhida - o que mais
   // pesava no envio era subir fotos de 3-10MB cada. Fica sem aviso por foto (eram
   // dezenas de toasts); o formulário só mostra "Otimizando fotos..." enquanto roda.
-  const compressPhoto = async (file: File): Promise<File> => {
+  const compressPhoto = async (file: File): Promise<File | null> => {
     setPreparingCount(c => c + 1);
     try {
-      return (await compressImageIfNeeded(file)).file;
+      const result = await compressImageIfNeeded(file);
+      if (result.unreadable) {
+        toast({
+          variant: "destructive",
+          title: "Não foi possível ler esta foto",
+          description: "Ela não foi adicionada ao relatório. Tire a foto de novo (se o celular estiver em HEIC/HEIF, mude a câmera para JPG).",
+        });
+        return null;
+      }
+      return result.file;
     } finally {
       setPreparingCount(c => c - 1);
     }
@@ -212,6 +221,7 @@ function ReportsPageInner() {
     const rawFile = fileList?.[0];
     if (!rawFile) return;
     const file = await compressPhoto(rawFile);
+    if (!file) return;
     setPhotos(prev => {
       const existing = prev.find(p => p.category === category);
       if (existing && !existing.url) URL.revokeObjectURL(existing.previewUrl);
@@ -314,7 +324,8 @@ function ReportsPageInner() {
 
   const handleMultiFiles = async (category: TechnicalReportPhotoCategory, fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
-    const files = await Promise.all(Array.from(fileList).map(f => compressPhoto(f)));
+    const files = (await Promise.all(Array.from(fileList).map(f => compressPhoto(f)))).filter((f): f is File => !!f);
+    if (files.length === 0) return;
     setPhotos(prev => {
       const currentCount = prev.filter(p => p.category === category).length;
       const added = files.map((file, i) => ({
@@ -540,7 +551,10 @@ function ReportsPageInner() {
         checklistTemplateId: checklistTemplateId || undefined,
         clientSignature: storedClientSignature || undefined,
       };
-      await buildAndDownloadPdf(report, { localPhotoUrls: localPhotoUrls(photos) });
+      const built = await buildAndDownloadPdf(report, { localPhotoUrls: localPhotoUrls(photos) });
+      if (built.failedPhotos > 0) {
+        toast({ variant: "destructive", title: `${built.failedPhotos} foto(s) ficaram de fora do PDF`, description: "O PDF baixado está incompleto. Confira a conexão e gere de novo." });
+      }
     } catch (e) {
       console.error("Falha ao gerar PDF", e);
       toast({ variant: "destructive", title: "Erro ao gerar PDF" });
