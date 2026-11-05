@@ -1460,10 +1460,22 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         enabled: !!appUser?.uid && draftOpen,
         staleTime: 0,
     });
-    const draftOptions = useMemo(
-        () => draftRoutes.filter(d => d.kind !== "delivery" && d.id !== routeId && (!d.parentRouteId || d.parentRouteId === routeId)),
-        [draftRoutes, routeId]
-    );
+    // Rotas já publicadas (ativas) também podem receber OS.
+    const { data: activeRoutesList = [], isFetching: activeLoading } = useQuery({
+        queryKey: ["active-routes-for-delivery", appUser?.uid, activeUnidadeId],
+        queryFn: () => routeService.getActiveRoutes(activeUnidadeId),
+        enabled: !!appUser?.uid && draftOpen,
+        staleTime: 0,
+    });
+    const draftOptions = useMemo(() => {
+        const seen = new Set<string>();
+        return [...draftRoutes, ...activeRoutesList].filter(d => {
+            if (seen.has(d.id)) return false;
+            seen.add(d.id);
+            return d.kind !== "delivery" && d.id !== routeId && (!d.parentRouteId || d.parentRouteId === routeId);
+        });
+    }, [draftRoutes, activeRoutesList, routeId]);
+    const draftOptionsLoading = draftsLoading || activeLoading;
     const draftDayLabel = (d: Route) => (d.plannedDate ? format(new Date(d.plannedDate), "dd/MM") : "sem data");
 
     const handleAddToDraft = async () => {
@@ -1477,7 +1489,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             let added = 0;
             for (let attempt = 0; attempt < 5; attempt++) {
                 const fresh = await routeService.getById(target.id);
-                if (!fresh) throw new Error("Rota rascunho não encontrada");
+                if (!fresh) throw new Error("Rota não encontrada");
                 const have = new Set((fresh.stops || []).filter(st => !st.isReallocated).map(st => st.serviceOrder));
                 const news = picked.filter(r => !have.has(r.stop.serviceOrder));
                 const incoming = new Set(news.map(r => r.stop.serviceOrder));
@@ -1997,8 +2009,8 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                         <Pencil className="h-3.5 w-3.5" />
                     </Button>
                 </div>
-                <Button size="sm" variant="outline" disabled={selected.size === 0 || saving} onClick={() => { setDraftId(""); setDraftOpen(true); }} title="Coloca as OS selecionadas dentro de uma rota que está como rascunho">
-                    <FilePlus2 className="mr-1.5 h-3.5 w-3.5" /> Adicionar a rota rascunho
+                <Button size="sm" variant="outline" disabled={selected.size === 0 || saving} onClick={() => { setDraftId(""); setDraftOpen(true); }} title="Coloca as OS selecionadas dentro de uma rota rascunho ou já publicada">
+                    <FilePlus2 className="mr-1.5 h-3.5 w-3.5" /> Adicionar a uma rota
                 </Button>
                 <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={selected.size === 0 || saving} onClick={() => setRemoveList(Array.from(selected))} title="Tira as OS selecionadas da rota de entrega">
                     <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remover da rota</Button>
@@ -2058,24 +2070,24 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             <Dialog open={draftOpen} onOpenChange={o => { if (!draftAdding) setDraftOpen(o); }}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Adicionar a uma rota rascunho</DialogTitle>
+                        <DialogTitle>Adicionar a uma rota</DialogTitle>
                         <DialogDescription>
-                            {selected.size} OS selecionada(s) vão para a rota escolhida, com o dia dela. Rascunhos de outra rota de entrega não aparecem.
+                            {selected.size} OS selecionada(s) vão para a rota escolhida (rascunho ou já publicada), com o dia dela. Rotas ligadas a outra rota de entrega não aparecem.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-2">
-                        <Label>Rota rascunho</Label>
+                        <Label>Rota</Label>
                         <Select value={draftId} onValueChange={setDraftId}>
-                            <SelectTrigger><SelectValue placeholder={draftsLoading ? "Carregando…" : draftOptions.length === 0 ? "Nenhuma rota rascunho disponível" : "Escolha a rota"} /></SelectTrigger>
+                            <SelectTrigger><SelectValue placeholder={draftOptionsLoading ? "Carregando…" : draftOptions.length === 0 ? "Nenhuma rota disponível" : "Escolha a rota"} /></SelectTrigger>
                             <SelectContent>
                                 {draftOptions.map(d => (
                                     <SelectItem key={d.id} value={d.id}>
-                                        {d.name} · {draftDayLabel(d)} · {(d.stops || []).filter(st => !st.isReallocated).length} OS{d.parentRouteId === routeId ? " · filha desta rota" : ""}
+                                        {d.name} · {d.isDraft ? "rascunho" : "publicada"} · {draftDayLabel(d)} · {(d.stops || []).filter(st => !st.isReallocated).length} OS{d.parentRouteId === routeId ? " · filha desta rota" : ""}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
-                        <p className="text-[11px] text-muted-foreground">Se a rascunho ainda não tiver rota mãe, ela passa a ser filha desta rota de entrega e as OS aparecem aqui como Programadas.</p>
+                        <p className="text-[11px] text-muted-foreground">Se a rota ainda não tiver rota mãe, ela passa a ser filha desta rota de entrega e as OS aparecem aqui como Programadas.</p>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setDraftOpen(false)} disabled={draftAdding}>Cancelar</Button>
