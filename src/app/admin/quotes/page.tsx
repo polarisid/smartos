@@ -3,21 +3,23 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { CheckCircle2, FileDown, Link2, Loader2, Plus, Search, Trash2, Undo2, Wallet, XCircle, Zap } from "lucide-react";
+import { Banknote, CheckCircle2, Clock, FileDown, Inbox, Link2, Loader2, MoreHorizontal, Plus, Search, Trash2, Undo2, Wallet, X, XCircle, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import {
   PAYMENT_METHODS, PAYMENT_STATE_LABEL, QUOTE_STATUS_LABEL, addPayment, balanceOf, canChangeStatusTo, canReceivePayment,
   cleanText, paidOf, paidPercent, parseMoney, paymentStateOf, removePayment, roundMoney, type QuoteStatus,
 } from "@/lib/quotes";
+import { cn } from "@/lib/utils";
 import { configService } from "@/services/supabase/configService";
 import { quoteService, type Quote } from "@/services/supabase/quoteService";
 
@@ -38,6 +40,130 @@ const statusBadgeClass = (s: QuoteStatus) =>
   s === "aprovado" ? "bg-green-600/15 text-green-700 hover:bg-green-600/15 dark:text-green-400"
   : s === "reprovado" ? "bg-red-600/15 text-red-700 hover:bg-red-600/15 dark:text-red-400"
   : "bg-amber-500/15 text-amber-700 hover:bg-amber-500/15 dark:text-amber-400";
+
+// Uma linha da lista de orçamentos. Em telas largas vira uma linha de tabela (mesmas colunas do cabeçalho);
+// em telas menores vira um cartão empilhado, sem rolagem horizontal.
+const ROW_GRID = "xl:grid-cols-[minmax(0,2fr)_8.5rem_7.5rem_8rem_minmax(10rem,1.4fr)_14rem]";
+
+const STATUS_META: Record<QuoteStatus, { Icon: typeof Clock; stripe: string }> = {
+  pendente: { Icon: Clock, stripe: "border-l-amber-400" },
+  aprovado: { Icon: CheckCircle2, stripe: "border-l-green-500" },
+  reprovado: { Icon: XCircle, stripe: "border-l-red-400" },
+};
+
+function QuoteRow({ q, busy, onApprove, onReject, onReopen, onPay, onLink, onPdf, onDelete }: {
+  q: Quote; busy: boolean;
+  onApprove: () => void; onReject: () => void; onReopen: () => void; onPay: () => void; onLink: () => void; onPdf: () => void; onDelete: () => void;
+}) {
+  const paid = paidOf(q.payments);
+  const balance = balanceOf(q.totalAmount, q.payments);
+  const state = paymentStateOf(q.totalAmount, q.payments);
+  const meta = STATUS_META[q.status];
+  const stripe = q.status === "aprovado" && balance > 0 ? "border-l-orange-400" : meta.stripe;
+  const StatusIcon = meta.Icon;
+
+  return (
+    <div className={cn(
+      "grid grid-cols-2 items-center gap-x-3 gap-y-3 border-l-4 px-4 py-3 transition-colors hover:bg-muted/40",
+      ROW_GRID, stripe, q.status === "reprovado" && "opacity-80",
+    )}>
+      {/* Cliente */}
+      <div className="col-span-2 min-w-0 xl:col-span-1">
+        <div className="truncate font-semibold leading-tight" title={q.clientName}>{q.clientName}</div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+          <span>{format(q.createdAt, "dd/MM/yyyy")}</span>
+          {q.clientCpf && <span>· {q.clientCpf}</span>}
+        </div>
+        {q.snapshot.quick && (
+          <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300">
+            <Zap className="h-3 w-3" /> {q.snapshot.items[0]?.description || "Lançamento rápido"}
+            {q.snapshot.items.length > 1 && <span className="opacity-70">+{q.snapshot.items.length - 1}</span>}
+          </span>
+        )}
+      </div>
+
+      {/* OS */}
+      <div>
+        <div className="mb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground xl:hidden">OS</div>
+        {q.osNumber ? (
+          <button type="button" onClick={onLink} title="Trocar o vínculo com a OS"
+            className="rounded-md bg-muted px-2 py-1 font-mono text-xs font-semibold transition-colors hover:bg-muted/70">
+            {q.osNumber}
+          </button>
+        ) : (
+          <button type="button" onClick={onLink} title="Vincular a uma OS"
+            className="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+            <Link2 className="h-3 w-3" /> Vincular OS
+          </button>
+        )}
+      </div>
+
+      {/* Total */}
+      <div className="text-right xl:text-right">
+        <div className="mb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground xl:hidden">Total</div>
+        <div className="whitespace-nowrap text-base font-bold tabular-nums">{brl(q.totalAmount)}</div>
+      </div>
+
+      {/* Situação */}
+      <div>
+        <div className="mb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground xl:hidden">Situação</div>
+        <Badge className={cn("gap-1", statusBadgeClass(q.status))}><StatusIcon className="h-3 w-3" />{QUOTE_STATUS_LABEL[q.status]}</Badge>
+        {q.decidedAt && <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{format(q.decidedAt, "dd/MM")}{q.decidedByName ? ` · ${q.decidedByName}` : ""}</div>}
+      </div>
+
+      {/* Pagamento */}
+      <div className="col-span-2 min-w-0 xl:col-span-1">
+        {q.status === "aprovado" ? (
+          <div className="space-y-1">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div className={cn("h-full rounded-full transition-all", state === "quitado" ? "bg-green-600" : "bg-orange-500")} style={{ width: `${paidPercent(q.totalAmount, q.payments)}%` }} />
+            </div>
+            <div className="flex items-baseline justify-between gap-2 text-[11px] tabular-nums">
+              <span className="text-green-700 dark:text-green-400">Pago {brl(paid)}</span>
+              {balance > 0
+                ? <span className="font-semibold text-orange-700 dark:text-orange-400">Falta {brl(balance)}</span>
+                : <span className="inline-flex items-center gap-1 font-semibold text-green-700 dark:text-green-400"><CheckCircle2 className="h-3 w-3" />{PAYMENT_STATE_LABEL[state]}</span>}
+            </div>
+          </div>
+        ) : q.status === "reprovado" ? (
+          <span className="line-clamp-2 text-[11px] italic text-muted-foreground">{q.rejectReason ? `Motivo: ${q.rejectReason}` : "Sem motivo informado"}</span>
+        ) : (
+          <span className="text-[11px] text-muted-foreground">Aguardando aprovação</span>
+        )}
+      </div>
+
+      {/* Ações: o que mais se faz fica à vista; o resto vai no menu ⋯ */}
+      <div className="col-span-2 flex items-center justify-end gap-1.5 xl:col-span-1">
+        {q.status === "pendente" && (<>
+          <Button size="sm" className="gap-1 bg-green-600 hover:bg-green-700" disabled={busy} onClick={onApprove}><CheckCircle2 className="h-3.5 w-3.5" /> Aprovar</Button>
+          <Button size="sm" variant="outline" className="gap-1 text-red-700 hover:text-red-700" disabled={busy} onClick={onReject}><XCircle className="h-3.5 w-3.5" /> Reprovar</Button>
+        </>)}
+        {q.status === "aprovado" && (
+          <Button size="sm" className="gap-1" disabled={busy} onClick={onPay}><Wallet className="h-3.5 w-3.5" /> {balance > 0 ? "Receber" : "Pagamentos"}</Button>
+        )}
+        {q.status === "reprovado" && (
+          <Button size="sm" variant="outline" className="gap-1" disabled={busy} onClick={onReopen}><Undo2 className="h-3.5 w-3.5" /> Reabrir</Button>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" disabled={busy} aria-label="Mais ações">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem onSelect={onLink}><Link2 className="mr-2 h-4 w-4" /> {q.osNumber ? "Trocar a OS" : "Vincular a uma OS"}</DropdownMenuItem>
+            {!q.snapshot.quick && <DropdownMenuItem onSelect={onPdf}><FileDown className="mr-2 h-4 w-4" /> Baixar o PDF</DropdownMenuItem>}
+            {q.status === "reprovado" && <DropdownMenuItem onSelect={onApprove}><CheckCircle2 className="mr-2 h-4 w-4" /> Aprovar</DropdownMenuItem>}
+            {q.status === "aprovado" && <DropdownMenuItem onSelect={onReject}><XCircle className="mr-2 h-4 w-4" /> Reprovar</DropdownMenuItem>}
+            {q.status === "aprovado" && <DropdownMenuItem onSelect={onReopen}><Undo2 className="mr-2 h-4 w-4" /> Voltar para pendente</DropdownMenuItem>}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onDelete} className="text-destructive focus:text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Apagar</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
+}
 
 export default function QuotesPage() {
   const { activeUnidadeId, appUser } = useAuth();
@@ -90,6 +216,28 @@ export default function QuotesPage() {
     });
   }, [quotes, filter, search]);
 
+  const counts = useMemo(() => ({
+    all: quotes.length,
+    pendente: quotes.filter(q => q.status === "pendente").length,
+    aprovado: quotes.filter(q => q.status === "aprovado").length,
+    saldo: quotes.filter(q => q.status === "aprovado" && balanceOf(q.totalAmount, q.payments) > 0).length,
+    reprovado: quotes.filter(q => q.status === "reprovado").length,
+  } as Record<Filter, number>), [quotes]);
+
+  const visibleTotals = useMemo(() => ({
+    total: roundMoney(visible.reduce((n, q) => n + q.totalAmount, 0)),
+    toReceive: roundMoney(visible.filter(q => q.status === "aprovado").reduce((n, q) => n + balanceOf(q.totalAmount, q.payments), 0)),
+  }), [visible]);
+
+  const receivedPercent = summary.approvedTotal > 0 ? Math.min(100, Math.round((summary.received / summary.approvedTotal) * 100)) : 0;
+  const cards: { label: string; value: string; hint: string; tone?: string; iconBg: string; Icon: typeof Clock; filter?: Filter; bar?: number }[] = [
+    { label: "Pendentes", value: String(summary.pending), hint: summary.pending ? brl(summary.pendingValue) + " aguardando" : "Nada aguardando", iconBg: "bg-amber-500/15 text-amber-700 dark:text-amber-400", Icon: Clock, filter: "pendente" },
+    { label: "Aprovados", value: String(summary.approved), hint: summary.approved ? brl(summary.approvedTotal) + " no total" : "Nenhum ainda", iconBg: "bg-green-600/15 text-green-700 dark:text-green-400", Icon: CheckCircle2, filter: "aprovado" },
+    { label: "Recebido", value: brl(summary.received), hint: summary.approvedTotal > 0 ? receivedPercent + "% dos aprovados" : "dos aprovados", tone: "text-green-700 dark:text-green-400", iconBg: "bg-green-600/15 text-green-700 dark:text-green-400", Icon: Banknote, bar: receivedPercent },
+    { label: "A receber", value: brl(summary.toReceive), hint: counts.saldo ? counts.saldo + " com saldo em aberto" : "Tudo quitado", tone: summary.toReceive > 0 ? "text-orange-700 dark:text-orange-400" : undefined, iconBg: "bg-orange-500/15 text-orange-700 dark:text-orange-400", Icon: Wallet, filter: "saldo" },
+    { label: "Reprovados", value: String(summary.rejected), hint: summary.rejected ? "Não seguiram" : "Nenhum", iconBg: "bg-red-600/15 text-red-700 dark:text-red-400", Icon: XCircle, filter: "reprovado" },
+  ];
+
   const run = async (id: string, action: () => Promise<void>, okTitle?: string) => {
     setBusyId(id);
     try {
@@ -137,153 +285,124 @@ export default function QuotesPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h2 className="flex items-center gap-2 text-2xl font-bold tracking-tight"><Wallet className="h-6 w-6" /> Orçamentos</h2>
-          <p className="text-sm text-muted-foreground">
-            Orçamentos gerados na Calculadora de Custo. Marque aprovado ou reprovado, vincule à OS e controle o que já foi pago e o que falta pagar.
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            Orçamentos gerados na Calculadora de Custo. Aprove ou reprove, vincule à OS e acompanhe o que já foi pago e o que falta receber.
           </p>
         </div>
         <Button className="gap-1.5" onClick={() => setQuickOpen(true)}><Zap className="h-4 w-4" /> Lançamento rápido</Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
-        {[
-          { label: "Pendentes", value: String(summary.pending), hint: brl(summary.pendingValue) },
-          { label: "Aprovados", value: String(summary.approved), hint: brl(summary.approvedTotal) },
-          { label: "Recebido", value: brl(summary.received), hint: "dos aprovados", tone: "text-green-700 dark:text-green-400" },
-          { label: "A receber", value: brl(summary.toReceive), hint: "dos aprovados", tone: summary.toReceive > 0 ? "text-orange-700 dark:text-orange-400" : undefined },
-          { label: "Reprovados", value: String(summary.rejected), hint: "" },
-        ].map(c => (
-          <Card key={c.label}>
-            <CardContent className="p-3">
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{c.label}</p>
-              <p className={`text-lg font-bold tabular-nums ${c.tone || ""}`}>{c.value}</p>
-              {c.hint && <p className="text-[11px] text-muted-foreground">{c.hint}</p>}
-            </CardContent>
-          </Card>
-        ))}
+      {/* Resumo: os cartões também filtram a lista */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {cards.map(c => {
+          const active = c.filter && filter === c.filter;
+          const Icon = c.Icon;
+          const body = (
+            <>
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{c.label}</p>
+                <span className={cn("flex h-7 w-7 items-center justify-center rounded-full", c.iconBg)}><Icon className="h-4 w-4" /></span>
+              </div>
+              <p className={cn("mt-2 text-2xl font-bold tabular-nums leading-none", c.tone)}>{c.value}</p>
+              <p className="mt-1.5 min-h-[1rem] text-[11px] text-muted-foreground">{c.hint}</p>
+              {c.bar !== undefined && (
+                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-green-600 transition-all" style={{ width: `${c.bar}%` }} />
+                </div>
+              )}
+            </>
+          );
+          return c.filter ? (
+            <button
+              key={c.label} type="button" onClick={() => setFilter(active ? "all" : c.filter!)}
+              className={cn("rounded-xl border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active && "ring-2 ring-primary")}
+              aria-pressed={!!active} title={active ? "Clique para mostrar todos" : "Clique para filtrar a lista"}
+            >{body}</button>
+          ) : (
+            <div key={c.label} className="rounded-xl border bg-card p-4 shadow-sm">{body}</div>
+          );
+        })}
       </div>
 
-      <Card>
-        <CardHeader className="space-y-3 pb-3">
+      <Card className="overflow-hidden">
+        <div className="space-y-3 border-b p-4">
           <div className="flex flex-wrap items-center gap-2">
-            {FILTERS.map(f => (
-              <Button key={f.key} size="sm" variant={filter === f.key ? "default" : "outline"} onClick={() => setFilter(f.key)}>{f.label}</Button>
-            ))}
-            <div className="relative ml-auto w-full sm:w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input className="pl-8" placeholder="Cliente, CPF ou OS" value={search} onChange={e => setSearch(e.target.value)} />
+            <div className="flex flex-wrap gap-1.5">
+              {FILTERS.map(f => (
+                <button
+                  key={f.key} type="button" onClick={() => setFilter(f.key)} aria-pressed={filter === f.key}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                    filter === f.key ? "border-primary bg-primary text-primary-foreground" : "bg-background hover:bg-muted",
+                  )}
+                >
+                  {f.label}
+                  <span className={cn("rounded-full px-1.5 text-[11px] tabular-nums", filter === f.key ? "bg-primary-foreground/20" : "bg-muted text-muted-foreground")}>{counts[f.key]}</span>
+                </button>
+              ))}
+            </div>
+            <div className="relative ml-auto w-full sm:w-72">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input className="pl-9 pr-8" placeholder="Buscar cliente, CPF ou OS" value={search} onChange={e => setSearch(e.target.value)} />
+              {search && (
+                <button type="button" onClick={() => setSearch("")} aria-label="Limpar a busca" className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           </div>
-          <CardDescription className="text-xs">{visible.length} de {quotes.length} orçamento(s)</CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Carregando...</div>
-          ) : error ? (
-            <p className="p-6 text-sm text-destructive">Não foi possível carregar os orçamentos. Confira se a migration 32_quotes.sql foi executada no Supabase.</p>
-          ) : visible.length === 0 ? (
-            <p className="p-8 text-center text-sm text-muted-foreground">
-              {quotes.length === 0 ? "Nenhum orçamento salvo ainda. Gere um na Calculadora de Custo." : "Nenhum orçamento com esse filtro."}
+          <p className="text-xs text-muted-foreground">
+            {visible.length} de {quotes.length} orçamento(s)
+            {visible.length > 0 && <> · total {brl(visibleTotals.total)}{visibleTotals.toReceive > 0 && <> · <span className="font-medium text-orange-700 dark:text-orange-400">falta receber {brl(visibleTotals.toReceive)}</span></>}</>}
+          </p>
+        </div>
+
+        {isLoading ? (
+          <div className="divide-y">
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className="flex items-center gap-4 px-4 py-4">
+                <Skeleton className="h-10 flex-1" /><Skeleton className="hidden h-8 w-24 sm:block" /><Skeleton className="h-8 w-28" />
+              </div>
+            ))}
+          </div>
+        ) : error ? (
+          <p className="p-6 text-sm text-destructive">Não foi possível carregar os orçamentos. Confira se a migration 32_quotes.sql foi executada no Supabase.</p>
+        ) : visible.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 px-6 py-14 text-center">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground"><Inbox className="h-6 w-6" /></span>
+            <p className="font-medium">{quotes.length === 0 ? "Nenhum orçamento salvo ainda" : "Nenhum orçamento encontrado"}</p>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              {quotes.length === 0 ? "Gere um orçamento na Calculadora de Custo ou use o Lançamento rápido para uma cobrança avulsa." : "Tente outro filtro ou limpe a busca."}
             </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Data</TableHead>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>OS</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead>Situação</TableHead>
-                    <TableHead className="min-w-[150px]">Pagamento</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visible.map(q => {
-                    const paid = paidOf(q.payments);
-                    const balance = balanceOf(q.totalAmount, q.payments);
-                    const state = paymentStateOf(q.totalAmount, q.payments);
-                    const busy = busyId === q.id;
-                    return (
-                      <TableRow key={q.id}>
-                        <TableCell className="whitespace-nowrap text-xs">{format(q.createdAt, "dd/MM/yyyy")}</TableCell>
-                        <TableCell>
-                          <div className="font-medium">{q.clientName}</div>
-                          {q.snapshot.quick && <div className="text-[11px] text-sky-700 dark:text-sky-300">⚡ {q.snapshot.items[0]?.description || "Lançamento rápido"}</div>}
-                          {q.clientCpf && <div className="text-[11px] text-muted-foreground">{q.clientCpf}</div>}
-                        </TableCell>
-                        <TableCell>
-                          <button type="button" className="inline-flex items-center gap-1 text-xs hover:underline" onClick={() => setLinkingId(q.id)} title="Vincular a uma OS">
-                            {q.osNumber ? <span className="font-mono font-semibold">{q.osNumber}</span> : <span className="text-muted-foreground"><Link2 className="mr-1 inline h-3 w-3" />Vincular</span>}
-                          </button>
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-right font-semibold tabular-nums">{brl(q.totalAmount)}</TableCell>
-                        <TableCell>
-                          <Badge className={statusBadgeClass(q.status)}>{QUOTE_STATUS_LABEL[q.status]}</Badge>
-                          {q.status === "reprovado" && q.rejectReason && <div className="mt-0.5 max-w-[160px] text-[10px] text-muted-foreground">{q.rejectReason}</div>}
-                          {q.decidedAt && <div className="text-[10px] text-muted-foreground">{format(q.decidedAt, "dd/MM")}{q.decidedByName ? ` · ${q.decidedByName}` : ""}</div>}
-                        </TableCell>
-                        <TableCell>
-                          {q.status === "aprovado" ? (
-                            <div className="space-y-1">
-                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                                <div className={`h-full ${state === "quitado" ? "bg-green-600" : "bg-orange-500"}`} style={{ width: `${paidPercent(q.totalAmount, q.payments)}%` }} />
-                              </div>
-                              <div className="flex justify-between text-[11px] tabular-nums">
-                                <span className="text-green-700 dark:text-green-400">Pago {brl(paid)}</span>
-                                <span className={balance > 0 ? "font-semibold text-orange-700 dark:text-orange-400" : "text-muted-foreground"}>
-                                  {balance > 0 ? `Falta ${brl(balance)}` : PAYMENT_STATE_LABEL[state]}
-                                </span>
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap justify-end gap-1">
-                            {q.status !== "aprovado" && (
-                              <Button size="sm" variant="outline" className="gap-1 text-green-700" disabled={busy} onClick={() => setStatus(q, "aprovado")}>
-                                <CheckCircle2 className="h-3.5 w-3.5" /> Aprovar
-                              </Button>
-                            )}
-                            {q.status !== "reprovado" && (
-                              <Button size="sm" variant="outline" className="gap-1 text-red-700" disabled={busy} onClick={() => setRejectingId(q.id)}>
-                                <XCircle className="h-3.5 w-3.5" /> Reprovar
-                              </Button>
-                            )}
-                            {q.status !== "pendente" && (
-                              <Button size="sm" variant="ghost" className="gap-1" disabled={busy} onClick={() => setStatus(q, "pendente")} title="Voltar para pendente">
-                                <Undo2 className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                            {canReceivePayment(q.status) && (
-                              <Button size="sm" className="gap-1" onClick={() => setPayingId(q.id)}>
-                                <Wallet className="h-3.5 w-3.5" /> Pagamentos
-                              </Button>
-                            )}
-                            {!q.snapshot.quick && (
-                              <Button size="sm" variant="ghost" disabled={busy} onClick={() => downloadPdf(q)} title="Baixar o PDF">
-                                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
-                              </Button>
-                            )}
-                            <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => setDeletingId(q.id)} title="Apagar">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+            {quotes.length > 0 && (filter !== "all" || search) && (
+              <Button variant="outline" size="sm" className="mt-2" onClick={() => { setFilter("all"); setSearch(""); }}>Limpar filtros</Button>
+            )}
+          </div>
+        ) : (
+          <div>
+            <div className={cn("hidden border-b bg-muted/40 py-2 pl-5 pr-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground xl:grid xl:gap-x-3", ROW_GRID)}>
+              <span>Cliente</span><span>OS</span><span className="text-right">Total</span><span>Situação</span><span>Pagamento</span><span className="text-right">Ações</span>
             </div>
-          )}
-        </CardContent>
+            <div className="divide-y">
+              {visible.map(q => (
+                <QuoteRow
+                  key={q.id} q={q} busy={busyId === q.id}
+                  onApprove={() => void setStatus(q, "aprovado")}
+                  onReject={() => setRejectingId(q.id)}
+                  onReopen={() => void setStatus(q, "pendente")}
+                  onPay={() => setPayingId(q.id)}
+                  onLink={() => setLinkingId(q.id)}
+                  onPdf={() => void downloadPdf(q)}
+                  onDelete={() => setDeletingId(q.id)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </Card>
 
       <QuickDialog
