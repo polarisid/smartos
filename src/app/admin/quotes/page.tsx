@@ -291,6 +291,7 @@ export default function QuotesPage() {
         onClose={() => setQuickOpen(false)}
         byName={appUser?.name}
         unidadeId={activeUnidadeId}
+        quotes={quotes}
         onSaved={() => { setQuickOpen(false); void refresh(); }}
       />
 
@@ -422,45 +423,66 @@ function PaymentsDialog({ quote, onClose, byName, onSave }: {
 
 const QUICK_DESCRIPTIONS = ["Taxa de visita", "Sinal / entrada", "Peça", "Mão de obra", "Outro"];
 
-// Lançamento rápido: cobrança avulsa (ex.: taxa de visita) sem montar orçamento. Já nasce aprovada e,
-// se o cliente já pagou, com o pagamento lançado - o mesmo controle de pago/falta pagar dos orçamentos.
-function QuickDialog({ open, onClose, byName, unidadeId, onSaved }: {
-  open: boolean; onClose: () => void; byName?: string; unidadeId?: string | null; onSaved: () => void;
+// Lançamento rápido: cobrança avulsa (ex.: taxa de visita) sem montar orçamento. Já nasce aprovada e com o
+// que o cliente já pagou lançado (tudo, parte ou nada) - o mesmo controle de pago/falta pagar dos orçamentos.
+// Vários lançamentos podem ser da mesma OS (ex.: taxa de visita + peça): o aviso mostra o que a OS já tem.
+type PaidMode = "total" | "parcial" | "nenhum";
+
+function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
+  open: boolean; onClose: () => void; byName?: string; unidadeId?: string | null; quotes: Quote[]; onSaved: () => void;
 }) {
   const { toast } = useToast();
   const [client, setClient] = useState("");
   const [os, setOs] = useState("");
   const [description, setDescription] = useState("Taxa de visita");
   const [amountText, setAmountText] = useState("");
-  const [received, setReceived] = useState(true);
+  const [mode, setMode] = useState<PaidMode>("total");
+  const [paidText, setPaidText] = useState("");
   const [method, setMethod] = useState<string>("PIX");
   const [date, setDate] = useState(todayKey());
   const [saving, setSaving] = useState(false);
 
-  const reset = () => { setClient(""); setOs(""); setDescription("Taxa de visita"); setAmountText(""); setReceived(true); setMethod("PIX"); setDate(todayKey()); };
+  const reset = () => { setClient(""); setOs(""); setDescription("Taxa de visita"); setAmountText(""); setMode("total"); setPaidText(""); setMethod("PIX"); setDate(todayKey()); };
+
+  const total = parseMoney(amountText);
+  const paidNow = mode === "total" ? total : mode === "parcial" ? parseMoney(paidText) : 0;
+  const remaining = roundMoney(Math.max(0, total - paidNow));
+
+  // O que a OS informada já tem lançado (aprovado/pendente): evita lançar em duplicidade e ajuda a somar por OS.
+  const osKey = os.trim();
+  const sameOs = osKey ? quotes.filter(q => q.osNumber === osKey && q.status !== "reprovado") : [];
+  const sameOsTotal = roundMoney(sameOs.reduce((n, q) => n + q.totalAmount, 0));
+  const sameOsPaid = roundMoney(sameOs.reduce((n, q) => n + paidOf(q.payments), 0));
+  const onOsChange = (value: string) => {
+    setOs(value);
+    // Se a OS já tem lançamento, aproveita o nome do cliente.
+    const known = quotes.find(q => q.osNumber === value.trim());
+    if (known && !client.trim()) setClient(known.clientName);
+  };
 
   const save = async () => {
-    const amount = parseMoney(amountText);
     if (!client.trim()) { toast({ variant: "destructive", title: "Informe o cliente." }); return; }
-    if (!(amount > 0)) { toast({ variant: "destructive", title: "Informe um valor maior que zero." }); return; }
+    if (!(total > 0)) { toast({ variant: "destructive", title: "Informe o valor total maior que zero." }); return; }
+    if (mode === "parcial" && !(paidNow > 0)) { toast({ variant: "destructive", title: "Informe quanto já foi recebido." }); return; }
+    if (paidNow > total) { toast({ variant: "destructive", title: "O valor recebido passa do total." }); return; }
     let payments: Quote["payments"] = [];
-    if (received) {
-      const result = addPayment(amount, [], { amount, method, date, byName });
+    if (paidNow > 0) {
+      const result = addPayment(total, [], { amount: paidNow, method, date, byName });
       if (!result.ok) { toast({ variant: "destructive", title: "Pagamento não registrado", description: result.error }); return; }
       payments = result.payments;
     }
     setSaving(true);
     try {
       await quoteService.create({
-        osNumber: os.trim() || undefined,
+        osNumber: osKey || undefined,
         clientName: client.trim(),
-        totalAmount: amount,
+        totalAmount: total,
         createdByName: byName,
         status: "aprovado",
         payments,
-        snapshot: { quick: true, discount: 0, items: [{ description: description.trim() || "Lançamento rápido", value: amount, quantity: 1, kind: "servico" }] },
+        snapshot: { quick: true, discount: 0, items: [{ description: description.trim() || "Lançamento rápido", value: total, quantity: 1, kind: "servico" }] },
       }, unidadeId);
-      toast({ title: received ? "Pagamento lançado" : "Cobrança lançada (falta receber)" });
+      toast({ title: remaining <= 0 ? "Lançado e quitado" : paidNow > 0 ? `Lançado: recebido ${brl(paidNow)}, falta ${brl(remaining)}` : "Cobrança lançada (falta receber tudo)" });
       reset();
       onSaved();
     } catch (e: any) {
@@ -471,36 +493,62 @@ function QuickDialog({ open, onClose, byName, unidadeId, onSaved }: {
     }
   };
 
+  const MODES: { key: PaidMode; label: string }[] = [
+    { key: "total", label: "Pago total" },
+    { key: "parcial", label: "Pagou parte" },
+    { key: "nenhum", label: "A pagar" },
+  ];
+
   return (
     <Dialog open={open} onOpenChange={o => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Lançamento rápido</DialogTitle>
-          <DialogDescription>Cobrança avulsa, como a taxa de visita, sem montar orçamento. Entra como aprovada e já controla pago e falta pagar.</DialogDescription>
+          <DialogDescription>Cobrança avulsa, como a taxa de visita, sem montar orçamento. Entra como aprovada e já controla pago e falta pagar. Dá para lançar mais de um para a mesma OS.</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-2">
-          <div className="col-span-2 space-y-1">
-            <Label className="text-xs">Cliente *</Label>
-            <Input autoFocus value={client} onChange={e => setClient(e.target.value)} placeholder="Nome do cliente" />
-          </div>
           <div className="space-y-1">
             <Label className="text-xs">Nº da OS (opcional)</Label>
-            <Input value={os} onChange={e => setOs(e.target.value)} placeholder="Vincula à OS" />
+            <Input autoFocus value={os} onChange={e => onOsChange(e.target.value)} placeholder="Vincula à OS" />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Valor (R$) *</Label>
-            <Input value={amountText} onChange={e => setAmountText(e.target.value.replace(/[^\d.,]/g, ""))} placeholder="0,00" inputMode="decimal" />
+            <Label className="text-xs">Cliente *</Label>
+            <Input value={client} onChange={e => setClient(e.target.value)} placeholder="Nome do cliente" />
           </div>
+          {sameOs.length > 0 && (
+            <p className="col-span-2 rounded bg-sky-50 px-2 py-1 text-[11px] leading-snug text-sky-800 dark:bg-sky-950/40 dark:text-sky-300">
+              Esta OS já tem {sameOs.length} lançamento(s): total {brl(sameOsTotal)}, pago {brl(sameOsPaid)}, falta {brl(roundMoney(Math.max(0, sameOsTotal - sameOsPaid)))}.
+            </p>
+          )}
           <div className="col-span-2 space-y-1">
             <Label className="text-xs">Descrição</Label>
             <Input list="quick-descriptions" value={description} onChange={e => setDescription(e.target.value)} />
             <datalist id="quick-descriptions">{QUICK_DESCRIPTIONS.map(d => <option key={d} value={d} />)}</datalist>
           </div>
-          <label className="col-span-2 flex cursor-pointer items-center gap-2 text-sm">
-            <input type="checkbox" checked={received} onChange={e => setReceived(e.target.checked)} className="h-4 w-4" />
-            Já foi recebido (desmarque para deixar como falta pagar)
-          </label>
-          {received && (
+          <div className="space-y-1">
+            <Label className="text-xs">Valor total (R$) *</Label>
+            <Input value={amountText} onChange={e => setAmountText(e.target.value.replace(/[^\d.,]/g, ""))} placeholder="0,00" inputMode="decimal" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Recebido agora (R$)</Label>
+            <Input
+              value={mode === "total" ? (total > 0 ? String(total).replace(".", ",") : "") : mode === "nenhum" ? "0,00" : paidText}
+              disabled={mode !== "parcial"}
+              onChange={e => setPaidText(e.target.value.replace(/[^\d.,]/g, ""))}
+              placeholder="0,00"
+              inputMode="decimal"
+            />
+          </div>
+          <div className="col-span-2 flex gap-1">
+            {MODES.map(m => (
+              <Button key={m.key} type="button" size="sm" variant={mode === m.key ? "default" : "outline"} className="flex-1" onClick={() => setMode(m.key)}>{m.label}</Button>
+            ))}
+          </div>
+          <div className="col-span-2 flex justify-between rounded bg-muted/50 px-2 py-1.5 text-sm tabular-nums">
+            <span>Recebido <strong className="text-green-700 dark:text-green-400">{brl(paidNow)}</strong></span>
+            <span>Falta pagar <strong className={remaining > 0 ? "text-orange-700 dark:text-orange-400" : ""}>{brl(remaining)}</strong></span>
+          </div>
+          {paidNow > 0 && (
             <>
               <div className="space-y-1">
                 <Label className="text-xs">Forma</Label>
