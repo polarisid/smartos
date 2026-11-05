@@ -461,6 +461,7 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
   };
 
   const save = async () => {
+    if (!osKey) { toast({ variant: "destructive", title: "Informe o número da OS.", description: "O lançamento rápido precisa estar vinculado a uma ordem de serviço." }); return; }
     if (!client.trim()) { toast({ variant: "destructive", title: "Informe o cliente." }); return; }
     if (!(total > 0)) { toast({ variant: "destructive", title: "Informe o valor total maior que zero." }); return; }
     if (mode === "parcial" && !(paidNow > 0)) { toast({ variant: "destructive", title: "Informe quanto já foi recebido." }); return; }
@@ -474,7 +475,7 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
     setSaving(true);
     try {
       await quoteService.create({
-        osNumber: osKey || undefined,
+        osNumber: osKey,
         clientName: client.trim(),
         totalAmount: total,
         createdByName: byName,
@@ -508,7 +509,7 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
         </DialogHeader>
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
-            <Label className="text-xs">Nº da OS (opcional)</Label>
+            <Label className="text-xs">Nº da OS *</Label>
             <Input autoFocus value={os} onChange={e => onOsChange(e.target.value)} placeholder="Vincula à OS" />
           </div>
           <div className="space-y-1">
@@ -566,7 +567,7 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button disabled={saving} className="gap-1.5" onClick={save}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Lançar</Button>
+          <Button disabled={saving || !osKey} className="gap-1.5" onClick={save}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Lançar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
