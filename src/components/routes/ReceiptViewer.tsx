@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { ExternalLink, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { routeExpenseService } from "@/services/supabase/routeExpenseService";
+import { routeExpenseService, isPdfPath } from "@/services/supabase/routeExpenseService";
 
-// Abre a foto do comprovante (bucket privado: o link é assinado e dura 1 hora).
+// Abre a foto ou o PDF do comprovante (bucket privado: o link é assinado e dura 1 hora).
 export function ReceiptViewer({ path, title, onClose }: { path: string | null; title?: string; onClose: () => void }) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -26,13 +26,15 @@ export function ReceiptViewer({ path, title, onClose }: { path: string | null; t
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Comprovante</DialogTitle>
-          <DialogDescription>{title || "Foto enviada no lançamento do gasto."}</DialogDescription>
+          <DialogDescription>{title || "Foto ou PDF enviado no lançamento do gasto."}</DialogDescription>
         </DialogHeader>
         <div className="flex min-h-[200px] items-center justify-center overflow-auto rounded-md bg-muted">
           {error ? (
             <p className="p-6 text-center text-sm text-destructive">{error}</p>
           ) : !url ? (
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          ) : isPdfPath(path) ? (
+            <iframe src={url} title="Comprovante em PDF" className="h-[70vh] w-full border-0" />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={url} alt="Comprovante do gasto" className="max-h-[70vh] w-auto max-w-full object-contain" />

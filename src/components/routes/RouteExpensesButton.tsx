@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { Camera, ImageIcon, Loader2, Plus, Receipt, Trash2, X } from "lucide-react";
+import { Camera, FileText, ImageIcon, Loader2, Plus, Receipt, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,7 @@ import { cleanLines, cleanText, parseMoney } from "@/lib/quotes";
 import { totalOf, totalsByCategory } from "@/lib/routeExpenses";
 import { cn } from "@/lib/utils";
 import { configService } from "@/services/supabase/configService";
-import { routeExpenseService } from "@/services/supabase/routeExpenseService";
+import { routeExpenseService, isPdfFile, MAX_RECEIPT_PDF_BYTES } from "@/services/supabase/routeExpenseService";
 import { ReceiptViewer } from "@/components/routes/ReceiptViewer";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -79,6 +79,14 @@ export function RouteExpensesButton({ route, className }: { route: { id: string;
 
   const onPickFile = async (file: File | undefined) => {
     if (!file) return;
+    if (isPdfFile(file)) {
+      if (file.size > MAX_RECEIPT_PDF_BYTES) {
+        toast({ variant: "destructive", title: "PDF muito grande", description: "O PDF do comprovante pode ter até 10 MB." });
+        return;
+      }
+      setReceipt(file);
+      return;
+    }
     setReading(true);
     try {
       const { file: ready, unreadable } = await compressImageIfNeeded(file);
@@ -100,7 +108,7 @@ export function RouteExpensesButton({ route, className }: { route: { id: string;
     if (!(amount > 0)) { toast({ variant: "destructive", title: "Informe o valor do gasto." }); return; }
     if (!date || date > todayKey()) { toast({ variant: "destructive", title: "Informe a data do gasto (não pode ser futura)." }); return; }
     if (needsDescription && !cleanText(description)) { toast({ variant: "destructive", title: "Descreva o gasto em \"Outros\"." }); return; }
-    if (!receipt) { toast({ variant: "destructive", title: "Anexe a foto do comprovante.", description: "O lançamento só é salvo com a foto da nota ou do recibo." }); return; }
+    if (!receipt) { toast({ variant: "destructive", title: "Anexe o comprovante.", description: "O lançamento só é salvo com a foto ou o PDF da nota ou do recibo." }); return; }
     setSaving(true);
     try {
       await routeExpenseService.create({
@@ -198,12 +206,22 @@ export function RouteExpensesButton({ route, className }: { route: { id: string;
                 <Textarea rows={2} value={description} onChange={e => setDescription(e.target.value)} placeholder={needsDescription ? "O que foi este gasto?" : "Ex.: almoço em Itabaiana"} />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs">Foto do comprovante *</Label>
+                <Label className="text-xs">Comprovante (foto ou PDF) *</Label>
                 {preview ? (
-                  <div className="relative w-fit">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={preview} alt="Comprovante" className="max-h-40 rounded-md border object-contain" />
-                    <button type="button" onClick={() => setReceipt(null)} aria-label="Trocar a foto" className="absolute -right-2 -top-2 rounded-full bg-background p-1 shadow ring-1 ring-border"><X className="h-3.5 w-3.5" /></button>
+                  <div className="relative w-fit max-w-full">
+                    {receipt && isPdfFile(receipt) ? (
+                      <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2.5">
+                        <FileText className="h-6 w-6 shrink-0 text-primary" />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{receipt.name}</p>
+                          <p className="text-[11px] text-muted-foreground">PDF · {(receipt.size / 1024 / 1024).toFixed(1).replace(".", ",")} MB</p>
+                        </div>
+                      </div>
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={preview} alt="Comprovante" className="max-h-40 rounded-md border object-contain" />
+                    )}
+                    <button type="button" onClick={() => setReceipt(null)} aria-label="Trocar o comprovante" className="absolute -right-2 -top-2 rounded-full bg-background p-1 shadow ring-1 ring-border"><X className="h-3.5 w-3.5" /></button>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
@@ -211,12 +229,12 @@ export function RouteExpensesButton({ route, className }: { route: { id: string;
                       {reading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />} Tirar foto
                     </Button>
                     <Button type="button" variant="outline" className="gap-1.5" disabled={reading} onClick={() => galleryRef.current?.click()}>
-                      <ImageIcon className="h-4 w-4" /> Galeria
+                      <ImageIcon className="h-4 w-4" /> Galeria / PDF
                     </Button>
                   </div>
                 )}
                 <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { void onPickFile(e.target.files?.[0]); e.target.value = ""; }} />
-                <input ref={galleryRef} type="file" accept="image/*" className="hidden" onChange={e => { void onPickFile(e.target.files?.[0]); e.target.value = ""; }} />
+                <input ref={galleryRef} type="file" accept="image/*,application/pdf,.pdf" className="hidden" onChange={e => { void onPickFile(e.target.files?.[0]); e.target.value = ""; }} />
               </div>
               <div className="flex justify-end gap-2 pt-1">
                 <Button variant="outline" disabled={saving} onClick={() => { reset(); setAdding(false); }}>Cancelar</Button>

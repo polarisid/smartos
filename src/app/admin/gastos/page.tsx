@@ -105,7 +105,7 @@ export default function RouteExpensesPage() {
         <div className="min-w-0">
           <h2 className="flex items-center gap-2 text-2xl font-bold tracking-tight"><Receipt className="h-6 w-6" /> Gastos de Rotas</h2>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Alimentação, hospedagem e outros gastos lançados pelos técnicos, com a foto do comprovante. Confira, ajuste e acompanhe o total por rota, técnico e período.
+            Alimentação, hospedagem e outros gastos lançados pelos técnicos, com a foto ou o PDF do comprovante. Confira, ajuste e acompanhe o total por rota, técnico e período.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

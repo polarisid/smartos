@@ -11,7 +11,7 @@ export type NewRouteExpense = {
   date: string;
   description?: string;
   createdByName?: string;
-  /** Foto do comprovante (já comprimida). Obrigatória no app: o lançamento sem foto não é criado. */
+  /** Foto (já comprimida) ou PDF do comprovante. Obrigatório no app: o lançamento sem comprovante não é criado. */
   receipt: File;
 };
 
@@ -29,7 +29,13 @@ const fromRow = (r: any): RouteExpense => ({
   createdAt: new Date(r.created_at),
 });
 
+export const MAX_RECEIPT_PDF_BYTES = 10 * 1024 * 1024;
+
+export const isPdfFile = (file: File) => file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+export const isPdfPath = (path?: string | null) => !!path && /\.pdf$/i.test(path);
+
 const extensionOf = (file: File) => {
+  if (isPdfFile(file)) return "pdf";
   const fromName = file.name.split(".").pop()?.toLowerCase();
   if (fromName && /^[a-z0-9]{2,5}$/.test(fromName)) return fromName;
   return file.type === "image/png" ? "png" : "jpg";
@@ -59,7 +65,7 @@ export const routeExpenseService = {
   async create(input: NewRouteExpense, unidadeId?: string | null): Promise<RouteExpense> {
     const path = `${unidadeId || "sem-unidade"}/${input.routeId}/${crypto.randomUUID()}.${extensionOf(input.receipt)}`;
     const { error: upError } = await supabase.storage.from(BUCKET).upload(path, input.receipt, {
-      contentType: input.receipt.type || "image/jpeg",
+      contentType: isPdfFile(input.receipt) ? "application/pdf" : input.receipt.type || "image/jpeg",
       upsert: false,
     });
     if (upError) throw new Error("Não foi possível enviar a foto do comprovante: " + upError.message);
