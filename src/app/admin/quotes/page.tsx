@@ -441,8 +441,10 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
   const [method, setMethod] = useState<string>("PIX");
   const [date, setDate] = useState(todayKey());
   const [saving, setSaving] = useState(false);
+  // Marcado = não soma no registro existente da OS: cria um lançamento separado.
+  const [separate, setSeparate] = useState(false);
 
-  const reset = () => { setClient(""); setOs(""); setDescription("Taxa de visita"); setAmountText(""); setMode("total"); setPaidText(""); setMethod("PIX"); setDate(todayKey()); };
+  const reset = () => { setSeparate(false); setClient(""); setOs(""); setDescription("Taxa de visita"); setAmountText(""); setMode("total"); setPaidText(""); setMethod("PIX"); setDate(todayKey()); };
 
   const total = parseMoney(amountText);
   const paidNow = mode === "total" ? total : mode === "parcial" ? parseMoney(paidText) : 0;
@@ -451,8 +453,12 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
   // O que a OS informada já tem lançado (aprovado/pendente): evita lançar em duplicidade e ajuda a somar por OS.
   const osKey = os.trim();
   const sameOs = osKey ? quotes.filter(q => q.osNumber === osKey && q.status !== "reprovado") : [];
-  const sameOsTotal = roundMoney(sameOs.reduce((n, q) => n + q.totalAmount, 0));
-  const sameOsPaid = roundMoney(sameOs.reduce((n, q) => n + paidOf(q.payments), 0));
+  // Registro da OS onde o novo valor é somado (o aprovado mais recente; a lista vem do mais novo para o mais antigo).
+  // Orçamento ainda pendente não recebe: aprove primeiro, ou o lançamento fica separado.
+  const target = sameOs.find(q => q.status === "aprovado") || null;
+  const merge = !!target && !separate;
+  const mergedTotal = target ? roundMoney(target.totalAmount + total) : 0;
+  const mergedPaid = target ? roundMoney(paidOf(target.payments) + paidNow) : 0;
   const onOsChange = (value: string) => {
     setOs(value);
     // Se a OS já tem lançamento, aproveita o nome do cliente.
@@ -462,10 +468,38 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
 
   const save = async () => {
     if (!osKey) { toast({ variant: "destructive", title: "Informe o número da OS.", description: "O lançamento rápido precisa estar vinculado a uma ordem de serviço." }); return; }
-    if (!client.trim()) { toast({ variant: "destructive", title: "Informe o cliente." }); return; }
+    if (!merge && !client.trim()) { toast({ variant: "destructive", title: "Informe o cliente." }); return; }
     if (!(total > 0)) { toast({ variant: "destructive", title: "Informe o valor total maior que zero." }); return; }
     if (mode === "parcial" && !(paidNow > 0)) { toast({ variant: "destructive", title: "Informe quanto já foi recebido." }); return; }
     if (paidNow > total) { toast({ variant: "destructive", title: "O valor recebido passa do total." }); return; }
+    const itemDescription = description.trim() || "Lançamento rápido";
+    // Soma no registro que a OS já tem: total maior, item novo e o pagamento na mesma lista.
+    if (merge && target) {
+      let payments = target.payments;
+      if (paidNow > 0) {
+        const result = addPayment(mergedTotal, target.payments, { amount: paidNow, method, date, byName, note: itemDescription });
+        if (!result.ok) { toast({ variant: "destructive", title: "Pagamento não registrado", description: result.error }); return; }
+        payments = result.payments;
+      }
+      setSaving(true);
+      try {
+        await quoteService.update(target.id, {
+          total_amount: mergedTotal,
+          payments,
+          data: { ...target.snapshot, items: [...(target.snapshot.items || []), { description: itemDescription, value: total, quantity: 1, kind: "servico" }] },
+        });
+        const left = roundMoney(Math.max(0, mergedTotal - mergedPaid));
+        toast({ title: `Somado à OS ${osKey}`, description: `Total ${brl(mergedTotal)} · pago ${brl(mergedPaid)} · ${left > 0 ? `falta ${brl(left)}` : "quitado"}` });
+        reset();
+        onSaved();
+      } catch (e: any) {
+        console.error(e);
+        toast({ variant: "destructive", title: "Não foi possível salvar", description: e?.message || "Tente de novo." });
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     let payments: Quote["payments"] = [];
     if (paidNow > 0) {
       const result = addPayment(total, [], { amount: paidNow, method, date, byName });
@@ -516,9 +550,21 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
             <Label className="text-xs">Cliente *</Label>
             <Input value={client} onChange={e => setClient(e.target.value)} placeholder="Nome do cliente" />
           </div>
-          {sameOs.length > 0 && (
-            <p className="col-span-2 rounded bg-sky-50 px-2 py-1 text-[11px] leading-snug text-sky-800 dark:bg-sky-950/40 dark:text-sky-300">
-              Esta OS já tem {sameOs.length} lançamento(s): total {brl(sameOsTotal)}, pago {brl(sameOsPaid)}, falta {brl(roundMoney(Math.max(0, sameOsTotal - sameOsPaid)))}.
+          {target && (
+            <div className="col-span-2 space-y-1 rounded bg-sky-50 px-2 py-1.5 text-[11px] leading-snug text-sky-800 dark:bg-sky-950/40 dark:text-sky-300">
+              <p>
+                Esta OS já tem lançamento: total {brl(target.totalAmount)}, pago {brl(paidOf(target.payments))}, falta {brl(balanceOf(target.totalAmount, target.payments))}.
+                {merge && total > 0 && <> Com este: <strong>total {brl(mergedTotal)}, pago {brl(mergedPaid)}, falta {brl(roundMoney(Math.max(0, mergedTotal - mergedPaid)))}</strong>.</>}
+              </p>
+              <label className="flex cursor-pointer items-center gap-1.5">
+                <input type="checkbox" checked={separate} onChange={e => setSeparate(e.target.checked)} className="h-3.5 w-3.5" />
+                Lançar separado (não somar no registro desta OS)
+              </label>
+            </div>
+          )}
+          {!target && sameOs.length > 0 && (
+            <p className="col-span-2 rounded bg-amber-50 px-2 py-1 text-[11px] leading-snug text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+              Esta OS tem orçamento pendente (ainda não aprovado). Este lançamento ficará separado.
             </p>
           )}
           <div className="col-span-2 space-y-1">
