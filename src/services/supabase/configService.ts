@@ -4,6 +4,7 @@ import { DEFAULT_TRAVEL_COST_PARAMS } from "@/lib/travelCost";
 import { DEFAULT_PART_COST_PARAMS } from "@/lib/partCost";
 import { DEFAULT_PLANNING_PARAMS, type PlanningParams } from "@/lib/routePlanning";
 import { normalizeProductPhotoConfig, type ProductPhotoConfig } from "@/lib/productLine";
+import { normalizeExpenseCategories } from "@/lib/routeExpenses";
 
 export type TechGoals = { cleaningsPerMonth: number; approvedBudgetsPerMonth: number };
 export const DEFAULT_TECH_GOALS: TechGoals = { cleaningsPerMonth: 0, approvedBudgetsPerMonth: 0 };
@@ -104,6 +105,25 @@ export const configService = {
       .upsert({ id: `delivery_done_${routeId}`, value: { done, at: done ? new Date().toISOString() : null }, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
 
     if (error) throw error;
+  },
+
+  // Categorias dos gastos de rota (alimentação, hospedagem...). Sem nada salvo ainda, vale a lista padrão.
+  async getExpenseCategories(unidadeId?: string | null): Promise<string[]> {
+    const { data, error } = await withUnidade(
+      supabase.from('configs').select('value').eq('id', 'route_expense_categories'),
+      unidadeId
+    ).maybeSingle();
+    if (error) throw error;
+    return normalizeExpenseCategories(data?.value?.categories);
+  },
+
+  async setExpenseCategories(categories: string[], unidadeId?: string | null): Promise<string[]> {
+    const clean = normalizeExpenseCategories(categories);
+    const { error } = await supabase
+      .from('configs')
+      .upsert({ id: 'route_expense_categories', value: { categories: clean }, ...(unidadeId ? { unidade_id: unidadeId } : {}) });
+    if (error) throw error;
+    return clean;
   },
 
   async getTextTemplate(id: string, unidadeId?: string | null): Promise<string | null> {

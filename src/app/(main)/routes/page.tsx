@@ -25,6 +25,7 @@ import { HelpTip } from "@/components/HelpTip";
 import { RouteCodeTag } from "@/components/routes/RouteCodeTag";
 import { RoutePartTracking } from "@/components/RoutePartTracking";
 import { RouteKmStat, RouteKmProgress } from "@/components/routes/RouteKmStat";
+import { RouteExpensesButton } from "@/components/routes/RouteExpensesButton";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 
@@ -427,6 +428,8 @@ export default function RoutesPage() {
                                     </div>
                                 </DialogContent>
                             </Dialog>
+
+                            {isOwnRoute && <RouteExpensesButton route={{ id: route.id, name: route.name }} />}
 
                             {allStops.length > 0 && (
                                 <Dialog>
