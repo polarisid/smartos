@@ -46,3 +46,10 @@ test("não reprova nem volta a pendente com pagamento lançado", () => {
     assert.equal(q.canReceivePayment("pendente"), false);
     assert.equal(q.canReceivePayment("aprovado"), true);
 });
+
+test("limpa espaços do começo, do fim e repetidos", () => {
+    assert.equal(q.cleanText("   \tDC97-17 6F  "), "DC97-17 6F");
+    assert.equal(q.cleanText("TROCA   DO\u00a0CESTO "), "TROCA DO CESTO");
+    assert.equal(q.cleanText(undefined), "");
+    assert.equal(q.cleanLines("  linha 1  \n\n   linha   2 \n"), "linha 1\n\nlinha 2");
+});

@@ -16,7 +16,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import {
   PAYMENT_METHODS, PAYMENT_STATE_LABEL, QUOTE_STATUS_LABEL, addPayment, balanceOf, canChangeStatusTo, canReceivePayment,
-  paidOf, paidPercent, parseMoney, paymentStateOf, removePayment, roundMoney, type QuoteStatus,
+  cleanText, paidOf, paidPercent, parseMoney, paymentStateOf, removePayment, roundMoney, type QuoteStatus,
 } from "@/lib/quotes";
 import { configService } from "@/services/supabase/configService";
 import { quoteService, type Quote } from "@/services/supabase/quoteService";
@@ -451,7 +451,7 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
   const remaining = roundMoney(Math.max(0, total - paidNow));
 
   // O que a OS informada já tem lançado (aprovado/pendente): evita lançar em duplicidade e ajuda a somar por OS.
-  const osKey = os.trim();
+  const osKey = cleanText(os);
   const sameOs = osKey ? quotes.filter(q => q.osNumber === osKey && q.status !== "reprovado") : [];
   // Registro da OS onde o novo valor é somado (o aprovado mais recente; a lista vem do mais novo para o mais antigo).
   // Orçamento ainda pendente não recebe: aprove primeiro, ou o lançamento fica separado.
@@ -462,17 +462,17 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
   const onOsChange = (value: string) => {
     setOs(value);
     // Se a OS já tem lançamento, aproveita o nome do cliente.
-    const known = quotes.find(q => q.osNumber === value.trim());
-    if (known && !client.trim()) setClient(known.clientName);
+    const known = quotes.find(q => q.osNumber === cleanText(value));
+    if (known && !cleanText(client)) setClient(known.clientName);
   };
 
   const save = async () => {
     if (!osKey) { toast({ variant: "destructive", title: "Informe o número da OS.", description: "O lançamento rápido precisa estar vinculado a uma ordem de serviço." }); return; }
-    if (!merge && !client.trim()) { toast({ variant: "destructive", title: "Informe o cliente." }); return; }
+    if (!merge && !cleanText(client)) { toast({ variant: "destructive", title: "Informe o cliente." }); return; }
     if (!(total > 0)) { toast({ variant: "destructive", title: "Informe o valor total maior que zero." }); return; }
     if (mode === "parcial" && !(paidNow > 0)) { toast({ variant: "destructive", title: "Informe quanto já foi recebido." }); return; }
     if (paidNow > total) { toast({ variant: "destructive", title: "O valor recebido passa do total." }); return; }
-    const itemDescription = description.trim() || "Lançamento rápido";
+    const itemDescription = cleanText(description) || "Lançamento rápido";
     // Soma no registro que a OS já tem: total maior, item novo e o pagamento na mesma lista.
     if (merge && target) {
       let payments = target.payments;
@@ -510,12 +510,12 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
     try {
       await quoteService.create({
         osNumber: osKey,
-        clientName: client.trim(),
+        clientName: cleanText(client),
         totalAmount: total,
         createdByName: byName,
         status: "aprovado",
         payments,
-        snapshot: { quick: true, discount: 0, items: [{ description: description.trim() || "Lançamento rápido", value: total, quantity: 1, kind: "servico" }] },
+        snapshot: { quick: true, discount: 0, items: [{ description: cleanText(description) || "Lançamento rápido", value: total, quantity: 1, kind: "servico" }] },
       }, unidadeId);
       toast({ title: remaining <= 0 ? "Lançado e quitado" : paidNow > 0 ? `Lançado: recebido ${brl(paidNow)}, falta ${brl(remaining)}` : "Cobrança lançada (falta receber tudo)" });
       reset();
@@ -632,10 +632,10 @@ function LinkDialog({ quote, onClose, onSave }: { quote: Quote | null; onClose: 
           <DialogTitle>Vincular a uma OS</DialogTitle>
           <DialogDescription>{quote.clientName} · deixe vazio para tirar o vínculo.</DialogDescription>
         </DialogHeader>
-        <Input autoFocus value={text} onChange={e => setValue(e.target.value)} placeholder="Número da OS" onKeyDown={e => { if (e.key === "Enter") { void onSave(quote, text.trim() || null); setValue(null); } }} />
+        <Input autoFocus value={text} onChange={e => setValue(e.target.value)} placeholder="Número da OS" onKeyDown={e => { if (e.key === "Enter") { void onSave(quote, cleanText(text) || null); setValue(null); } }} />
         <DialogFooter>
           <Button variant="outline" onClick={close}>Cancelar</Button>
-          <Button onClick={() => { void onSave(quote, text.trim() || null); setValue(null); }}>Salvar</Button>
+          <Button onClick={() => { void onSave(quote, cleanText(text) || null); setValue(null); }}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

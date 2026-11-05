@@ -10,6 +10,7 @@
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 import type { RepairCenterInfo } from "@/lib/data";
+import { cleanText, cleanLines } from "@/lib/quotes";
 
 const brl2 = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -76,11 +77,19 @@ export async function buildAndDownloadQuotePdf(input: {
   items: QuoteItem[];
   discount: number;
 }): Promise<void> {
-  const {
-    repairCenter, osNumber, clientNumber, clientName, clientCpf,
-    symptom, accessory, defectFound, serviceDescription, observations, completionTime,
-    items, discount,
-  } = input;
+  // Espaços que escapam na digitação (no começo, no fim ou repetidos) quebram a linha na tabela: limpa tudo aqui.
+  const { repairCenter, discount } = input;
+  const osNumber = cleanText(input.osNumber);
+  const clientNumber = cleanText(input.clientNumber);
+  const clientName = cleanText(input.clientName);
+  const clientCpf = cleanText(input.clientCpf);
+  const symptom = cleanLines(input.symptom);
+  const accessory = cleanLines(input.accessory);
+  const defectFound = cleanLines(input.defectFound);
+  const serviceDescription = cleanLines(input.serviceDescription);
+  const observations = cleanLines(input.observations);
+  const completionTime = cleanText(input.completionTime);
+  const items = input.items.map(it => ({ ...it, code: cleanText(it.code) || undefined, description: cleanText(it.description) }));
 
   const doc = new jsPDF();
   const pageHeight = doc.internal.pageSize.getHeight();

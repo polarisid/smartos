@@ -111,3 +111,13 @@ export const canChangeStatusTo = (current: QuoteStatus, next: QuoteStatus, payme
     }
     return { ok: true };
 };
+
+/** Texto de uma linha: tira espaços/tabs/espaços invisíveis do começo e do fim e junta repetidos no meio. */
+export function cleanText(value?: string | null): string {
+    return String(value ?? "").replace(/[\u00a0\u200b\ufeff\t]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Texto com várias linhas (observações etc.): limpa cada linha e tira as linhas vazias das pontas. */
+export function cleanLines(value?: string | null): string {
+    return String(value ?? "").replace(/[\u00a0\u200b\ufeff\t]/g, " ").split(/\r?\n/).map(l => l.replace(/ {2,}/g, " ").trim()).join("\n").trim();
+}

@@ -14,6 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { ToastAction } from "@/components/ui/toast";
 import type { RepairCenterInfo } from "@/lib/data";
+import { cleanText, cleanLines } from "@/lib/quotes";
 import { FileText, User, CreditCard, Plus, Trash2, Loader2, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -128,15 +129,21 @@ export function QuoteBuilder({
     setIsGenerating(true);
     try {
       const { buildAndDownloadQuotePdf } = await import("@/lib/quotePdf");
-      const pdfItems = computedItems.map(i => ({ code: i.code || undefined, description: i.description, value: i.value, quantity: i.quantity, kind: i.kind }));
+      const clean = {
+        osNumber: cleanText(osNumber), clientNumber: cleanText(clientNumber), clientName: cleanText(clientName), clientCpf: cleanText(clientCpf),
+        symptom: cleanLines(symptom), accessory: cleanLines(accessory), defectFound: cleanLines(defectFound),
+        serviceDescription: cleanLines(serviceDescription), observations: cleanLines(observations), completionTime: cleanText(completionTime),
+      };
+      const pdfItems = computedItems.map(i => ({ code: cleanText(i.code) || undefined, description: cleanText(i.description), value: i.value, quantity: i.quantity, kind: i.kind }));
       await buildAndDownloadQuotePdf({
         repairCenter,
-        osNumber: osNumber.trim() || undefined,
-        clientNumber: clientNumber.trim() || undefined,
-        clientName: clientName.trim(),
-        clientCpf: clientCpf.trim(),
-        symptom, accessory, defectFound, serviceDescription, observations,
-        completionTime,
+        osNumber: clean.osNumber || undefined,
+        clientNumber: clean.clientNumber || undefined,
+        clientName: clean.clientName,
+        clientCpf: clean.clientCpf,
+        symptom: clean.symptom, accessory: clean.accessory, defectFound: clean.defectFound,
+        serviceDescription: clean.serviceDescription, observations: clean.observations,
+        completionTime: clean.completionTime,
         items: pdfItems,
         discount,
       });
@@ -144,18 +151,18 @@ export function QuoteBuilder({
         // O PDF já foi baixado: se salvar falhar, avisa mas não perde o PDF.
         try {
           await quoteService.create({
-            osNumber: osNumber.trim() || undefined,
-            clientName: clientName.trim(),
-            clientCpf: clientCpf.trim(),
-            clientNumber: clientNumber.trim() || undefined,
+            osNumber: clean.osNumber || undefined,
+            clientName: clean.clientName,
+            clientCpf: clean.clientCpf,
+            clientNumber: clean.clientNumber || undefined,
             totalAmount: grandTotal,
             createdByName: appUser?.name || undefined,
-            snapshot: { symptom, accessory, defectFound, serviceDescription, observations, completionTime, items: pdfItems, discount },
+            snapshot: { symptom: clean.symptom, accessory: clean.accessory, defectFound: clean.defectFound, serviceDescription: clean.serviceDescription, observations: clean.observations, completionTime: clean.completionTime, items: pdfItems, discount },
           }, activeUnidadeId);
           queryClient.invalidateQueries({ queryKey: ["quotes"] });
           toast({
             title: "Orçamento gerado e salvo",
-            description: osNumber.trim() ? `Vinculado à OS ${osNumber.trim()}. Marque aprovado/reprovado e os pagamentos em Orçamentos.` : "Marque aprovado/reprovado e os pagamentos em Orçamentos.",
+            description: clean.osNumber ? `Vinculado à OS ${clean.osNumber}. Marque aprovado/reprovado e os pagamentos em Orçamentos.` : "Marque aprovado/reprovado e os pagamentos em Orçamentos.",
             action: <ToastAction altText="Abrir Orçamentos" asChild><Link href="/admin/quotes">Abrir</Link></ToastAction>,
           });
         } catch (saveError: any) {
