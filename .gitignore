@@ -10,6 +10,13 @@
 !.yarn/releases
 !.yarn/versions
 
+
+
+# saída de build do Next.js que foi commitada por engano (não vai pro git nem pro Vercel)
+/cache/
+/server/
+/static/
+
 # testing
 /coverage
 
@@ -43,3 +50,7 @@ next-env.d.ts
 # firebase
 firebase-debug.log
 firestore-debug.log
+# saída de build do Next.js que foi commitada por engano (não vai pro git nem pro Vercel)
+/cache/
+/server/
+/static/
