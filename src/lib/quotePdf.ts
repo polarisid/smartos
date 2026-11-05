@@ -173,6 +173,14 @@ export async function buildAndDownloadQuotePdf(input: {
     FORM_W * 0.081, FORM_W * 0.111, FORM_W * 0.289, FORM_W * 0.195,
     FORM_W * 0.080, FORM_W * 0.115, FORM_W * 0.128,
   ];
+  // O código da peça não pode quebrar de linha: alarga a coluna até caber o maior código,
+  // tirando a largura da "Localização" (que sai vazia), sem deixá-la menor que 10 mm.
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  const codeNeeded = Math.max(0, ...items.map(it => doc.getTextWidth(it.code || ""))) + 2;
+  const codeExtra = Math.max(0, Math.min(codeNeeded - itemColW[1], itemColW[3] - 10));
+  itemColW[1] += codeExtra;
+  itemColW[3] -= codeExtra;
   const tableBody = items.length > 0
     ? items.map((it, i) => [
         String(i + 1).padStart(4, "0"),

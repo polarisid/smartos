@@ -3,12 +3,13 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { Banknote, CheckCircle2, Clock, FileDown, Inbox, Link2, Loader2, MoreHorizontal, Plus, Search, Trash2, Undo2, Wallet, X, XCircle, Zap } from "lucide-react";
+import { Banknote, CheckCircle2, Clock, FileDown, Inbox, Link2, Loader2, MoreHorizontal, Plus, Search, StickyNote, Trash2, Undo2, Wallet, X, XCircle, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,7 +18,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import {
   PAYMENT_METHODS, PAYMENT_STATE_LABEL, QUOTE_STATUS_LABEL, addPayment, balanceOf, canChangeStatusTo, canReceivePayment,
-  cleanText, paidOf, paidPercent, parseMoney, paymentStateOf, removePayment, roundMoney, type QuoteStatus,
+  cleanLines, cleanText, paidOf, paidPercent, parseMoney, paymentStateOf, removePayment, roundMoney, type QuoteStatus,
 } from "@/lib/quotes";
 import { cn } from "@/lib/utils";
 import { configService } from "@/services/supabase/configService";
@@ -51,9 +52,9 @@ const STATUS_META: Record<QuoteStatus, { Icon: typeof Clock; stripe: string }> =
   reprovado: { Icon: XCircle, stripe: "border-l-red-400" },
 };
 
-function QuoteRow({ q, busy, onApprove, onReject, onReopen, onPay, onLink, onPdf, onDelete }: {
+function QuoteRow({ q, busy, onApprove, onReject, onReopen, onPay, onLink, onNotes, onPdf, onDelete }: {
   q: Quote; busy: boolean;
-  onApprove: () => void; onReject: () => void; onReopen: () => void; onPay: () => void; onLink: () => void; onPdf: () => void; onDelete: () => void;
+  onApprove: () => void; onReject: () => void; onReopen: () => void; onPay: () => void; onLink: () => void; onNotes: () => void; onPdf: () => void; onDelete: () => void;
 }) {
   const paid = paidOf(q.payments);
   const balance = balanceOf(q.totalAmount, q.payments);
@@ -79,6 +80,13 @@ function QuoteRow({ q, busy, onApprove, onReject, onReopen, onPay, onLink, onPdf
             <Zap className="h-3 w-3" /> {q.snapshot.items[0]?.description || "Lançamento rápido"}
             {q.snapshot.items.length > 1 && <span className="opacity-70">+{q.snapshot.items.length - 1}</span>}
           </span>
+        )}
+        {q.snapshot.observations && (
+          <button type="button" onClick={onNotes} title={q.snapshot.observations}
+            className="mt-1 flex max-w-full items-start gap-1 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground">
+            <StickyNote className="mt-0.5 h-3 w-3 shrink-0" />
+            <span className="line-clamp-2 whitespace-pre-line">{q.snapshot.observations}</span>
+          </button>
         )}
       </div>
 
@@ -152,6 +160,7 @@ function QuoteRow({ q, busy, onApprove, onReject, onReopen, onPay, onLink, onPdf
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuItem onSelect={onLink}><Link2 className="mr-2 h-4 w-4" /> {q.osNumber ? "Trocar a OS" : "Vincular a uma OS"}</DropdownMenuItem>
+            <DropdownMenuItem onSelect={onNotes}><StickyNote className="mr-2 h-4 w-4" /> {q.snapshot.observations ? "Editar observações" : "Adicionar observações"}</DropdownMenuItem>
             {!q.snapshot.quick && <DropdownMenuItem onSelect={onPdf}><FileDown className="mr-2 h-4 w-4" /> Baixar o PDF</DropdownMenuItem>}
             {q.status === "reprovado" && <DropdownMenuItem onSelect={onApprove}><CheckCircle2 className="mr-2 h-4 w-4" /> Aprovar</DropdownMenuItem>}
             {q.status === "aprovado" && <DropdownMenuItem onSelect={onReject}><XCircle className="mr-2 h-4 w-4" /> Reprovar</DropdownMenuItem>}
@@ -181,6 +190,7 @@ export default function QuotesPage() {
 
   const [payingId, setPayingId] = useState<string | null>(null);
   const [linkingId, setLinkingId] = useState<string | null>(null);
+  const [notesId, setNotesId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -188,6 +198,7 @@ export default function QuotesPage() {
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["quotes"] });
   const paying = quotes.find(q => q.id === payingId) || null;
   const linking = quotes.find(q => q.id === linkingId) || null;
+  const noting = quotes.find(q => q.id === notesId) || null;
   const rejecting = quotes.find(q => q.id === rejectingId) || null;
   const deleting = quotes.find(q => q.id === deletingId) || null;
 
@@ -396,6 +407,7 @@ export default function QuotesPage() {
                   onReopen={() => void setStatus(q, "pendente")}
                   onPay={() => setPayingId(q.id)}
                   onLink={() => setLinkingId(q.id)}
+                  onNotes={() => setNotesId(q.id)}
                   onPdf={() => void downloadPdf(q)}
                   onDelete={() => setDeletingId(q.id)}
                 />
@@ -419,6 +431,12 @@ export default function QuotesPage() {
         onClose={() => setPayingId(null)}
         byName={appUser?.name}
         onSave={(q, payments, okTitle) => run(q.id, () => quoteService.setPayments(q.id, payments), okTitle)}
+      />
+
+      <NotesDialog
+        quote={noting}
+        onClose={() => setNotesId(null)}
+        onSave={(q, text) => run(q.id, () => quoteService.update(q.id, { data: { ...q.snapshot, observations: text } }), text ? "Observações salvas" : "Observações removidas").then(() => setNotesId(null))}
       />
 
       <LinkDialog
@@ -554,6 +572,7 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
   const [client, setClient] = useState("");
   const [os, setOs] = useState("");
   const [description, setDescription] = useState("Taxa de visita");
+  const [observations, setObservations] = useState("");
   const [amountText, setAmountText] = useState("");
   const [mode, setMode] = useState<PaidMode>("total");
   const [paidText, setPaidText] = useState("");
@@ -563,7 +582,7 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
   // Marcado = não soma no registro existente da OS: cria um lançamento separado.
   const [separate, setSeparate] = useState(false);
 
-  const reset = () => { setSeparate(false); setClient(""); setOs(""); setDescription("Taxa de visita"); setAmountText(""); setMode("total"); setPaidText(""); setMethod("PIX"); setDate(todayKey()); };
+  const reset = () => { setSeparate(false); setClient(""); setOs(""); setDescription("Taxa de visita"); setObservations(""); setAmountText(""); setMode("total"); setPaidText(""); setMethod("PIX"); setDate(todayKey()); };
 
   const total = parseMoney(amountText);
   const paidNow = mode === "total" ? total : mode === "parcial" ? parseMoney(paidText) : 0;
@@ -592,6 +611,7 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
     if (mode === "parcial" && !(paidNow > 0)) { toast({ variant: "destructive", title: "Informe quanto já foi recebido." }); return; }
     if (paidNow > total) { toast({ variant: "destructive", title: "O valor recebido passa do total." }); return; }
     const itemDescription = cleanText(description) || "Lançamento rápido";
+    const notes = cleanLines(observations);
     // Soma no registro que a OS já tem: total maior, item novo e o pagamento na mesma lista.
     if (merge && target) {
       let payments = target.payments;
@@ -605,7 +625,12 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
         await quoteService.update(target.id, {
           total_amount: mergedTotal,
           payments,
-          data: { ...target.snapshot, items: [...(target.snapshot.items || []), { description: itemDescription, value: total, quantity: 1, kind: "servico" }] },
+          data: {
+            ...target.snapshot,
+            items: [...(target.snapshot.items || []), { description: itemDescription, value: total, quantity: 1, kind: "servico" }],
+            // Observação nova entra embaixo da que o registro já tinha.
+            ...(notes ? { observations: [target.snapshot.observations, notes].filter(Boolean).join("\n") } : {}),
+          },
         });
         const left = roundMoney(Math.max(0, mergedTotal - mergedPaid));
         toast({ title: `Somado à OS ${osKey}`, description: `Total ${brl(mergedTotal)} · pago ${brl(mergedPaid)} · ${left > 0 ? `falta ${brl(left)}` : "quitado"}` });
@@ -634,7 +659,7 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
         createdByName: byName,
         status: "aprovado",
         payments,
-        snapshot: { quick: true, discount: 0, items: [{ description: cleanText(description) || "Lançamento rápido", value: total, quantity: 1, kind: "servico" }] },
+        snapshot: { quick: true, discount: 0, ...(notes ? { observations: notes } : {}), items: [{ description: itemDescription, value: total, quantity: 1, kind: "servico" }] },
       }, unidadeId);
       toast({ title: remaining <= 0 ? "Lançado e quitado" : paidNow > 0 ? `Lançado: recebido ${brl(paidNow)}, falta ${brl(remaining)}` : "Cobrança lançada (falta receber tudo)" });
       reset();
@@ -690,6 +715,10 @@ function QuickDialog({ open, onClose, byName, unidadeId, quotes, onSaved }: {
             <Label className="text-xs">Descrição</Label>
             <Input list="quick-descriptions" value={description} onChange={e => setDescription(e.target.value)} />
             <datalist id="quick-descriptions">{QUICK_DESCRIPTIONS.map(d => <option key={d} value={d} />)}</datalist>
+          </div>
+          <div className="col-span-2 space-y-1">
+            <Label className="text-xs">Observações (opcional)</Label>
+            <Textarea rows={2} value={observations} onChange={e => setObservations(e.target.value)} placeholder="Ex.: cliente combinou pagar o restante na entrega" />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Valor total (R$) *</Label>
@@ -755,6 +784,28 @@ function LinkDialog({ quote, onClose, onSave }: { quote: Quote | null; onClose: 
         <DialogFooter>
           <Button variant="outline" onClick={close}>Cancelar</Button>
           <Button onClick={() => { void onSave(quote, cleanText(text) || null); setValue(null); }}>Salvar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function NotesDialog({ quote, onClose, onSave }: { quote: Quote | null; onClose: () => void; onSave: (q: Quote, text: string) => Promise<void> | void }) {
+  const [value, setValue] = useState<string | null>(null);
+  if (!quote) return null;
+  const text = value ?? quote.snapshot.observations ?? "";
+  const close = () => { setValue(null); onClose(); };
+  return (
+    <Dialog open onOpenChange={o => !o && close()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Observações do orçamento</DialogTitle>
+          <DialogDescription>{quote.clientName} · {brl(quote.totalAmount)}{quote.snapshot.quick ? "" : " · também sai no PDF do orçamento."}</DialogDescription>
+        </DialogHeader>
+        <Textarea autoFocus rows={5} value={text} onChange={e => setValue(e.target.value)} placeholder="Anotações sobre este orçamento" />
+        <DialogFooter>
+          <Button variant="outline" onClick={close}>Cancelar</Button>
+          <Button onClick={() => { void onSave(quote, cleanLines(text)); setValue(null); }}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
