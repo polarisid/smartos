@@ -121,3 +121,74 @@ export function cleanText(value?: string | null): string {
 export function cleanLines(value?: string | null): string {
     return String(value ?? "").replace(/[\u00a0\u200b\ufeff\t]/g, " ").split(/\r?\n/).map(l => l.replace(/ {2,}/g, " ").trim()).join("\n").trim();
 }
+
+// ---------- Edição dos itens de um orçamento já salvo ----------
+
+export type EditableQuoteItem = { code?: string; description: string; value: number; quantity: number; kind: "peca" | "servico" };
+
+/** Registro de uma alteração de itens: quem mexeu, quando e de quanto para quanto. */
+export type QuoteEditLog = { at: string; byName?: string; previousTotal: number; newTotal: number; status: QuoteStatus };
+
+export const MAX_QUOTE_EDIT_LOG = 20;
+
+/** Soma peças + serviços (valor x quantidade) menos o desconto, sempre em centavos exatos. */
+export function itemsTotal(items: Pick<EditableQuoteItem, "value" | "quantity">[], discount = 0): number {
+    const sum = items.reduce((s, i) => s + roundMoney(i.value) * (Number(i.quantity) || 1), 0);
+    return roundMoney(sum - roundMoney(discount));
+}
+
+/** Limpa os textos dos itens (espaços sobrando, invisíveis) e arredonda os valores. */
+export function cleanEditedItems(items: EditableQuoteItem[]): EditableQuoteItem[] {
+    return items.map(i => {
+        const code = cleanText(i.code);
+        return {
+            ...(code ? { code } : {}),
+            description: cleanText(i.description),
+            value: roundMoney(i.value),
+            quantity: Math.max(1, Math.round(Number(i.quantity) || 1)),
+            kind: i.kind,
+        };
+    });
+}
+
+export type QuoteEditCheck =
+    | { ok: true; total: number; changed: boolean; needsConfirm: boolean; warnings: string[] }
+    | { ok: false; error: string };
+
+/**
+ * Regras para salvar a edição dos itens:
+ * - pelo menos 1 item, todos com descrição e valor válido; total não pode ficar negativo;
+ * - o novo total não pode ficar abaixo do que já foi pago (o admin acerta os pagamentos antes);
+ * - orçamento aprovado (com ou sem pagamento) pede confirmação, porque o cliente já aceitou o valor anterior.
+ */
+export function checkQuoteEdit(input: {
+    items: EditableQuoteItem[];
+    discount: number;
+    previousTotal: number;
+    status: QuoteStatus;
+    payments: QuotePayment[] | undefined;
+}): QuoteEditCheck {
+    const items = cleanEditedItems(input.items);
+    if (items.length === 0) return { ok: false, error: "O orçamento precisa ter pelo menos 1 item." };
+    if (items.some(i => !i.description)) return { ok: false, error: "Todo item precisa de descrição." };
+    if (items.some(i => !(i.value >= 0))) return { ok: false, error: "O valor de um item não pode ser negativo." };
+    const discount = roundMoney(input.discount);
+    if (discount < 0) return { ok: false, error: "O desconto não pode ser negativo." };
+    const total = itemsTotal(items, discount);
+    if (total < 0) return { ok: false, error: "O desconto é maior que a soma dos itens." };
+    const paid = paidOf(input.payments);
+    if (paid > total) {
+        return { ok: false, error: `O novo total fica ${(paid - total).toFixed(2).replace(".", ",")} abaixo do que já foi pago (${paid.toFixed(2).replace(".", ",")}). Ajuste os pagamentos antes de reduzir o valor.` };
+    }
+    const changed = total !== roundMoney(input.previousTotal);
+    const warnings: string[] = [];
+    if (input.status === "aprovado") {
+        warnings.push("Este orçamento já foi aprovado: o cliente aceitou o valor anterior.");
+        if (paid > 0 && changed) warnings.push("Já tem pagamento lançado; o saldo a receber será recalculado.");
+    }
+    return { ok: true, total, changed, needsConfirm: input.status === "aprovado", warnings };
+}
+
+/** Acrescenta uma alteração ao histórico, guardando só as últimas. */
+export const appendEditLog = (log: QuoteEditLog[] | undefined, entry: QuoteEditLog): QuoteEditLog[] =>
+    [...(log || []), entry].slice(-MAX_QUOTE_EDIT_LOG);

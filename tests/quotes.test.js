@@ -53,3 +53,45 @@ test("limpa espaços do começo, do fim e repetidos", () => {
     assert.equal(q.cleanText(undefined), "");
     assert.equal(q.cleanLines("  linha 1  \n\n   linha   2 \n"), "linha 1\n\nlinha 2");
 });
+
+test("total dos itens e regras de edição do orçamento", () => {
+    const items = [
+        { code: "A1", description: "Placa", value: 100.1, quantity: 2, kind: "peca" },
+        { description: "Mão de obra", value: 50, quantity: 1, kind: "servico" },
+    ];
+    assert.equal(q.itemsTotal(items, 10), 240.2);
+
+    const pend = q.checkQuoteEdit({ items, discount: 10, previousTotal: 200, status: "pendente", payments: [] });
+    assert.equal(pend.ok, true);
+    assert.equal(pend.total, 240.2);
+    assert.equal(pend.changed, true);
+    assert.equal(pend.needsConfirm, false);
+
+    const appr = q.checkQuoteEdit({ items, discount: 10, previousTotal: 240.2, status: "aprovado", payments: [] });
+    assert.equal(appr.ok, true);
+    assert.equal(appr.changed, false);
+    assert.equal(appr.needsConfirm, true);
+
+    assert.equal(q.checkQuoteEdit({ items: [], discount: 0, previousTotal: 0, status: "pendente", payments: [] }).ok, false);
+    assert.equal(q.checkQuoteEdit({ items: [{ description: "  ", value: 1, quantity: 1, kind: "peca" }], discount: 0, previousTotal: 0, status: "pendente", payments: [] }).ok, false);
+    assert.equal(q.checkQuoteEdit({ items, discount: 9999, previousTotal: 0, status: "pendente", payments: [] }).ok, false);
+
+    // já pago 200: não deixa o total cair para 150
+    const pays = [{ id: "p", amount: 200, method: "PIX", date: "2026-11-05" }];
+    const low = q.checkQuoteEdit({ items: [{ description: "Só serviço", value: 150, quantity: 1, kind: "servico" }], discount: 0, previousTotal: 240.2, status: "aprovado", payments: pays });
+    assert.equal(low.ok, false);
+    const same = q.checkQuoteEdit({ items: [{ description: "Só serviço", value: 200, quantity: 1, kind: "servico" }], discount: 0, previousTotal: 240.2, status: "aprovado", payments: pays });
+    assert.equal(same.ok, true);
+});
+
+test("limpeza dos itens editados e histórico de alterações", () => {
+    const [it] = q.cleanEditedItems([{ code: "  AB  12 ", description: " Troca   do cesto ", value: 10.005, quantity: 0, kind: "peca" }]);
+    assert.equal(it.code, "AB 12");
+    assert.equal(it.description, "Troca do cesto");
+    assert.equal(it.quantity, 1);
+
+    let log = [];
+    for (let i = 0; i < 25; i++) log = q.appendEditLog(log, { at: String(i), previousTotal: i, newTotal: i + 1, status: "pendente" });
+    assert.equal(log.length, q.MAX_QUOTE_EDIT_LOG);
+    assert.equal(log[log.length - 1].at, "24");
+});

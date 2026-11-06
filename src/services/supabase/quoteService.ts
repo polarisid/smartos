@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import type { QuoteItem } from "@/lib/quotePdf";
-import type { QuotePayment, QuoteStatus } from "@/lib/quotes";
+import type { QuoteEditLog, QuotePayment, QuoteStatus } from "@/lib/quotes";
 
 /** Tudo que o PDF do orçamento usa (menos o centro de reparo, que vem das configurações da unidade). */
 export type QuoteSnapshot = {
@@ -14,6 +14,8 @@ export type QuoteSnapshot = {
   discount: number;
   /** Lançamento rápido (ex.: taxa de visita): sem orçamento formal, não tem PDF. */
   quick?: boolean;
+  /** Histórico das alterações de itens depois que o orçamento foi salvo (as últimas). */
+  edits?: QuoteEditLog[];
 };
 
 export type Quote = {
@@ -111,6 +113,11 @@ export const quoteService = {
 
   async setPayments(id: string, payments: QuotePayment[]): Promise<void> {
     await this.update(id, { payments });
+  },
+
+  // Itens, desconto e total mudam juntos numa única escrita, para o total nunca ficar diferente dos itens.
+  async setItems(id: string, snapshot: QuoteSnapshot, totalAmount: number): Promise<void> {
+    await this.update(id, { data: snapshot, total_amount: totalAmount });
   },
 
   async remove(id: string): Promise<void> {

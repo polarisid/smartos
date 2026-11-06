@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { Banknote, CheckCircle2, Clock, FileDown, Inbox, Link2, Loader2, MoreHorizontal, Plus, Search, StickyNote, Trash2, Undo2, Wallet, X, XCircle, Zap } from "lucide-react";
+import { Banknote, CheckCircle2, Clock, FileDown, Inbox, Link2, Loader2, MoreHorizontal, Pencil, Plus, Search, StickyNote, Trash2, Undo2, Wallet, X, XCircle, Zap } from "lucide-react";
+import { EditQuoteItemsDialog } from "@/components/quotes/EditQuoteItemsDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -52,10 +53,11 @@ const STATUS_META: Record<QuoteStatus, { Icon: typeof Clock; stripe: string }> =
   reprovado: { Icon: XCircle, stripe: "border-l-red-400" },
 };
 
-function QuoteRow({ q, busy, onApprove, onReject, onReopen, onPay, onLink, onNotes, onPdf, onDelete }: {
+function QuoteRow({ q, busy, onApprove, onReject, onReopen, onPay, onLink, onNotes, onEditItems, onPdf, onDelete }: {
   q: Quote; busy: boolean;
-  onApprove: () => void; onReject: () => void; onReopen: () => void; onPay: () => void; onLink: () => void; onNotes: () => void; onPdf: () => void; onDelete: () => void;
+  onApprove: () => void; onReject: () => void; onReopen: () => void; onPay: () => void; onLink: () => void; onNotes: () => void; onEditItems: () => void; onPdf: () => void; onDelete: () => void;
 }) {
+  const lastEdit = q.snapshot.edits?.[q.snapshot.edits.length - 1];
   const paid = paidOf(q.payments);
   const balance = balanceOf(q.totalAmount, q.payments);
   const state = paymentStateOf(q.totalAmount, q.payments);
@@ -74,6 +76,13 @@ function QuoteRow({ q, busy, onApprove, onReject, onReopen, onPay, onLink, onNot
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
           <span>{format(q.createdAt, "dd/MM/yyyy")}</span>
           {q.clientCpf && <span>· {q.clientCpf}</span>}
+          {lastEdit && (
+            <button type="button" onClick={onEditItems}
+              title={`Itens alterados em ${format(new Date(lastEdit.at), "dd/MM/yyyy HH:mm")}${lastEdit.byName ? ` por ${lastEdit.byName}` : ""}: ${brl(lastEdit.previousTotal)} → ${brl(lastEdit.newTotal)}`}
+              className="inline-flex items-center gap-0.5 rounded bg-muted px-1.5 py-px font-medium hover:bg-muted/70">
+              <Pencil className="h-2.5 w-2.5" /> editado
+            </button>
+          )}
         </div>
         {q.snapshot.quick && (
           <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300">
@@ -160,6 +169,7 @@ function QuoteRow({ q, busy, onApprove, onReject, onReopen, onPay, onLink, onNot
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuItem onSelect={onLink}><Link2 className="mr-2 h-4 w-4" /> {q.osNumber ? "Trocar a OS" : "Vincular a uma OS"}</DropdownMenuItem>
+            <DropdownMenuItem onSelect={onEditItems}><Pencil className="mr-2 h-4 w-4" /> Editar itens</DropdownMenuItem>
             <DropdownMenuItem onSelect={onNotes}><StickyNote className="mr-2 h-4 w-4" /> {q.snapshot.observations ? "Editar observações" : "Adicionar observações"}</DropdownMenuItem>
             {!q.snapshot.quick && <DropdownMenuItem onSelect={onPdf}><FileDown className="mr-2 h-4 w-4" /> Baixar o PDF</DropdownMenuItem>}
             {q.status === "reprovado" && <DropdownMenuItem onSelect={onApprove}><CheckCircle2 className="mr-2 h-4 w-4" /> Aprovar</DropdownMenuItem>}
@@ -191,6 +201,7 @@ export default function QuotesPage() {
   const [payingId, setPayingId] = useState<string | null>(null);
   const [linkingId, setLinkingId] = useState<string | null>(null);
   const [notesId, setNotesId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -199,6 +210,7 @@ export default function QuotesPage() {
   const paying = quotes.find(q => q.id === payingId) || null;
   const linking = quotes.find(q => q.id === linkingId) || null;
   const noting = quotes.find(q => q.id === notesId) || null;
+  const editing = quotes.find(q => q.id === editingId) || null;
   const rejecting = quotes.find(q => q.id === rejectingId) || null;
   const deleting = quotes.find(q => q.id === deletingId) || null;
 
@@ -249,15 +261,18 @@ export default function QuotesPage() {
     { label: "Reprovados", value: String(summary.rejected), hint: summary.rejected ? "Não seguiram" : "Nenhum", iconBg: "bg-red-600/15 text-red-700 dark:text-red-400", Icon: XCircle, filter: "reprovado" },
   ];
 
-  const run = async (id: string, action: () => Promise<void>, okTitle?: string) => {
+  // Devolve true quando salvou, para quem chama poder manter a janela aberta se deu erro.
+  const run = async (id: string, action: () => Promise<void>, okTitle?: string): Promise<boolean> => {
     setBusyId(id);
     try {
       await action();
       await refresh();
       if (okTitle) toast({ title: okTitle });
+      return true;
     } catch (e: any) {
       console.error(e);
       toast({ variant: "destructive", title: "Não foi possível salvar", description: e?.message || "Tente de novo." });
+      return false;
     } finally {
       setBusyId(null);
     }
@@ -408,6 +423,7 @@ export default function QuotesPage() {
                   onPay={() => setPayingId(q.id)}
                   onLink={() => setLinkingId(q.id)}
                   onNotes={() => setNotesId(q.id)}
+                  onEditItems={() => setEditingId(q.id)}
                   onPdf={() => void downloadPdf(q)}
                   onDelete={() => setDeletingId(q.id)}
                 />
@@ -430,13 +446,23 @@ export default function QuotesPage() {
         quote={paying}
         onClose={() => setPayingId(null)}
         byName={appUser?.name}
-        onSave={(q, payments, okTitle) => run(q.id, () => quoteService.setPayments(q.id, payments), okTitle)}
+        onSave={async (q, payments, okTitle) => { await run(q.id, () => quoteService.setPayments(q.id, payments), okTitle); }}
       />
 
       <NotesDialog
         quote={noting}
         onClose={() => setNotesId(null)}
         onSave={(q, text) => run(q.id, () => quoteService.update(q.id, { data: { ...q.snapshot, observations: text } }), text ? "Observações salvas" : "Observações removidas").then(() => setNotesId(null))}
+      />
+
+      <EditQuoteItemsDialog
+        quote={editing}
+        onClose={() => setEditingId(null)}
+        byName={appUser?.name}
+        onSave={async (q, snapshot, total) => {
+          const ok = await run(q.id, () => quoteService.setItems(q.id, snapshot, total), "Itens do orçamento atualizados");
+          if (ok) setEditingId(null);
+        }}
       />
 
       <LinkDialog
