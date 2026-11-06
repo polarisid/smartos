@@ -18,7 +18,7 @@ import { Phone, MessageSquare, ChevronRight } from "lucide-react";import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen, Copy, ArrowUp, ArrowDown, ArrowUpDown, FileDown, Loader2, ArrowRightLeft, MapPin, Zap, Rocket, Columns2, Search, X, Plus } from "lucide-react";
+import { PlusCircle, Save, Trash2, Eye, CheckCircle, ChevronDown, Calendar as CalendarIcon, Edit, Users, Truck, Package, PackageOpen, Copy, ArrowUp, ArrowDown, ArrowUpDown, FileDown, Loader2, ArrowRightLeft, MapPin, Zap, Rocket, Columns2, Search, X, Plus, RotateCcw } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { routeService, RouteConflictError } from "@/services/supabase/routeService";
@@ -2953,6 +2953,18 @@ export default function RoutesPage() {
         }
     };
 
+    const handleReopenRoute = async (route: Route) => {
+        try {
+            await routeService.reopenRoute(route.id);
+            toast({ title: "Rota reativada", description: route.name + " voltou para as rotas ativas." });
+            fetchRoutes();
+            refreshDynamicData();
+        } catch (error: any) {
+            console.error("Error reopening route: ", error);
+            toast({ variant: "destructive", title: "Erro", description: error?.message || "Não foi possível reativar a rota." });
+        }
+    };
+
     // Escapa texto pra dentro do XML SpreadsheetML (mesmo helper usado no export do Planejamento).
     const escapeXmlForExport = (str: string | number | undefined | null) => {
         if (str === undefined || str === null) return "";
@@ -3260,6 +3272,11 @@ ${rowsXml}  </Table>
                 {route.isActive && (
                     <Button size="sm" className="gap-1.5" onClick={() => handleFinalizeRoute(route.id)}>
                         <CheckCircle className="h-3.5 w-3.5" /> Finalizar
+                    </Button>
+                )}
+                {!route.isActive && !route.isCanceled && (
+                    <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleReopenRoute(route)} title="Finalizou sem querer? Volta a rota para as ativas">
+                        <RotateCcw className="h-3.5 w-3.5" /> Reativar
                     </Button>
                 )}
                 <Button

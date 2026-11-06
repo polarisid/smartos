@@ -372,6 +372,15 @@ export const routeService = {
     await this.update(id, { isActive: false, arrivalDate: arrivalDate });
   },
 
+  // Desfaz a finalização (ex.: clicou em "Finalizar" sem querer): a rota volta a ficar ativa e perde a data de chegada.
+  // Só vale para rota finalizada; cancelada e rascunho têm outro caminho.
+  async reopenRoute(id: string): Promise<void> {
+    const route = await this.getById(id);
+    if (!route) throw new Error('Rota não encontrada.');
+    if (route.isActive || route.isCanceled || route.isDraft) throw new Error('Só uma rota finalizada pode ser reativada.');
+    await this.update(id, { isActive: true, arrivalDate: null as any });
+  },
+
   mapFromDb(row: any): Route {
     return {
       id: row.id,
