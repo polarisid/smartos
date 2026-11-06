@@ -52,7 +52,7 @@ test("ordenação por dia, nome, paradas e progresso, sem mexer na lista origina
     assert.deepStrictEqual(rs.map(r => r.id), ["b", "a", "c"]);
 });
 
-test("agrupamento: situação > dia, abertas de hoje em diante primeiro, finalizadas do mais recente", () => {
+test("agrupamento: situação > dia, abertas em ordem de calendário (atrasadas no topo), finalizadas do mais recente", () => {
     const rs = [
         route("old", { departureDate: day("2026-11-03") }),
         route("today", { departureDate: day("2026-11-06") }),
@@ -61,11 +61,15 @@ test("agrupamento: situação > dia, abertas de hoje em diante primeiro, finaliz
         route("done1", { isActive: false, departureDate: day("2026-10-30") }),
         route("done2", { isActive: false, departureDate: day("2026-11-02") }),
     ];
-    const blocks = groupRoutes(rs, "2026-11-06");
+    const blocks = groupRoutes(rs);
     assert.deepStrictEqual(blocks.map(b => b.group), ["rascunho", "ativa", "finalizada"]);
-    assert.deepStrictEqual(blocks[1].days.map(d => d.dayKey), ["2026-11-06", "2026-11-09", "2026-11-03"]);
+    assert.deepStrictEqual(blocks[1].days.map(d => d.dayKey), ["2026-11-03", "2026-11-06", "2026-11-09"]);
     assert.deepStrictEqual(blocks[2].days.map(d => d.dayKey), ["2026-11-02", "2026-10-30"]);
     assert.strictEqual(blocks[1].count, 3);
+    // ordenação "Dia" decrescente inverte os dias de todas as seções
+    const rev = groupRoutes(rs, true);
+    assert.deepStrictEqual(rev[1].days.map(d => d.dayKey), ["2026-11-09", "2026-11-06", "2026-11-03"]);
+    assert.deepStrictEqual(rev[2].days.map(d => d.dayKey), ["2026-10-30", "2026-11-02"]);
 });
 
 test("nomes distintos para os filtros", () => {

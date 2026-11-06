@@ -103,10 +103,11 @@ export type RouteGroupBlock = { group: RouteGroup; label: string; count: number;
 
 /**
  * Agrupa por situação (rascunhos, ativas, finalizadas, canceladas) e, dentro dela, por dia. Mantém a ordem recebida
- * dentro de cada dia; os dias saem do mais próximo de hoje para o mais distante (futuro/hoje primeiro nas abertas,
- * mais recente primeiro nas finalizadas). Grupos sem rota não aparecem.
+ * dentro de cada dia. Os dias seguem o calendário: nas abertas (rascunhos e ativas) do mais antigo para o mais novo, assim
+ * o que já passou e segue aberto fica no topo; nas finalizadas e canceladas, do mais recente para o mais antigo.
+ * `reverse` inverte essa ordem (ordenação "Dia" decrescente). Sem data, sempre por último. Grupos sem rota não aparecem.
  */
-export function groupRoutes(routes: Route[], todayKey: string): RouteGroupBlock[] {
+export function groupRoutes(routes: Route[], reverse = false): RouteGroupBlock[] {
     const out: RouteGroupBlock[] = [];
     for (const group of ROUTE_GROUP_ORDER) {
         const inGroup = routes.filter(r => routeGroupOf(r) === group);
@@ -121,13 +122,8 @@ export function groupRoutes(routes: Route[], todayKey: string): RouteGroupBlock[
         const keys = [...byDay.keys()].sort((a, b) => {
             if (a === "") return 1; // sem data, por último
             if (b === "") return -1;
-            if (open) {
-                // abertas: de hoje em diante primeiro (crescente), depois os dias que já passaram (do mais recente)
-                const aPast = a < todayKey, bPast = b < todayKey;
-                if (aPast !== bPast) return aPast ? 1 : -1;
-                return aPast ? b.localeCompare(a) : a.localeCompare(b);
-            }
-            return b.localeCompare(a);
+            const asc = open !== reverse;
+            return asc ? a.localeCompare(b) : b.localeCompare(a);
         });
         out.push({ group, label: ROUTE_GROUP_LABEL[group], count: inGroup.length, days: keys.map(k => ({ dayKey: k, routes: byDay.get(k)! })) });
     }

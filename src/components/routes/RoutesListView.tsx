@@ -79,7 +79,8 @@ export function RoutesListView({ routes, progressOf, delays, renderActions, rend
         [routes, filters, delays, sort, progressOf],
     );
     const todayKey = format(new Date(), "yyyy-MM-dd");
-    const blocks = useMemo(() => groupRoutes(visible, todayKey), [visible, todayKey]);
+    const reverseDays = sort.key === "data" && sort.dir === "desc";
+    const blocks = useMemo(() => groupRoutes(visible, reverseDays), [visible, reverseDays]);
 
     const toggleGroupFilter = (g: RouteGroup) => setFilters(f => ({ ...f, groups: f.groups.includes(g) ? f.groups.filter(x => x !== g) : [...f.groups, g] }));
     const toggleCollapsed = (g: RouteGroup) => setCollapsed(prev => { const n = new Set(prev); if (n.has(g)) n.delete(g); else n.add(g); return n; });
