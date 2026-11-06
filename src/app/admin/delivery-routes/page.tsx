@@ -1726,6 +1726,8 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                             const retPill = ret === "usada" || ret === "cedida" ? { text: "usada", cls: "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300" }
                                 : ret === "nova" ? { text: "nova", cls: "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300" }
                                 : ret === "defeito" ? { text: "defeito", cls: "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300" }
+                                : ret === "realocada" ? { text: "realocada", cls: "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300" }
+                                : ret === "aguardando" ? { text: "aguardando", cls: "border-slate-300 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400" }
                                 : null;
                             return (
                                 <span
