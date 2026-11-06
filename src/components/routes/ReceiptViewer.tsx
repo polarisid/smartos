@@ -1,14 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ExternalLink, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { routeExpenseService, isPdfPath } from "@/services/supabase/routeExpenseService";
 
-// Abre a foto ou o PDF do comprovante (bucket privado: o link é assinado e dura 1 hora).
-export function ReceiptViewer({ path, title, onClose }: { path: string | null; title?: string; onClose: () => void }) {
+// Abre as fotos e PDFs do comprovante (bucket privado: o link é assinado e dura 1 hora).
+// Com mais de um arquivo, mostra "1 de 3" e botões para passar de um para o outro.
+export function ReceiptViewer({ paths, title, onClose }: { paths: string[] | null; title?: string; onClose: () => void }) {
+  const [index, setIndex] = useState(0);
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const list = paths || [];
+  const path = list[index] ?? null;
+
+  // ao abrir outro gasto, volta para o primeiro arquivo
+  useEffect(() => { setIndex(0); }, [paths]);
 
   useEffect(() => {
     setUrl(null);
@@ -21,11 +30,13 @@ export function ReceiptViewer({ path, title, onClose }: { path: string | null; t
     return () => { cancelled = true; };
   }, [path]);
 
+  const many = list.length > 1;
+
   return (
-    <Dialog open={!!path} onOpenChange={o => !o && onClose()}>
+    <Dialog open={list.length > 0} onOpenChange={o => !o && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Comprovante</DialogTitle>
+          <DialogTitle>{many ? `Comprovante ${index + 1} de ${list.length}` : "Comprovante"}</DialogTitle>
           <DialogDescription>{title || "Foto ou PDF enviado no lançamento do gasto."}</DialogDescription>
         </DialogHeader>
         <div className="flex min-h-[200px] items-center justify-center overflow-auto rounded-md bg-muted">
@@ -40,11 +51,19 @@ export function ReceiptViewer({ path, title, onClose }: { path: string | null; t
             <img src={url} alt="Comprovante do gasto" className="max-h-[70vh] w-auto max-w-full object-contain" />
           )}
         </div>
-        {url && (
-          <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline">
-            <ExternalLink className="h-3 w-3" /> Abrir em outra aba
-          </a>
-        )}
+        <div className="flex items-center justify-between gap-2">
+          {many ? (
+            <div className="flex items-center gap-1">
+              <Button type="button" size="sm" variant="outline" className="gap-1" disabled={index === 0} onClick={() => setIndex(i => i - 1)}><ChevronLeft className="h-4 w-4" /> Anterior</Button>
+              <Button type="button" size="sm" variant="outline" className="gap-1" disabled={index >= list.length - 1} onClick={() => setIndex(i => i + 1)}>Próximo <ChevronRight className="h-4 w-4" /></Button>
+            </div>
+          ) : <span />}
+          {url && (
+            <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline">
+              <ExternalLink className="h-3 w-3" /> Abrir em outra aba
+            </a>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-import type { RouteExpense } from "@/lib/routeExpenses";
+import { receiptPathsOf, type RouteExpense } from "@/lib/routeExpenses";
 
 const BUCKET = "route-expense-receipts";
 
@@ -11,8 +11,8 @@ export type NewRouteExpense = {
   date: string;
   description?: string;
   createdByName?: string;
-  /** Foto (já comprimida) ou PDF do comprovante. Obrigatório no app: o lançamento sem comprovante não é criado. */
-  receipt: File;
+  /** Fotos (já comprimidas) e/ou PDFs do comprovante. Pelo menos um: o lançamento sem comprovante não é criado. */
+  receipts: File[];
 };
 
 const fromRow = (r: any): RouteExpense => ({
@@ -23,7 +23,7 @@ const fromRow = (r: any): RouteExpense => ({
   amount: Number(r.amount) || 0,
   date: String(r.expense_date).slice(0, 10),
   description: r.description ?? undefined,
-  receiptPath: r.receipt_path ?? undefined,
+  receiptPaths: receiptPathsOf(r.receipt_paths, r.receipt_path),
   createdBy: r.created_by ?? undefined,
   createdByName: r.created_by_name ?? undefined,
   createdAt: new Date(r.created_at),
@@ -61,14 +61,24 @@ export const routeExpenseService = {
     return (data || []).map(fromRow);
   },
 
-  // Envia a foto primeiro; se salvar o gasto falhar, apaga a foto para não deixar arquivo órfão.
+  // Envia os arquivos primeiro; se algum envio ou o salvamento do gasto falhar, apaga o que já subiu (sem arquivo órfão).
   async create(input: NewRouteExpense, unidadeId?: string | null): Promise<RouteExpense> {
-    const path = `${unidadeId || "sem-unidade"}/${input.routeId}/${crypto.randomUUID()}.${extensionOf(input.receipt)}`;
-    const { error: upError } = await supabase.storage.from(BUCKET).upload(path, input.receipt, {
-      contentType: isPdfFile(input.receipt) ? "application/pdf" : input.receipt.type || "image/jpeg",
-      upsert: false,
-    });
-    if (upError) throw new Error("Não foi possível enviar a foto do comprovante: " + upError.message);
+    if (input.receipts.length === 0) throw new Error("Anexe pelo menos um comprovante.");
+    const folder = `${unidadeId || "sem-unidade"}/${input.routeId}`;
+    const uploaded: string[] = [];
+    const cleanup = () => (uploaded.length ? supabase.storage.from(BUCKET).remove(uploaded).catch(() => {}) : Promise.resolve());
+    for (const file of input.receipts) {
+      const path = `${folder}/${crypto.randomUUID()}.${extensionOf(file)}`;
+      const { error: upError } = await supabase.storage.from(BUCKET).upload(path, file, {
+        contentType: isPdfFile(file) ? "application/pdf" : file.type || "image/jpeg",
+        upsert: false,
+      });
+      if (upError) {
+        await cleanup();
+        throw new Error("Não foi possível enviar o comprovante: " + upError.message);
+      }
+      uploaded.push(path);
+    }
     const { data, error } = await supabase
       .from("route_expenses")
       .insert({
@@ -78,14 +88,16 @@ export const routeExpenseService = {
         amount: input.amount,
         expense_date: input.date,
         description: input.description || null,
-        receipt_path: path,
+        receipt_path: uploaded[0],
+        // a coluna da lista (migração 34) só é usada quando há mais de um arquivo: com um só, tudo segue como antes
+        ...(uploaded.length > 1 ? { receipt_paths: uploaded } : {}),
         created_by_name: input.createdByName || null,
         ...(unidadeId ? { unidade_id: unidadeId } : {}),
       } as any)
       .select("*")
       .single();
     if (error) {
-      await supabase.storage.from(BUCKET).remove([path]).catch(() => {});
+      await cleanup();
       throw error;
     }
     return fromRow(data);
@@ -103,11 +115,11 @@ export const routeExpenseService = {
     if (!data || data.length === 0) throw new Error("A alteração não foi salva (sem permissão ou gasto removido).");
   },
 
-  async remove(expense: Pick<RouteExpense, "id" | "receiptPath">): Promise<void> {
+  async remove(expense: Pick<RouteExpense, "id" | "receiptPaths">): Promise<void> {
     const { data, error } = await supabase.from("route_expenses").delete().eq("id", expense.id).select("id");
     if (error) throw error;
     if (!data || data.length === 0) throw new Error("O gasto não foi apagado (sem permissão ou já removido).");
-    if (expense.receiptPath) await supabase.storage.from(BUCKET).remove([expense.receiptPath]).catch(() => {});
+    if (expense.receiptPaths.length) await supabase.storage.from(BUCKET).remove(expense.receiptPaths).catch(() => {});
   },
 
   // Link temporário (1 h) para abrir a foto do comprovante: o bucket é privado.

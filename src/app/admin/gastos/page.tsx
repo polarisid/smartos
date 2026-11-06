@@ -44,7 +44,7 @@ export default function RouteExpensesPage() {
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<Tab>("lancamentos");
 
-  const [viewPath, setViewPath] = useState<string | null>(null);
+  const [viewPaths, setViewPaths] = useState<string[] | null>(null);
   const [editing, setEditing] = useState<RouteExpense | null>(null);
   const [deleting, setDeleting] = useState<RouteExpense | null>(null);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
@@ -225,9 +225,9 @@ export default function RouteExpensesPage() {
                     <TableCell className="whitespace-nowrap text-right font-semibold tabular-nums">{brl(e.amount)}</TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
-                        {e.receiptPath
-                          ? <Button size="sm" variant="outline" className="gap-1" onClick={() => setViewPath(e.receiptPath!)}><FileImage className="h-3.5 w-3.5" /> Comprovante</Button>
-                          : <span className="px-2 text-[11px] text-amber-700">sem foto</span>}
+                        {e.receiptPaths.length > 0
+                          ? <Button size="sm" variant="outline" className="gap-1" onClick={() => setViewPaths(e.receiptPaths)}><FileImage className="h-3.5 w-3.5" /> {e.receiptPaths.length > 1 ? `Comprovantes (${e.receiptPaths.length})` : "Comprovante"}</Button>
+                          : <span className="px-2 text-[11px] text-amber-700">sem comprovante</span>}
                         <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Editar" onClick={() => setEditing(e)}><Pencil className="h-3.5 w-3.5" /></Button>
                         <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" aria-label="Apagar" onClick={() => setDeleting(e)}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </div>
@@ -256,7 +256,7 @@ export default function RouteExpensesPage() {
         )}
       </Card>
 
-      <ReceiptViewer path={viewPath} onClose={() => setViewPath(null)} />
+      <ReceiptViewer paths={viewPaths} onClose={() => setViewPaths(null)} />
 
       <EditDialog
         expense={editing}

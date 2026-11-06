@@ -13,7 +13,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { compressImageIfNeeded } from "@/lib/imageCompression";
 import { cleanLines, cleanText, parseMoney } from "@/lib/quotes";
-import { totalOf, totalsByCategory } from "@/lib/routeExpenses";
+import { MAX_EXPENSE_RECEIPTS, totalOf, totalsByCategory } from "@/lib/routeExpenses";
 import { cn } from "@/lib/utils";
 import { configService } from "@/services/supabase/configService";
 import { routeExpenseService, isPdfFile, MAX_RECEIPT_PDF_BYTES } from "@/services/supabase/routeExpenseService";
@@ -24,6 +24,35 @@ const todayKey = () => format(new Date(), "yyyy-MM-dd");
 const dayLabel = (key: string) => key.split("-").reverse().slice(0, 2).join("/");
 
 // Botão "Gastos" do cartão da rota (celular): o técnico lança alimentação, hospedagem etc. com a foto do comprovante.
+// Miniatura de um arquivo escolhido (foto ou PDF) com botão para tirar da lista. A URL temporária é liberada ao sair.
+function ReceiptThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const pdf = isPdfFile(file);
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (pdf) return;
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file, pdf]);
+  return (
+    <div className="relative">
+      {pdf ? (
+        <div className="flex h-24 items-center gap-2 rounded-md border bg-muted/40 px-2.5">
+          <FileText className="h-6 w-6 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <p className="truncate text-xs font-medium">{file.name}</p>
+            <p className="text-[11px] text-muted-foreground">PDF · {(file.size / 1024 / 1024).toFixed(1).replace(".", ",")} MB</p>
+          </div>
+        </div>
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        url && <img src={url} alt="Comprovante" className="h-24 w-full rounded-md border object-cover" />
+      )}
+      <button type="button" onClick={onRemove} aria-label="Remover este arquivo" className="absolute -right-2 -top-2 rounded-full bg-background p-1 shadow ring-1 ring-border"><X className="h-3.5 w-3.5" /></button>
+    </div>
+  );
+}
+
 export function RouteExpensesButton({ route, className }: { route: { id: string; name: string }; className?: string }) {
   const { appUser, activeUnidadeId } = useAuth();
   const { toast } = useToast();
@@ -36,11 +65,10 @@ export function RouteExpensesButton({ route, className }: { route: { id: string;
   const [amountText, setAmountText] = useState("");
   const [date, setDate] = useState(todayKey());
   const [description, setDescription] = useState("");
-  const [receipt, setReceipt] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [receipts, setReceipts] = useState<File[]>([]);
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [viewPath, setViewPath] = useState<string | null>(null);
+  const [viewPaths, setViewPaths] = useState<string[] | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -65,39 +93,47 @@ export function RouteExpensesButton({ route, className }: { route: { id: string;
   const byCategory = useMemo(() => totalsByCategory(mine), [mine]);
 
   useEffect(() => { if (!category && categories.length > 0) setCategory(categories[0]); }, [categories, category]);
-  useEffect(() => {
-    if (!receipt) { setPreview(null); return; }
-    const url = URL.createObjectURL(receipt);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [receipt]);
 
   const amount = parseMoney(amountText);
   const needsDescription = cleanText(category).toLowerCase() === "outros";
 
-  const reset = () => { setAmountText(""); setDescription(""); setReceipt(null); setDate(todayKey()); };
+  const reset = () => { setAmountText(""); setDescription(""); setReceipts([]); setDate(todayKey()); };
 
-  const onPickFile = async (file: File | undefined) => {
-    if (!file) return;
-    if (isPdfFile(file)) {
-      if (file.size > MAX_RECEIPT_PDF_BYTES) {
-        toast({ variant: "destructive", title: "PDF muito grande", description: "O PDF do comprovante pode ter até 10 MB." });
-        return;
-      }
-      setReceipt(file);
+  // Aceita vários de uma vez (galeria) ou um por vez (câmera). Respeita o máximo de arquivos por gasto.
+  const onPickFiles = async (picked: FileList | File[] | null | undefined) => {
+    const files = Array.from(picked || []);
+    if (files.length === 0) return;
+    const room = MAX_EXPENSE_RECEIPTS - receipts.length;
+    if (room <= 0) {
+      toast({ variant: "destructive", title: "Limite de arquivos", description: `Cada gasto aceita até ${MAX_EXPENSE_RECEIPTS} comprovantes.` });
       return;
     }
+    if (files.length > room) toast({ title: "Alguns arquivos ficaram de fora", description: `Só cabem mais ${room} (limite de ${MAX_EXPENSE_RECEIPTS} por gasto).` });
     setReading(true);
+    const ready: File[] = [];
     try {
-      const { file: ready, unreadable } = await compressImageIfNeeded(file);
-      if (unreadable) {
-        toast({ variant: "destructive", title: "Não foi possível ler esta foto", description: "Tire a foto de novo ou escolha outra (fotos HEIC podem não abrir: use JPG)." });
-        return;
+      for (const file of files.slice(0, room)) {
+        if (isPdfFile(file)) {
+          if (file.size > MAX_RECEIPT_PDF_BYTES) {
+            toast({ variant: "destructive", title: "PDF muito grande", description: `${file.name}: o PDF pode ter até 10 MB.` });
+            continue;
+          }
+          ready.push(file);
+          continue;
+        }
+        try {
+          const { file: compressed, unreadable } = await compressImageIfNeeded(file);
+          if (unreadable) {
+            toast({ variant: "destructive", title: "Não foi possível ler esta foto", description: "Tire a foto de novo ou escolha outra (fotos HEIC podem não abrir: use JPG)." });
+            continue;
+          }
+          ready.push(compressed);
+        } catch (e) {
+          console.error(e);
+          toast({ variant: "destructive", title: "Não foi possível ler esta foto", description: "Tire a foto de novo." });
+        }
       }
-      setReceipt(ready);
-    } catch (e) {
-      console.error(e);
-      toast({ variant: "destructive", title: "Não foi possível ler esta foto", description: "Tire a foto de novo." });
+      if (ready.length > 0) setReceipts(prev => [...prev, ...ready].slice(0, MAX_EXPENSE_RECEIPTS));
     } finally {
       setReading(false);
     }
@@ -108,7 +144,7 @@ export function RouteExpensesButton({ route, className }: { route: { id: string;
     if (!(amount > 0)) { toast({ variant: "destructive", title: "Informe o valor do gasto." }); return; }
     if (!date || date > todayKey()) { toast({ variant: "destructive", title: "Informe a data do gasto (não pode ser futura)." }); return; }
     if (needsDescription && !cleanText(description)) { toast({ variant: "destructive", title: "Descreva o gasto em \"Outros\"." }); return; }
-    if (!receipt) { toast({ variant: "destructive", title: "Anexe o comprovante.", description: "O lançamento só é salvo com a foto ou o PDF da nota ou do recibo." }); return; }
+    if (receipts.length === 0) { toast({ variant: "destructive", title: "Anexe o comprovante.", description: "O lançamento só é salvo com a foto ou o PDF da nota ou do recibo." }); return; }
     setSaving(true);
     try {
       await routeExpenseService.create({
@@ -119,7 +155,7 @@ export function RouteExpensesButton({ route, className }: { route: { id: string;
         date,
         description: cleanLines(description) || undefined,
         createdByName: appUser?.name,
-        receipt,
+        receipts,
       }, unidadeId);
       await queryClient.invalidateQueries({ queryKey: ["route-expenses"] });
       toast({ title: "Gasto lançado", description: `${category} · ${brl(amount)}` });
@@ -206,35 +242,26 @@ export function RouteExpensesButton({ route, className }: { route: { id: string;
                 <Textarea rows={2} value={description} onChange={e => setDescription(e.target.value)} placeholder={needsDescription ? "O que foi este gasto?" : "Ex.: almoço em Itabaiana"} />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs">Comprovante (foto ou PDF) *</Label>
-                {preview ? (
-                  <div className="relative w-fit max-w-full">
-                    {receipt && isPdfFile(receipt) ? (
-                      <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2.5">
-                        <FileText className="h-6 w-6 shrink-0 text-primary" />
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{receipt.name}</p>
-                          <p className="text-[11px] text-muted-foreground">PDF · {(receipt.size / 1024 / 1024).toFixed(1).replace(".", ",")} MB</p>
-                        </div>
-                      </div>
-                    ) : (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={preview} alt="Comprovante" className="max-h-40 rounded-md border object-contain" />
-                    )}
-                    <button type="button" onClick={() => setReceipt(null)} aria-label="Trocar o comprovante" className="absolute -right-2 -top-2 rounded-full bg-background p-1 shadow ring-1 ring-border"><X className="h-3.5 w-3.5" /></button>
+                <Label className="text-xs">Comprovantes (fotos ou PDF) * <span className="font-normal text-muted-foreground">{receipts.length}/{MAX_EXPENSE_RECEIPTS}</span></Label>
+                {receipts.length > 0 && (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {receipts.map((file, i) => (
+                      <ReceiptThumb key={`${file.name}-${file.size}-${i}`} file={file} onRemove={() => setReceipts(prev => prev.filter((_, idx) => idx !== i))} />
+                    ))}
                   </div>
-                ) : (
+                )}
+                {receipts.length < MAX_EXPENSE_RECEIPTS && (
                   <div className="grid grid-cols-2 gap-2">
                     <Button type="button" variant="outline" className="gap-1.5" disabled={reading} onClick={() => cameraRef.current?.click()}>
-                      {reading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />} Tirar foto
+                      {reading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />} {receipts.length > 0 ? "Outra foto" : "Tirar foto"}
                     </Button>
                     <Button type="button" variant="outline" className="gap-1.5" disabled={reading} onClick={() => galleryRef.current?.click()}>
                       <ImageIcon className="h-4 w-4" /> Galeria / PDF
                     </Button>
                   </div>
                 )}
-                <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { void onPickFile(e.target.files?.[0]); e.target.value = ""; }} />
-                <input ref={galleryRef} type="file" accept="image/*,application/pdf,.pdf" className="hidden" onChange={e => { void onPickFile(e.target.files?.[0]); e.target.value = ""; }} />
+                <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { void onPickFiles(e.target.files); e.target.value = ""; }} />
+                <input ref={galleryRef} type="file" multiple accept="image/*,application/pdf,.pdf" className="hidden" onChange={e => { void onPickFiles(e.target.files); e.target.value = ""; }} />
               </div>
               <div className="flex justify-end gap-2 pt-1">
                 <Button variant="outline" disabled={saving} onClick={() => { reset(); setAdding(false); }}>Cancelar</Button>
@@ -260,7 +287,7 @@ export function RouteExpensesButton({ route, className }: { route: { id: string;
                       </div>
                       <p className="text-[11px] text-muted-foreground">{dayLabel(e.date)}{e.description ? ` · ${e.description}` : ""}</p>
                       <div className="mt-1 flex items-center gap-3">
-                        {e.receiptPath && <button type="button" className="text-[11px] font-medium text-primary hover:underline" onClick={() => setViewPath(e.receiptPath!)}>Ver comprovante</button>}
+                        {e.receiptPaths.length > 0 && <button type="button" className="text-[11px] font-medium text-primary hover:underline" onClick={() => setViewPaths(e.receiptPaths)}>{e.receiptPaths.length > 1 ? `Ver comprovantes (${e.receiptPaths.length})` : "Ver comprovante"}</button>}
                         {confirmDeleteId === e.id ? (
                           <span className="flex items-center gap-2 text-[11px]">
                             <button type="button" disabled={deletingId === e.id} className="font-semibold text-destructive hover:underline" onClick={() => void remove(e.id)}>{deletingId === e.id ? "Apagando..." : "Confirmar apagar"}</button>
@@ -278,7 +305,7 @@ export function RouteExpensesButton({ route, className }: { route: { id: string;
           </div>
         </DialogContent>
       </Dialog>
-      <ReceiptViewer path={viewPath} onClose={() => setViewPath(null)} />
+      <ReceiptViewer paths={viewPaths} onClose={() => setViewPaths(null)} />
     </>
   );
 }

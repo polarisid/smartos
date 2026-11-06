@@ -33,3 +33,12 @@ test("filtros por período, categoria, técnico e busca", () => {
     assert.deepEqual(r.filterExpenses(list, { technician: "Pedro" }).map(e => e.id), ["a", "c"]);
     assert.deepEqual(r.filterExpenses(list, { search: "  hotel " }).map(e => e.id), ["b"]);
 });
+
+test("lista de comprovantes: usa a coluna nova e cai no caminho único dos gastos antigos", () => {
+    assert.deepEqual(r.receiptPathsOf(["a.jpg", "b.pdf"], "a.jpg"), ["a.jpg", "b.pdf"]);
+    assert.deepEqual(r.receiptPathsOf([], "velho.jpg"), ["velho.jpg"]);
+    assert.deepEqual(r.receiptPathsOf(undefined, "velho.jpg"), ["velho.jpg"]);
+    assert.deepEqual(r.receiptPathsOf(null, null), []);
+    assert.deepEqual(r.receiptPathsOf(["", 3, "ok.png"], "x"), ["ok.png"]);
+    assert.equal(r.MAX_EXPENSE_RECEIPTS, 5);
+});

@@ -15,7 +15,8 @@ export type RouteExpense = {
     /** Dia do gasto, "yyyy-MM-dd". */
     date: string;
     description?: string;
-    receiptPath?: string;
+    /** Fotos/PDFs do comprovante (o primeiro é o principal). Gastos antigos têm só um. */
+    receiptPaths: string[];
     createdBy?: string;
     createdByName?: string;
     createdAt: Date;
@@ -84,4 +85,14 @@ export function filterExpenses(expenses: RouteExpense[], f: ExpenseFilter): Rout
         if (!term) return true;
         return [e.routeName, e.category, e.description, e.createdByName].some(v => (v || "").toLowerCase().includes(term));
     });
+}
+
+/** Máximo de arquivos de comprovante por gasto. */
+export const MAX_EXPENSE_RECEIPTS = 5;
+
+/** Lista de comprovantes de um gasto: usa a coluna nova (lista) e, se vazia, cai no caminho único dos gastos antigos. */
+export function receiptPathsOf(list: unknown, first: unknown): string[] {
+    const fromList = Array.isArray(list) ? list.filter((p): p is string => typeof p === "string" && p.length > 0) : [];
+    if (fromList.length > 0) return fromList;
+    return typeof first === "string" && first ? [first] : [];
 }
