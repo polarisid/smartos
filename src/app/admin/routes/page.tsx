@@ -44,6 +44,7 @@ import { fetchLegDistancesAndDurations, fetchDurationMatrixMin } from "@/lib/rou
 import { routeCode, matchesRouteCode, matchesRouteQuery } from "@/lib/routeCode";
 import { reconstructRouteText } from "@/lib/routeText";
 import { RouteCodeTag } from "@/components/routes/RouteCodeTag";
+import { RoutesListView } from "@/components/routes/RoutesListView";
 import { DuplicateOrdersNotice } from "@/components/routes/DuplicateOrdersNotice";
 import { formatLegTempo, copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -2812,6 +2813,25 @@ export default function RoutesPage() {
     // Busca rápida da lista por código da rota (RT-XXXX-XXXX) ou nome.
     const [routeQuery, setRouteQuery] = useState("");
     const filteredRoutes = routeQuery.trim() ? listedRoutes.filter(r => matchesRouteQuery(routeQuery, r)) : listedRoutes;
+    // Paradas concluídas de cada rota da lista (OS lançada depois da criação da rota; parada realocada não conta).
+    const progressById = useMemo(() => {
+        const launchedAfter = new Map<string, number[]>();
+        serviceOrders.forEach(os => {
+            if (os.ignoreInRoute) return;
+            const list = launchedAfter.get(os.serviceOrderNumber);
+            if (list) list.push(os.date.getTime()); else launchedAfter.set(os.serviceOrderNumber, [os.date.getTime()]);
+        });
+        const out = new Map<string, { done: number; total: number }>();
+        listedRoutes.forEach(route => {
+            const stops = (route.stops || []).filter(st => !st.isReallocated);
+            const createdMs = route.createdAt ? new Date(route.createdAt as Date).getTime() : 0;
+            const done = stops.filter(stop => createdMs > 0 && (launchedAfter.get(stop.serviceOrder) || []).some(t => t > createdMs)).length;
+            out.set(route.id, { done, total: stops.length });
+        });
+        return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [serviceOrders, draftRoutes, activeRoutes, inactiveRoutes, showOnlyActive]);
+    const progressOfRoute = (route: Route) => progressById.get(route.id) || { done: 0, total: 0 };
 
     // Busca uma OS dentro das rotas listadas (respeita o filtro "só ativas") - útil pra achar
     // rapidamente em qual rota uma OS específica está sem abrir uma por uma.
@@ -3338,73 +3358,15 @@ ${rowsXml}  </Table>
                             </div>
                        ) : (
                         <>
-                           {/* Desktop Table */}
-                           <div className="hidden md:block">
-                                <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Nome da Rota</TableHead>
-                                        <TableHead>Técnico</TableHead>
-                                        <TableHead>Motorista</TableHead>
-                                        <TableHead>Paradas</TableHead>
-                                        <TableHead>Progresso</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead className="text-right">Ações</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {filteredRoutes.map(route => {
-                                            // Paradas realocadas (movidas para outra rota) não contam nesta rota.
-                                            const stops = (route.stops || []).filter(st => !st.isReallocated);
-                                            const totalStops = stops.length;
-                                            const completedStopsCount = stops.filter(stop => 
-                                                serviceOrders.some(os => 
-                                                    os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && route.createdAt && isAfter(os.date, route.createdAt as Date)
-                                                )
-                                            ).length;
-                                            const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
-
-                                        return (
-                                            <TableRow key={route.id} className={!route.isActive ? "text-muted-foreground" : ""}>
-                                            <TableCell className="font-medium">{route.name}<div className="mt-0.5"><RouteCodeTag route={route} /></div></TableCell>
-                                            <TableCell>
-                                                <div className="flex items-center gap-2">
-                                                    <Users className="h-4 w-4 text-muted-foreground" />
-                                                    <span>{route.technicianName || 'N/A'}</span>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                <div className="flex items-center gap-2">
-                                                    <Truck className="h-4 w-4 text-muted-foreground" />
-                                                    <span>{route.driverName || 'N/A'}</span>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>{totalStops}</TableCell>
-                                            <TableCell className="w-[200px]">
-                                                    <div className="flex flex-col gap-1">
-                                                        <Progress value={progress} />
-                                                        <span className="text-xs text-muted-foreground">{completedStopsCount} de {totalStops} concluídas</span>
-                                                        {route.isActive && !route.isDraft && completedStopsCount < totalStops && (
-                                                            <RouteDelayBadge route={route} serviceOrders={serviceOrders} onReport={reportDelay} />
-                                                        )}
-                                                    </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                    <Badge
-                                                        variant={route.isDraft ? "outline" : route.isActive ? "default" : route.isCanceled ? "destructive" : "secondary"}
-                                                        className={route.isDraft ? "border-amber-300 text-amber-700 bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:bg-amber-950" : undefined}
-                                                    >
-                                                        {route.isDraft ? "Rascunho" : route.isActive ? "Ativa" : route.isCanceled ? "Cancelada" : "Finalizada"}
-                                                    </Badge>
-                                            </TableCell>
-                                            <TableCell className="text-right space-x-2">
-                                                {renderRouteActions(route)}
-                                            </TableCell>
-                                        </TableRow>
-                                    )})}
-                                </TableBody>
-                                </Table>
-                           </div>
+                           <RoutesListView
+                                routes={filteredRoutes}
+                                progressOf={progressOfRoute}
+                                delays={routeDelays}
+                                renderActions={renderRouteActions}
+                                renderDelay={route => route.isActive && !route.isDraft && progressOfRoute(route).done < progressOfRoute(route).total
+                                    ? <RouteDelayBadge route={route} serviceOrders={serviceOrders} onReport={reportDelay} />
+                                    : null}
+                           />
 
                             {/* Load More Inactive Button */}
                             {!showOnlyActive && hasMoreInactive && (
@@ -3423,59 +3385,6 @@ ${rowsXml}  </Table>
                                 </div>
                             )}
 
-                            {/* Mobile Card View */}
-                            <div className="md:hidden space-y-4">
-                                {filteredRoutes.map(route => {
-                                        const stops = (route.stops || []).filter(st => !st.isReallocated);
-                                        const totalStops = stops.length;
-                                        const completedStopsCount = stops.filter(stop => 
-                                            serviceOrders.some(os => 
-                                                os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && route.createdAt && isAfter(os.date, route.createdAt as Date)
-                                            )
-                                        ).length;
-                                        const progress = totalStops > 0 ? (completedStopsCount / totalStops) * 100 : 0;
-
-                                    return (
-                                        <Card key={route.id} className={cn(!route.isActive && "bg-muted/50")}>
-                                            <CardHeader>
-                                                <div className="flex justify-between items-start">
-                                                    <div className="min-w-0"><CardTitle>{route.name}</CardTitle><div className="mt-1"><RouteCodeTag route={route} /></div></div>
-                                                    <Badge
-                                                        variant={route.isDraft ? "outline" : route.isActive ? "default" : route.isCanceled ? "destructive" : "secondary"}
-                                                        className={route.isDraft ? "border-amber-300 text-amber-700 bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:bg-amber-950" : undefined}
-                                                    >
-                                                        {route.isDraft ? "Rascunho" : route.isActive ? "Ativa" : route.isCanceled ? "Cancelada" : "Finalizada"}
-                                                    </Badge>
-                                                </div>
-                                            </CardHeader>
-                                            <CardContent className="space-y-4">
-                                                 <div className="flex justify-between text-sm">
-                                                    <span className="text-muted-foreground flex items-center gap-2"><Users className="h-4 w-4" /> Técnico:</span>
-                                                    <span className="font-medium">{route.technicianName || 'N/A'}</span>
-                                                </div>
-                                                <div className="flex justify-between text-sm">
-                                                    <span className="text-muted-foreground flex items-center gap-2"><Truck className="h-4 w-4" /> Motorista:</span>
-                                                    <span className="font-medium">{route.driverName || 'N/A'}</span>
-                                                </div>
-                                                <div className="flex justify-between text-sm">
-                                                    <span className="text-muted-foreground">Paradas:</span>
-                                                    <span className="font-medium">{totalStops}</span>
-                                                </div>
-                                                <div className="space-y-2">
-                                                     <Progress value={progress} />
-                                                    <span className="text-xs text-muted-foreground block">{completedStopsCount} de {totalStops} concluídas</span>
-                                                    {route.isActive && !route.isDraft && completedStopsCount < totalStops && (
-                                                        <RouteDelayBadge route={route} serviceOrders={serviceOrders} onReport={reportDelay} />
-                                                    )}
-                                                </div>
-                                            </CardContent>
-                                            <CardFooter>
-                                                {renderRouteActions(route)}
-                                            </CardFooter>
-                                        </Card>
-                                    )
-                                })}
-                            </div>
                         </>
                        )}
                     </CardContent>
