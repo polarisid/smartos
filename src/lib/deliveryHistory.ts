@@ -205,3 +205,13 @@ export function newerDeliveriesOf(route: Route, deliveryRoutes: Route[]): Map<st
     out.forEach(list => list.sort((a, b) => b.routeDate.getTime() - a.routeDate.getTime()));
     return out;
 }
+
+/**
+ * A partir de quando os atendimentos (OS lançadas) contam para a situação de uma OS na rota de entrega.
+ * Base = a data já calculada (solicitação ou criação da rota). Se a OS foi "reaberta", só valem os atendimentos
+ * lançados depois da reabertura (o atendimento antigo, mesmo posterior à solicitação, deixa de contar).
+ */
+export function osSinceMs(baseMs: number, stop?: { reopenedAt?: string } | null): number {
+    const reopened = stop?.reopenedAt ? new Date(stop.reopenedAt).getTime() : 0;
+    return reopened > baseMs ? reopened : baseMs;
+}

@@ -37,3 +37,15 @@ test("rota de entrega antiga enxerga em quais rotas de entrega mais novas a OS j
     assert.strictEqual(map.get("333"), undefined);
     assert.strictEqual(map.get("444"), undefined);
 });
+
+test("osSinceMs: reabrir a OS ignora o atendimento antigo; sem reabertura vale a data base", () => {
+    const { osSinceMs } = loadTs("src/lib/deliveryHistory.ts");
+    const base = new Date("2026-10-23T00:00:00").getTime();
+    assert.strictEqual(osSinceMs(base, {}), base);
+    assert.strictEqual(osSinceMs(base, null), base);
+    assert.strictEqual(osSinceMs(base, { reopenedAt: "not-a-date" }), base);
+    const reopened = new Date("2026-11-06T10:00:00").getTime();
+    assert.strictEqual(osSinceMs(base, { reopenedAt: new Date(reopened).toISOString() }), reopened);
+    // reabertura anterior à data base não muda nada
+    assert.strictEqual(osSinceMs(base, { reopenedAt: new Date("2026-10-01T00:00:00").toISOString() }), base);
+});

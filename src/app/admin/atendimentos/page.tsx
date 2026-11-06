@@ -18,6 +18,7 @@ import { downloadSpreadsheet, type SheetRow } from "@/lib/spreadsheetXml";
 import { routeCode } from "@/lib/routeCode";
 import { stateToUF } from "@/lib/brStates";
 import { cn } from "@/lib/utils";
+import { osSinceMs } from "@/lib/deliveryHistory";
 import type { Route, RouteStop, ServiceOrder } from "@/lib/data";
 
 // ─── Atendimentos: todas as OS que estão em rotas, numa tabela só ───────────────────────────────
@@ -167,7 +168,7 @@ export default function AtendimentosPage() {
             const deliveryEntry = entries.find(e => e.route.kind === "delivery");
 
             const requestMs = parseBr(primary.stop.requestDate) || parseBr(deliveryEntry?.stop.requestDate);
-            const sinceMs = requestMs || dateMs(primary.route.createdAt);
+            const sinceMs = osSinceMs(requestMs || dateMs(primary.route.createdAt), deliveryEntry?.stop);
             const related = (ordersByNumber.get(so) || []).filter(os => !os.ignoreInRoute && os.date.getTime() >= sinceMs);
             const last = related.length ? related.reduce((a, b) => (b.date.getTime() > a.date.getTime() ? b : a)) : null;
             const finalizedAt = last && last.isFinalized !== false ? last.date : null;

@@ -314,6 +314,9 @@ export type RouteStop = {
     addressDetails?: string;
     isReallocated?: boolean;
     reallocatedToRouteName?: string;
+    // Rota de entrega: "Reabrir OS" grava aqui (data ISO) o momento da reabertura. Atendimentos lançados ANTES dele
+    // deixam de contar como Finalizada/Pendência dessa OS na rota de entrega.
+    reopenedAt?: string;
     zipMismatch?: boolean;
     zipMismatchDetails?: string;
     suggestedCityState?: string;

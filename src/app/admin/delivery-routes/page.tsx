@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Mail, Repeat2, FilePlus2, Copy, FileText, Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, Users, X } from "lucide-react";
+import { Mail, Repeat2, FilePlus2, Copy, FileText, Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, RotateCcw, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, Users, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import Link from "next/link";
@@ -39,7 +39,7 @@ import { copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { DEFAULT_PLANNING_PARAMS, simulateRoutePlan, formatClock } from "@/lib/routePlanning";
 import type { Route, RoutePart, RoutePoint, RouteStop, ServiceOrder } from "@/lib/data";
 import { routeService, RouteConflictError } from "@/services/supabase/routeService";
-import { buildOrderHistory, extraPartsOf, newerDeliveriesOf, type NewerDelivery, type PartSituation } from "@/lib/deliveryHistory";
+import { buildOrderHistory, extraPartsOf, newerDeliveriesOf, osSinceMs, type NewerDelivery, type PartSituation } from "@/lib/deliveryHistory";
 import { DeliveryHistoryNotice } from "@/components/routes/DeliveryHistoryNotice";
 import { DuplicateOrdersNotice } from "@/components/routes/DuplicateOrdersNotice";
 
@@ -160,7 +160,7 @@ export default function DeliveryRoutesPage() {
             let total = 0, done = 0, pending = 0;
             (r.stops || []).filter(st => !st.isReallocated).forEach(st => {
                 total++;
-                const sinceMs = parseBrDate(st.requestDate) || createdMs;
+                const sinceMs = osSinceMs(parseBrDate(st.requestDate) || createdMs, st);
                 const list = byNumber.get(st.serviceOrder) || [];
                 let last: ServiceOrder | null = null;
                 for (const os of list) if (os.date.getTime() >= sinceMs && (!last || os.date.getTime() > last.date.getTime())) last = os;
@@ -679,6 +679,18 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             await routeService.patchStopFields(rid, [{ serviceOrder: so, fields: { parts: fn(st.parts || []) } }]);
         }
     };
+    // "Reabrir OS": o atendimento antigo (mesmo depois da solicitação) deixa de contar; vale só o que for lançado daqui para a frente.
+    // O desfazer remove a marca e volta à regra normal. Grava na rota de entrega (e não em rota filha).
+    const handleReopenOrder = async (so: string, reopen: boolean) => {
+        try {
+            await routeService.patchStopFields(routeId, [{ serviceOrder: so, fields: { reopenedAt: reopen ? new Date().toISOString() : undefined } }]);
+            await queryClient.invalidateQueries({ queryKey: ["routes"] });
+            await refresh();
+            toast({ title: reopen ? "OS " + so + " reaberta" : "Reabertura da OS " + so + " desfeita", description: reopen ? "O atendimento anterior não conta mais; vale o próximo lançamento." : "Voltou a valer o atendimento desde a data da solicitação." });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível atualizar a OS", description: e?.message });
+        }
+    };
     const handleReallocatePart = async (fromOrder: string, code: string, toOrder: string) => {
         try {
             const fresh = await routeService.getById(routeId);
@@ -716,7 +728,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         return (route.stops || []).filter(s => !s.isReallocated).map(stop => {
             // Concluída = a OS foi lançada depois da SOLICITAÇÃO (ciclo desta planilha), mesmo antes de a rota de
             // entrega ser criada: muita OS da planilha já foi atendida. Sem data de solicitação, vale a criação da rota.
-            const sinceMs = parseBrDate(stop.requestDate) || createdMs;
+            const sinceMs = osSinceMs(parseBrDate(stop.requestDate) || createdMs, stop);
             const related = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && os.date.getTime() >= sinceMs);
             const last = related.length ? related.reduce((a, b) => (b.date.getTime() > a.date.getTime() ? b : a)) : null;
             const child = activeChildren.find(c => (c.stops || []).some(cs => cs.serviceOrder === stop.serviceOrder && !cs.isReallocated));
@@ -1663,6 +1675,16 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 {r.finalizedAt && <span className="text-[10px] text-muted-foreground tabular-nums">{format(r.finalizedAt, "dd/MM HH:mm")}</span>}
                 {!r.finalizedAt && r.pendingAt && <span className={cn("text-[10px] text-muted-foreground tabular-nums", r.pendingNote && "cursor-help")} title={r.pendingNote || undefined}>{format(r.pendingAt, "dd/MM HH:mm")}</span>}
                 {r.childName && <span className="text-[10px] text-muted-foreground max-w-[150px] truncate" title={r.childName}>{r.childName}</span>}
+                {(r.finalizedAt || r.pendingAt) && (
+                    <button type="button" className="inline-flex items-center gap-0.5 rounded px-1 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground" title="Ignora o atendimento antigo desta OS: ela volta a A programar e só conta o que for lançado daqui para a frente" onClick={(e) => { e.stopPropagation(); handleReopenOrder(r.stop.serviceOrder, true); }}>
+                        <RotateCcw className="h-2.5 w-2.5" /> Reabrir
+                    </button>
+                )}
+                {r.stop.reopenedAt && (
+                    <button type="button" className="inline-flex items-center gap-0.5 rounded px-1 text-[10px] text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/40" title={"Reaberta em " + format(new Date(r.stop.reopenedAt), "dd/MM/yyyy HH:mm") + ". Clique para desfazer e voltar a valer o atendimento desde a solicitação."} onClick={(e) => { e.stopPropagation(); handleReopenOrder(r.stop.serviceOrder, false); }}>
+                        <RotateCcw className="h-2.5 w-2.5" /> reaberta · desfazer
+                    </button>
+                )}
                 {newerOf(r).length > 0 && (
                     <Badge variant="outline" className="max-w-[160px] gap-1 border-teal-300 bg-teal-50 px-1.5 py-0 text-[10px] font-medium text-teal-800 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-300"
                         title={"Esta OS já está em rota de entrega mais nova:\n" + newerOf(r).map(n => n.routeName + " (criada em " + format(n.routeDate, "dd/MM/yyyy") + ")").join("\n")}>
