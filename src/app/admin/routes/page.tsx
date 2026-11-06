@@ -2946,6 +2946,9 @@ export default function RoutesPage() {
 
     const handleExportActiveRoutes = async () => {
         const activeRoutesToExport = activeRoutes.filter((route: Route) => route.isActive);
+        // Rascunhos (ainda não publicados) também saem na planilha, marcados como "Rascunho" e com a linha em amarelo.
+        // Rota de entrega fica de fora: as OS dela entram mais abaixo.
+        const draftRoutesToExport = draftRoutes.filter((route: Route) => route.isDraft && !route.isActive && !route.isCanceled && route.kind !== 'delivery');
         // OS que constam em alguma Rota de Entrega saem como tipo "Entrega" mesmo que a rota do técnico tenha sido criada
         // por fora (colada da planilha) ou sem o vínculo com a rota de entrega. As OS da própria Rota de Entrega que ainda
         // não estão em rota ativa (a programar, com dia, em rascunho) entram na planilha no fim.
@@ -2956,25 +2959,27 @@ export default function RoutesPage() {
             deliveryRoutes.forEach(dr => (dr.stops || []).forEach(st => { if (!st.isReallocated) deliveryOrders.add(st.serviceOrder); }));
         } catch (e) { console.warn("Não foi possível consultar as rotas de entrega para a planilha", e); }
 
-        if (activeRoutesToExport.length === 0 && deliveryRoutes.length === 0) {
-            toast({ title: "Atenção", description: "Nenhuma rota ativa encontrada para exportar." });
+        if (activeRoutesToExport.length === 0 && draftRoutesToExport.length === 0 && deliveryRoutes.length === 0) {
+            toast({ title: "Atenção", description: "Nenhuma rota ativa ou rascunho encontrado para exportar." });
             return;
         }
 
         const HEADERS = [
             "OS Nro.", "Nome da Rota", "Código da Rota", "Data de Saída", "Técnico", "Motorista", "ASC Job No.",
             "Nome Consumidor", "Cidade", "Bairro", "Modelo", "Tipo de Parada",
-            "Data Planejada", "Status da OS", "Motivo Pendência",
+            "Data Planejada", "Status da OS", "Motivo Pendência", "Situação da Rota",
         ];
 
-        type ReportRow = { values: (string | number)[]; status: 'A Fazer' | 'Pendente' | 'Finalizada' };
+        type ReportRow = { values: (string | number)[]; status: 'A Fazer' | 'Pendente' | 'Finalizada'; draft?: boolean };
         const rows: ReportRow[] = [];
 
-        activeRoutesToExport.forEach((route: Route) => {
+        [...activeRoutesToExport, ...draftRoutesToExport].forEach((route: Route) => {
+            const isDraftRoute = !route.isActive;
             const routeName = route.name;
-            const technician = route.technicianName || 'N/A';
-            const driver = route.driverName || 'N/A';
-            const departure = route.departureDate instanceof Date ? route.departureDate.toLocaleDateString('pt-BR') : '';
+            const technician = route.technicianName || (isDraftRoute ? 'A definir' : 'N/A');
+            const driver = route.driverName || (isDraftRoute ? 'A definir' : 'N/A');
+            const departureValue = route.departureDate || (isDraftRoute ? route.plannedDate : undefined);
+            const departure = departureValue instanceof Date ? departureValue.toLocaleDateString('pt-BR') : '';
             const routeCreatedAt = route.createdAt instanceof Date ? route.createdAt : (route.createdAt as any)?.toDate?.() ?? new Date(0);
 
             (route.stops || []).forEach((stop: RouteStop) => {
@@ -3004,6 +3009,7 @@ export default function RoutesPage() {
 
                 rows.push({
                     status: osStatus,
+                    draft: isDraftRoute,
                     values: [
                         numericOS,
                         routeName,
@@ -3022,6 +3028,7 @@ export default function RoutesPage() {
                         osStatus === 'Pendente'
                             ? [lastOs?.pendingReason, lastOs?.observations].filter(Boolean).join(' - ') || (stop.statusComment || '')
                             : '',
+                        isDraftRoute ? 'Rascunho' : 'Ativa',
                     ],
                 });
             });
@@ -3065,13 +3072,14 @@ export default function RoutesPage() {
                         osStatus === 'Pendente'
                             ? [lastOs?.pendingReason, lastOs?.observations].filter(Boolean).join(' - ') || (stop.statusComment || '')
                             : '',
+                        'Sem rota',
                     ],
                 });
             });
         });
 
         if (rows.length === 0) {
-            toast({ title: "Atenção", description: "As rotas ativas não possuem ordens de serviço." });
+            toast({ title: "Atenção", description: "As rotas ativas e os rascunhos não possuem ordens de serviço." });
             return;
         }
 
@@ -3091,7 +3099,7 @@ export default function RoutesPage() {
         rowsXml += `   </Row>\n`;
 
         rows.forEach(row => {
-            const styleId = styleIdByStatus[row.status];
+            const styleId = row.draft ? 'RowRascunho' : styleIdByStatus[row.status];
             rowsXml += `   <Row ss:Height="19">\n`;
             row.values.forEach(val => {
                 const isNumeric = typeof val === 'number';
@@ -3154,8 +3162,19 @@ export default function RoutesPage() {
    <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#9C0006"/>
    <Interior ss:Color="#FFC7CE" ss:Pattern="Solid"/>
   </Style>
+  <Style ss:ID="RowRascunho">
+   <Alignment ss:Vertical="Center" ss:Horizontal="Left"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CCCCCC"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#7F6000"/>
+   <Interior ss:Color="#FFEB9C" ss:Pattern="Solid"/>
+  </Style>
  </Styles>
- <Worksheet ss:Name="Ordens em Rotas Ativas">
+ <Worksheet ss:Name="Rotas Ativas e Rascunhos">
   <Table>
 ${rowsXml}  </Table>
  </Worksheet>
@@ -3245,7 +3264,7 @@ ${rowsXml}  </Table>
                             <Search className="mr-2 h-4 w-4" /> Buscar OS em Rota
                         </Button>
                         <Button variant="outline" onClick={handleExportActiveRoutes}>
-                            <FileDown className="mr-2 h-4 w-4" /> Exportar Relatório (Ativas)
+                            <FileDown className="mr-2 h-4 w-4" /> Exportar Relatório (Ativas e Rascunhos)
                         </Button>
                         {activeTab === 'list' && (
                             <>
