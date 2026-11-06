@@ -177,3 +177,31 @@ export function sentBeforeOf(history: OrderHistory | undefined, partCode: string
 export function extraPartsOf(history: OrderHistory | undefined): PartDiff[] {
     return (history?.diff || []).filter(d => d.situation === "so-antes");
 }
+
+export type NewerDelivery = { routeId: string; routeName: string; routeDate: Date };
+
+/**
+ * Para uma rota de entrega ANTIGA: em quais rotas de entrega MAIS NOVAS (criadas depois dela, não canceladas) cada OS dela já está.
+ * Chave = número da OS em maiúsculas. OS realocadas (que saíram da rota nova) não contam. Mais recente primeiro.
+ */
+export function newerDeliveriesOf(route: Route, deliveryRoutes: Route[]): Map<string, NewerDelivery[]> {
+    const out = new Map<string, NewerDelivery[]>();
+    const created = new Date(route.createdAt).getTime();
+    const mine = new Set((route.stops || []).filter(s => !s.isReallocated).map(s => norm(s.serviceOrder)));
+    for (const d of deliveryRoutes) {
+        if (d.id === route.id || d.kind !== "delivery" || d.isCanceled) continue;
+        const dCreated = new Date(d.createdAt).getTime();
+        if (!(dCreated > created)) continue;
+        const seen = new Set<string>();
+        for (const st of d.stops || []) {
+            const so = norm(st.serviceOrder);
+            if (!so || st.isReallocated || !mine.has(so) || seen.has(so)) continue;
+            seen.add(so);
+            const list = out.get(so) || [];
+            list.push({ routeId: d.id, routeName: d.name, routeDate: new Date(d.createdAt) });
+            out.set(so, list);
+        }
+    }
+    out.forEach(list => list.sort((a, b) => b.routeDate.getTime() - a.routeDate.getTime()));
+    return out;
+}

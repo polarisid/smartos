@@ -39,7 +39,7 @@ import { copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { DEFAULT_PLANNING_PARAMS, simulateRoutePlan, formatClock } from "@/lib/routePlanning";
 import type { Route, RoutePart, RoutePoint, RouteStop, ServiceOrder } from "@/lib/data";
 import { routeService, RouteConflictError } from "@/services/supabase/routeService";
-import { buildOrderHistory, extraPartsOf, type PartSituation } from "@/lib/deliveryHistory";
+import { buildOrderHistory, extraPartsOf, newerDeliveriesOf, type NewerDelivery, type PartSituation } from "@/lib/deliveryHistory";
 import { DeliveryHistoryNotice } from "@/components/routes/DeliveryHistoryNotice";
 import { DuplicateOrdersNotice } from "@/components/routes/DuplicateOrdersNotice";
 
@@ -57,6 +57,7 @@ type Row = {
     team: number;                 // equipe (1 = A, 2 = B...; 0 = sem equipe)
     partsTotal: number;
     partsTracked: number;
+    returns: Record<string, PartReturn>; // código da peça -> para onde vai (usada, nova, defeito...)
 };
 
 type SortKey = "so" | "asc" | "name" | "city" | "neighborhood" | "uf" | "model" | "turn" | "tat" | "tatNow" | "request" | "visit" | "ts" | "warranty" | "order" | "team" | "day" | "status";
@@ -710,6 +711,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     const rows: Row[] = useMemo(() => {
         if (!route) return [];
         const createdMs = new Date(route.createdAt).getTime();
+        const routeCreatedAt = new Date(route.createdAt);
         const activeChildren = children.filter(c => !c.isCanceled);
         return (route.stops || []).filter(s => !s.isReallocated).map(stop => {
             // Concluída = a OS foi lançada depois da SOLICITAÇÃO (ciclo desta planilha), mesmo antes de a rota de
@@ -731,6 +733,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 team: teamOf(stop),
                 partsTotal: parts.length,
                 partsTracked: parts.filter(p => (p.trackingCode || "").trim() !== "").length,
+                returns: Object.fromEntries(parts.map(p => [p.code, partReturnOf(stop, p as RoutePart, serviceOrders, routeCreatedAt).kind])) as Record<string, PartReturn>,
             };
         });
     }, [route, serviceOrders, children]);
@@ -738,6 +741,9 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     // O que as OS desta rota já tiveram em OUTRAS rotas de entrega: peças já enviadas (repetidas) e peças que só foram lá.
     const otherHistory = useMemo(() => buildOrderHistory(rows.map(r => r.stop), allDeliveryRoutes, routeId), [rows, allDeliveryRoutes, routeId]);
     const otherOf = (r: Row) => otherHistory.get((r.stop.serviceOrder || "").trim().toUpperCase());
+    // Rota antiga: em quais rotas de entrega MAIS NOVAS a OS já está (para não tratar de novo uma OS que já foi para a rota nova).
+    const newerDeliveries = useMemo(() => (route ? newerDeliveriesOf(route, allDeliveryRoutes) : new Map<string, NewerDelivery[]>()), [route, allDeliveryRoutes]);
+    const newerOf = (r: Row) => newerDeliveries.get((r.stop.serviceOrder || "").trim().toUpperCase()) || [];
 
     const options = useMemo(() => {
         const count = (f: (r: Row) => string) => {
@@ -1657,6 +1663,13 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 {r.finalizedAt && <span className="text-[10px] text-muted-foreground tabular-nums">{format(r.finalizedAt, "dd/MM HH:mm")}</span>}
                 {!r.finalizedAt && r.pendingAt && <span className={cn("text-[10px] text-muted-foreground tabular-nums", r.pendingNote && "cursor-help")} title={r.pendingNote || undefined}>{format(r.pendingAt, "dd/MM HH:mm")}</span>}
                 {r.childName && <span className="text-[10px] text-muted-foreground max-w-[150px] truncate" title={r.childName}>{r.childName}</span>}
+                {newerOf(r).length > 0 && (
+                    <Badge variant="outline" className="max-w-[160px] gap-1 border-teal-300 bg-teal-50 px-1.5 py-0 text-[10px] font-medium text-teal-800 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-300"
+                        title={"Esta OS já está em rota de entrega mais nova:\n" + newerOf(r).map(n => n.routeName + " (criada em " + format(n.routeDate, "dd/MM/yyyy") + ")").join("\n")}>
+                        <Truck className="h-3 w-3 shrink-0" />
+                        <span className="truncate">Já na {newerOf(r)[0].routeName}{newerOf(r).length > 1 ? " +" + (newerOf(r).length - 1) : ""}</span>
+                    </Badge>
+                )}
             </div>
         );
     };
@@ -1709,13 +1722,19 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                         {(r.stop.parts || []).map(p => {
                             const tracked = (p.trackingCode || "").trim() !== "";
                             const before = otherOf(r)?.diff.find(d => d.situation === "repetida" && d.code.trim().toUpperCase() === (p.code || "").trim().toUpperCase())?.before;
+                            const ret = r.returns[p.code];
+                            const retPill = ret === "usada" || ret === "cedida" ? { text: "usada", cls: "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300" }
+                                : ret === "nova" ? { text: "nova", cls: "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300" }
+                                : ret === "defeito" ? { text: "defeito", cls: "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300" }
+                                : null;
                             return (
                                 <span
                                     key={p.code}
                                     className={cn("inline-flex items-center gap-0.5", before ? "text-red-700 dark:text-red-400 font-semibold" : tracked ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")}
-                                    title={(p.description || "") + (tracked ? " — rastreio " + p.trackingCode : " — sem rastreio") + (before ? "\nJÁ ENVIADA em " + before.routeName + " (" + format(before.routeDate, "dd/MM/yyyy") + ") · rastreio " + before.trackingCode : "")}
+                                    title={(p.description || "") + (tracked ? " — rastreio " + p.trackingCode : " — sem rastreio") + (before ? "\nJÁ ENVIADA em " + before.routeName + " (" + format(before.routeDate, "dd/MM/yyyy") + ") · rastreio " + before.trackingCode : "") + (ret ? "\nRetorno: " + PART_RETURN_LABEL[ret] : "")}
                                 >
                                     {before ? <Repeat2 className="h-2.5 w-2.5" /> : tracked ? <CheckCircle2 className="h-2.5 w-2.5" /> : null}{p.code}{p.quantity > 1 ? " x" + p.quantity : ""}
+                                    {retPill && <span className={cn("rounded border px-1 font-sans text-[9px] font-semibold leading-3", retPill.cls)}>{retPill.text}</span>}
                                 </span>
                             );
                         })}
