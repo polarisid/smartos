@@ -26,12 +26,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Camera, Loader2, Search, ExternalLink, ImageIcon, Download, FolderDown, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
+import { Camera, Loader2, Search, ExternalLink, ImageIcon, Download, FolderDown, ChevronLeft, ChevronRight, Trash2, ClipboardCheck } from "lucide-react";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
 import { type TechnicalReport, type TechnicalReportPhotoCategory } from "@/lib/data";
 import { format } from "date-fns";
 import { isProductPhotoCategory, productPhotoLabel } from "@/lib/productLine";
 import { downloadPhotosFromPdfs } from "@/lib/pdfImages";
+import { downloadChecklistPdf } from "@/lib/technicalReportPdf";
 
 const CATEGORY_LABELS: Record<TechnicalReportPhotoCategory, string> = {
   produto_frontal: "Produto - Frontal",
@@ -145,6 +146,7 @@ export default function AdminReportsPage() {
   // Extrair as fotos de PDFs de relatório (ex.: o técnico mandou o PDF e o envio ao sistema não chegou a concluir).
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [checklistLoadingId, setChecklistLoadingId] = useState<string | null>(null);
   const handleExtractPdfs = async (list: FileList | null) => {
     const files = Array.from(list || []);
     if (files.length === 0) return;
@@ -264,6 +266,23 @@ export default function AdminReportsPage() {
     }
   };
 
+  // Baixa só o checklist preenchido deste relatório (PDF separado do relatório fotográfico).
+  const handleDownloadChecklist = async (report: TechnicalReport) => {
+    setChecklistLoadingId(report.id);
+    try {
+      // A lista traz só o resumo; o checklist usa série, observações e assinatura, então busca o relatório completo.
+      const full = (await technicalReportService.getById(report.id)) || report;
+      const result = await downloadChecklistPdf(full);
+      if (result === "sem-checklist") toast({ variant: "destructive", title: "Sem checklist", description: "Este relatório não usou checklist." });
+      else if (result === "modelo-removido") toast({ variant: "destructive", title: "Modelo de checklist não encontrado", description: "O modelo usado neste relatório foi removido." });
+    } catch (e: any) {
+      console.error("Falha ao gerar o checklist", e);
+      toast({ variant: "destructive", title: "Não foi possível gerar o checklist", description: e?.message });
+    } finally {
+      setChecklistLoadingId(null);
+    }
+  };
+
   const handleDownloadAll = async () => {
     if (!photosDialogReport) return;
     setIsDownloadingAll(true);
@@ -349,6 +368,15 @@ export default function AdminReportsPage() {
                       <TableCell className="text-right space-x-2">
                         <Button variant="outline" size="sm" onClick={() => handleOpenPhotos(report)}>
                           <ImageIcon className="mr-2 h-4 w-4" /> Ver Fotos
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={!report.checklistTemplateId || checklistLoadingId === report.id}
+                          onClick={() => handleDownloadChecklist(report)}
+                          title={report.checklistTemplateId ? "Baixa só o checklist preenchido (PDF separado)" : "Este relatório não usou checklist"}
+                        >
+                          {checklistLoadingId === report.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ClipboardCheck className="mr-2 h-4 w-4" />} Checklist
                         </Button>
                         <Button variant="outline" size="sm" asChild>
                           <Link href={`/report-view/${encodeURIComponent(report.serviceOrderNumber)}`} target="_blank">

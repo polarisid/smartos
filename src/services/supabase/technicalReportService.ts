@@ -79,7 +79,7 @@ export const technicalReportService = {
     const { page, pageSize, search, dateFrom } = params;
     let query = supabase
       .from('technical_reports')
-      .select('id, service_order_number, technician_name, product_model, ai_score, created_at, updated_at', { count: 'exact' })
+      .select('id, service_order_number, technician_name, product_model, ai_score, checklist_template_id, created_at, updated_at', { count: 'exact' })
       .order('created_at', { ascending: false });
 
     if (dateFrom) {

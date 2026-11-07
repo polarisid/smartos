@@ -529,3 +529,24 @@ export async function buildAndDownloadPdf(report: TechnicalReport, opts?: { loca
   URL.revokeObjectURL(link.href);
   return { failedPhotos };
 }
+
+/**
+ * Baixa só o checklist preenchido do relatório (sem o relatório fotográfico), em um PDF à parte.
+ * Devolve "sem-checklist" quando o relatório não usou checklist e "modelo-removido" quando o modelo escolhido não existe mais.
+ */
+export async function downloadChecklistPdf(report: TechnicalReport): Promise<"ok" | "sem-checklist" | "modelo-removido"> {
+  if (!report.checklistTemplateId) return "sem-checklist";
+  const template = await checklistService.getById(report.checklistTemplateId);
+  if (!template) return "modelo-removido";
+  const bytes = await buildFilledChecklistBytes(template, report);
+  if (!bytes) return "modelo-removido";
+  const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${report.serviceOrderNumber}-checklist.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+  return "ok";
+}
