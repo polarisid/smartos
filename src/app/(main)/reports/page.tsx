@@ -433,6 +433,11 @@ function ReportsPageInner() {
       toast({ variant: "destructive", title: "Informe o número da OS." });
       return;
     }
+    // Checklist obrigatório. Só deixa passar quando não há nenhum modelo cadastrado (senão ninguém conseguiria salvar).
+    if (!checklistTemplateId && checklistTemplates.length > 0) {
+      toast({ variant: "destructive", title: "Selecione o checklist.", description: "O checklist é obrigatório no relatório." });
+      return;
+    }
     if (reportType === "reparo" && !repairDescription.trim()) {
       toast({ variant: "destructive", title: "Descreva o que foi feito no reparo ou o que foi observado." });
       return;
@@ -733,15 +738,14 @@ function ReportsPageInner() {
 
           <div className="space-y-1.5 pt-2 border-t">
             <Label className="text-sm font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5 pt-2">
-              <ClipboardList className="h-3.5 w-3.5" /> Checklist (Opcional)
+              <ClipboardList className="h-3.5 w-3.5" /> Checklist <span className="text-destructive">*</span> <span className="font-normal normal-case tracking-normal">(obrigatório)</span>
             </Label>
             <p className="text-xs text-muted-foreground">
-              Selecione um modelo para anexar preenchido ao final do PDF do relatório (Serial, Modelo, Cliente e Observações já vêm prontos).
+              Selecione o modelo que será anexado preenchido ao final do PDF do relatório (Serial, Modelo, Cliente e Observações já vêm prontos).
             </p>
-            <Select value={checklistTemplateId} onValueChange={v => setChecklistTemplateId(v === "none" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
+            <Select value={checklistTemplateId} onValueChange={v => setChecklistTemplateId(v)}>
+              <SelectTrigger className={!checklistTemplateId && checklistTemplates.length > 0 ? "border-destructive/60" : undefined}><SelectValue placeholder="Selecione o checklist" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Nenhum</SelectItem>
                 {Object.entries(
                   checklistTemplates.reduce<Record<string, ChecklistTemplate[]>>((acc, t) => {
                     const key = t.category?.trim() || "Outros";
@@ -765,7 +769,7 @@ function ReportsPageInner() {
           <div className="space-y-1.5">
             <Label>Assinatura do Cliente (Opcional)</Label>
             <p className="text-xs text-muted-foreground">
-              Se um checklist foi selecionado acima, essa assinatura preenche o campo de assinatura dele no PDF.
+              Essa assinatura preenche o campo de assinatura do checklist no PDF.
             </p>
             <div className="border rounded-md overflow-hidden bg-white shadow-sm border-gray-300">
               <SignaturePad
