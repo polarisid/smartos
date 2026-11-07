@@ -233,10 +233,45 @@ async function sendReportItem(
     .filter((x): x is { p: Extract<PendingReportPhoto, { file: File }>; idx: number } => "file" in x.p)
     .map(({ p, idx }) => ({ id: String(idx), file: p.file, category: p.category }));
 
+  const { unidadeId, ...payloadFields } = item.payload;
+  let id = item.existingReportId;
+
+  // O relatório é criado ANTES de subir as fotos e cada foto é ligada a ele assim que chega ao armazenamento.
+  // Antes era o contrário (fotos primeiro, relatório no fim): se o envio fosse interrompido no meio, as fotos
+  // ficavam no armazenamento sem nenhum relatório apontando para elas.
+  const alreadyUploaded = item.photos
+    .filter((p): p is Extract<PendingReportPhoto, { url: string }> => !("file" in p))
+    .map((p) => ({ category: p.category, ...(p.label ? { label: p.label } : {}), url: p.url, path: p.path, order: p.order }));
+  if (!id) {
+    setSyncState({ step: "saving", progress: undefined });
+    id = await withTimeout(technicalReportService.create({ ...payloadFields, photos: alreadyUploaded } as any, unidadeId), 60000, "O servidor demorou demais para responder.");
+    // Já criado: se algo falhar depois, a próxima rodada atualiza este relatório em vez de duplicar.
+    await hooks.onCreated?.(id);
+    setSyncState({ step: "uploading", progress: undefined });
+  }
+  const reportId: string = id;
+
+  // Liga cada foto ao relatório assim que sobe (uma atualização por vez, sem uma atropelar a outra).
+  // Falha aqui não derruba o envio: o salvamento final abaixo grava a lista completa.
+  const linked: { category: TechnicalReportPhotoCategory; label?: string; url: string; path: string; order: number }[] = [...alreadyUploaded];
+  let linkChain: Promise<void> = Promise.resolve();
+  const linkPhoto = (photo: (typeof linked)[number]) => {
+    linked.push(photo);
+    linkChain = linkChain.then(() =>
+      withTimeout(technicalReportService.update(reportId, { photos: [...linked].sort((a, b) => a.order - b.order) } as any), 30000, "timeout")
+        .catch((e) => console.warn("Não foi possível ligar a foto ao relatório agora; o salvamento final tenta de novo", e))
+    );
+  };
+
   const results = await uploadPhotoBatch(jobs, item.payload.serviceOrderNumber, {
     onProgress: (progress) => setSyncState({ progress }),
-    onPhotoDone: (id, up) => hooks.onPhotoDone?.(Number(id), up),
+    onPhotoDone: (jobId, up) => {
+      hooks.onPhotoDone?.(Number(jobId), up);
+      const original = item.photos[Number(jobId)];
+      if (original) linkPhoto({ category: original.category, ...(original.label ? { label: original.label } : {}), url: up.url, path: up.path, order: original.order });
+    },
   });
+  await linkChain;
 
   const uploadedPhotos = item.photos.map((p, idx) => {
     if ("file" in p) {
@@ -247,17 +282,10 @@ async function sendReportItem(
   });
 
   setSyncState({ step: "saving", progress: undefined });
-  const { unidadeId, ...payloadFields } = item.payload;
   const fullPayload = { ...payloadFields, photos: uploadedPhotos };
 
-  let id = item.existingReportId;
-  if (id) {
-    await withTimeout(technicalReportService.update(id, fullPayload), 60000, "O servidor demorou demais para responder.");
-  } else {
-    id = await withTimeout(technicalReportService.create(fullPayload as any, unidadeId), 60000, "O servidor demorou demais para responder.");
-    // Já criado: se algo falhar depois, a próxima rodada atualiza este relatório em vez de duplicar.
-    await hooks.onCreated?.(id);
-  }
+  await withTimeout(technicalReportService.update(reportId, fullPayload), 60000, "O servidor demorou demais para responder.");
+  id = reportId;
 
   // Só dá o relatório como enviado depois de LER de volta o que o servidor guardou: se não voltou (permissão, unidade)
   // ou voltou sem as fotos, continua na fila com o erro em vez de sumir do aviso sem estar no banco.
