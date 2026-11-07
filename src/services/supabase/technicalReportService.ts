@@ -147,6 +147,28 @@ export const technicalReportService = {
     return result;
   },
 
+  // Nº da OS -> id do relatório MAIS NOVO dela que usou checklist. Traz só id e nº (sem fotos nem assinaturas, que são pesadas),
+  // em lotes por causa do tamanho da URL. Serve para habilitar o botão "Baixar checklist" sem carregar o relatório inteiro.
+  async getChecklistReportIdsByServiceOrderNumbers(serviceOrderNumbers: string[], unidadeId?: string | null): Promise<Map<string, string>> {
+    const result = new Map<string, string>();
+    const unique = Array.from(new Set(serviceOrderNumbers.filter(Boolean)));
+    const BATCH = 100;
+    for (let i = 0; i < unique.length; i += BATCH) {
+      let query = supabase
+        .from('technical_reports')
+        .select('id, service_order_number, created_at')
+        .in('service_order_number', unique.slice(i, i + BATCH))
+        .not('checklist_template_id', 'is', null)
+        .order('created_at', { ascending: false });
+      if (unidadeId) query = query.or(`unidade_id.eq.${unidadeId},unidade_id.is.null`);
+      const { data, error } = await query;
+      if (error) throw error;
+      // vem do mais novo para o mais antigo: o primeiro de cada OS é o que vale
+      for (const row of data || []) if (!result.has(row.service_order_number)) result.set(row.service_order_number, row.id);
+    }
+    return result;
+  },
+
   // Usado pra habilitar/desabilitar o botão "Ver Relatório" na lista de OSs
   // sem precisar carregar o relatório inteiro (fotos, etc).
   async getServiceOrderNumbersWithReports(serviceOrderNumbers: string[]): Promise<Set<string>> {

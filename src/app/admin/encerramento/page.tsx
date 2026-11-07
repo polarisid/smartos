@@ -26,6 +26,7 @@ import { orderClosingService, type OrderClosing } from "@/services/supabase/orde
 import { routeService } from "@/services/supabase/routeService";
 import { serviceOrderService } from "@/services/supabase/serviceOrderService";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
+import { downloadChecklistPdf } from "@/lib/technicalReportPdf";
 
 const SERVICE_TYPE_LABELS: Record<string, string> = {
   reparo_samsung: "Reparo Samsung",
@@ -55,6 +56,8 @@ type Entry = {
   missingTracking: number;
   /** undefined = ainda carregando; [] = sem relatório fotográfico. */
   photos: TechnicalReportPhoto[] | undefined;
+  /** Id do relatório mais novo da OS que usou checklist; undefined = sem checklist (ou ainda carregando). */
+  checklistReportId: string | undefined;
   /** Tipo do serviço Samsung (LP, OW, VOID...); vazio quando não há. */
   warranty: string;
   /** Presente quando a OS já foi marcada como encerrada no sistema. */
@@ -120,6 +123,13 @@ export default function OrderClosingPage() {
     enabled: enabled && orders.length > 0,
     staleTime: 2 * 60 * 1000,
   });
+  // Relatório (com checklist) mais novo de cada OS: habilita o botão "Baixar checklist".
+  const { data: checklistBySO } = useQuery({
+    queryKey: ["closing-checklists", ...keyBase, from, to, orders.length],
+    queryFn: () => technicalReportService.getChecklistReportIdsByServiceOrderNumbers(orders.map(o => o.serviceOrderNumber), activeUnidadeId),
+    enabled: enabled && orders.length > 0,
+    staleTime: 2 * 60 * 1000,
+  });
   // OS já encerradas no sistema. Se a tabela ainda não existe no banco (migração 30), a lista segue funcionando:
   // todas aparecem como pendentes e o botão de marcar avisa o motivo.
   const closingKey = ["closing-status", ...keyBase, from, to, orders.length];
@@ -153,6 +163,7 @@ export default function OrderClosingPage() {
       }),
       missingTracking: parts.filter(p => p.status === "usada" && !p.trackingCode).length,
       photos: photosBySO ? (photosBySO.get(order.serviceOrderNumber) ?? []) : undefined,
+      checklistReportId: checklistBySO?.get(order.serviceOrderNumber),
       warranty: warrantyTypeFor(order, stopsBySO),
       closing: closings?.get(order.id),
       duplicates: (duplicatesById.get(order.id) || [])
@@ -349,7 +360,7 @@ export default function OrderClosingPage() {
 }
 
 function OrderCard({ entry, onCopy, onMarkClosed, onUnmark }: { entry: Entry; onCopy: (text: string, what: string) => void; onMarkClosed: () => void; onUnmark: () => void }) {
-  const { order, technicianName, parts, text, missingTracking, photos, closing, duplicates, warranty } = entry;
+  const { order, technicianName, parts, text, missingTracking, photos, closing, duplicates, warranty, checklistReportId } = entry;
   const used = parts.filter(p => p.status === "usada");
   const notUsed = parts.filter(p => p.status === "nao_usada");
 
@@ -484,14 +495,33 @@ function OrderCard({ entry, onCopy, onMarkClosed, onUnmark }: { entry: Entry; on
           )}
         </div>
 
-        <PhotosSection serviceOrderNumber={order.serviceOrderNumber} photos={photos} />
+        <PhotosSection serviceOrderNumber={order.serviceOrderNumber} photos={photos} checklistReportId={checklistReportId} />
       </CardContent>
     </Card>
   );
 }
 
-function PhotosSection({ serviceOrderNumber, photos }: { serviceOrderNumber: string; photos: TechnicalReportPhoto[] | undefined }) {
+function PhotosSection({ serviceOrderNumber, photos, checklistReportId }: { serviceOrderNumber: string; photos: TechnicalReportPhoto[] | undefined; checklistReportId: string | undefined }) {
   const { toast } = useToast();
+  const [checklistBusy, setChecklistBusy] = useState(false);
+
+  // Baixa só o checklist preenchido (PDF separado). Busca o relatório completo: o checklist usa série, observações e assinatura.
+  const downloadChecklist = async () => {
+    if (!checklistReportId) return;
+    setChecklistBusy(true);
+    try {
+      const report = await technicalReportService.getById(checklistReportId);
+      if (!report) { toast({ variant: "destructive", title: "Relatório não encontrado" }); return; }
+      const result = await downloadChecklistPdf(report);
+      if (result === "modelo-removido") toast({ variant: "destructive", title: "Modelo de checklist não encontrado", description: "O modelo usado neste relatório foi removido." });
+      else if (result === "ok") toast({ title: "Checklist baixado!", description: `OS ${serviceOrderNumber}.` });
+    } catch (e: any) {
+      console.error("Erro ao gerar o checklist:", e);
+      toast({ variant: "destructive", title: "Não foi possível gerar o checklist", description: e?.message });
+    } finally {
+      setChecklistBusy(false);
+    }
+  };
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const count = photos?.length ?? 0;
 
@@ -518,13 +548,18 @@ function PhotosSection({ serviceOrderNumber, photos }: { serviceOrderNumber: str
         {photos === undefined && <span className="text-xs font-normal text-muted-foreground">carregando...</span>}
         {photos !== undefined && count === 0 && <span className="text-xs font-normal text-muted-foreground">sem relatório fotográfico para esta OS</span>}
       </p>
-      <Button variant="outline" size="sm" onClick={download} disabled={count === 0 || progress !== null}>
-        {progress ? (
-          <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Baixando {progress.done}/{progress.total}</>
-        ) : (
-          <><Download className="mr-2 h-4 w-4" /> Baixar fotos (ZIP)</>
-        )}
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="sm" onClick={downloadChecklist} disabled={!checklistReportId || checklistBusy} title={checklistReportId ? "Baixa só o checklist preenchido (PDF separado)" : "Esta OS não tem relatório com checklist"}>
+          {checklistBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ClipboardCheck className="mr-2 h-4 w-4" />} Baixar checklist
+        </Button>
+        <Button variant="outline" size="sm" onClick={download} disabled={count === 0 || progress !== null}>
+          {progress ? (
+            <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Baixando {progress.done}/{progress.total}</>
+          ) : (
+            <><Download className="mr-2 h-4 w-4" /> Baixar fotos (ZIP)</>
+          )}
+        </Button>
+      </div>
     </div>
   );
 }
