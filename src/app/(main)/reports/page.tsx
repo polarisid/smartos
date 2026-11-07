@@ -623,7 +623,7 @@ function ReportsPageInner() {
             <div className="space-y-1.5">
               <Label>Nº da OS</Label>
               <div className="flex gap-2">
-                <Input value={serviceOrderNumber} onChange={e => setServiceOrderNumber(e.target.value)} placeholder="Ex: OS-001" />
+                <Input value={serviceOrderNumber} onChange={e => setServiceOrderNumber(e.target.value.replace(/s/g, ""))} onKeyDown={e => { if (e.key === " ") e.preventDefault(); }} placeholder="Ex: OS-001" />
                 <Button type="button" variant="outline" size="icon" onClick={handleLoadExisting} disabled={isLoadingExisting} title="Buscar relatório já salvo para essa OS">
                   {isLoadingExisting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 </Button>

@@ -1430,7 +1430,7 @@ const { toast } = useToast();
                                                     <FormField control={form.control} name="serviceOrderNumber" render={({ field }) => (
                                                         <FormItem>
                                                             <FormLabel>Número da OS</FormLabel>
-                                                            <FormControl><Input placeholder="Digite o número da OS" inputMode="numeric" onKeyDown={handleEnterAdvance} {...field} /></FormControl>
+                                                            <FormControl><Input placeholder="Digite o número da OS" inputMode="numeric" onKeyDown={(e) => { if (e.key === " ") { e.preventDefault(); return; } handleEnterAdvance(e); }} {...field} onChange={(e) => field.onChange(e.target.value.replace(/s/g, ""))} /></FormControl>
                                                             <FormMessage />
                                                         </FormItem>
                                                     )}/>
