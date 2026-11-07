@@ -1490,7 +1490,8 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         return [...draftRoutes, ...activeRoutesList].filter(d => {
             if (seen.has(d.id)) return false;
             seen.add(d.id);
-            return d.kind !== "delivery" && d.id !== routeId && (!d.parentRouteId || d.parentRouteId === routeId);
+            // Também aparecem as filhas de outras rotas de entrega (ficam marcadas); só a própria rota de entrega e as de entrega ficam de fora.
+            return d.kind !== "delivery" && d.id !== routeId;
         });
     }, [draftRoutes, activeRoutesList, routeId]);
     const draftOptionsLoading = draftsLoading || activeLoading;
@@ -1534,7 +1535,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             const dups = picked.length - added;
             toast({
                 title: added === 1 ? "1 OS adicionada à rota " + target.name : added + " OS adicionadas à rota " + target.name,
-                description: dups > 0 ? dups + " já estavam nela e foram ignoradas." : "Abra em Rotas para ajustar a ordem, o técnico e publicar.",
+                description: dups > 0 ? dups + " já estavam nela e foram ignoradas." : target.parentRouteId && target.parentRouteId !== routeId ? "Essa rota é filha de outra rota de entrega, então aqui as OS não aparecem como Programadas." : "Abra em Rotas para ajustar a ordem, o técnico e publicar.",
             });
         } catch (e: any) {
             console.error(e);
@@ -2125,7 +2126,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                             <SelectContent>
                                 {draftOptions.map(d => (
                                     <SelectItem key={d.id} value={d.id}>
-                                        {d.name} · {d.isDraft ? "rascunho" : "publicada"} · {draftDayLabel(d)} · {(d.stops || []).filter(st => !st.isReallocated).length} OS{d.parentRouteId === routeId ? " · filha desta rota" : ""}
+                                        {d.name} · {d.isDraft ? "rascunho" : "publicada"} · {draftDayLabel(d)} · {(d.stops || []).filter(st => !st.isReallocated).length} OS{d.parentRouteId === routeId ? " · filha desta rota" : d.parentRouteId ? " · filha de outra rota de entrega" : ""}
                                     </SelectItem>
                                 ))}
                             </SelectContent>

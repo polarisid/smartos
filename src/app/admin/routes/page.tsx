@@ -2888,7 +2888,8 @@ export default function RoutesPage() {
     });
     const deliveryByOrder = useMemo(() => {
         const map = new Map<string, Array<{ route: Route; stop: RouteStop }>>();
-        deliveryRoutesForSearch.forEach(dr => (dr.stops || []).filter(st => !st.isReallocated).forEach(st => {
+        // Inclui as OS realocadas (movidas para uma rota filha): a rota de entrega segue ativa e a OS continua constando nela.
+        deliveryRoutesForSearch.forEach(dr => (dr.stops || []).forEach(st => {
             const list = map.get(st.serviceOrder) || [];
             list.push({ route: dr, stop: st });
             map.set(st.serviceOrder, list);
@@ -3466,6 +3467,7 @@ ${rowsXml}  </Table>
                                             <p className="truncate text-xs text-muted-foreground">
                                                 {route.name} · {stop.city}
                                             </p>
+                                            {stop.isReallocated && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">Realocada{stop.reallocatedToRouteName ? " para " + stop.reallocatedToRouteName : " para outra rota"}</p>}
                                             <p className="text-xs font-medium text-sky-800 dark:text-sky-300">{plannedLabelOf(route, stop)}</p>
                                             <div className="mt-0.5"><RouteCodeTag route={route} /></div>
                                         </div>
