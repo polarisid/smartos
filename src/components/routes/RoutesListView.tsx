@@ -55,9 +55,9 @@ export function RoutesListView({ routes, progressOf, delays, renderActions, rend
 }) {
     const [filters, setFilters] = useState<RouteListFilters>(EMPTY_ROUTE_FILTERS);
     const [prefs, setPrefs] = useState(loadPrefs);
-    const [collapsed, setCollapsed] = useState<Set<RouteGroup>>(new Set<RouteGroup>(["finalizada", "cancelada"]));
-    // Dias recolhidos, chave "situação|dia" (cada dia pode ser recolhido dentro da sua seção).
-    const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
+    const [collapsed, setCollapsed] = useState<Set<RouteGroup>>(new Set<RouteGroup>(["rascunho", "finalizada", "cancelada"]));
+    // Dias abertos, chave "situação|dia". A lista abre com todos os dias recolhidos (só as faixas); o clique abre o dia.
+    const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
     const { grouped, sort } = prefs;
 
     const savePrefs = (next: { grouped: boolean; sort: RouteSort }) => {
@@ -86,7 +86,7 @@ export function RoutesListView({ routes, progressOf, delays, renderActions, rend
 
     const toggleGroupFilter = (g: RouteGroup) => setFilters(f => ({ ...f, groups: f.groups.includes(g) ? f.groups.filter(x => x !== g) : [...f.groups, g] }));
     const dayId = (g: RouteGroup, dayKey: string) => g + "|" + dayKey;
-    const toggleDay = (g: RouteGroup, dayKey: string) => setCollapsedDays(prev => { const n = new Set(prev); const id = dayId(g, dayKey); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+    const toggleDay = (g: RouteGroup, dayKey: string) => setExpandedDays(prev => { const n = new Set(prev); const id = dayId(g, dayKey); if (n.has(id)) n.delete(id); else n.add(id); return n; });
     const toggleCollapsed = (g: RouteGroup) => setCollapsed(prev => { const n = new Set(prev); if (n.has(g)) n.delete(g); else n.add(g); return n; });
     const sortBy = (key: RouteSortKey) => savePrefs({ grouped, sort: sort.key === key ? { key, dir: sort.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "progresso" || key === "paradas" ? "desc" : "asc" } });
 
@@ -100,7 +100,7 @@ export function RoutesListView({ routes, progressOf, delays, renderActions, rend
 
     // Cabeçalho do dia: destaque do dia (hoje em azul, dia que já passou e segue aberto em vermelho), total de rotas e de paradas.
     const DayHeader = ({ dayKey, dayRoutes, group, mobile }: { dayKey: string; dayRoutes: Route[]; group: RouteGroup; mobile?: boolean }) => {
-        const dayCollapsed = collapsedDays.has(dayId(group, dayKey));
+        const dayCollapsed = !expandedDays.has(dayId(group, dayKey));
         const open = group === "rascunho" || group === "ativa";
         const past = !!dayKey && dayKey < todayKey;
         const isToday = dayKey === todayKey;
@@ -279,7 +279,7 @@ export function RoutesListView({ routes, progressOf, delays, renderActions, rend
                                                 </TableCell>
                                             </TableRow>,
                                             ...day.routes.map(route => (
-                                                <TableRow key={route.id} className={cn((isCollapsed || collapsedDays.has(dayId(block.group, day.dayKey))) && "hidden", (block.group === "finalizada" || block.group === "cancelada") && "text-muted-foreground")}>
+                                                <TableRow key={route.id} className={cn((isCollapsed || !expandedDays.has(dayId(block.group, day.dayKey))) && "hidden", (block.group === "finalizada" || block.group === "cancelada") && "text-muted-foreground")}>
                                                     <TableCell className="pl-8">{nameCell(route)}</TableCell>
                                                     <TableCell className="tabular-nums text-muted-foreground">{dayShort(route)}</TableCell>
                                                     <TableCell><span className="inline-flex items-center gap-1.5"><Users className="h-3.5 w-3.5 text-muted-foreground" />{route.technicianName || <span className="text-muted-foreground">—</span>}</span></TableCell>
@@ -323,7 +323,7 @@ export function RoutesListView({ routes, progressOf, delays, renderActions, rend
                                         {block.days.flatMap(day => [
                                             ...(block.group ? [<DayHeader key={"d-" + day.dayKey} dayKey={day.dayKey} dayRoutes={day.routes} group={block.group} mobile />] : []),
                                             ...day.routes.map(route => (
-                                            <div key={route.id} className={cn("space-y-2 rounded-lg border p-3", !route.isActive && "bg-muted/40", block.group && collapsedDays.has(dayId(block.group, day.dayKey)) && "hidden")}>
+                                            <div key={route.id} className={cn("space-y-2 rounded-lg border p-3", !route.isActive && "bg-muted/40", block.group && !expandedDays.has(dayId(block.group, day.dayKey)) && "hidden")}>
                                                 <div className="flex items-start justify-between gap-2">
                                                     <div className="min-w-0">{nameCell(route)}</div>
                                                     <div className="flex shrink-0 flex-col items-end gap-1">
