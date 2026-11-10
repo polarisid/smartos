@@ -9,7 +9,7 @@ import { PermissionErrorDisplay } from "@/components/PermissionErrorDisplay";
 import { useAuth } from "@/context/AuthContext";
 import { Loader2, CloudUpload, AlertCircle, FileEdit } from "lucide-react";
 import { Logo } from "@/components/Logo";
-import { subscribe, subscribeSync, flushQueue, type PendingReport, type SyncState } from "@/lib/offlineReportQueue";
+import { subscribe, subscribeSync, flushQueue, type PendingReportSummary, type SyncState } from "@/lib/offlineReportQueue";
 import { useToast } from "@/hooks/use-toast";
 import { NotificationsProvider } from "@/context/NotificationsContext";
 import { Progress } from "@/components/ui/progress";
@@ -54,7 +54,7 @@ function AppLoadingScreen({ message }: { message: string }) {
 // tentativa, ou aguardando conexão - e responde ao "Tentar agora".
 function OfflineQueueBanner() {
   const { toast } = useToast();
-  const [pending, setPending] = useState<PendingReport[]>([]);
+  const [pending, setPending] = useState<PendingReportSummary[]>([]);
   const [sync, setSync] = useState<SyncState>({ isFlushing: false });
   const [online, setOnline] = useState(true);
   const lastToastAt = useRef(0);

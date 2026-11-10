@@ -18,7 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useTechnicians } from "@/hooks/queries";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
 import { buildAndDownloadPdf } from "@/lib/technicalReportPdf";
-import { flushQueue, subscribe, subscribeSync, type PendingReport, type SyncState } from "@/lib/offlineReportQueue";
+import { flushQueue, getPendingReport, subscribe, subscribeSync, type PendingReportSummary, type SyncState } from "@/lib/offlineReportQueue";
 import type { TechnicalReport } from "@/lib/data";
 
 const TYPE_LABEL: Record<string, string> = { reparo: "Reparo", visita: "Visita" };
@@ -33,7 +33,7 @@ export default function MeusRelatoriosPage() {
   const technicianId = isTechnician ? appUser?.uid || "" : pickedTechId;
 
   const [search, setSearch] = useState("");
-  const [pending, setPending] = useState<PendingReport[]>([]);
+  const [pending, setPending] = useState<PendingReportSummary[]>([]);
   const [sync, setSync] = useState<SyncState>({ isFlushing: false });
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
@@ -81,10 +81,16 @@ export default function MeusRelatoriosPage() {
   };
 
   // Relatório ainda no aparelho: o PDF sai das fotos locais, sem depender de rede.
-  const downloadPending = async (item: PendingReport) => {
-    setDownloadingId(item.localId);
+  const downloadPending = async (summary: PendingReportSummary) => {
+    setDownloadingId(summary.localId);
     const blobUrls: string[] = [];
     try {
+      // As fotos só são lidas do aparelho agora, para este relatório.
+      const item = await getPendingReport(summary.localId);
+      if (!item) {
+        toast({ title: "Este relatório já foi enviado", description: "Baixe o PDF na lista de enviados." });
+        return;
+      }
       const localPhotoUrls: Record<string, string> = {};
       const photos = item.photos.map((p, i) => {
         const path = `local-${i}`;
@@ -157,7 +163,7 @@ export default function MeusRelatoriosPage() {
                   <div>
                     <p className="font-mono font-semibold">{item.payload.serviceOrderNumber}</p>
                     <p className="text-xs text-muted-foreground">
-                      {format(new Date(item.createdAt), "dd/MM/yyyy 'às' HH:mm")} · {item.photos.length} foto{item.photos.length !== 1 ? "s" : ""}
+                      {format(new Date(item.createdAt), "dd/MM/yyyy 'às' HH:mm")} · {item.photoCount} foto{item.photoCount !== 1 ? "s" : ""}
                     </p>
                   </div>
                   {sync.isFlushing

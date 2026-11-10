@@ -43,18 +43,75 @@ function getDb(): Promise<IDBPDatabase> {
   return dbPromise;
 }
 
-type Listener = (pending: PendingReport[]) => void;
+/** Resumo de um relatório pendente: tudo menos os bytes das fotos (só a quantidade). É o que as telas precisam. */
+export type PendingReportSummary = Omit<PendingReport, "photos"> & { photoCount: number };
+
+function toSummary(r: { photos: unknown[] } & Omit<PendingReport, "photos">, memoryOnly?: boolean): PendingReportSummary {
+  const { photos, ...rest } = r as any;
+  return { ...rest, photoCount: photos.length, ...(memoryOnly ? { memoryOnly: true } : {}) };
+}
+
+// Os avisos do app (topo, "Meus Relatórios") só precisam de dados leves. Ler a fila inteira com os bytes das fotos
+// a cada aviso (a cada foto enviada, a cada minuto, em cada tela) pesava muito num celular com vários relatórios
+// guardados (cada um tem de 10 a 15 MB de fotos). Por isso o resumo fica em memória e só muda quando a fila muda.
+const summaryCache = new Map<string, PendingReportSummary>();
+let summaryLoaded = false;
+
+async function refreshSummaries(): Promise<void> {
+  try {
+    const db = await getDb();
+    if (summaryLoaded) {
+      // Barato: só as chaves. Se for a mesma lista (caso normal), mantém o resumo que já temos.
+      const keys = (await db.getAllKeys(STORE_NAME)) as string[];
+      if (keys.length === summaryCache.size && keys.every((k) => summaryCache.has(k))) return;
+    }
+    summaryCache.clear();
+    // Um registro por vez (cursor): nunca há mais de um relatório com fotos carregado ao mesmo tempo.
+    let cursor = await db.transaction(STORE_NAME).store.openCursor();
+    while (cursor) {
+      summaryCache.set(cursor.value.localId, toSummary(cursor.value as StoredReport));
+      cursor = await cursor.continue();
+    }
+  } catch (e) {
+    console.warn("Banco local indisponível ao listar relatórios pendentes", e);
+  }
+  summaryLoaded = true;
+}
+
+/** Relatórios pendentes, do mais antigo ao mais novo, sem os bytes das fotos. */
+export async function getPendingSummaries(): Promise<PendingReportSummary[]> {
+  await refreshSummaries();
+  const fromMemory = Array.from(memoryRecords.values()).map((r) => toSummary(r as any, true));
+  return [...summaryCache.values(), ...fromMemory].sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/** Um relatório pendente completo (com as fotos), ou null se já saiu da fila. */
+export async function getPendingReport(localId: string): Promise<PendingReport | null> {
+  const inMemory = memoryRecords.get(localId);
+  if (inMemory) return { ...inMemory, photos: inMemory.photos as PendingReportPhoto[], memoryOnly: true };
+  try {
+    const db = await getDb();
+    const stored = (await db.get(STORE_NAME, localId)) as StoredReport | undefined;
+    return stored ? { ...stored, photos: deserializePhotos(stored.photos) } : null;
+  } catch (e) {
+    console.warn("Banco local indisponível ao ler relatório pendente", e);
+    return null;
+  }
+}
+
+type Listener = (pending: PendingReportSummary[]) => void;
 const listeners = new Set<Listener>();
 
 async function notifyListeners() {
-  const pending = await getPendingReports();
+  if (listeners.size === 0) return;
+  const pending = await getPendingSummaries();
   listeners.forEach((cb) => cb(pending));
 }
 
 export function subscribe(callback: Listener): () => void {
   listeners.add(callback);
   // Dispara uma vez de cara pra quem acabou de assinar já saber o estado atual.
-  getPendingReports().then(callback);
+  getPendingSummaries().then(callback);
   return () => listeners.delete(callback);
 }
 
@@ -116,6 +173,7 @@ export async function queueReport(payload: PendingReportPayload, photos: Pending
     const storedPhotos = await serializePhotos(photos);
     const db = await getDb();
     await db.add(STORE_NAME, { ...base, photos: storedPhotos } satisfies StoredReport);
+    summaryCache.set(base.localId, toSummary({ ...base, photos: storedPhotos }));
   } catch (e) {
     console.error("Não foi possível gravar no banco local; guardando na memória da aba", e);
     memoryRecords.set(base.localId, { ...base, photos });
@@ -140,6 +198,7 @@ export async function getPendingReports(): Promise<PendingReport[]> {
 
 async function removePending(localId: string): Promise<void> {
   memoryRecords.delete(localId);
+  summaryCache.delete(localId);
   try {
     const db = await getDb();
     await db.delete(STORE_NAME, localId);
@@ -147,6 +206,8 @@ async function removePending(localId: string): Promise<void> {
 }
 
 async function markAttemptFailed(localId: string, error: string): Promise<void> {
+  const summary = summaryCache.get(localId);
+  if (summary) { summary.attempts += 1; summary.lastError = error; }
   await updatePending(localId, (r) => {
     r.attempts += 1;
     r.lastError = error;
@@ -343,7 +404,7 @@ export async function flushQueue(): Promise<FlushResult> {
     let rounds = 0;
     let firstRound = true;
     while (true) {
-    const pending = await getPendingReports();
+    const pending = await getPendingSummaries();
     if (pending.length === 0) {
       if (firstRound) return { status: "empty" };
       break;
@@ -352,7 +413,9 @@ export async function flushQueue(): Promise<FlushResult> {
     setSyncState({ isFlushing: true, position: { index: 1, total: pending.length }, step: "uploading", progress: undefined });
 
     for (let i = 0; i < pending.length; i++) {
-      const item = pending[i];
+      // Carrega um relatório por vez (com as fotos); o anterior já foi liberado.
+      const item = await getPendingReport(pending[i].localId);
+      if (!item) continue; // já foi enviado por outra aba
       setSyncState({ position: { index: i + 1, total: pending.length }, step: "uploading", progress: undefined });
       try {
         // Cada foto concluída é gravada na hora no aparelho - se cair de novo, a próxima
@@ -367,6 +430,8 @@ export async function flushQueue(): Promise<FlushResult> {
             });
           },
           onCreated: async (createdId) => {
+            const summary = summaryCache.get(item.localId);
+            if (summary) summary.existingReportId = createdId;
             await updatePending(item.localId, (r) => { r.existingReportId = createdId; });
           },
         });
@@ -381,8 +446,9 @@ export async function flushQueue(): Promise<FlushResult> {
         if (isNetworkLikeError(e)) error = await explainNetworkFailure(error!);
         await markAttemptFailed(item.localId, error!);
         await notifyListeners();
-        // Provável queda de conexão de novo - para por aqui, tenta o resto depois.
-        break;
+        // Queda de conexão: para por aqui e tenta o resto depois. Qualquer outro erro é só deste relatório
+        // (foto ilegível, permissão...): segue para o próximo em vez de travar a fila inteira atrás dele.
+        if (isNetworkLikeError(e)) break;
       }
     }
     if (failed > 0 || ++rounds >= 5) break;
