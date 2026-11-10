@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Mail, Repeat2, FilePlus2, Copy, FileText, Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, RotateCcw, Columns3, ExternalLink, Loader2, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, Users, X } from "lucide-react";
+import { Mail, Repeat2, FilePlus2, Copy, FileText, Download, Pencil, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarPlus, CheckCircle2, ChevronDown, RotateCcw, Columns3, ExternalLink, Loader2, MessageSquare, Package, PlusCircle, RefreshCw, Route as RouteIcon, Search, Star, Trash2, Truck, Users, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import Link from "next/link";
@@ -92,6 +92,42 @@ function tatNow(r: Row): { days: number; until: string; label: string } | null {
     else { end = new Date(); until = "hoje"; label = "até hoje (sem dia programado)"; }
     end.setHours(0, 0, 0, 0);
     return { days: Math.max(0, Math.round((end.getTime() - startDay.getTime()) / MS_DAY)), until, label };
+}
+
+/** Observação da OS: ícone cinza quando vazia, verde quando há texto. Abre uma caixa para ler, editar ou apagar. */
+function OrderNote({ note, onSave }: { note?: string; onSave: (text: string) => Promise<void> }) {
+    const [open, setOpen] = useState(false);
+    const [text, setText] = useState(note || "");
+    const [saving, setSaving] = useState(false);
+    const has = !!(note && note.trim());
+    const save = async (value: string) => {
+        setSaving(true);
+        try { await onSave(value.trim()); setOpen(false); } finally { setSaving(false); }
+    };
+    return (
+        <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setText(note || ""); }}>
+            <PopoverTrigger asChild>
+                <button
+                    type="button"
+                    className={cn("rounded p-0.5", has ? "text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40" : "text-muted-foreground/40 hover:bg-muted hover:text-foreground")}
+                    title={has ? "Observação: " + note : "Adicionar observação"}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <MessageSquare className="h-3 w-3" fill={has ? "currentColor" : "none"} />
+                </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-[min(20rem,calc(100vw-2rem))] space-y-2 p-3" onClick={(e) => e.stopPropagation()}>
+                <p className="text-xs font-semibold">Observação da OS</p>
+                <Textarea autoFocus rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Escreva uma observação sobre esta OS..." className="text-sm" />
+                <div className="flex justify-between gap-2">
+                    <Button type="button" size="sm" variant="ghost" className="text-destructive" disabled={saving || !has} onClick={() => save("")}>Apagar</Button>
+                    <Button type="button" size="sm" disabled={saving || text.trim() === (note || "").trim()} onClick={() => save(text)}>
+                        {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />} Salvar
+                    </Button>
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
 }
 
 const COLUMNS: Array<{ key: SortKey; label: string; value: (r: Row) => string | number; className?: string }> = [
@@ -689,6 +725,18 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             toast({ title: reopen ? "OS " + so + " reaberta" : "Reabertura da OS " + so + " desfeita", description: reopen ? "O atendimento anterior não conta mais; vale o próximo lançamento." : "Voltou a valer o atendimento desde a data da solicitação." });
         } catch (e: any) {
             toast({ variant: "destructive", title: "Não foi possível atualizar a OS", description: e?.message });
+        }
+    };
+    // Observação livre da OS (ícone verde na lista). Grava na rota de entrega; vazio apaga.
+    const handleSaveNote = async (so: string, text: string) => {
+        try {
+            await routeService.patchStopFields(routeId, [{ serviceOrder: so, fields: { deliveryNote: text } }]);
+            await queryClient.invalidateQueries({ queryKey: ["routes"] });
+            await refresh();
+            toast({ title: text ? "Observação salva" : "Observação apagada", description: "OS " + so });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível salvar a observação", description: e?.message });
+            throw e;
         }
     };
     const handleReallocatePart = async (fromOrder: string, code: string, toOrder: string) => {
@@ -1714,6 +1762,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                                 <span className="truncate">{teamLabel(r.team)}</span>
                             </span>
                         )}
+                        <OrderNote note={r.stop.deliveryNote} onSave={(text) => handleSaveNote(r.stop.serviceOrder, text)} />
                         <button type="button" className="rounded p-0.5 text-muted-foreground/50 hover:bg-destructive/10 hover:text-destructive" title="Remover esta OS da rota de entrega" onClick={(e) => { e.stopPropagation(); setRemoveList([r.stop.serviceOrder]); }}>
                             <Trash2 className="h-3 w-3" />
                         </button>

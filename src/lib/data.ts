@@ -317,6 +317,8 @@ export type RouteStop = {
     // Rota de entrega: "Reabrir OS" grava aqui (data ISO) o momento da reabertura. Atendimentos lançados ANTES dele
     // deixam de contar como Finalizada/Pendência dessa OS na rota de entrega.
     reopenedAt?: string;
+    /** Observação livre da equipe sobre a OS na rota de entrega (aparece como ícone verde na lista). */
+    deliveryNote?: string;
     zipMismatch?: boolean;
     zipMismatchDetails?: string;
     suggestedCityState?: string;
