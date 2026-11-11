@@ -11,6 +11,7 @@ import type { PDFFont } from "pdf-lib";
 import { checklistService } from "@/services/supabase/checklistService";
 import { type TechnicalReport, type TechnicalReportPhoto, type TechnicalReportPhotoCategory, type ChecklistTemplate } from "@/lib/data";
 import { productPhotosOf, productPhotoLabel } from "@/lib/productLine";
+import { isPdfAttachment, RMA_CATEGORIES, RMA_CATEGORY_LABELS } from "@/lib/reportAttachments";
 import { format } from "date-fns";
 
 export const PRODUCT_LABELS: Record<string, string> = {
@@ -391,19 +392,34 @@ async function buildFilledChecklistBytes(template: ChecklistTemplate, report: Te
   return pdfDoc.save();
 }
 
-async function mergePdfBytes(reportBytes: ArrayBuffer, checklistBytes: Uint8Array): Promise<Uint8Array> {
+// Junta o PDF do relatório com outros PDFs, na ordem. Um PDF que não abre (corrompido, protegido) fica de fora e o resto segue.
+async function mergePdfBytes(baseBytes: ArrayBuffer | Uint8Array, extras: Array<ArrayBuffer | Uint8Array>): Promise<Uint8Array> {
   const { PDFDocument } = await import("pdf-lib");
   const merged = await PDFDocument.create();
 
-  const reportDoc = await PDFDocument.load(reportBytes);
-  const reportPages = await merged.copyPages(reportDoc, reportDoc.getPageIndices());
-  reportPages.forEach(p => merged.addPage(p));
+  const baseDoc = await PDFDocument.load(baseBytes);
+  const basePages = await merged.copyPages(baseDoc, baseDoc.getPageIndices());
+  basePages.forEach(p => merged.addPage(p));
 
-  const checklistDoc = await PDFDocument.load(checklistBytes);
-  const checklistPages = await merged.copyPages(checklistDoc, checklistDoc.getPageIndices());
-  checklistPages.forEach(p => merged.addPage(p));
+  for (const extra of extras) {
+    try {
+      const doc = await PDFDocument.load(extra, { ignoreEncryption: true });
+      const pages = await merged.copyPages(doc, doc.getPageIndices());
+      pages.forEach(p => merged.addPage(p));
+    } catch (e) {
+      console.warn("PDF anexado não pôde ser juntado ao relatório:", e);
+    }
+  }
 
   return merged.save();
+}
+
+async function loadPdfBytes(url: string): Promise<ArrayBuffer> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`PDF indisponível (HTTP ${res.status})`);
+  const bytes = await res.arrayBuffer();
+  if (bytes.byteLength === 0) throw new Error("PDF vazio");
+  return bytes;
 }
 
 // localPhotoUrls: mapa path -> URL local (blob) das fotos que o aparelho ainda
@@ -413,13 +429,26 @@ async function mergePdfBytes(reportBytes: ArrayBuffer, checklistBytes: Uint8Arra
 export async function buildAndDownloadPdf(report: TechnicalReport, opts?: { localPhotoUrls?: Record<string, string> }): Promise<{ failedPhotos: number }> {
   const { default: JsPdfCtor } = await import("jspdf");
 
-  const results = await Promise.allSettled(report.photos.map(p => loadImageForPdf(opts?.localPhotoUrls?.[p.path] || p.url)));
+  const isRma = report.reportType === "rma";
+  // PDFs anexados (troca RMA) não viram imagem: as páginas deles são juntadas ao final do relatório.
+  const pdfAttachments = report.photos
+    .filter(p => isPdfAttachment({ path: p.path, url: p.url }))
+    .sort((a, b) => RMA_CATEGORIES.indexOf(a.category) - RMA_CATEGORIES.indexOf(b.category) || a.order - b.order);
+  const imagePhotos = report.photos.filter(p => !isPdfAttachment({ path: p.path, url: p.url }));
+
+  const results = await Promise.allSettled(imagePhotos.map(p => loadImageForPdf(opts?.localPhotoUrls?.[p.path] || p.url)));
   const loadedByPath = new Map<string, LoadedImage>();
   let failedPhotos = 0;
-  report.photos.forEach((p, i) => {
+  imagePhotos.forEach((p, i) => {
     const r = results[i];
     if (r.status === "fulfilled") loadedByPath.set(p.path, r.value);
     else { failedPhotos++; console.warn("Foto não entrou no PDF:", p.category, r.reason); }
+  });
+  const pdfResults = await Promise.allSettled(pdfAttachments.map(p => loadPdfBytes(opts?.localPhotoUrls?.[p.path] || p.url)));
+  const attachedPdfBytes: ArrayBuffer[] = [];
+  pdfResults.forEach((r, i) => {
+    if (r.status === "fulfilled") attachedPdfBytes.push(r.value);
+    else { failedPhotos++; console.warn("PDF anexado não entrou no relatório:", pdfAttachments[i].category, r.reason); }
   });
 
   const pdf = new JsPdfCtor("p", "mm", "a4");
@@ -440,6 +469,7 @@ export async function buildAndDownloadPdf(report: TechnicalReport, opts?: { loca
       { label: "Técnico", value: report.technicianName },
       { label: "Produto", value: report.productModel, mono: true },
       { label: "Série", value: report.serialNumber, mono: true },
+      ...(isRma ? [{ label: "Tipo", value: "Troca RMA" }] : []),
     ],
     contentWidth
   );
@@ -493,8 +523,32 @@ export async function buildAndDownloadPdf(report: TechnicalReport, opts?: { loca
     y = drawPhotoRow(pdf, margin, y, contentWidth, repairPhotos.map(p => ({ loaded: loadedByPath.get(p.path)! })), 2, margin, pageHeight);
   }
 
+  // Troca RMA: fotos do produto novo e do produto antigo (os PDFs anexados entram como páginas ao final).
+  if (isRma) {
+    for (const cat of RMA_CATEGORIES) {
+      const catPhotos = imagePhotos.filter(p => p.category === cat && loadedByPath.has(p.path)).sort((a, b) => a.order - b.order);
+      const catPdfs = pdfAttachments.filter(p => p.category === cat).length;
+      if (catPhotos.length === 0 && catPdfs === 0) continue;
+      y = ensureSpace(pdf, y, 6, margin, pageHeight);
+      y = drawSectionTitle(pdf, margin, y, RMA_CATEGORY_LABELS[cat]);
+      if (catPhotos.length > 0) {
+        y = drawPhotoRow(pdf, margin, y, contentWidth, catPhotos.map(p => ({ loaded: loadedByPath.get(p.path)! })), 2, margin, pageHeight);
+      }
+      if (catPdfs > 0) {
+        y = ensureSpace(pdf, y, 8, margin, pageHeight);
+        pdf.setFont("helvetica", "italic");
+        pdf.setFontSize(9);
+        pdf.setTextColor(90, 90, 90);
+        pdf.text(`${catPdfs} PDF anexado${catPdfs > 1 ? "s" : ""} nas páginas seguintes.`, margin, y + 3);
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFont("helvetica", "normal");
+        y += 8;
+      }
+    }
+  }
+
   if (report.repairDescription) {
-    y = drawTextSection(pdf, margin, y, contentWidth, "Descrição do Reparo", report.repairDescription, margin, pageHeight);
+    y = drawTextSection(pdf, margin, y, contentWidth, isRma ? "Descrição da Troca" : "Descrição do Reparo", report.repairDescription, margin, pageHeight);
   }
   if (report.observations) {
     y = drawTextSection(pdf, margin, y, contentWidth, "Observações", report.observations, margin, pageHeight);
@@ -503,13 +557,22 @@ export async function buildAndDownloadPdf(report: TechnicalReport, opts?: { loca
   const reportBytes = pdf.output("arraybuffer");
   let finalBytes: ArrayBuffer | Uint8Array = reportBytes;
 
+  if (attachedPdfBytes.length > 0) {
+    try {
+      finalBytes = await mergePdfBytes(reportBytes, attachedPdfBytes);
+    } catch (e) {
+      console.error("Falha ao juntar os PDFs anexados — baixando o relatório sem eles.", e);
+      failedPhotos += attachedPdfBytes.length;
+    }
+  }
+
   if (report.checklistTemplateId) {
     try {
       const template = await checklistService.getById(report.checklistTemplateId);
       if (template) {
         const checklistBytes = await buildFilledChecklistBytes(template, report);
         if (checklistBytes) {
-          finalBytes = await mergePdfBytes(reportBytes, checklistBytes);
+          finalBytes = await mergePdfBytes(finalBytes, [checklistBytes]);
         }
       } else {
         console.warn(`[checklist] Template ${report.checklistTemplateId} não encontrado — baixando só o relatório.`);

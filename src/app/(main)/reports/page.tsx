@@ -29,7 +29,8 @@ import { buildAndDownloadPdf } from "@/lib/technicalReportPdf";
 import { compressImageIfNeeded } from "@/lib/imageCompression";
 import { queueReport, flushQueue, type PendingReportPhoto } from "@/lib/offlineReportQueue";
 import { isNetworkLikeError } from "@/lib/reportUploader";
-import { Camera, Loader2, Plus, Trash2, Download, Search, ScanLine, ClipboardList, Wrench, ClipboardCheck } from "lucide-react";
+import { Camera, Loader2, Plus, Trash2, Download, Search, ScanLine, ClipboardList, Wrench, ClipboardCheck, RefreshCw, FileText } from "lucide-react";
+import { isPdfAttachment, attachmentDisplayName, isRmaCategory, MAX_PDF_ATTACHMENT_BYTES, RMA_CATEGORIES, RMA_CATEGORY_LABELS } from "@/lib/reportAttachments";
 
 type LocalPhoto = {
   id: string;
@@ -46,6 +47,8 @@ type LocalPhoto = {
 // Fotos obrigatórias: as do produto marcadas como obrigatórias na configuração da linha + defeito (+ pós-reparo no reparo).
 // Numa visita (sem reparo concluído), não faz sentido cobrar foto do pós-reparo nem descrição do que foi feito.
 function requiredCategoriesFor(reportType: TechnicalReportType, productSlots: ProductPhotoSlot[]): TechnicalReportPhotoCategory[] {
+  // Troca RMA: só as duas categorias (produto novo e produto antigo); cada uma aceita foto ou PDF.
+  if (reportType === "rma") return [...RMA_CATEGORIES];
   return [
     ...productSlots.filter(slot => slot.required).map(slot => slot.key),
     "defeito",
@@ -324,7 +327,14 @@ function ReportsPageInner() {
 
   const handleMultiFiles = async (category: TechnicalReportPhotoCategory, fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
-    const files = (await Promise.all(Array.from(fileList).map(f => compressPhoto(f)))).filter((f): f is File => !!f);
+    const picked = Array.from(fileList);
+    const pdfs = picked.filter(f => isPdfAttachment({ file: f }));
+    const bigPdfs = pdfs.filter(f => f.size > MAX_PDF_ATTACHMENT_BYTES);
+    if (bigPdfs.length > 0) {
+      toast({ variant: "destructive", title: "PDF muito grande", description: `${bigPdfs.map(f => f.name).join(", ")} passa de ${Math.round(MAX_PDF_ATTACHMENT_BYTES / 1024 / 1024)} MB e não foi adicionado.` });
+    }
+    const images = (await Promise.all(picked.filter(f => !isPdfAttachment({ file: f })).map(f => compressPhoto(f)))).filter((f): f is File => !!f);
+    const files = [...images, ...pdfs.filter(f => f.size <= MAX_PDF_ATTACHMENT_BYTES)];
     if (files.length === 0) return;
     setPhotos(prev => {
       const currentCount = prev.filter(p => p.category === category).length;
@@ -423,8 +433,13 @@ function ReportsPageInner() {
   // com as fotos locais (sem rede, instantâneo) e (3) libera o técnico: o envio
   // pro servidor roda em segundo plano (fila + aviso de andamento no topo), então
   // ele não fica esperando upload nem perde nada se o sinal cair no meio.
+  // Caminho provisório (antes de subir) de um item: PDFs levam ".pdf" para o PDF do relatório reconhecê-los.
+  const localPathOf = (p: LocalPhoto) => p.path || `local-${p.id}${isPdfAttachment({ file: p.file }) ? ".pdf" : ""}`;
+
   const handleSave = async () => {
     if (isSaving) return;
+    // Ao trocar o tipo do relatório, o que foi anexado para outro tipo não vai junto (RMA tem categorias próprias).
+    const savePhotos = photos.filter(p => reportType === "rma" ? isRmaCategory(p.category) : !isRmaCategory(p.category));
     if (preparingCount > 0) {
       toast({ title: "Aguarde...", description: "Ainda otimizando as fotos." });
       return;
@@ -444,9 +459,9 @@ function ReportsPageInner() {
     }
 
     // Sem as fotos obrigatórias não dá para dar baixa na OS: confirma antes de seguir (continua possível, ex.: foto impossível de tirar).
-    const missingRequired = requiredCategories.filter(cat => !photos.some(p => p.category === cat));
+    const missingRequired = requiredCategories.filter(cat => !savePhotos.some(p => p.category === cat));
     if (missingRequired.length > 0) {
-      const labelOf = (cat: string) => cat === "defeito" ? "Defeito apresentado" : cat === "pos_reparo" ? "Pós-reparo" : (productSlots.find(s => s.key === cat)?.label || productPhotoLabel(cat));
+      const labelOf = (cat: string) => isRmaCategory(cat) ? RMA_CATEGORY_LABELS[cat] : cat === "defeito" ? "Defeito apresentado" : cat === "pos_reparo" ? "Pós-reparo" : (productSlots.find(s => s.key === cat)?.label || productPhotoLabel(cat));
       const proceed = window.confirm(`Faltam ${missingRequired.length} foto(s) obrigatória(s): ${missingRequired.map(labelOf).join(", ")}.\n\nSem elas não dá para dar baixa nesta OS. Salvar mesmo assim?`);
       if (!proceed) return;
     }
@@ -472,7 +487,7 @@ function ReportsPageInner() {
 
     setIsSaving(true);
     try {
-      const pendingPhotos: PendingReportPhoto[] = photos.map(p =>
+      const pendingPhotos: PendingReportPhoto[] = savePhotos.map(p =>
         p.url && p.path
           ? { category: p.category, label: p.label, order: p.order, url: p.url, path: p.path }
           : { category: p.category, label: p.label, order: p.order, file: p.file! }
@@ -491,14 +506,14 @@ function ReportsPageInner() {
         createdAt: savedReportCreatedAt || new Date(),
         updatedAt: new Date(),
         ...basePayload,
-        photos: photos.map(p => ({ category: p.category, ...(p.label ? { label: p.label } : {}), order: p.order, url: p.url || p.previewUrl, path: p.path || `local-${p.id}` })),
+        photos: savePhotos.map(p => ({ category: p.category, ...(p.label ? { label: p.label } : {}), order: p.order, url: p.url || p.previewUrl, path: localPathOf(p) })),
       };
       let pdfFailed = false;
       let photosMissingInPdf = 0;
       setIsDownloadingPdf(true);
       try {
         const built = await buildAndDownloadPdf(localReport, {
-          localPhotoUrls: Object.fromEntries(photos.map(p => [p.path || `local-${p.id}`, p.previewUrl])),
+          localPhotoUrls: Object.fromEntries(savePhotos.map(p => [localPathOf(p), p.previewUrl])),
         });
         photosMissingInPdf = built.failedPhotos;
       } catch (pdfError) {
@@ -584,7 +599,9 @@ function ReportsPageInner() {
           <CardDescription>
             {reportType === "visita"
               ? "Preencha os dados da visita: fotos do produto e do defeito apresentado."
-              : "Preencha ao final do reparo: fotos do produto, do defeito apresentado e do pós-reparo."}
+              : reportType === "rma"
+                ? "Troca RMA: fotos (ou PDF) do produto novo e do produto antigo."
+                : "Preencha ao final do reparo: fotos do produto, do defeito apresentado e do pós-reparo."}
           </CardDescription>
           <div className="flex items-center gap-2 pt-1">
             <div className="flex-1 flex gap-1">
@@ -601,7 +618,7 @@ function ReportsPageInner() {
         <CardContent className="space-y-4 px-1 pb-3 pt-0 md:space-y-6 md:p-6 md:pt-0 [&_input]:h-10 [&_button[role=combobox]]:h-10 md:[&_input]:h-10 md:[&_button[role=combobox]]:h-10">
           <div className="space-y-1.5">
             <Label>Tipo de Relatório</Label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => setReportType("reparo")}
@@ -616,6 +633,13 @@ function ReportsPageInner() {
               >
                 <ClipboardCheck className="h-4 w-4" /> Visita
               </button>
+              <button
+                type="button"
+                onClick={() => setReportType("rma")}
+                className={`flex items-center justify-center gap-2 rounded-md border py-2 text-sm font-medium transition-colors ${reportType === "rma" ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-muted/50"}`}
+              >
+                <RefreshCw className="h-4 w-4" /> Troca RMA
+              </button>
             </div>
           </div>
 
@@ -623,7 +647,7 @@ function ReportsPageInner() {
             <div className="space-y-1.5">
               <Label>Nº da OS</Label>
               <div className="flex gap-2">
-                <Input value={serviceOrderNumber} onChange={e => setServiceOrderNumber(e.target.value.replace(/s/g, ""))} onKeyDown={e => { if (e.key === " ") e.preventDefault(); }} placeholder="Ex: OS-001" />
+                <Input value={serviceOrderNumber} onChange={e => setServiceOrderNumber(e.target.value.replace(/\s/g, ""))} onKeyDown={e => { if (e.key === " ") e.preventDefault(); }} placeholder="Ex: OS-001" />
                 <Button type="button" variant="outline" size="icon" onClick={handleLoadExisting} disabled={isLoadingExisting} title="Buscar relatório já salvo para essa OS">
                   {isLoadingExisting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 </Button>
@@ -655,7 +679,7 @@ function ReportsPageInner() {
             </div>
           </div>
 
-          <div className={productSlots.length === 0 ? "hidden" : "space-y-2"}>
+          <div className={productSlots.length === 0 || reportType === "rma" ? "hidden" : "space-y-2"}>
             <Label className="text-sm font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
               Fotos do Produto
               {isReadingLabel && <span className="inline-flex items-center gap-1 text-primary normal-case font-normal"><Loader2 className="h-3 w-3 animate-spin" /> lendo etiqueta...</span>}
@@ -701,13 +725,27 @@ function ReportsPageInner() {
             </div>
           </div>
 
-          <PhotoCategorySection
-            title="Defeito Apresentado"
-            category="defeito"
-            photos={multiPhotos("defeito")}
-            onAdd={handleMultiFiles}
-            onRemove={removePhoto}
-          />
+          {reportType === "rma" && RMA_CATEGORIES.map(cat => (
+            <PhotoCategorySection
+              key={cat}
+              title={RMA_CATEGORY_LABELS[cat]}
+              category={cat}
+              photos={multiPhotos(cat)}
+              onAdd={handleMultiFiles}
+              onRemove={removePhoto}
+              allowPdf
+            />
+          ))}
+
+          {reportType !== "rma" && (
+            <PhotoCategorySection
+              title="Defeito Apresentado"
+              category="defeito"
+              photos={multiPhotos("defeito")}
+              onAdd={handleMultiFiles}
+              onRemove={removePhoto}
+            />
+          )}
 
           {reportType === "reparo" && (
             <PhotoCategorySection
@@ -727,6 +765,18 @@ function ReportsPageInner() {
                 onChange={e => setRepairDescription(e.target.value)}
                 rows={3}
                 placeholder="Descreva o que foi feito no reparo (diagnóstico, peças trocadas, procedimento) ou o que foi observado no atendimento."
+              />
+            </div>
+          )}
+
+          {reportType === "rma" && (
+            <div className="space-y-1.5">
+              <Label>Descrição da Troca (opcional)</Label>
+              <Textarea
+                value={repairDescription}
+                onChange={e => setRepairDescription(e.target.value)}
+                rows={3}
+                placeholder="Motivo da troca, o que foi substituído, protocolo do RMA..."
               />
             </div>
           )}
@@ -831,12 +881,15 @@ function PhotoCategorySection({
   photos,
   onAdd,
   onRemove,
+  allowPdf = false,
 }: {
   title: string;
   category: TechnicalReportPhotoCategory;
   photos: LocalPhoto[];
   onAdd: (category: TechnicalReportPhotoCategory, files: FileList | null) => void;
   onRemove: (id: string) => void;
+  /** Também aceita PDF (troca RMA). */
+  allowPdf?: boolean;
 }) {
   return (
     <div className="space-y-2">
@@ -844,7 +897,14 @@ function PhotoCategorySection({
       <div className="grid grid-cols-3 gap-2 md:gap-3">
         {photos.map(photo => (
           <div key={photo.id} className="relative aspect-video rounded-lg overflow-hidden border bg-muted/30">
-            <img src={photo.previewUrl} alt={title} className="w-full h-full object-contain" />
+            {isPdfAttachment({ path: photo.path, url: photo.url, file: photo.file }) ? (
+              <a href={photo.previewUrl} target="_blank" rel="noreferrer" className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-muted-foreground hover:text-foreground" title="Abrir o PDF">
+                <FileText className="h-7 w-7" />
+                <span className="line-clamp-2 break-all text-center text-[10px] leading-tight">{attachmentDisplayName({ path: photo.path, url: photo.url, file: photo.file })}</span>
+              </a>
+            ) : (
+              <img src={photo.previewUrl} alt={title} className="w-full h-full object-contain" />
+            )}
             <button
               type="button"
               onClick={() => onRemove(photo.id)}
@@ -864,6 +924,19 @@ function PhotoCategorySection({
           />
           <Plus className="h-5 w-5" />
         </label>
+        {allowPdf && (
+          <label className="aspect-video rounded-lg border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-0.5 cursor-pointer hover:border-primary/50 transition-colors bg-muted/30 text-muted-foreground">
+            <input
+              type="file"
+              accept="application/pdf,.pdf"
+              multiple
+              className="hidden"
+              onChange={e => { onAdd(category, e.target.files); e.target.value = ""; }}
+            />
+            <FileText className="h-5 w-5" />
+            <span className="text-[10px] font-medium">Adicionar PDF</span>
+          </label>
+        )}
       </div>
     </div>
   );

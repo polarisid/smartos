@@ -6,6 +6,8 @@ const CATEGORY_FILENAME: Record<TechnicalReportPhotoCategory, string> = {
     produto_serial: "SERIAL",
     defeito: "DEFEITO",
     pos_reparo: "POS_REPARO",
+    rma_novo: "PRODUTO_NOVO",
+    rma_antigo: "PRODUTO_ANTIGO",
 };
 const CATEGORY_ORDER = Object.keys(CATEGORY_FILENAME) as TechnicalReportPhotoCategory[];
 // Foto do produto com nome próprio: vai depois do serial e antes do defeito, e o arquivo leva o nome da chave.

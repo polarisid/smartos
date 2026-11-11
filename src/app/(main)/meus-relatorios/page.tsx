@@ -21,7 +21,7 @@ import { buildAndDownloadPdf } from "@/lib/technicalReportPdf";
 import { flushQueue, getPendingReport, subscribe, subscribeSync, type PendingReportSummary, type SyncState } from "@/lib/offlineReportQueue";
 import type { TechnicalReport } from "@/lib/data";
 
-const TYPE_LABEL: Record<string, string> = { reparo: "Reparo", visita: "Visita" };
+const TYPE_LABEL: Record<string, string> = { reparo: "Reparo", visita: "Visita", rma: "Troca RMA" };
 
 export default function MeusRelatoriosPage() {
   const { appUser } = useAuth();
@@ -93,7 +93,7 @@ export default function MeusRelatoriosPage() {
       }
       const localPhotoUrls: Record<string, string> = {};
       const photos = item.photos.map((p, i) => {
-        const path = `local-${i}`;
+        const path = `local-${i}${"file" in p && p.file.type === "application/pdf" ? ".pdf" : ""}`;
         if ("file" in p) {
           const url = URL.createObjectURL(p.file);
           blobUrls.push(url);

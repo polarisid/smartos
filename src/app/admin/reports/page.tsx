@@ -26,13 +26,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Camera, Loader2, Search, ExternalLink, ImageIcon, Download, FolderDown, ChevronLeft, ChevronRight, Trash2, ClipboardCheck } from "lucide-react";
+import { Camera, Loader2, Search, ExternalLink, ImageIcon, Download, FolderDown, ChevronLeft, ChevronRight, Trash2, ClipboardCheck, FileText } from "lucide-react";
 import { technicalReportService } from "@/services/supabase/technicalReportService";
 import { type TechnicalReport, type TechnicalReportPhotoCategory } from "@/lib/data";
 import { format } from "date-fns";
 import { isProductPhotoCategory, productPhotoLabel } from "@/lib/productLine";
 import { downloadPhotosFromPdfs } from "@/lib/pdfImages";
 import { downloadChecklistPdf } from "@/lib/technicalReportPdf";
+import { isPdfAttachment, attachmentDisplayName, RMA_CATEGORY_LABELS } from "@/lib/reportAttachments";
 
 const CATEGORY_LABELS: Record<TechnicalReportPhotoCategory, string> = {
   produto_frontal: "Produto - Frontal",
@@ -40,6 +41,8 @@ const CATEGORY_LABELS: Record<TechnicalReportPhotoCategory, string> = {
   produto_serial: "Produto - Etiqueta Serial",
   defeito: "Defeito Apresentado",
   pos_reparo: "Pós-Reparo",
+  rma_novo: RMA_CATEGORY_LABELS.rma_novo,
+  rma_antigo: RMA_CATEGORY_LABELS.rma_antigo,
 };
 
 // Fotos do produto com nome próprio (configuradas por linha) caem no "Produto - <nome>".
@@ -102,6 +105,8 @@ const CATEGORY_FILENAME_LABELS: Record<TechnicalReportPhotoCategory, string> = {
   produto_serial: "SERIAL",
   defeito: "DEFEITO",
   pos_reparo: "POS_REPARO",
+  rma_novo: "PRODUTO_NOVO",
+  rma_antigo: "PRODUTO_ANTIGO",
 };
 
 function photoFilename(report: TechnicalReport, category: TechnicalReportPhotoCategory, url: string, index: number) {
@@ -434,7 +439,14 @@ export default function AdminReportsPage() {
                 .map((photo, idx) => (
                   <div key={photo.path} className="space-y-1.5">
                     <div className="aspect-video rounded-md border bg-muted/30 overflow-hidden">
-                      <img src={photo.url} alt={categoryLabel(photo.category, photo.label)} className="w-full h-full object-contain" />
+                      {isPdfAttachment({ path: photo.path, url: photo.url }) ? (
+                        <a href={photo.url} target="_blank" rel="noreferrer" className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-muted-foreground hover:text-foreground" title="Abrir o PDF">
+                          <FileText className="h-8 w-8" />
+                          <span className="line-clamp-2 break-all text-center text-[11px]">{attachmentDisplayName({ path: photo.path, url: photo.url })}</span>
+                        </a>
+                      ) : (
+                        <img src={photo.url} alt={categoryLabel(photo.category, photo.label)} className="w-full h-full object-contain" />
+                      )}
                     </div>
                     <p className="text-xs font-medium text-center">{categoryLabel(photo.category, photo.label)}</p>
                     <Button

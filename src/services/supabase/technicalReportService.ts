@@ -221,7 +221,7 @@ export const technicalReportService = {
   },
 
   buildPhotoPath(file: File, serviceOrderNumber: string, category: TechnicalReportPhotoCategory): string {
-    const ext = file.name.split('.').pop() || 'jpg';
+    const ext = file.type === 'application/pdf' ? 'pdf' : (file.name.split('.').pop() || 'jpg');
     return `${serviceOrderNumber}/${category}_${crypto.randomUUID()}.${ext}`;
   },
 

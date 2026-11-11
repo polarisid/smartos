@@ -414,7 +414,7 @@ export type TechnicalReportPhoto = {
   order: number;
 };
 
-export type TechnicalReportType = 'reparo' | 'visita';
+export type TechnicalReportType = 'reparo' | 'visita' | 'rma';
 
 export type TechnicalReport = {
   id: string;

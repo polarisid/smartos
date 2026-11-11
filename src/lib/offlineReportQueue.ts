@@ -3,6 +3,7 @@ import { technicalReportService } from "@/services/supabase/technicalReportServi
 import type { TechnicalReport, TechnicalReportPhotoCategory } from "@/lib/data";
 import { uploadPhotoBatch, withTimeout, isNetworkLikeError, type UploadProgress } from "@/lib/reportUploader";
 import { explainNetworkFailure } from "@/lib/diagnostics";
+import { isPdfAttachment, isRmaCategory } from "@/lib/reportAttachments";
 
 const DB_NAME = "smartos-offline";
 const STORE_NAME = "pending-reports";
@@ -361,8 +362,10 @@ async function sendReportItem(
     );
   }
 
-  if (uploadedPhotos.length > 0) {
-    scoreReportInBackground(id, uploadedPhotos.map((p) => ({ category: p.category, url: p.url })));
+  // A nota da IA avalia fotos de reparo/visita; a troca RMA (produto novo e antigo, com PDFs) não é pontuada.
+  const scorable = uploadedPhotos.filter((p) => !isRmaCategory(p.category) && !isPdfAttachment({ path: p.path }));
+  if (scorable.length > 0 && item.payload.reportType !== "rma") {
+    scoreReportInBackground(id, scorable.map((p) => ({ category: p.category, url: p.url })));
   }
   return id;
 }

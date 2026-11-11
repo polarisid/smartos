@@ -7,7 +7,8 @@ import { type TechnicalReport, type TechnicalReportPhoto, type TechnicalReportPh
 import { buildAndDownloadPdf, rotateToLandscapeCanvas } from "@/lib/technicalReportPdf";
 import { productPhotosOf, productPhotoLabel } from "@/lib/productLine";
 import { Button } from "@/components/ui/button";
-import { Loader2, Download, ScanLine, AlertTriangle, Wrench, MessageSquare, ClipboardList } from "lucide-react";
+import { Loader2, Download, ScanLine, AlertTriangle, Wrench, MessageSquare, ClipboardList, FileText, RefreshCw } from "lucide-react";
+import { isPdfAttachment, attachmentDisplayName, RMA_CATEGORIES, RMA_CATEGORY_LABELS } from "@/lib/reportAttachments";
 import { format } from "date-fns";
 
 export default function ReportViewPage() {
@@ -85,6 +86,7 @@ export default function ReportViewPage() {
           <InfoField label="Técnico" value={report.technicianName} />
           <InfoField label="Produto" value={report.productModel} mono />
           <InfoField label="Série" value={report.serialNumber} mono />
+          {report.reportType === "rma" && <InfoField label="Tipo" value="Troca RMA" />}
         </div>
 
         {productPhotos.length > 0 && (
@@ -117,8 +119,27 @@ export default function ReportViewPage() {
           </ReportSection>
         )}
 
+        {RMA_CATEGORIES.map(cat => {
+          const items = report.photos.filter(p => p.category === cat).sort((a, b) => a.order - b.order);
+          if (items.length === 0) return null;
+          return (
+            <ReportSection key={cat} title={RMA_CATEGORY_LABELS[cat]} icon={RefreshCw}>
+              <div className="flex flex-wrap gap-4">
+                {items.map(photo => isPdfAttachment({ path: photo.path, url: photo.url }) ? (
+                  <a key={photo.path} href={photo.url} target="_blank" rel="noreferrer" className="flex w-64 items-center gap-2 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm shadow-sm hover:bg-gray-100">
+                    <FileText className="h-6 w-6 shrink-0" />
+                    <span className="break-all">{attachmentDisplayName({ path: photo.path, url: photo.url })}</span>
+                  </a>
+                ) : (
+                  <PhotoCard key={photo.path} photo={photo} className="w-64" />
+                ))}
+              </div>
+            </ReportSection>
+          );
+        })}
+
         {report.repairDescription && (
-          <ReportSection title="Descrição do Reparo" icon={ClipboardList}>
+          <ReportSection title={report.reportType === "rma" ? "Descrição da Troca" : "Descrição do Reparo"} icon={ClipboardList}>
             <p className="text-sm whitespace-pre-wrap">{report.repairDescription}</p>
           </ReportSection>
         )}
