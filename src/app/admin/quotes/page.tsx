@@ -19,7 +19,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import {
   PAYMENT_METHODS, PAYMENT_STATE_LABEL, QUOTE_STATUS_LABEL, addPayment, balanceOf, canChangeStatusTo, canReceivePayment,
-  cleanLines, cleanText, paidOf, paidPercent, parseMoney, paymentStateOf, removePayment, roundMoney, type QuoteStatus,
+  cleanLines, cleanText, paidOf, paidPercent, parseMoney, paymentStateOf, quoteMatchesSearch, removePayment, roundMoney, type QuoteStatus,
 } from "@/lib/quotes";
 import { cn } from "@/lib/utils";
 import { configService } from "@/services/supabase/configService";
@@ -229,23 +229,21 @@ export default function QuotesPage() {
     };
   }, [quotes]);
 
-  const visible = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return quotes.filter(q => {
-      if (filter === "saldo") { if (q.status !== "aprovado" || balanceOf(q.totalAmount, q.payments) <= 0) return false; }
-      else if (filter !== "all" && q.status !== filter) return false;
-      if (!term) return true;
-      return [q.clientName, q.clientCpf, q.osNumber, q.clientNumber].some(v => (v || "").toLowerCase().includes(term));
-    });
-  }, [quotes, filter, search]);
+  // A busca varre todos os orçamentos (qualquer situação e vários campos); as abas só afunilam o resultado.
+  const searched = useMemo(() => quotes.filter(q => quoteMatchesSearch(q, search)), [quotes, search]);
+
+  const visible = useMemo(() => searched.filter(q => {
+    if (filter === "saldo") return q.status === "aprovado" && balanceOf(q.totalAmount, q.payments) > 0;
+    return filter === "all" || q.status === filter;
+  }), [searched, filter]);
 
   const counts = useMemo(() => ({
-    all: quotes.length,
-    pendente: quotes.filter(q => q.status === "pendente").length,
-    aprovado: quotes.filter(q => q.status === "aprovado").length,
-    saldo: quotes.filter(q => q.status === "aprovado" && balanceOf(q.totalAmount, q.payments) > 0).length,
-    reprovado: quotes.filter(q => q.status === "reprovado").length,
-  } as Record<Filter, number>), [quotes]);
+    all: searched.length,
+    pendente: searched.filter(q => q.status === "pendente").length,
+    aprovado: searched.filter(q => q.status === "aprovado").length,
+    saldo: searched.filter(q => q.status === "aprovado" && balanceOf(q.totalAmount, q.payments) > 0).length,
+    reprovado: searched.filter(q => q.status === "reprovado").length,
+  } as Record<Filter, number>), [searched]);
 
   const visibleTotals = useMemo(() => ({
     total: roundMoney(visible.reduce((n, q) => n + q.totalAmount, 0)),
@@ -373,7 +371,8 @@ export default function QuotesPage() {
             </div>
             <div className="relative ml-auto w-full sm:w-72">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input className="pl-9 pr-8" placeholder="Buscar cliente, CPF ou OS" value={search} onChange={e => setSearch(e.target.value)} />
+              <Input className="pl-9 pr-8" placeholder="Buscar cliente, CPF, OS, item, valor…" value={search}
+                onChange={e => { setSearch(e.target.value); if (e.target.value.trim()) setFilter("all"); }} />
               {search && (
                 <button type="button" onClick={() => setSearch("")} aria-label="Limpar a busca" className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground">
                   <X className="h-3.5 w-3.5" />

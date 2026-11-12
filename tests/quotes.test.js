@@ -95,3 +95,24 @@ test("limpeza dos itens editados e histórico de alterações", () => {
     assert.equal(log.length, q.MAX_QUOTE_EDIT_LOG);
     assert.equal(log[log.length - 1].at, "24");
 });
+
+test("busca de orçamentos: vários campos, sem acento, CPF sem pontos", () => {
+    const quote = {
+        osNumber: "4177012068", clientName: "JANDSON SANTOS CRUZ", clientCpf: "048.921.765-67", clientNumber: "(11) 98888-7777",
+        totalAmount: 1600, status: "pendente", createdAt: new Date(2026, 10, 11), payments: [{ id: "a", amount: 100, method: "PIX", date: "2026-11-11", note: "entrada" }],
+        snapshot: { observations: "Troca de bateria", items: [{ code: "GH82", description: "Tela original" }] },
+    };
+    assert.equal(q.quoteMatchesSearch(quote, ""), true);
+    assert.equal(q.quoteMatchesSearch(quote, "jandson"), true);
+    assert.equal(q.quoteMatchesSearch(quote, "4177012"), true);
+    assert.equal(q.quoteMatchesSearch(quote, "04892176567"), true);
+    assert.equal(q.quoteMatchesSearch(quote, "98888"), true);
+    assert.equal(q.quoteMatchesSearch(quote, "bateria"), true);
+    assert.equal(q.quoteMatchesSearch(quote, "tela"), true);
+    assert.equal(q.quoteMatchesSearch(quote, "pix"), true);
+    assert.equal(q.quoteMatchesSearch(quote, "pendente"), true);
+    assert.equal(q.quoteMatchesSearch(quote, "11/11/2026"), true);
+    assert.equal(q.quoteMatchesSearch(quote, "1.600,00"), true);
+    assert.equal(q.quoteMatchesSearch(quote, "1600,00"), true);
+    assert.equal(q.quoteMatchesSearch(quote, "maria"), false);
+});

@@ -192,3 +192,40 @@ export function checkQuoteEdit(input: {
 /** Acrescenta uma alteração ao histórico, guardando só as últimas. */
 export const appendEditLog = (log: QuoteEditLog[] | undefined, entry: QuoteEditLog): QuoteEditLog[] =>
     [...(log || []), entry].slice(-MAX_QUOTE_EDIT_LOG);
+
+const normalizeSearch = (s: string): string =>
+    s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+type SearchableQuote = {
+    osNumber?: string; clientName: string; clientCpf?: string; clientNumber?: string; createdByName?: string;
+    totalAmount: number; status: QuoteStatus; rejectReason?: string; decidedByName?: string; createdAt: Date;
+    payments: QuotePayment[];
+    snapshot: {
+        symptom?: string; accessory?: string; defectFound?: string; serviceDescription?: string; observations?: string;
+        items: { code?: string; description: string }[];
+    };
+};
+
+/**
+ * Busca de orçamentos: acha pelo cliente, CPF, OS, telefone, quem lançou, observações, itens, motivo da reprovação,
+ * pagamentos (forma/observação), situação, data (dd/MM/aaaa) e valor. Ignora acentos e maiúsculas; CPF/telefone casam com ou sem pontuação.
+ */
+export function quoteMatchesSearch(q: SearchableQuote, rawTerm: string): boolean {
+    const term = normalizeSearch(rawTerm.trim());
+    if (!term) return true;
+    const digits = term.replace(/\D/g, "");
+    const d = q.createdAt;
+    const date = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+    const total = roundMoney(q.totalAmount);
+    const texts = [
+        q.clientName, q.clientCpf, q.osNumber, q.clientNumber, q.createdByName, q.rejectReason, q.decidedByName,
+        QUOTE_STATUS_LABEL[q.status], date,
+        total.toFixed(2).replace(".", ","), total.toLocaleString("pt-BR", { minimumFractionDigits: 2 }), total.toFixed(2), String(total),
+        q.snapshot.symptom, q.snapshot.accessory, q.snapshot.defectFound, q.snapshot.serviceDescription, q.snapshot.observations,
+        ...q.snapshot.items.flatMap(i => [i.code, i.description]),
+        ...q.payments.flatMap(p => [p.method, p.note, p.byName]),
+    ];
+    if (texts.some(v => v && normalizeSearch(String(v)).includes(term))) return true;
+    // só dígitos (CPF/telefone digitados sem pontos): compara com os campos numéricos sem pontuação
+    return digits.length >= 3 && [q.clientCpf, q.clientNumber, q.osNumber].some(v => v && v.replace(/\D/g, "").includes(digits));
+}
