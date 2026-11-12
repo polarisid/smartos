@@ -54,6 +54,7 @@ type Row = {
     manualFinalized: boolean;     // finalizada à mão pela equipe (botão "Finalizar"), sem lançamento do técnico
     pendingNote: string;          // motivo e observações que o técnico registrou nessa pendência
     childName: string | null;     // rota filha que já leva esta OS
+    externalChild: boolean;       // essa rota é filha de OUTRA rota de entrega (a OS foi adicionada a ela daqui)
     day: string;                  // AAAA-MM-DD programado ("" = sem dia)
     team: number;                 // equipe (1 = A, 2 = B...; 0 = sem equipe)
     partsTotal: number;
@@ -439,6 +440,31 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
         refetchInterval: 15000,
     });
 
+    // Rotas (rascunho e ativas) que são filhas de OUTRA rota de entrega: se a OS foi adicionada a uma delas, aqui também conta como Programada.
+    const { data: draftsForLinks = [] } = useQuery({
+        queryKey: ["delivery-linked-drafts", appUser?.uid, activeUnidadeId],
+        queryFn: () => routeService.getDraftRoutes(activeUnidadeId),
+        enabled: !!appUser?.uid,
+        refetchInterval: 30000,
+    });
+    const { data: activeForLinks = [] } = useQuery({
+        queryKey: ["delivery-linked-active", appUser?.uid, activeUnidadeId],
+        queryFn: () => routeService.getActiveRoutes(activeUnidadeId),
+        enabled: !!appUser?.uid,
+        refetchInterval: 30000,
+    });
+    const otherChildByOrder = useMemo(() => {
+        const out = new Map<string, Route>();
+        const seen = new Set<string>();
+        [...draftsForLinks, ...activeForLinks].forEach(rt => {
+            if (seen.has(rt.id)) return;
+            seen.add(rt.id);
+            if (rt.isCanceled || rt.kind === "delivery" || !rt.parentRouteId || rt.parentRouteId === routeId) return;
+            (rt.stops || []).forEach(st => { if (!st.isReallocated && st.serviceOrder && !out.has(st.serviceOrder)) out.set(st.serviceOrder, rt); });
+        });
+        return out;
+    }, [draftsForLinks, activeForLinks, routeId]);
+
     const initialPrefs = useMemo(() => loadPrefs(), []);
     // Ordenação combinada: vários critérios em sequência (o 2º desempata o 1º, e assim por diante).
     const [sorts, setSorts] = useState<Array<{ key: SortKey; dir: "asc" | "desc" }>>(
@@ -793,7 +819,8 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             const sinceMs = osSinceMs(parseBrDate(stop.requestDate) || createdMs, stop);
             const related = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && os.date.getTime() >= sinceMs);
             const last = related.length ? related.reduce((a, b) => (b.date.getTime() > a.date.getTime() ? b : a)) : null;
-            const child = activeChildren.find(c => (c.stops || []).some(cs => cs.serviceOrder === stop.serviceOrder && !cs.isReallocated));
+            const ownChild = activeChildren.find(c => (c.stops || []).some(cs => cs.serviceOrder === stop.serviceOrder && !cs.isReallocated));
+            const child = ownChild || otherChildByOrder.get(stop.serviceOrder);
             const parts = stop.parts || [];
             const outcome = deliveryOutcome(stop, last);
             return {
@@ -805,6 +832,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                     ? [last.pendingReason ? "Motivo: " + last.pendingReason : "", last.observations ? "Observações: " + last.observations : ""].filter(Boolean).join("\n") || "Sem motivo registrado pelo técnico."
                     : "",
                 childName: child ? child.name : null,
+                externalChild: !ownChild && !!child,
                 day: stop.plannedDay || "",
                 team: teamOf(stop),
                 partsTotal: parts.length,
@@ -812,7 +840,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 returns: Object.fromEntries(parts.map(p => [p.code, partReturnOf(stop, p as RoutePart, serviceOrders, routeCreatedAt).kind])) as Record<string, PartReturn>,
             };
         });
-    }, [route, serviceOrders, children]);
+    }, [route, serviceOrders, children, otherChildByOrder]);
 
     // O que as OS desta rota já tiveram em OUTRAS rotas de entrega: peças já enviadas (repetidas) e peças que só foram lá.
     const otherHistory = useMemo(() => buildOrderHistory(rows.map(r => r.stop), allDeliveryRoutes, routeId), [rows, allDeliveryRoutes, routeId]);
@@ -1592,6 +1620,8 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 await routeService.patchStopFields(routeId, picked.map(r => ({ serviceOrder: r.stop.serviceOrder, fields: { plannedDay: format(dayDate, "yyyy-MM-dd") } })));
             }
             await queryClient.invalidateQueries({ queryKey: ["routes"] });
+            await queryClient.invalidateQueries({ queryKey: ["delivery-linked-drafts"] });
+            await queryClient.invalidateQueries({ queryKey: ["delivery-linked-active"] });
             await refresh();
             setDraftOpen(false);
             setDraftId("");
@@ -1599,7 +1629,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             const dups = picked.length - added;
             toast({
                 title: added === 1 ? "1 OS adicionada à rota " + target.name : added + " OS adicionadas à rota " + target.name,
-                description: dups > 0 ? dups + " já estavam nela e foram ignoradas." : target.parentRouteId && target.parentRouteId !== routeId ? "Essa rota é filha de outra rota de entrega, então aqui as OS não aparecem como Programadas." : "Abra em Rotas para ajustar a ordem, o técnico e publicar.",
+                description: dups > 0 ? dups + " já estavam nela e foram ignoradas." : "Abra em Rotas para ajustar a ordem, o técnico e publicar.",
             });
         } catch (e: any) {
             console.error(e);
@@ -1739,7 +1769,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 {st === "Atrasada" && <span className="text-[10px] font-medium text-orange-700 dark:text-orange-300" title={"Programada para " + format(new Date(r.day + "T12:00:00"), "dd/MM/yyyy")}>há {daysLate(r)} dia{daysLate(r) > 1 ? "s" : ""}</span>}
                 {r.finalizedAt && <span className="text-[10px] text-muted-foreground tabular-nums">{format(r.finalizedAt, "dd/MM HH:mm")}</span>}
                 {!r.finalizedAt && r.pendingAt && <span className={cn("text-[10px] text-muted-foreground tabular-nums", r.pendingNote && "cursor-help")} title={r.pendingNote || undefined}>{format(r.pendingAt, "dd/MM HH:mm")}</span>}
-                {r.childName && <span className="text-[10px] text-muted-foreground max-w-[150px] truncate" title={r.childName}>{r.childName}</span>}
+                {r.childName && <span className="text-[10px] text-muted-foreground max-w-[150px] truncate" title={r.externalChild ? r.childName + " (rota filha de outra rota de entrega)" : r.childName}>{r.childName}</span>}
                 {r.manualFinalized && <span className="text-[10px] italic text-muted-foreground" title="Finalizada à mão pela equipe, sem lançamento do técnico">manual</span>}
                 {!r.finalizedAt && (
                     <button type="button" className="inline-flex items-center gap-0.5 rounded border border-emerald-300 px-1 text-[10px] font-medium text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40" title="Dar esta OS como finalizada sem esperar o lançamento do técnico" onClick={(e) => { e.stopPropagation(); handleFinalizeOrder(r.stop.serviceOrder); }}>
@@ -1866,7 +1896,7 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 ) : (
                     <span className="inline-flex items-center gap-1 whitespace-nowrap">
                         <span className={isLate(r) ? "font-semibold text-orange-700 dark:text-orange-300" : "text-muted-foreground"}>{r.day ? format(new Date(r.day + "T12:00:00"), "dd/MM") : "—"}</span>
-                        {!r.finalizedAt && r.childName && (
+                        {!r.finalizedAt && r.childName && !r.externalChild && (
                             <button type="button" className="rounded border px-1 py-0 text-[10px] font-semibold text-primary hover:bg-primary/10" title="Mover esta OS para outro dia ou outra rota (cliente desistiu, remarcou...)" onClick={() => openReprogram(r)}>
                                 Reprogramar
                             </button>
