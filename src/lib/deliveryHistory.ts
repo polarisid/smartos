@@ -215,3 +215,21 @@ export function osSinceMs(baseMs: number, stop?: { reopenedAt?: string } | null)
     const reopened = stop?.reopenedAt ? new Date(stop.reopenedAt).getTime() : 0;
     return reopened > baseMs ? reopened : baseMs;
 }
+
+/**
+ * Situação de uma OS na rota de entrega a partir do último atendimento lançado (`last`) e da finalização manual.
+ * Finalizada manualmente (botão "Finalizar") vale quando o último lançamento não a contradiz: sem lançamento, ou com
+ * pendência lançada ANTES da marca. Um lançamento finalizado fica como está; um lançamento (pendência) posterior à marca vence.
+ * A marca feita antes de a OS ser reaberta é ignorada.
+ */
+export function deliveryOutcome(
+    stop: { manualFinalizedAt?: string; reopenedAt?: string } | null | undefined,
+    last: { date: Date; isFinalized?: boolean } | null,
+): { finalizedAt: Date | null; pendingAt: Date | null; manual: boolean } {
+    if (last && last.isFinalized !== false) return { finalizedAt: last.date, pendingAt: null, manual: false };
+    const manualMs = stop?.manualFinalizedAt ? new Date(stop.manualFinalizedAt).getTime() : NaN;
+    const reopenedMs = stop?.reopenedAt ? new Date(stop.reopenedAt).getTime() : 0;
+    const manualValid = Number.isFinite(manualMs) && manualMs >= reopenedMs;
+    if (manualValid && (!last || last.date.getTime() <= manualMs)) return { finalizedAt: new Date(manualMs), pendingAt: null, manual: true };
+    return { finalizedAt: null, pendingAt: last ? last.date : null, manual: false };
+}

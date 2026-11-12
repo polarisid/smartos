@@ -319,6 +319,8 @@ export type RouteStop = {
     reopenedAt?: string;
     /** Observação livre da equipe sobre a OS na rota de entrega (aparece como ícone verde na lista). */
     deliveryNote?: string;
+    /** Rota de entrega: OS finalizada manualmente pela equipe (data ISO), para quando o técnico não lançou o atendimento. Vale até a OS ser reaberta ou lançada de novo. */
+    manualFinalizedAt?: string;
     zipMismatch?: boolean;
     zipMismatchDetails?: string;
     suggestedCityState?: string;

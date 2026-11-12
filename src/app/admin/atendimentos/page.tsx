@@ -18,7 +18,7 @@ import { downloadSpreadsheet, type SheetRow } from "@/lib/spreadsheetXml";
 import { routeCode } from "@/lib/routeCode";
 import { stateToUF } from "@/lib/brStates";
 import { cn } from "@/lib/utils";
-import { osSinceMs } from "@/lib/deliveryHistory";
+import { deliveryOutcome, osSinceMs } from "@/lib/deliveryHistory";
 import type { Route, RouteStop, ServiceOrder } from "@/lib/data";
 
 // ─── Atendimentos: todas as OS que estão em rotas, numa tabela só ───────────────────────────────
@@ -171,9 +171,10 @@ export default function AtendimentosPage() {
             const sinceMs = osSinceMs(requestMs || dateMs(primary.route.createdAt), deliveryEntry?.stop);
             const related = (ordersByNumber.get(so) || []).filter(os => !os.ignoreInRoute && os.date.getTime() >= sinceMs);
             const last = related.length ? related.reduce((a, b) => (b.date.getTime() > a.date.getTime() ? b : a)) : null;
-            const finalizedAt = last && last.isFinalized !== false ? last.date : null;
+            const outcome = deliveryOutcome(deliveryEntry?.stop, last);
+            const finalizedAt = outcome.finalizedAt;
             // Pendência vale até a OS ser reprogramada para um dia depois dela.
-            const pendingAtRaw = last && last.isFinalized === false ? last.date : null;
+            const pendingAtRaw = outcome.pendingAt;
 
             // OS com pendência já foi reposta em uma rota criada depois dela: a rota nova é a tentativa
             // atual, mesmo que a antiga (onde ficou pendente) ainda esteja ativa.

@@ -67,7 +67,7 @@ import { Wand2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { Clock, Map as MapIcon, List, History, HelpCircle, AlarmClock } from "lucide-react";
 import { GripVertical } from "lucide-react";
-import { osSinceMs } from "@/lib/deliveryHistory";
+import { deliveryOutcome, osSinceMs } from "@/lib/deliveryHistory";
 
 const DynamicalRouteMap = dynamic(() => import('@/components/RouteMap'), { ssr: false });
 
@@ -3083,7 +3083,8 @@ export default function RoutesPage() {
                 const sinceMs = osSinceMs(brDateMs(stop.requestDate) || createdMs, stop);
                 const related = serviceOrders.filter(os => os.serviceOrderNumber === stop.serviceOrder && !os.ignoreInRoute && os.date.getTime() >= sinceMs);
                 const lastOs = related.length > 0 ? [...related].sort((a, b) => b.date.getTime() - a.date.getTime())[0] : null;
-                const osStatus: ReportRow['status'] = !lastOs ? 'A Fazer' : lastOs.isFinalized === false ? 'Pendente' : 'Finalizada';
+                const outcome = deliveryOutcome(stop, lastOs);
+                const osStatus: ReportRow['status'] = outcome.finalizedAt ? 'Finalizada' : outcome.pendingAt ? 'Pendente' : 'A Fazer';
                 const planned = stop.plannedDay ? new Date(stop.plannedDay + 'T12:00:00').toLocaleDateString('pt-BR') : (stop.firstVisitDate || '');
                 alreadyListed.add(String(stop.serviceOrder));
                 rows.push({

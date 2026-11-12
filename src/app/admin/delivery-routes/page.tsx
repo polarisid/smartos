@@ -39,7 +39,7 @@ import { copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { DEFAULT_PLANNING_PARAMS, simulateRoutePlan, formatClock } from "@/lib/routePlanning";
 import type { Route, RoutePart, RoutePoint, RouteStop, ServiceOrder } from "@/lib/data";
 import { routeService, RouteConflictError } from "@/services/supabase/routeService";
-import { buildOrderHistory, extraPartsOf, newerDeliveriesOf, osSinceMs, type NewerDelivery, type PartSituation } from "@/lib/deliveryHistory";
+import { buildOrderHistory, deliveryOutcome, extraPartsOf, newerDeliveriesOf, osSinceMs, type NewerDelivery, type PartSituation } from "@/lib/deliveryHistory";
 import { DeliveryHistoryNotice } from "@/components/routes/DeliveryHistoryNotice";
 import { DuplicateOrdersNotice } from "@/components/routes/DuplicateOrdersNotice";
 
@@ -51,6 +51,7 @@ type Row = {
     stop: RouteStop;
     finalizedAt: Date | null;     // OS lançada como finalizada depois da criação da rota de entrega
     pendingAt: Date | null;       // última visita ficou com pendência
+    manualFinalized: boolean;     // finalizada à mão pela equipe (botão "Finalizar"), sem lançamento do técnico
     pendingNote: string;          // motivo e observações que o técnico registrou nessa pendência
     childName: string | null;     // rota filha que já leva esta OS
     day: string;                  // AAAA-MM-DD programado ("" = sem dia)
@@ -200,8 +201,8 @@ export default function DeliveryRoutesPage() {
                 const list = byNumber.get(st.serviceOrder) || [];
                 let last: ServiceOrder | null = null;
                 for (const os of list) if (os.date.getTime() >= sinceMs && (!last || os.date.getTime() > last.date.getTime())) last = os;
-                if (!last) return;
-                if (last.isFinalized === false) pending++; else done++;
+                const outcome = deliveryOutcome(st, last);
+                if (outcome.finalizedAt) done++; else if (outcome.pendingAt) pending++;
             });
             out.set(r.id, { total, done, pending });
         });
@@ -719,12 +720,25 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
     // O desfazer remove a marca e volta à regra normal. Grava na rota de entrega (e não em rota filha).
     const handleReopenOrder = async (so: string, reopen: boolean) => {
         try {
-            await routeService.patchStopFields(routeId, [{ serviceOrder: so, fields: { reopenedAt: reopen ? new Date().toISOString() : undefined } }]);
+            // Reabrir também tira a finalização manual; desfazer a reabertura não a devolve.
+            await routeService.patchStopFields(routeId, [{ serviceOrder: so, fields: { reopenedAt: reopen ? new Date().toISOString() : undefined, manualFinalizedAt: undefined } }]);
             await queryClient.invalidateQueries({ queryKey: ["routes"] });
             await refresh();
             toast({ title: reopen ? "OS " + so + " reaberta" : "Reabertura da OS " + so + " desfeita", description: reopen ? "O atendimento anterior não conta mais; vale o próximo lançamento." : "Voltou a valer o atendimento desde a data da solicitação." });
         } catch (e: any) {
             toast({ variant: "destructive", title: "Não foi possível atualizar a OS", description: e?.message });
+        }
+    };
+    // "Finalizar": a equipe dá a OS como concluída sem o lançamento do técnico (ex.: entregue, mas ficou com pendência ou sem lançar).
+    // Grava na rota de entrega. Se o técnico lançar a OS de novo depois, vale o lançamento; "Reabrir" desfaz.
+    const handleFinalizeOrder = async (so: string) => {
+        try {
+            await routeService.patchStopFields(routeId, [{ serviceOrder: so, fields: { manualFinalizedAt: new Date().toISOString() } }]);
+            await queryClient.invalidateQueries({ queryKey: ["routes"] });
+            await refresh();
+            toast({ title: "OS " + so + " finalizada", description: "Marcada como finalizada manualmente. Use \"Reabrir\" para desfazer." });
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Não foi possível finalizar a OS", description: e?.message });
         }
     };
     // Observação livre da OS (ícone verde na lista). Grava na rota de entrega; vazio apaga.
@@ -781,11 +795,13 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
             const last = related.length ? related.reduce((a, b) => (b.date.getTime() > a.date.getTime() ? b : a)) : null;
             const child = activeChildren.find(c => (c.stops || []).some(cs => cs.serviceOrder === stop.serviceOrder && !cs.isReallocated));
             const parts = stop.parts || [];
+            const outcome = deliveryOutcome(stop, last);
             return {
                 stop,
-                finalizedAt: last && last.isFinalized !== false ? last.date : null,
-                pendingAt: last && last.isFinalized === false ? last.date : null,
-                pendingNote: last && last.isFinalized === false
+                finalizedAt: outcome.finalizedAt,
+                pendingAt: outcome.pendingAt,
+                manualFinalized: outcome.manual,
+                pendingNote: last && outcome.pendingAt
                     ? [last.pendingReason ? "Motivo: " + last.pendingReason : "", last.observations ? "Observações: " + last.observations : ""].filter(Boolean).join("\n") || "Sem motivo registrado pelo técnico."
                     : "",
                 childName: child ? child.name : null,
@@ -1724,6 +1740,12 @@ function DeliveryRouteDetail({ routeId, onBack }: { routeId: string; onBack: () 
                 {r.finalizedAt && <span className="text-[10px] text-muted-foreground tabular-nums">{format(r.finalizedAt, "dd/MM HH:mm")}</span>}
                 {!r.finalizedAt && r.pendingAt && <span className={cn("text-[10px] text-muted-foreground tabular-nums", r.pendingNote && "cursor-help")} title={r.pendingNote || undefined}>{format(r.pendingAt, "dd/MM HH:mm")}</span>}
                 {r.childName && <span className="text-[10px] text-muted-foreground max-w-[150px] truncate" title={r.childName}>{r.childName}</span>}
+                {r.manualFinalized && <span className="text-[10px] italic text-muted-foreground" title="Finalizada à mão pela equipe, sem lançamento do técnico">manual</span>}
+                {!r.finalizedAt && (
+                    <button type="button" className="inline-flex items-center gap-0.5 rounded border border-emerald-300 px-1 text-[10px] font-medium text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40" title="Dar esta OS como finalizada sem esperar o lançamento do técnico" onClick={(e) => { e.stopPropagation(); handleFinalizeOrder(r.stop.serviceOrder); }}>
+                        <CheckCircle2 className="h-2.5 w-2.5" /> Finalizar
+                    </button>
+                )}
                 {(r.finalizedAt || r.pendingAt) && (
                     <button type="button" className="inline-flex items-center gap-0.5 rounded px-1 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground" title="Ignora o atendimento antigo desta OS: ela volta a A programar e só conta o que for lançado daqui para a frente" onClick={(e) => { e.stopPropagation(); handleReopenOrder(r.stop.serviceOrder, true); }}>
                         <RotateCcw className="h-2.5 w-2.5" /> Reabrir

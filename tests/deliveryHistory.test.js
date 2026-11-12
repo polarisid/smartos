@@ -49,3 +49,28 @@ test("osSinceMs: reabrir a OS ignora o atendimento antigo; sem reabertura vale a
     // reabertura anterior à data base não muda nada
     assert.strictEqual(osSinceMs(base, { reopenedAt: new Date("2026-10-01T00:00:00").toISOString() }), base);
 });
+
+test("finalização manual da OS na rota de entrega", () => {
+    const { deliveryOutcome } = loadTs("src/lib/deliveryHistory.ts");
+    const d = (s) => new Date(s);
+    const stop = { manualFinalizedAt: "2026-11-12T10:00:00.000Z" };
+    // sem lançamento: manual finaliza
+    let o = deliveryOutcome(stop, null);
+    assert.equal(o.manual, true); assert.equal(o.finalizedAt.toISOString(), "2026-11-12T10:00:00.000Z");
+    // pendência lançada antes da marca: manual vence
+    o = deliveryOutcome(stop, { date: d("2026-11-09T11:29:00Z"), isFinalized: false });
+    assert.equal(o.manual, true); assert.equal(o.pendingAt, null);
+    // pendência lançada depois da marca: a pendência vale
+    o = deliveryOutcome(stop, { date: d("2026-11-13T09:00:00Z"), isFinalized: false });
+    assert.equal(o.manual, false); assert.equal(o.finalizedAt, null); assert.ok(o.pendingAt);
+    // lançamento finalizado: fica o do técnico
+    o = deliveryOutcome(stop, { date: d("2026-11-11T09:00:00Z"), isFinalized: true });
+    assert.equal(o.manual, false); assert.equal(o.finalizedAt.toISOString(), "2026-11-11T09:00:00.000Z");
+    // reaberta depois da marca: marca ignorada
+    o = deliveryOutcome({ ...stop, reopenedAt: "2026-11-12T12:00:00.000Z" }, null);
+    assert.equal(o.finalizedAt, null); assert.equal(o.manual, false);
+    // sem marca: comportamento antigo
+    o = deliveryOutcome({}, { date: d("2026-11-09T11:29:00Z"), isFinalized: false });
+    assert.equal(o.finalizedAt, null); assert.ok(o.pendingAt);
+    assert.deepEqual(deliveryOutcome({}, null), { finalizedAt: null, pendingAt: null, manual: false });
+});
