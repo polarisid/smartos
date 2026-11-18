@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { endOfMonth, format, startOfMonth } from "date-fns";
-import { Download, FileImage, Inbox, Loader2, Pencil, Receipt, Search, Settings2, Trash2, X } from "lucide-react";
+import { CheckCircle2, Download, FileImage, Inbox, Loader2, Pencil, Receipt, Search, Settings2, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -43,6 +43,8 @@ export default function RouteExpensesPage() {
   const [routeId, setRouteId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<Tab>("lancamentos");
+  const [usedFilter, setUsedFilter] = useState<string>(ALL); // todos | usados | nao
+  const [markingId, setMarkingId] = useState<string | null>(null);
 
   const [viewPaths, setViewPaths] = useState<string[] | null>(null);
   const [editing, setEditing] = useState<RouteExpense | null>(null);
@@ -65,7 +67,20 @@ export default function RouteExpensesPage() {
     technician: technician === ALL ? undefined : technician,
     routeId: routeId || undefined,
     search,
-  }), [expenses, category, technician, routeId, search]);
+  }).filter(e => usedFilter === ALL || (usedFilter === "usados" ? !!e.receiptUsedAt : !e.receiptUsedAt)), [expenses, category, technician, routeId, search, usedFilter]);
+
+  const toggleUsed = async (e: RouteExpense) => {
+    setMarkingId(e.id);
+    try {
+      await routeExpenseService.setReceiptUsed(e.id, !e.receiptUsedAt, appUser?.name);
+      await refresh();
+      toast({ title: e.receiptUsedAt ? "Comprovante desmarcado" : "Comprovante marcado como usado", description: e.routeName || undefined });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Não foi possível atualizar o comprovante", description: (err?.message || "") + " Confira se a migration 35_route_expenses_receipt_used.sql foi executada no Supabase." });
+    } finally {
+      setMarkingId(null);
+    }
+  };
 
   const total = totalOf(visible);
   const byCategory = useMemo(() => totalsByCategory(visible), [visible]);
@@ -73,16 +88,16 @@ export default function RouteExpensesPage() {
   const technicians = useMemo(() => [...new Set(expenses.map(e => e.createdByName).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, "pt-BR")), [expenses]);
   const categoryOptions = useMemo(() => [...new Set([...categories, ...expenses.map(e => e.category)])], [categories, expenses]);
   const routeFilterName = routeId ? expenses.find(e => e.routeId === routeId)?.routeName || "Rota" : null;
-  const hasFilter = category !== ALL || technician !== ALL || !!routeId || !!search;
+  const hasFilter = category !== ALL || technician !== ALL || usedFilter !== ALL || !!routeId || !!search;
   const maxCategory = byCategory[0]?.total || 0;
 
   const exportSheet = () => {
     downloadSpreadsheet("Gastos de rotas - " + (from || "inicio") + " a " + (to || "hoje"), [
       {
         name: "Lançamentos",
-        headers: ["Data", "Rota", "Técnico", "Categoria", "Descrição", "Valor (R$)"],
-        widths: [12, 34, 24, 18, 40, 14],
-        rows: visible.map(e => ({ values: [dayLabel(e.date), e.routeName || "", e.createdByName || "", e.category, e.description || "", e.amount] })),
+        headers: ["Data", "Rota", "Técnico", "Categoria", "Descrição", "Valor (R$)", "Comprovante usado"],
+        widths: [12, 34, 24, 18, 40, 14, 16],
+        rows: visible.map(e => ({ values: [dayLabel(e.date), e.routeName || "", e.createdByName || "", e.category, e.description || "", e.amount, e.receiptUsedAt ? "Sim" : "Não"] })),
       },
       {
         name: "Por categoria",
@@ -170,6 +185,17 @@ export default function RouteExpensesPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Comprovante</Label>
+              <Select value={usedFilter} onValueChange={setUsedFilter}>
+                <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>Todos</SelectItem>
+                  <SelectItem value="nao">Não usados</SelectItem>
+                  <SelectItem value="usados">Usados</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="relative ml-auto w-full sm:w-64">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input className="pl-9 pr-8" placeholder="Buscar rota, técnico ou descrição" value={search} onChange={e => setSearch(e.target.value)} />
@@ -186,7 +212,7 @@ export default function RouteExpensesPage() {
             {routeId && (
               <Badge variant="secondary" className="gap-1">Rota: {routeFilterName}<button type="button" aria-label="Tirar o filtro de rota" onClick={() => setRouteId(null)}><X className="h-3 w-3" /></button></Badge>
             )}
-            {hasFilter && <Button variant="ghost" size="sm" onClick={() => { setCategory(ALL); setTechnician(ALL); setRouteId(null); setSearch(""); }}>Limpar filtros</Button>}
+            {hasFilter && <Button variant="ghost" size="sm" onClick={() => { setCategory(ALL); setTechnician(ALL); setUsedFilter(ALL); setRouteId(null); setSearch(""); }}>Limpar filtros</Button>}
           </div>
         </div>
 
@@ -225,6 +251,14 @@ export default function RouteExpensesPage() {
                     <TableCell className="whitespace-nowrap text-right font-semibold tabular-nums">{brl(e.amount)}</TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
+                        {e.receiptPaths.length > 0 && (
+                          <Button size="sm" variant={e.receiptUsedAt ? "secondary" : "ghost"} disabled={markingId === e.id}
+                            className={cn("gap-1", e.receiptUsedAt ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")}
+                            title={e.receiptUsedAt ? "Usado em " + format(e.receiptUsedAt, "dd/MM/yyyy HH:mm") + (e.receiptUsedByName ? " por " + e.receiptUsedByName : "") + ". Clique para desmarcar." : "Marcar o comprovante como usado"}
+                            onClick={() => toggleUsed(e)}>
+                            {markingId === e.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />} {e.receiptUsedAt ? "Usado" : "Marcar usado"}
+                          </Button>
+                        )}
                         {e.receiptPaths.length > 0
                           ? <Button size="sm" variant="outline" className="gap-1" onClick={() => setViewPaths(e.receiptPaths)}><FileImage className="h-3.5 w-3.5" /> {e.receiptPaths.length > 1 ? `Comprovantes (${e.receiptPaths.length})` : "Comprovante"}</Button>
                           : <span className="px-2 text-[11px] text-amber-700">sem comprovante</span>}

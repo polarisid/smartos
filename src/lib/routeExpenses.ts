@@ -20,6 +20,9 @@ export type RouteExpense = {
     createdBy?: string;
     createdByName?: string;
     createdAt: Date;
+    /** Quando o comprovante foi marcado como "Usado" (já aproveitado, ex.: no reembolso). Vazio = ainda não usado. */
+    receiptUsedAt?: Date;
+    receiptUsedByName?: string;
 };
 
 /** Lista de categorias vinda da configuração: limpa espaços, tira vazias e repetidas (sem diferenciar maiúscula) e limita o tamanho. Vazia = padrão. */

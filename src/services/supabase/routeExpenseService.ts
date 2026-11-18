@@ -27,6 +27,8 @@ const fromRow = (r: any): RouteExpense => ({
   createdBy: r.created_by ?? undefined,
   createdByName: r.created_by_name ?? undefined,
   createdAt: new Date(r.created_at),
+  receiptUsedAt: r.receipt_used_at ? new Date(r.receipt_used_at) : undefined,
+  receiptUsedByName: r.receipt_used_by_name ?? undefined,
 });
 
 export const MAX_RECEIPT_PDF_BYTES = 10 * 1024 * 1024;
@@ -113,6 +115,14 @@ export const routeExpenseService = {
     const { data, error } = await supabase.from("route_expenses").update(row as any).eq("id", id).select("id");
     if (error) throw error;
     if (!data || data.length === 0) throw new Error("A alteração não foi salva (sem permissão ou gasto removido).");
+  },
+
+  // Marca/desmarca o comprovante como "Usado" (migração 35).
+  async setReceiptUsed(id: string, used: boolean, byName?: string): Promise<void> {
+    const row = { receipt_used_at: used ? new Date().toISOString() : null, receipt_used_by_name: used ? byName || null : null };
+    const { data, error } = await supabase.from("route_expenses").update(row as any).eq("id", id).select("id");
+    if (error) throw error;
+    if (!data || data.length === 0) throw new Error("A marca não foi salva (sem permissão ou gasto removido).");
   },
 
   async remove(expense: Pick<RouteExpense, "id" | "receiptPaths">): Promise<void> {
