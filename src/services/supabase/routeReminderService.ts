@@ -1,8 +1,9 @@
 import { supabase } from "@/lib/supabase";
-import type { RouteReminder } from "@/lib/routeReminders";
+import { cleanCategory, type RouteReminder } from "@/lib/routeReminders";
 
 export type NewRouteReminder = {
   title: string;
+  category?: string;
   osNumber?: string;
   clientName?: string;
   city?: string;
@@ -17,6 +18,7 @@ const fromRow = (r: any): RouteReminder => ({
   createdAt: new Date(r.created_at),
   createdByName: r.created_by_name ?? undefined,
   title: r.title,
+  category: r.category ?? undefined,
   osNumber: r.os_number ?? undefined,
   clientName: r.client_name ?? undefined,
   city: r.city ?? undefined,
@@ -28,6 +30,7 @@ const fromRow = (r: any): RouteReminder => ({
 
 const toRow = (input: Omit<NewRouteReminder, "createdByName">) => ({
   title: input.title.trim(),
+  category: cleanCategory(input.category) || null,
   os_number: (input.osNumber || "").replace(/\s/g, "") || null,
   client_name: input.clientName?.trim() || null,
   city: input.city?.trim() || null,

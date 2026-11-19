@@ -52,3 +52,16 @@ test("ordenação: abertos por prazo, sem prazo depois, concluídos no fim", () 
     ];
     assert.deepEqual(lib.sortReminders(list).map(x => x.id), ["c", "b", "a", "d"]);
 });
+
+test("categorias: contagem sem diferenciar maiúscula, 'Sem categoria' por último", () => {
+    const list = [{ category: "Troca RMA" }, { category: " troca  rma " }, { category: "Coleta" }, { category: "" }, {}];
+    assert.deepEqual(lib.categoryCounts(list), [
+        { category: "Coleta", count: 1 },
+        { category: "Troca RMA", count: 2 },
+        { category: "Sem categoria", count: 2 },
+    ]);
+    assert.equal(lib.sameCategory("troca rma", "Troca RMA"), true);
+    assert.equal(lib.sameCategory(undefined, ""), true);
+    assert.equal(lib.sameCategory("Coleta", undefined), false);
+    assert.equal(lib.cleanCategory("  Troca   RMA  "), "Troca RMA");
+});

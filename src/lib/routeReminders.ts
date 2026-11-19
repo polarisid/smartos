@@ -6,6 +6,8 @@ export type RouteReminder = {
     createdAt: Date;
     createdByName?: string;
     title: string;
+    /** Categoria livre (ex.: Troca RMA, Coleta). Vazia = sem categoria. */
+    category?: string;
     osNumber?: string;
     clientName?: string;
     city?: string;
@@ -19,6 +21,29 @@ export type RouteReminder = {
 export type ReminderStateKey = "concluido" | "atendida" | "visitada" | "em_rota" | "em_entrega" | "sem_rota" | "sem_os";
 
 export type ReminderState = { key: ReminderStateKey; routeName?: string; attendedAt?: Date };
+
+/** Categorias sugeridas no cadastro (o campo aceita qualquer texto). */
+export const SUGGESTED_REMINDER_CATEGORIES = ["Troca RMA", "Coleta", "Entrega", "Reparo", "Outros"];
+
+export const NO_CATEGORY = "Sem categoria";
+
+/** Limpa a categoria digitada: espaços repetidos e limite de tamanho. */
+export const cleanCategory = (c?: string | null): string => (c || "").replace(/\s+/g, " ").trim().slice(0, 40);
+
+/** Categorias em uso, com a quantidade de lembretes de cada (sem diferenciar maiúscula; vale a grafia mais usada/primeira). Ordem alfabética, "Sem categoria" por último. */
+export function categoryCounts(list: Pick<RouteReminder, "category">[]): { category: string; count: number }[] {
+    const map = new Map<string, { category: string; count: number }>();
+    list.forEach(r => {
+        const name = cleanCategory(r.category) || NO_CATEGORY;
+        const key = name.toLowerCase();
+        const cur = map.get(key);
+        if (cur) cur.count++; else map.set(key, { category: name, count: 1 });
+    });
+    return [...map.values()].sort((a, b) => (a.category === NO_CATEGORY ? 1 : 0) - (b.category === NO_CATEGORY ? 1 : 0) || a.category.localeCompare(b.category, "pt-BR"));
+}
+
+export const sameCategory = (a?: string | null, b?: string | null): boolean =>
+    (cleanCategory(a) || NO_CATEGORY).toLowerCase() === (cleanCategory(b) || NO_CATEGORY).toLowerCase();
 
 export const normalizeOs = (os?: string | null): string => (os || "").replace(/\s/g, "").toUpperCase();
 
