@@ -50,6 +50,7 @@ import { formatLegTempo, copyRouteEmailToClipboard } from "@/lib/emailExport";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { RouteReminders } from "@/components/routes/RouteReminders";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -3343,6 +3344,8 @@ ${rowsXml}  </Table>
                         </ul>
                     </div>
                 )}
+
+                {activeTab === 'list' && <RouteReminders routes={[...draftRoutes, ...activeRoutes]} serviceOrders={serviceOrders} />}
 
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
                     <TabsContent value="list" className="mt-0 focus-visible:outline-none focus-visible:ring-0">
