@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Banknote, CheckCircle2, Clock, FileDown, Inbox, Link2, Loader2, MoreHorizontal, Pencil, Plus, Search, StickyNote, Trash2, Undo2, Wallet, X, XCircle, Zap } from "lucide-react";
 import { EditQuoteItemsDialog } from "@/components/quotes/EditQuoteItemsDialog";
+import { QuoteFunnel } from "@/components/quotes/QuoteFunnel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -351,6 +352,8 @@ export default function QuotesPage() {
           );
         })}
       </div>
+
+      {!isLoading && !error && quotes.length > 0 && <QuoteFunnel quotes={quotes} />}
 
       <Card className="overflow-hidden">
         <div className="space-y-3 border-b p-4">

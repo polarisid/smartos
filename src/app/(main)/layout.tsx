@@ -23,6 +23,7 @@ import { flushVehicleQueue } from "@/lib/offlineVehicleQueue";
 import { useVehicleQueue } from "@/hooks/useVehicleQueue";
 import { useQueryClient } from "@tanstack/react-query";
 import { QueryCachePersistence } from "@/components/QueryCachePersistence";
+import { SyncStatus } from "@/components/SyncStatus";
 
 function AppLoadingScreen({ message }: { message: string }) {
   return (
@@ -299,6 +300,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               <DraftOrderNotice />
             </div>
             <PushPrompt />
+            <SyncStatus />
             <div className="flex-1 w-full p-4 md:p-8">
                {children}
             </div>
