@@ -54,7 +54,8 @@ export function RouteReminders({ routes, serviceOrders }: { routes: Route[]; ser
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showDone, setShowDone] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  // Começa minimizado: o cabeçalho já mostra o total e quantos ainda estão sem rota; abre ao clicar.
+  const [collapsed, setCollapsed] = useState(true);
   const [catFilter, setCatFilter] = useState<string | null>(null);
   const [editing, setEditing] = useState<RouteReminder | "new" | null>(null);
   const [form, setForm] = useState<Form>(EMPTY);
