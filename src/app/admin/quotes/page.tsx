@@ -3,7 +3,9 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { Banknote, CheckCircle2, Clock, FileDown, Inbox, Link2, Loader2, MoreHorizontal, Pencil, Plus, Search, StickyNote, Trash2, Undo2, Wallet, X, XCircle, Zap } from "lucide-react";
+import { buildQuoteSheets } from "@/lib/quoteExport";
+import { downloadSpreadsheet } from "@/lib/spreadsheetXml";
+import { Banknote, CheckCircle2, Clock, FileDown, FileSpreadsheet, Inbox, Link2, Loader2, MoreHorizontal, Pencil, Plus, Search, StickyNote, Trash2, Undo2, Wallet, X, XCircle, Zap } from "lucide-react";
 import { EditQuoteItemsDialog } from "@/components/quotes/EditQuoteItemsDialog";
 import { QuoteFunnel } from "@/components/quotes/QuoteFunnel";
 import { Badge } from "@/components/ui/badge";
@@ -284,6 +286,12 @@ export default function QuotesPage() {
       status === "aprovado" ? "Orçamento aprovado" : status === "reprovado" ? "Orçamento reprovado" : "Orçamento voltou para pendente");
   };
 
+  const exportVisible = () => {
+    const tab = FILTERS.find(f => f.key === filter)?.label || "Todos";
+    const label = search.trim() ? `${tab} · busca "${search.trim()}"` : tab;
+    downloadSpreadsheet(`Orçamentos - ${tab}${search.trim() ? " (busca)" : ""} - ${todayKey()}`, buildQuoteSheets({ quotes: visible, label }));
+  };
+
   const downloadPdf = async (q: Quote) => {
     setBusyId(q.id);
     try {
@@ -383,10 +391,15 @@ export default function QuotesPage() {
               )}
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">
-            {visible.length} de {quotes.length} orçamento(s)
-            {visible.length > 0 && <> · total {brl(visibleTotals.total)}{visibleTotals.toReceive > 0 && <> · <span className="font-medium text-orange-700 dark:text-orange-400">falta receber {brl(visibleTotals.toReceive)}</span></>}</>}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              {visible.length} de {quotes.length} orçamento(s)
+              {visible.length > 0 && <> · total {brl(visibleTotals.total)}{visibleTotals.toReceive > 0 && <> · <span className="font-medium text-orange-700 dark:text-orange-400">falta receber {brl(visibleTotals.toReceive)}</span></>}</>}
+            </p>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5" disabled={visible.length === 0} onClick={exportVisible} title="Baixa em planilha os orçamentos que estão na lista agora (respeita a aba e a busca)">
+              <FileSpreadsheet className="h-4 w-4" /> Exportar lista
+            </Button>
+          </div>
         </div>
 
         {isLoading ? (

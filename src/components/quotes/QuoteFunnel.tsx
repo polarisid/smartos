@@ -1,8 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BarChart3, ChevronDown, ChevronUp } from "lucide-react";
+import { format } from "date-fns";
+import { BarChart3, ChevronDown, ChevronUp, FileSpreadsheet } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { buildQuoteSheets, type ExportQuote } from "@/lib/quoteExport";
+import { downloadSpreadsheet } from "@/lib/spreadsheetXml";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PERIOD_OPTIONS, funnelStats, monthlyFunnel, quotesInPeriod, type FunnelQuote, type PeriodKey } from "@/lib/quoteFunnel";
 import { cn } from "@/lib/utils";
@@ -37,12 +41,18 @@ function Kpi({ label, value, hint, tone }: { label: string; value: string; hint?
 }
 
 /** Funil dos orçamentos: orçados → aprovados → quitados, taxa de aprovação e valor por período, com a evolução mês a mês. */
-export function QuoteFunnel({ quotes }: { quotes: FunnelQuote[] }) {
+export function QuoteFunnel({ quotes }: { quotes: (FunnelQuote & ExportQuote)[] }) {
   const [period, setPeriod] = useState<PeriodKey>("mes");
   const [open, setOpen] = useState(true);
 
   const now = useMemo(() => new Date(), []);
-  const stats = useMemo(() => funnelStats(quotesInPeriod(quotes, period, now)), [quotes, period, now]);
+  const periodQuotes = useMemo(() => quotesInPeriod(quotes, period, now), [quotes, period, now]);
+  const stats = useMemo(() => funnelStats(periodQuotes), [periodQuotes]);
+
+  const exportSheet = () => {
+    const label = PERIOD_OPTIONS.find(p => p.key === period)?.label || "";
+    downloadSpreadsheet(`Orçamentos - ${label} - ${format(now, "yyyy-MM-dd")}`, buildQuoteSheets({ quotes: periodQuotes, label, months: monthlyFunnel(quotes, 12, now) }));
+  };
   const months = useMemo(() => monthlyFunnel(quotes, 6, now), [quotes, now]);
   const maxMonth = Math.max(1, ...months.map(m => m.stats.total.count));
   const base = Math.max(1, stats.total.count);
@@ -60,12 +70,17 @@ export function QuoteFunnel({ quotes }: { quotes: FunnelQuote[] }) {
           </span>
           {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
         </button>
-        <Select value={period} onValueChange={v => setPeriod(v as PeriodKey)}>
-          <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {PERIOD_OPTIONS.map(p => <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Select value={period} onValueChange={v => setPeriod(v as PeriodKey)}>
+            <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {PERIOD_OPTIONS.map(p => <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={exportSheet} disabled={periodQuotes.length === 0} title="Baixa o resumo do funil, a evolução mês a mês e a lista dos orçamentos do período">
+            <FileSpreadsheet className="h-4 w-4" /> Exportar planilha
+          </Button>
+        </div>
       </div>
 
       {open && (
