@@ -25,6 +25,7 @@ import { driverService } from "@/services/supabase/driverService";
 import { routeService } from "@/services/supabase/routeService";
 import { useAuth } from "@/context/AuthContext";
 import { mapsUrl } from "@/lib/geolocation";
+import { VehicleMaintenance } from "@/components/vehicles/VehicleMaintenance";
 
 const FUEL_LABELS: Record<VehicleFuelType, string> = {
   gasolina: "Gasolina", etanol: "Etanol", flex: "Flex", diesel: "Diesel", gnv: "GNV", eletrico: "Elétrico",
@@ -452,6 +453,7 @@ export default function VehiclesPage() {
           <TabsList>
             <TabsTrigger value="km">Km rodado</TabsTrigger>
             <TabsTrigger value="fuel">Abastecimentos</TabsTrigger>
+            <TabsTrigger value="maintenance">Manutenção</TabsTrigger>
             <TabsTrigger value="vehicles">Veículos</TabsTrigger>
           </TabsList>
 
@@ -630,6 +632,10 @@ export default function VehiclesPage() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="maintenance" className="mt-4">
+            <VehicleMaintenance vehicles={vehicles} fuelLogs={fuelLogs} kmLogs={logs} />
           </TabsContent>
 
           <TabsContent value="vehicles" className="mt-4">
